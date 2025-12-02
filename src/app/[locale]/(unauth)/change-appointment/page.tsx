@@ -2,10 +2,12 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import Image from "next/image";
 import { PageLayout } from "@/components/PageLayout";
 import { MainCard } from "@/components/MainCard";
 import { SectionTitle } from "@/components/SectionTitle";
+import { PrimaryButton } from "@/components/PrimaryButton";
+import { SecondaryButton } from "@/components/SecondaryButton";
 
 const SERVICES: Record<
   string,
@@ -55,16 +57,21 @@ const generateCalendarDays = (year: number, month: number) => {
   return days;
 };
 
-export default function BookTimePage() {
+export default function ChangeAppointmentPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const locale = (params?.locale as string) || "en";
-  const serviceIds = searchParams.get("serviceIds")?.split(",") || [];
+  const serviceIdsParam = searchParams.get("serviceIds");
+  const serviceIds = serviceIdsParam
+    ? serviceIdsParam.split(",").filter((id) => id.trim() !== "")
+    : [];
   const techId = searchParams.get("techId") || "";
+  const currentDate = searchParams.get("date") || "";
+  const currentTime = searchParams.get("time") || "";
 
   const selectedServices = serviceIds
-    .map((id) => SERVICES[id])
+    .map((id) => SERVICES[id.trim()])
     .filter(Boolean);
   const totalDuration = selectedServices.reduce(
     (sum, service) => sum + service.duration,
@@ -75,15 +82,24 @@ export default function BookTimePage() {
     0
   );
   const techName = TECHNICIANS[techId] || "Not selected";
-  const serviceNames = selectedServices.map((s) => s.name).join(", ");
+  const serviceNames =
+    selectedServices.length > 0
+      ? selectedServices.map((s) => s.name).join(", ")
+      : "Not selected";
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  // Initialize selected date from URL or default to today
+  const initialDate = currentDate
+    ? new Date(currentDate)
+    : today;
+  initialDate.setHours(0, 0, 0, 0);
+
+  const [currentMonth, setCurrentMonth] = useState(initialDate.getMonth());
+  const [currentYear, setCurrentYear] = useState(initialDate.getFullYear());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(initialDate);
+  const [selectedTime, setSelectedTime] = useState<string>(currentTime);
   const [goldBarVisible, setGoldBarVisible] = useState(false);
 
   useEffect(() => {
@@ -135,77 +151,70 @@ export default function BookTimePage() {
   };
 
   const handleTimeSelect = (time: string) => {
-    if (!selectedDate) return;
-
     setSelectedTime(time);
+  };
+
+  const handleConfirm = () => {
+    if (!selectedDate || !selectedTime) return;
 
     const dateStr = selectedDate.toISOString().split("T")[0];
     router.push(
-      `/${locale}/book/confirm?serviceIds=${serviceIds.join(",")}&techId=${techId}&date=${dateStr}&time=${time}`
+      `/${locale}/book/confirm?serviceIds=${serviceIds.join(",")}&techId=${techId}&date=${dateStr}&time=${selectedTime}`
     );
+  };
+
+  const handleChangeService = () => {
+    router.push(`/${locale}/book/service`);
+  };
+
+  const handleCancel = () => {
+    router.push(`/${locale}/profile`);
   };
 
   const handleBack = () => {
     router.back();
   };
 
+  const formatDate = (date: Date | null | string) => {
+    if (!date) return "Not selected";
+    const dateObj = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) return "Not selected";
+    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    return `${daysOfWeek[dateObj.getDay()]}, ${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
+  };
+
+  const formatTime = (timeString: string) => {
+    if (!timeString) return "Not selected";
+    const [hours, minutes] = timeString.split(":");
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const getTechImage = (techId: string) => {
+    if (!techId) return null;
+    return `/assets/images/tech-${techId}.jpeg`;
+  };
+
   return (
     <PageLayout background="#f5e8d8">
-      {/* Luxury Step Bar */}
-      <div className="pt-2 pb-1">
-        <div className="flex items-center justify-center max-w-sm mx-auto gap-2">
-          {[
-            { label: "Service", step: 1 },
-            { label: "Tech", step: 2 },
-            { label: "Time", step: 3 },
-            { label: "Confirm", step: 4 },
-          ].map((item, index, array) => (
-            <div key={item.step} className="flex items-center">
-              <div className="flex flex-col items-center">
-                <div
-                  className={`text-[9px] font-medium tracking-wide transition-colors ${
-                    item.step === 3
-                      ? "text-[#7b4ea3]"
-                      : "text-black/70"
-                  }`}
-                >
-                  {item.label}
-                </div>
-                <div
-                  className={`mt-0.5 h-px w-6 rounded-full transition-colors ${
-                    item.step === 3
-                      ? "bg-[#7b4ea3]"
-                      : "bg-black/40"
-                  }`}
-                />
-              </div>
-              {index < array.length - 1 && (
-                <div className="mx-1.5 flex-shrink-0">
-                  <svg
-                    width="12"
-                    height="8"
-                    viewBox="0 0 16 12"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="text-black/30"
-                  >
-                    <path
-                      d="M0 6H14M14 6L10 2M14 6L10 10"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Top bar with back button */}
-      <div className="pt-1 relative flex items-center">
+      <div className="pt-2 pb-1 relative flex items-center">
         <button
           type="button"
           onClick={handleBack}
@@ -229,7 +238,67 @@ export default function BookTimePage() {
         </button>
 
         <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-          Select Time
+          Change Appointment
+        </div>
+      </div>
+
+      {/* Current Appointment Summary Card */}
+      <div className="mt-4 mb-4">
+        <div className="w-full rounded-2xl bg-gradient-to-br from-[#fff7ec] via-[#fef5e7] to-[#fdf2e4] border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]" />
+          <div className="px-5 py-4">
+            <div className="flex items-start gap-8">
+              {/* Technician Photo */}
+              {techId && getTechImage(techId) && (
+                <div className="flex-shrink-0">
+                  <div className="relative w-16 h-20 rounded-lg overflow-hidden border-2 border-[#d6a249]/30">
+                    <Image
+                      src={getTechImage(techId)!}
+                      alt={techName}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {/* Appointment Details */}
+              <div className="flex-1 space-y-2">
+                <div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
+                    Service
+                  </div>
+                  <div className="text-base font-semibold text-neutral-900">
+                    {serviceNames || "Not selected"}
+                  </div>
+                </div>
+                
+                <div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
+                    Nail Tech
+                  </div>
+                  <div className="text-base font-semibold text-neutral-900">
+                    {techName}
+                  </div>
+                </div>
+                
+                <div>
+                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
+                    Date & Time
+                  </div>
+                  <div className="text-base font-semibold text-neutral-900">
+                    {selectedDate && selectedTime
+                      ? `${formatDate(selectedDate)} · ${formatTime(selectedTime)}`
+                      : selectedDate
+                      ? `${formatDate(selectedDate)} · ${formatTime(currentTime || "")}`
+                      : currentDate && currentTime
+                      ? `${formatDate(currentDate)} · ${formatTime(currentTime)}`
+                      : "Not selected"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -254,10 +323,10 @@ export default function BookTimePage() {
             </svg>
           }
         >
-          Choose Date
+          Change Date
         </SectionTitle>
 
-        <div className="w-full rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden">
+        <div className="w-full rounded-2xl border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden" style={{ backgroundColor: '#ffffff' }}>
           {/* Gold Accent Bar */}
           <div
             className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]"
@@ -392,59 +461,59 @@ export default function BookTimePage() {
               </svg>
             }
           >
-            Select Time
+            Change Time
           </SectionTitle>
-          <motion.div
-            key={selectedDate.toDateString()}
-            initial="hidden"
-            animate="visible"
-            variants={{
-              hidden: {
-                opacity: 0,
-                y: 8,
-              },
-              visible: {
-                opacity: 1,
-                y: 0,
-                transition: {
-                  duration: 0.25,
-                  ease: "easeOut",
-                  staggerChildren: 0.045,
-                  delayChildren: 0.03,
-                },
-              },
-            }}
-            className="grid grid-cols-3 gap-2.5 mt-3"
-          >
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mt-3">
             {timeSlots.map((time) => {
-              const isSelectedTime = selectedTime === time;
-
+              const isSelected = selectedTime === time;
               return (
-                <motion.button
+                <button
                   key={time}
                   type="button"
                   onClick={() => handleTimeSelect(time)}
-                  variants={{
-                    hidden: { opacity: 0, y: 10 },
-                    visible: {
-                      opacity: 1,
-                      y: 0,
-                      transition: { duration: 0.22, ease: "easeOut" },
-                    },
-                  }}
-                  className={`w-full rounded-full px-3 py-1.5 text-[13px] font-semibold transition-all duration-200 bg-white shadow-sm shadow-[0_1px_3px_rgba(15,23,42,0.12)] hover:bg-[#f5e6d3] hover:shadow-md hover:shadow-[0_3px_8px_rgba(15,23,42,0.16)] hover:ring-2 hover:ring-[#d6a249]/50 hover:ring-offset-1 text-neutral-700 active:scale-[0.96] border border-neutral-100 ${
-                    isSelectedTime
-                      ? "bg-[#f4b864] text-neutral-900 shadow-md shadow-[0_3px_10px_rgba(15,23,42,0.22)] ring-2 ring-[#d6a249]/70 scale-[1.02]"
-                      : ""
+                  className={`rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
+                    isSelected
+                      ? "bg-gradient-to-br from-[#d6a249] to-[#f4b864] text-white shadow-md ring-2 ring-[#d6a249] ring-offset-1"
+                      : "bg-white shadow-sm hover:bg-[#f5e6d3] hover:shadow-md hover:ring-2 hover:ring-[#d6a249]/50 hover:ring-offset-1 text-neutral-700 active:scale-[0.96] border border-neutral-100"
                   }`}
                 >
                   {time}
-                </motion.button>
+                </button>
               );
             })}
-          </motion.div>
+          </div>
         </div>
       )}
+
+      {/* Action Buttons */}
+      <div className="mt-6 space-y-3">
+        <PrimaryButton
+          onClick={handleConfirm}
+          disabled={!selectedDate || !selectedTime}
+          size="default"
+          fullWidth={true}
+        >
+          Confirm
+        </PrimaryButton>
+
+        <SecondaryButton
+          onClick={handleChangeService}
+          size="default"
+          fullWidth={true}
+        >
+          Change Service
+        </SecondaryButton>
+
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="text-sm text-neutral-600 underline hover:text-neutral-800 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
 
       {/* Reassurance footer */}
       <div className="mt-6 pb-4">
@@ -455,3 +524,4 @@ export default function BookTimePage() {
     </PageLayout>
   );
 }
+

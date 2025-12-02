@@ -255,7 +255,7 @@ export default function BookServicePage() {
                   <div className="text-[12px] font-semibold text-neutral-900 leading-tight">
                     {service.name}
                   </div>
-                  <div className="mt-1 text-[10px] text-neutral-600">
+                  <div className="mt-1 text-sm text-neutral-600">
                     {service.duration} min
                   </div>
                   <div className="mt-1 text-[12px] font-semibold text-neutral-900">
@@ -294,8 +294,19 @@ export default function BookServicePage() {
         <div className="mt-2 bg-white/95 border border-neutral-200/50 rounded-xl px-4 py-3.5 shadow-sm">
           {authState === "loggedOut" && (
             <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold text-neutral-700">
-                Login / sign up for a free manicure*
+              <p className="text-lg font-semibold text-neutral-700">
+                <span
+                  className="bg-clip-text text-transparent animate-shimmer inline-block"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(to right, #7b4ea3, #f4b864, #7b4ea3, #f4b864, #7b4ea3)",
+                    backgroundSize: "200% 100%",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  Login / sign up for a free manicure*
+                </span>
               </p>
               <div className="flex items-center gap-2">
                 <div className="flex items-center rounded-full bg-neutral-100 px-2.5 py-1.5 text-xs text-neutral-600">
@@ -320,7 +331,7 @@ export default function BookServicePage() {
                   →
                 </button>
               </div>
-              <p className="text-[10px] text-neutral-500">
+              <p className="text-xs text-neutral-500">
                 *New clients only. Conditions apply.
               </p>
             </div>
@@ -331,16 +342,17 @@ export default function BookServicePage() {
               <p className="text-[11px] font-semibold text-neutral-700">
                 {`Enter the 6-digit code we sent to +1 ${phone}`}
               </p>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full max-w-full">
                 <input
                   ref={codeInputRef}
-                  type="text"
+                type="tel"
+                inputMode="numeric"
                   value={code}
                   onChange={(e) =>
                     setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
                   }
                   placeholder="-  -  -   -  -  -"
-                  className="flex-1 rounded-full bg-neutral-100 px-3 py-2 text-center tracking-[0.35em] text-sm text-neutral-800 outline-none"
+                className="flex-1 rounded-full bg-neutral-100 px-3 py-2 text-center tracking-[0.25em] text-base text-neutral-800 outline-none"
                 />
                 <button
                   type="button"

@@ -2,6 +2,9 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { PageLayout } from "@/components/PageLayout";
+import { MainCard } from "@/components/MainCard";
+import { SummaryRow } from "@/components/SummaryRow";
 
 type Appointment = {
   id: string;
@@ -118,133 +121,120 @@ export default function AppointmentHistoryPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6ebdd] flex justify-center py-4">
-      <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
-        {/* Top bar with back button */}
-        <div className="pt-2 relative flex items-center">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+    <PageLayout>
+      {/* Top bar with back button */}
+      <div className="pt-2 relative flex items-center">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M12.5 15L7.5 10L12.5 5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+            <path
+              d="M12.5 15L7.5 10L12.5 5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
 
-          {/* Salon name - centered */}
-          <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-            Nail Salon No.5
-          </div>
+        <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
+          Nail Salon No.5
         </div>
+      </div>
 
-        {/* Title section */}
-        <div className="text-center pt-2">
-          <h1 className="text-2xl font-bold text-neutral-900">
-            {t("title")}
-          </h1>
-          <p className="text-sm text-neutral-600 mt-1">
-            {t("subtitle")}
-          </p>
-        </div>
+      {/* Title section */}
+      <div className="text-center pt-2">
+        <h1 className="text-3xl font-semibold text-[#7b4ea3]">
+          {t("title")}
+        </h1>
+        <p className="text-sm text-neutral-600 mt-1">{t("subtitle")}</p>
+      </div>
 
-        {/* Appointment History List */}
-        <div className="space-y-3">
-          {APPOINTMENT_HISTORY.map((appointment) => (
-            <div
-              key={appointment.id}
-              className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-4 space-y-3"
-            >
-              {/* Header: Date and Status */}
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="text-sm font-semibold text-neutral-900">
-                    {appointment.date}
-                  </div>
-                  <div className="text-xs text-neutral-600 mt-0.5">
-                    {appointment.time}
-                  </div>
+      {/* Appointment History List */}
+      <div className="space-y-4">
+        {APPOINTMENT_HISTORY.map((appointment) => (
+          <MainCard key={appointment.id}>
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <div className="text-base font-semibold text-neutral-900">
+                  {appointment.date}
                 </div>
-                <span
-                  className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
-                    appointment.status
-                  )}`}
-                >
-                  {getStatusLabel(appointment.status)}
-                </span>
-              </div>
-
-              {/* Service and Tech */}
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-neutral-900">
-                  {appointment.service}
-                </div>
-                <div className="text-xs text-neutral-600">
-                  {t("tech")}: {appointment.tech}
+                <div className="text-xs text-neutral-600 mt-0.5">
+                  {appointment.time}
                 </div>
               </div>
+              <span
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
+                  appointment.status
+                )}`}
+              >
+                {getStatusLabel(appointment.status)}
+              </span>
+            </div>
 
-              {/* Price Breakdown */}
-              {appointment.status === "completed" && (
-                <div className="border-t border-neutral-200/50 pt-2 space-y-1">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-neutral-600">{t("price")}</span>
-                    <span className="font-semibold text-neutral-900">
-                      ${appointment.originalPrice}
-                    </span>
-                  </div>
-                  {appointment.rewardDiscount && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-neutral-600">{t("reward_applied")}</span>
-                      <span className="text-green-600 font-semibold">
+            <div className="space-y-2 mb-3">
+              <div className="text-base font-semibold text-neutral-900">
+                {appointment.service}
+              </div>
+              <div className="text-sm text-neutral-600">
+                {t("tech")}: {appointment.tech}
+              </div>
+            </div>
+
+            {appointment.status === "completed" && (
+              <div className="border-t border-neutral-100 pt-3 space-y-2">
+                <SummaryRow
+                  label={t("price")}
+                  value={`$${appointment.originalPrice}`}
+                />
+                {appointment.rewardDiscount && (
+                  <SummaryRow
+                    label={t("reward_applied")}
+                    value={
+                      <span className="text-green-600">
                         -${appointment.rewardDiscount}
                       </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center pt-1 border-t border-neutral-200/50">
-                    <span className="text-sm font-semibold text-neutral-900">
-                      {t("total_paid")}
-                    </span>
-                    <span className="text-sm font-bold text-neutral-900">
-                      ${appointment.finalPrice}
-                    </span>
-                  </div>
+                    }
+                  />
+                )}
+                <div className="flex justify-between items-center pt-2 border-t border-neutral-100">
+                  <span className="text-[18px] font-bold text-neutral-900">
+                    {t("total_paid")}
+                  </span>
+                  <span className="text-[18px] font-bold text-neutral-900">
+                    ${appointment.finalPrice}
+                  </span>
                 </div>
-              )}
+              </div>
+            )}
 
-              {appointment.status === "cancelled" && (
-                <div className="border-t border-neutral-200/50 pt-2">
-                  <div className="text-xs text-neutral-500">
-                    {t("this_appointment_cancelled")}
-                  </div>
+            {appointment.status === "cancelled" && (
+              <div className="border-t border-neutral-100 pt-3">
+                <div className="text-xs text-neutral-500">
+                  {t("this_appointment_cancelled")}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Empty state message (if needed) */}
-        {APPOINTMENT_HISTORY.length === 0 && (
-          <div className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-8 text-center">
-            <p className="text-sm text-neutral-600">
-              {t("no_history")}
-            </p>
-          </div>
-        )}
+              </div>
+            )}
+          </MainCard>
+        ))}
       </div>
-    </div>
+
+      {APPOINTMENT_HISTORY.length === 0 && (
+        <MainCard>
+          <div className="text-center py-8">
+            <p className="text-sm text-neutral-600">{t("no_history")}</p>
+          </div>
+        </MainCard>
+      )}
+    </PageLayout>
   );
 }
-

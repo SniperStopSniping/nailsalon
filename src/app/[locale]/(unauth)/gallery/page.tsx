@@ -2,6 +2,8 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { PageLayout } from "@/components/PageLayout";
+import { MainCard } from "@/components/MainCard";
 
 type GalleryPhoto = {
   id: string;
@@ -87,103 +89,86 @@ export default function GalleryPage() {
     router.back();
   };
 
-  const handleViewAll = () => {
-    console.log("View all photos");
-    // TODO: Navigate to full gallery view
-  };
-
   return (
-    <div className="min-h-screen bg-[#f6ebdd] flex justify-center py-4">
-      <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
-        {/* Top bar with back button */}
-        <div className="pt-2 relative flex items-center">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+    <PageLayout>
+      {/* Top bar with back button */}
+      <div className="pt-2 relative flex items-center">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M12.5 15L7.5 10L12.5 5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+            <path
+              d="M12.5 15L7.5 10L12.5 5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
 
-          {/* Salon name - centered */}
-          <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-            Nail Salon No.5
-          </div>
-        </div>
-
-        {/* Title section */}
-        <div className="text-center pt-2">
-          <h1 className="text-2xl font-bold text-neutral-900">{t("title")}</h1>
-          <p className="text-sm text-neutral-600 mt-1">
-            {t("subtitle")}
-          </p>
-        </div>
-
-        {/* Main content card */}
-        <div className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-4">
-          {/* 3x3 Grid */}
-          <div className="grid grid-cols-3 gap-2.5 mb-4">
-            {RECENT_PHOTOS.map((photo) => (
-              <div
-                key={photo.id}
-                className="rounded-xl overflow-hidden shadow-sm bg-[#fff7ec]"
-              >
-                {/* Image area - same aspect ratio as service/tech cards */}
-                <div className="aspect-[3/4] bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] relative overflow-hidden">
-                  <img
-                    src={photo.imageUrl}
-                    alt={photo.service}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Hide image if it fails to load, gradient background will show
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                </div>
-
-                {/* Content */}
-                <div className="px-2 py-2 space-y-1">
-                  <div className="text-[10px] font-semibold text-neutral-900 leading-tight">
-                    {photo.date}
-                  </div>
-                  <div className="text-[9px] text-neutral-600 leading-tight">
-                    {photo.service}
-                  </div>
-                  <div className="text-[9px] text-neutral-600">
-                    Tech: {photo.tech}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* View all photos link */}
-          <div className="pt-2 border-t border-neutral-100">
-            <button
-              type="button"
-              onClick={handleViewAll}
-              className="w-full text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors py-2"
-            >
-              {t("view_all_photos")}
-            </button>
-          </div>
+        <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
+          Nail Salon No.5
         </div>
       </div>
-    </div>
+
+      {/* Title section */}
+      <div className="text-center pt-2">
+        <h1 className="text-3xl font-semibold text-[#7b4ea3]">{t("title")}</h1>
+        <p className="text-sm text-neutral-600 mt-1">{t("subtitle")}</p>
+      </div>
+
+      {/* Main content card */}
+      <MainCard>
+        <div className="grid grid-cols-3 gap-2.5 mb-4">
+          {RECENT_PHOTOS.map((photo) => (
+            <div
+              key={photo.id}
+              className="rounded-2xl overflow-hidden shadow-sm bg-white"
+            >
+              <div className="aspect-[3/4] bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] relative overflow-hidden">
+                <img
+                  src={photo.imageUrl}
+                  alt={photo.service}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              </div>
+              <div className="px-2 py-2 space-y-1">
+                <div className="text-[10px] font-semibold text-neutral-900 leading-tight">
+                  {photo.date}
+                </div>
+                <div className="text-[9px] text-neutral-600 leading-tight">
+                  {photo.service}
+                </div>
+                <div className="text-[9px] text-neutral-600">
+                  Tech: {photo.tech}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="pt-2 border-t border-neutral-100">
+          <button
+            type="button"
+            onClick={() => console.log("View all photos")}
+            className="w-full text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors py-2"
+          >
+            {t("view_all_photos")}
+          </button>
+        </div>
+      </MainCard>
+    </PageLayout>
   );
 }
-

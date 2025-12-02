@@ -7,9 +7,6 @@ export async function register() {
       // Sentry DSN
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
-      // Enable Spotlight in development
-      spotlight: process.env.NODE_ENV === 'development',
-
       // Adjust this value in production, or use tracesSampler for greater control
       tracesSampleRate: 1,
 
@@ -23,9 +20,6 @@ export async function register() {
     Sentry.init({
       // Sentry DSN
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-
-      // Enable Spotlight in development
-      spotlight: process.env.NODE_ENV === 'development',
 
       // Adjust this value in production, or use tracesSampler for greater control
       tracesSampleRate: 1,
