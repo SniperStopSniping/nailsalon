@@ -1,9 +1,8 @@
 "use client";
 
-import { useParams, useRouter, usePathname } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
-import { PageLayout } from "@/components/PageLayout";
 import { MainCard } from "@/components/MainCard";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { SecondaryButton } from "@/components/SecondaryButton";
@@ -20,81 +19,104 @@ type SectionId =
   | "rate-us"
   | "payment";
 
+// CollapsibleSection component
+function CollapsibleSection({
+  id,
+  title,
+  icon,
+  children,
+  isOpen,
+  onToggle,
+  badge,
+}: {
+  id: SectionId;
+  title: string;
+  icon: string;
+  children: React.ReactNode;
+  isOpen: boolean;
+  onToggle: (id: SectionId) => void;
+  badge?: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        className="w-full flex items-center justify-between text-left p-5 hover:bg-neutral-50/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-xl">{icon}</span>
+          <span className="text-base font-bold text-neutral-900">{title}</span>
+          {badge && (
+            <span className="px-2 py-0.5 rounded-full bg-[#f4b864]/20 text-xs font-bold text-[#7b4ea3]">
+              {badge}
+            </span>
+          )}
+        </div>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className={`transition-transform duration-200 text-neutral-400 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        >
+          <path
+            d="M4 6L8 10L12 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {isOpen && (
+        <div className="px-5 pb-5 pt-0 border-t border-neutral-100">
+          <div className="pt-4">{children}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const params = useParams();
-  const pathname = usePathname();
   const locale = (params?.locale as string) || "en";
   const t = useTranslations("Profile");
 
-  // Collapsible sections state
+  const [mounted, setMounted] = useState(false);
   const [openSections, setOpenSections] = useState<Set<SectionId>>(
-    new Set(["appointments", "invite", "gallery"])
+    new Set(["appointments"])
   );
   
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
+  // User data
   const [userName, setUserName] = useState("Sarah");
+  const [isEditMode, setIsEditMode] = useState(false);
   const [editedName, setEditedName] = useState("Sarah");
-
-  // Beauty Profile state
-  const [isEditingBeautyProfile, setIsEditingBeautyProfile] = useState(false);
-  const [beautyProfile, setBeautyProfile] = useState({
-    email: "",
-    favTech: "Daniela",
-    nailLength: "Medium",
-    nailShape: "Almond",
-    finish: "Glossy",
-    favColors: ["Nudes", "Pinks"],
-    favBrands: ["Kokoist", "OPI"],
-    favService: "BIAB",
-    designStyles: ["French", "Minimal art"],
-    notes: "",
-  });
-  const [editedBeautyProfile, setEditedBeautyProfile] = useState(beautyProfile);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const profileImageInputRef = useRef<HTMLInputElement>(null);
 
   // Invite state
   const [friendPhone, setFriendPhone] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
   const isSendingRef = useRef(false);
 
-  // Profile image state
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [profileUploadStatus, setProfileUploadStatus] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
-  const profileImageInputRef = useRef<HTMLInputElement>(null);
-
-  // Payment methods state
-  type PaymentCard = {
-    id: string;
-    type: "Visa" | "Mastercard" | "Amex" | "Discover";
-    last4: string;
-    expiryMonth: string;
-    expiryYear: string;
-    isDefault: boolean;
+  // Stats
+  const userStats = {
+    totalVisits: 12,
+    memberSince: "March 2024",
+    pointsBalance: 240,
+    nextReward: 60,
+    tier: "Gold",
+    savedAmount: 85,
   };
 
-  const [paymentCards, setPaymentCards] = useState<PaymentCard[]>([
-    {
-      id: "1",
-      type: "Visa",
-      last4: "4242",
-      expiryMonth: "12",
-      expiryYear: "2025",
-      isDefault: true,
-    },
-  ]);
-  const [showAddCard, setShowAddCard] = useState(false);
-  const [showManageCards, setShowManageCards] = useState(false);
-  const [newCard, setNewCard] = useState({
-    cardNumber: "",
-    expiryMonth: "",
-    expiryYear: "",
-    cvv: "",
-    cardholderName: "",
-  });
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const toggleSection = (sectionId: SectionId) => {
     setOpenSections((prev) => {
@@ -108,67 +130,12 @@ export default function ProfilePage() {
     });
   };
 
+  const handleToggleSection = useCallback((sectionId: SectionId) => {
+    toggleSection(sectionId);
+  }, []);
+
   const handleBack = () => {
     router.back();
-  };
-
-  const handleEditProfile = () => {
-    setIsEditMode(true);
-    setEditedName(userName);
-  };
-
-  const handleSaveName = () => {
-    setUserName(editedName);
-    setIsEditMode(false);
-    // TODO: Save to backend
-  };
-
-  const handleCancelEdit = () => {
-    setEditedName(userName);
-    setIsEditMode(false);
-  };
-
-  const handleEditBeautyProfile = () => {
-    setIsEditingBeautyProfile(true);
-    setEditedBeautyProfile(beautyProfile);
-  };
-
-  const handleSaveBeautyProfile = () => {
-    setBeautyProfile(editedBeautyProfile);
-    setIsEditingBeautyProfile(false);
-    // TODO: Save to backend
-  };
-
-  const handleCancelBeautyProfile = () => {
-    setEditedBeautyProfile(beautyProfile);
-    setIsEditingBeautyProfile(false);
-  };
-
-  const toggleArrayItem = (array: string[], item: string) => {
-    return array.includes(item)
-      ? array.filter((i) => i !== item)
-      : [...array, item];
-  };
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const digits = input.value.replace(/\D/g, "").slice(0, 10);
-    
-    // Update state
-    setFriendPhone(digits);
-    
-    // Auto-send when 10 digits entered
-    if (digits.length === 10 && !inviteSent && !isSendingRef.current) {
-      isSendingRef.current = true;
-      // TODO: Send invite via backend
-      console.log("Sending invite to:", digits);
-      setInviteSent(true);
-      setTimeout(() => {
-        setInviteSent(false);
-        setFriendPhone("");
-        isSendingRef.current = false;
-      }, 3000);
-    }
   };
 
   const handleProfileImageClick = () => {
@@ -178,227 +145,46 @@ export default function ProfilePage() {
   const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      setProfileUploadStatus({
-        success: false,
-        message: "Please select an image file",
-      });
-      setTimeout(() => setProfileUploadStatus(null), 3000);
-      return;
-    }
-
-    // Validate file size (max 5MB for profile images)
-    if (file.size > 5 * 1024 * 1024) {
-      setProfileUploadStatus({
-        success: false,
-        message: "Image must be less than 5MB",
-      });
-      setTimeout(() => setProfileUploadStatus(null), 3000);
-      return;
-    }
-
-    // Create preview URL
+    if (!file.type.startsWith("image/")) return;
     const imageUrl = URL.createObjectURL(file);
     setProfileImage(imageUrl);
-
-    // TODO: Upload to backend
-    console.log("Uploading profile image:", file.name);
-    setProfileUploadStatus({
-      success: true,
-      message: "Profile photo updated! 💛",
-    });
-
-    // Clear success message after 3 seconds
-    setTimeout(() => {
-      setProfileUploadStatus(null);
-    }, 3000);
   };
 
-  // Payment methods handlers
-  const getCardType = (cardNumber: string): PaymentCard["type"] => {
-    const num = cardNumber.replace(/\D/g, "");
-    if (num.startsWith("4")) return "Visa";
-    if (num.startsWith("5") || num.startsWith("2")) return "Mastercard";
-    if (num.startsWith("3")) return "Amex";
-    return "Discover";
-  };
-
-  const handleAddCard = () => {
-    setShowAddCard(true);
-    setShowManageCards(false);
-  };
-
-  const handleManageCards = () => {
-    setShowManageCards(true);
-    setShowAddCard(false);
-  };
-
-  const handleSaveCard = () => {
-    const cardNumber = newCard.cardNumber.replace(/\D/g, "");
-    if (cardNumber.length < 13 || cardNumber.length > 19) {
-      alert("Please enter a valid card number");
-      return;
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setFriendPhone(digits);
+    
+    if (digits.length === 10 && !inviteSent && !isSendingRef.current) {
+      isSendingRef.current = true;
+      setInviteSent(true);
+      setTimeout(() => {
+        setInviteSent(false);
+        setFriendPhone("");
+        isSendingRef.current = false;
+      }, 3000);
     }
-    if (!newCard.expiryMonth || !newCard.expiryYear) {
-      alert("Please enter expiry date");
-      return;
-    }
-    if (newCard.cvv.length < 3 || newCard.cvv.length > 4) {
-      alert("Please enter a valid CVV");
-      return;
-    }
-    if (!newCard.cardholderName.trim()) {
-      alert("Please enter cardholder name");
-      return;
-    }
-
-    // Remove default from all cards if this is set as default
-    const updatedCards = paymentCards.map((card) => ({
-      ...card,
-      isDefault: false,
-    }));
-
-    // Add new card
-    const newCardData: PaymentCard = {
-      id: Date.now().toString(),
-      type: getCardType(cardNumber),
-      last4: cardNumber.slice(-4),
-      expiryMonth: newCard.expiryMonth,
-      expiryYear: newCard.expiryYear,
-      isDefault: true, // New card is default
-    };
-
-    setPaymentCards([...updatedCards, newCardData]);
-    setNewCard({
-      cardNumber: "",
-      expiryMonth: "",
-      expiryYear: "",
-      cvv: "",
-      cardholderName: "",
-    });
-    setShowAddCard(false);
-
-    // TODO: Save to backend
-    console.log("Card added:", newCardData);
-  };
-
-  const handleCancelAddCard = () => {
-    setShowAddCard(false);
-    setNewCard({
-      cardNumber: "",
-      expiryMonth: "",
-      expiryYear: "",
-      cvv: "",
-      cardholderName: "",
-    });
-  };
-
-  const handleSetDefault = (cardId: string) => {
-    setPaymentCards(
-      paymentCards.map((card) => ({
-        ...card,
-        isDefault: card.id === cardId,
-      }))
-    );
-    // TODO: Update backend
-    console.log("Set default card:", cardId);
-  };
-
-  const handleDeleteCard = (cardId: string) => {
-    if (paymentCards.length === 1) {
-      alert("You must have at least one payment method");
-      return;
-    }
-    const cardToDelete = paymentCards.find((c) => c.id === cardId);
-    if (cardToDelete?.isDefault && paymentCards.length > 1) {
-      // Set first remaining card as default
-      const remainingCards = paymentCards.filter((c) => c.id !== cardId);
-      if (remainingCards.length > 0 && remainingCards[0]) {
-        remainingCards[0].isDefault = true;
-      }
-      setPaymentCards(remainingCards);
-    } else {
-      setPaymentCards(paymentCards.filter((c) => c.id !== cardId));
-    }
-    // TODO: Delete from backend
-    console.log("Card deleted:", cardId);
-  };
-
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, "").replace(/[^0-9]/gi, "");
-    const matches = v.match(/\d{4,16}/g);
-    const match = (matches && matches[0]) || "";
-    const parts = [];
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    if (parts.length) {
-      return parts.join(" ");
-    } else {
-      return v;
-    }
-  };
-
-
-  const CollapsibleSection = ({
-    id,
-    title,
-    children,
-  }: {
-    id: SectionId;
-    title: string;
-    children: React.ReactNode;
-  }) => {
-    const isOpen = openSections.has(id);
-    const isAppointments = id === "appointments";
-
-    return (
-      <MainCard animateGoldBar={isAppointments && isOpen}>
-        <button
-          type="button"
-          onClick={() => toggleSection(id)}
-          className="w-full flex items-center justify-between text-left"
-        >
-          <h3 className="text-base font-semibold text-neutral-900">{title}</h3>
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className={`transition-transform duration-150 opacity-60 ${
-              isOpen ? "rotate-180" : ""
-            }`}
-          >
-            <path
-              d="M4 6L8 10L12 6"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        {isOpen && <div className="pt-4">{children}</div>}
-      </MainCard>
-    );
   };
 
   return (
-    <PageLayout>
-      <div className="flex flex-col gap-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#f8f0e5] via-[#f6ebdd] to-[#f4e6d4] pb-10">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4">
         {/* Top bar with back button */}
-        <div className="pt-2 relative flex items-center">
+        <div
+          className="pt-6 pb-2 relative flex items-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(-8px)",
+            transition: "opacity 300ms ease-out, transform 300ms ease-out",
+          }}
+        >
           <button
             type="button"
             onClick={handleBack}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+            className="flex items-center justify-center w-11 h-11 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
           >
             <svg
-              width="20"
-              height="20"
+              width="22"
+              height="22"
               viewBox="0 0 20 20"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -412,957 +198,466 @@ export default function ProfilePage() {
               />
             </svg>
           </button>
+
+          <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold tracking-tight text-[#7b4ea3]">
+            Nail Salon No.5
+          </div>
         </div>
 
-        {/* Title */}
-        <div className="text-center">
-          <h1 className="text-3xl font-semibold text-[#7b4ea3]">My Profile</h1>
-          <p className="text-base font-bold text-neutral-700 mt-1">Hi there, {userName}! 👋</p>
-        </div>
-
-        {/* Profile Header Card (not collapsible) */}
-        <MainCard>
-          <div className="flex items-center gap-4">
-            {/* Avatar */}
-            <div className="relative">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] flex items-center justify-center text-2xl overflow-hidden">
-                {profileImage ? (
-                  <img
-                    src={profileImage}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span>👤</span>
-                )}
-              </div>
-              <input
-                ref={profileImageInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleProfileImageChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={handleProfileImageClick}
-                className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#f4b864] flex items-center justify-center text-sm font-bold text-neutral-900 shadow-sm hover:bg-[#f4b864]/90 transition-colors"
-              >
-                +
-              </button>
-            </div>
-
-            {/* Name and Phone */}
-            <div className="flex-1 text-center">
-              {isEditMode ? (
-                <FormInput
-                  type="text"
-                  value={editedName}
-                  onChange={(e) => setEditedName(e.target.value)}
-                  className="!w-full !text-2xl !font-semibold !text-center !rounded-lg !bg-[#fff7ec] !px-3 !py-1.5 !ring-2 !ring-[#f4b864]"
-                  autoFocus
+        {/* Welcome Hero Section */}
+        <div
+          className="text-center pt-4 pb-2"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms",
+          }}
+        >
+          {/* Profile Avatar */}
+          <div className="relative inline-block mb-4">
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#e9d5f5] to-[#d4b8eb] flex items-center justify-center text-4xl overflow-hidden shadow-lg border-4 border-white">
+              {profileImage ? (
+                <img
+                  src={profileImage}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="text-2xl font-semibold text-neutral-900 -translate-x-1">
-                  {userName}
-                </div>
+                <span>👤</span>
               )}
-              <div className="text-lg text-neutral-600 mt-0.5 -translate-x-1">
-                +1 (555) 123-4567
-              </div>
             </div>
-
-            {/* Edit button */}
-            {!isEditMode && (
-              <button
-                type="button"
-                onClick={handleEditProfile}
-                className="text-sm text-neutral-500 hover:text-neutral-700 transition-colors"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-        </MainCard>
-
-        {/* Profile image upload status */}
-        {profileUploadStatus && (
-          <p
-            className={`text-sm text-center ${
-              profileUploadStatus.success
-                ? "text-green-600"
-                : "text-red-600"
-            }`}
-          >
-            {profileUploadStatus.message}
-          </p>
-        )}
-
-        {/* Save/Cancel buttons - shown when in edit mode */}
-        {isEditMode && (
-          <div className="flex gap-3">
-            <SecondaryButton
-              onClick={handleCancelEdit}
-              size="sm"
-            >
-              Cancel
-            </SecondaryButton>
-            <PrimaryButton
-              onClick={handleSaveName}
-              disabled={!editedName.trim()}
-              size="sm"
-            >
-              Save
-            </PrimaryButton>
-          </div>
-        )}
-
-        {/* My Appointments Section */}
-        <CollapsibleSection id="appointments" title="My Appointments">
-          <div className="space-y-3 pt-2">
-            <h4 className="text-sm font-semibold text-neutral-900">
-              Next Appointment
-            </h4>
-            <div className="rounded-xl bg-[#fff7ec] p-3 space-y-2">
-              <div className="text-sm font-semibold text-neutral-900">
-                BIAB Refill
-              </div>
-              <div className="text-sm text-neutral-600">Tech: Tiffany</div>
-              <div className="text-sm text-neutral-600">Dec 18 · 2:00 PM</div>
-              <div className="border-t border-neutral-200/50 pt-2 mt-2 space-y-1">
-                <SummaryRow label="Price" value="$65" />
-                <SummaryRow
-                  label="Reward Applied"
-                  value={<span className="text-green-600">-$5</span>}
-                />
-                <div className="flex justify-between items-center pt-2 border-t border-neutral-100">
-                  <span className="text-[18px] font-bold text-neutral-900">
-                    Total
-                  </span>
-                  <span className="text-[18px] font-bold text-neutral-900">$60</span>
-                </div>
-              </div>
-            </div>
-            <PrimaryButton
-              onClick={() => {
-                // Pass appointment data - using biab-medium as default for "BIAB Refill"
-                // In a real app, this would come from the actual appointment data
-                const appointmentDate = "2024-12-18"; // Dec 18 - this should come from actual appointment
-                const appointmentTime = "14:00"; // 2:00 PM
-                router.push(
-                  `/${locale}/change-appointment?serviceIds=biab-medium&techId=tiffany&date=${appointmentDate}&time=${appointmentTime}`
-                );
-              }}
-              size="sm"
-            >
-              View / Change Appointment
-            </PrimaryButton>
+            <input
+              ref={profileImageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleProfileImageChange}
+              className="hidden"
+            />
             <button
               type="button"
-              onClick={() => router.push(`/${locale}/appointments/history`)}
-              className="w-full text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors"
+              onClick={handleProfileImageClick}
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-gradient-to-r from-[#f4b864] to-[#d6a249] flex items-center justify-center text-lg font-bold text-neutral-900 shadow-md hover:scale-110 transition-transform"
             >
-              View Appointment History
+              +
             </button>
           </div>
-        </CollapsibleSection>
 
-        {/* My Nail Gallery Section */}
-        <CollapsibleSection id="gallery" title="My Nail Gallery">
-          <div className="pt-2">
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                {
-                  id: "1",
-                  imageUrl: "/assets/images/biab-short.webp",
-                },
-                {
-                  id: "2",
-                  imageUrl: "/assets/images/gel-x-extensions.jpg",
-                },
-                {
-                  id: "3",
-                  imageUrl: "/assets/images/biab-medium.webp",
-                },
-              ].map((photo) => (
-                <div
-                  key={photo.id}
-                  className="aspect-square rounded-xl bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] relative overflow-hidden"
-                >
+          {/* Personalized Welcome */}
+          <h1 className="text-2xl font-bold text-neutral-900 mb-1">
+            Welcome back, {userName}! ✨
+          </h1>
+          <p className="text-base text-neutral-500 mb-2">
+            We're so happy to see you
+          </p>
+
+          {/* Member Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-[#f4b864]/20 to-[#d6a249]/20 border border-[#f4b864]/30">
+            <span className="text-lg">👑</span>
+            <span className="text-sm font-bold text-[#7b4ea3]">{userStats.tier} Member</span>
+            <span className="text-xs text-neutral-500">since {userStats.memberSince}</span>
+          </div>
+        </div>
+
+        {/* Stats Summary Card */}
+        <div
+          className="my-6 overflow-hidden rounded-2xl bg-gradient-to-br from-[#7b4ea3] to-[#5c3a7d] shadow-xl"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0) scale(1)" : "translateY(10px) scale(0.97)",
+            transition: "opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms",
+          }}
+        >
+          <div className="px-5 py-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-white/80 text-sm">Your Journey With Us</div>
+              <div className="text-[#f4b864] text-sm font-semibold">
+                💰 ${userStats.savedAmount} saved!
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-center flex-1">
+                <div className="text-3xl font-bold text-white">{userStats.totalVisits}</div>
+                <div className="text-xs text-white/70 mt-0.5">Visits</div>
+              </div>
+              <div className="w-px h-12 bg-white/20" />
+              <div className="text-center flex-1">
+                <div className="text-3xl font-bold text-[#f4b864]">{userStats.pointsBalance}</div>
+                <div className="text-xs text-white/70 mt-0.5">Points</div>
+              </div>
+              <div className="w-px h-12 bg-white/20" />
+              <div className="text-center flex-1">
+                <div className="text-3xl font-bold text-white">{userStats.nextReward}</div>
+                <div className="text-xs text-white/70 mt-0.5">To Free Fill</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div
+          className="grid grid-cols-2 gap-3 mb-6"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => router.push(`/${locale}/book/service`)}
+            className="p-4 rounded-2xl bg-gradient-to-r from-[#f4b864] to-[#d6a249] shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <span className="text-2xl mb-2 block">📅</span>
+            <span className="text-base font-bold text-neutral-900">Book Now</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push(`/${locale}/rewards`)}
+            className="p-4 rounded-2xl bg-white border border-[#e6d6c2] shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <span className="text-2xl mb-2 block">🎁</span>
+            <span className="text-base font-bold text-neutral-900">My Rewards</span>
+          </button>
+        </div>
+
+        {/* Sections */}
+        <div className="space-y-4">
+          {/* Next Appointment */}
+          <CollapsibleSection
+            id="appointments"
+            title="Next Appointment"
+            icon="💅"
+            isOpen={openSections.has("appointments")}
+            onToggle={handleToggleSection}
+            badge="Dec 18"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-[#fff7ec] to-[#fef5e7]">
+                <div className="w-16 h-16 rounded-xl bg-white shadow-sm overflow-hidden flex-shrink-0">
                   <img
-                    src={photo.imageUrl}
-                    alt="Nail gallery"
+                    src="/assets/images/biab-medium.webp"
+                    alt="BIAB Refill"
                     className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
                   />
                 </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/gallery`)}
-              className="mt-3 text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors"
-            >
-              View All Photos
-            </button>
-          </div>
-        </CollapsibleSection>
+                <div className="flex-1">
+                  <div className="text-lg font-bold text-neutral-900">BIAB Refill</div>
+                  <div className="text-sm text-neutral-600 flex items-center gap-1.5 mt-1">
+                    <span className="text-[#7b4ea3]">✦</span>
+                    <span>with Tiffany</span>
+                  </div>
+                  <div className="text-sm text-neutral-500 mt-0.5">
+                    Thu, Dec 18 · 2:00 PM
+                  </div>
+                </div>
+              </div>
 
-        {/* Rewards Section */}
-        <CollapsibleSection id="rewards" title="Rewards">
-          <div className="space-y-4 pt-1">
-            <div className="text-sm text-neutral-900">
-              You have <span className="font-semibold">240 points</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-neutral-600">
-                <span>60 points until FREE BIAB Fill</span>
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-neutral-600">Service</span>
+                  <span className="font-semibold">$65</span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-neutral-600">Your Reward</span>
+                  <span className="font-bold text-emerald-600">-$5</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-emerald-200">
+                  <span className="text-lg font-bold text-neutral-900">Total</span>
+                  <span className="text-xl font-bold text-[#7b4ea3]">$60</span>
+                </div>
               </div>
-              <div className="h-1.5 bg-neutral-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-[#f4b864] to-[#d6a249] rounded-full"
-                  style={{ width: "75%" }}
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <PrimaryButton
-                onClick={() => router.push(`/${locale}/rewards`)}
-                size="sm"
-                fullWidth={false}
-              >
-                View Rewards
-              </PrimaryButton>
+
               <button
                 type="button"
-                onClick={() => console.log("TODO: Rewards info")}
-                className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors"
-              >
-                Learn More
-              </button>
-            </div>
-          </div>
-        </CollapsibleSection>
-
-        {/* Invite & Earn Section */}
-        <CollapsibleSection id="invite" title="Invite & Earn">
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-neutral-700">
-              Invite friends and earn a free manicure.
-            </p>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-neutral-900">
-                Friend's Phone Number
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center rounded-full bg-neutral-100 px-2.5 py-1.5 text-sm text-neutral-600">
-                  <span className="mr-1">+1</span>
-                </div>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={friendPhone}
-                  onChange={handlePhoneChange}
-                  placeholder="Phone number"
-                  className="flex-1 min-w-0 rounded-full bg-neutral-100 px-3 py-2 text-base text-neutral-800 placeholder:text-neutral-400 outline-none"
-                  autoComplete="off"
-                />
-              </div>
-              {inviteSent && (
-                <p className="text-sm text-center text-green-600 mt-1">
-                  Invite Sent
-                </p>
-              )}
-            </div>
-            <PrimaryButton
-              onClick={() => router.push(`/${locale}/invite`)}
-              size="sm"
-            >
-              Share Referral Link
-            </PrimaryButton>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/my-referrals`)}
-              className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors"
-            >
-              My Referrals
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* Membership Section */}
-        <CollapsibleSection id="membership" title="Membership">
-          <div className="space-y-3 pt-2">
-            <div className="text-sm text-neutral-900">
-              Current tier: <span className="font-semibold">Gold</span>
-            </div>
-            <ul className="space-y-1.5 text-sm text-neutral-600">
-              <li className="flex items-start gap-2">
-                <span className="text-[#f4b864] mt-0.5">•</span>
-                <span>Priority booking</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#f4b864] mt-0.5">•</span>
-                <span>Birthday gift</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#f4b864] mt-0.5">•</span>
-                <span>Extra reward points</span>
-              </li>
-            </ul>
-            <button
-              type="button"
-              onClick={() => console.log("TODO: Membership details")}
-              className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors"
-            >
-              Membership Details
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* Rate Us on Google Section */}
-        <CollapsibleSection id="rate-us" title="Rate Us on Google">
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-neutral-700">
-              Love your nails? Help us grow.
-            </p>
-            <PrimaryButton
-              onClick={() => {
-                console.log("TODO: Open Google review link");
-              }}
-              size="sm"
-            >
-              Rate Us on Google
-            </PrimaryButton>
-          </div>
-        </CollapsibleSection>
-
-        {/* Beauty Profile Section */}
-        <CollapsibleSection id="beauty-profile" title="Beauty Preferences">
-          <div className="space-y-2.5 pt-2">
-            {/* Card 1 - Contact & Basics */}
-            <div className="rounded-xl bg-[#fff7ec] shadow-sm p-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Email (Optional)
-                </label>
-                <FormInput
-                  type="email"
-                  value={
-                    isEditingBeautyProfile
-                      ? editedBeautyProfile.email
-                      : beautyProfile.email
-                  }
-                  onChange={(e) =>
-                    setEditedBeautyProfile({
-                      ...editedBeautyProfile,
-                      email: e.target.value,
-                    })
-                  }
-                  disabled={!isEditingBeautyProfile}
-                  placeholder="your@email.com"
-                  className="!w-full !px-4 !py-2 !text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Favorite Technician
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {["Daniela", "Tiffany", "Jenny"].map((tech) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favTech === tech
-                      : beautyProfile.favTech === tech;
-                    return (
-                      <button
-                        key={tech}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favTech: tech,
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {tech}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2 - Nail Preferences */}
-            <div className="rounded-xl bg-[#fff7ec] shadow-sm p-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Nail Length
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {["Short", "Medium", "Long"].map((length) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.nailLength === length
-                      : beautyProfile.nailLength === length;
-                    return (
-                      <button
-                        key={length}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            nailLength: length,
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {length}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Nail Shape
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {["Square", "Squoval", "Almond", "Coffin", "Stiletto"].map(
-                    (shape) => {
-                      const isSelected = isEditingBeautyProfile
-                        ? editedBeautyProfile.nailShape === shape
-                        : beautyProfile.nailShape === shape;
-                      return (
-                        <button
-                          key={shape}
-                          type="button"
-                          onClick={() =>
-                            isEditingBeautyProfile &&
-                            setEditedBeautyProfile({
-                              ...editedBeautyProfile,
-                              nailShape: shape,
-                            })
-                          }
-                          disabled={!isEditingBeautyProfile}
-                          className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                            isSelected
-                              ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                              : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                          } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                        >
-                          {shape}
-                        </button>
-                      );
-                    }
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Finish
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {["Glossy", "Matte", "Chrome", "Cat-eye"].map((finish) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.finish === finish
-                      : beautyProfile.finish === finish;
-                    return (
-                      <button
-                        key={finish}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            finish: finish,
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {finish}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Favorite Colors
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    "Nudes",
-                    "Pinks",
-                    "Neutrals",
-                    "Bright",
-                    "Dark",
-                    "French",
-                    "Glitter",
-                  ].map((color) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favColors.includes(color)
-                      : beautyProfile.favColors.includes(color);
-                    return (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favColors: toggleArrayItem(
-                              editedBeautyProfile.favColors,
-                              color
-                            ),
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {color}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 3 - Favourite Gel Brands */}
-            <div className="rounded-xl bg-[#fff7ec] shadow-sm p-4 space-y-3">
-              <label className="text-sm font-medium text-neutral-900">
-                Favorite Brands
-              </label>
-              <div className="flex flex-wrap gap-3">
-                {[
-                  "Kokoist",
-                  "OPI",
-                  "Valentino",
-                  "TGB",
-                  "Bio Sculpture",
-                  "IceGel",
-                  "Presto",
-                  "Aprés",
-                  "F Gel",
-                  "Vetro",
-                  "DND",
-                  "Beetles",
-                ].map((brand) => {
-                  const isSelected = isEditingBeautyProfile
-                    ? editedBeautyProfile.favBrands.includes(brand)
-                    : beautyProfile.favBrands.includes(brand);
-                  return (
-                    <button
-                      key={brand}
-                      type="button"
-                      onClick={() =>
-                        isEditingBeautyProfile &&
-                        setEditedBeautyProfile({
-                          ...editedBeautyProfile,
-                          favBrands: toggleArrayItem(
-                            editedBeautyProfile.favBrands,
-                            brand
-                          ),
-                        })
-                      }
-                      disabled={!isEditingBeautyProfile}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-150 ${
-                        isSelected
-                          ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                          : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                      } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                    >
-                      {brand}
-                    </button>
+                onClick={() => {
+                  router.push(
+                    `/${locale}/change-appointment?serviceIds=biab-medium&techId=tiffany&date=2025-12-18&time=14:00`
                   );
-                })}
-              </div>
-            </div>
+                }}
+                className="w-full rounded-full bg-gradient-to-r from-[#f4b864] to-[#d6a249] px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+              >
+                View / Change Appointment
+              </button>
 
-            {/* Card 4 - Favourite Services & Styles */}
-            <div className="rounded-xl bg-[#fff7ec] shadow-sm p-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Favorite Service
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    "BIAB",
-                    "Gel-X",
-                    "Gel Manicure",
-                    "Classic Mani/Pedi",
-                    "Combo",
-                  ].map((service) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favService === service
-                      : beautyProfile.favService === service;
-                    return (
-                      <button
-                        key={service}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favService: service,
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {service}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-900">
-                  Design Styles
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    "French",
-                    "Minimal art",
-                    "Heavy art",
-                    "Chrome/Aura",
-                    "Glitter",
-                    "3D charms",
-                    "Simple designs",
-                  ].map((design) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.designStyles.includes(design)
-                      : beautyProfile.designStyles.includes(design);
-                    return (
-                      <button
-                        key={design}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile &&
-                          setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            designStyles: toggleArrayItem(
-                              editedBeautyProfile.designStyles,
-                              design
-                            ),
-                          })
-                        }
-                        disabled={!isEditingBeautyProfile}
-                        className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? "bg-[#e9d5f5] ring-2 ring-[#7b4ea3] ring-offset-1 ring-offset-[#fff7ec] text-neutral-900"
-                            : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100 border border-[#7b4ea3]"
-                        } ${!isEditingBeautyProfile ? "cursor-default" : ""}`}
-                      >
-                        {design}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 5 - Notes for Your Tech */}
-            <div className="rounded-xl bg-[#fff7ec] shadow-sm p-4 space-y-3">
-              <label className="text-sm font-medium text-neutral-900">
-                Notes for Your Technician
-              </label>
-              <textarea
-                value={
-                  isEditingBeautyProfile
-                    ? editedBeautyProfile.notes
-                    : beautyProfile.notes
-                }
-                onChange={(e) =>
-                  setEditedBeautyProfile({
-                    ...editedBeautyProfile,
-                    notes: e.target.value,
-                  })
-                }
-                disabled={!isEditingBeautyProfile}
-                placeholder="e.g., I prefer shorter cuticle work, extra gentle on my left thumb..."
-                rows={4}
-                className="w-full rounded-xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none resize-none disabled:opacity-60"
-              />
-            </div>
-
-            {/* Edit / Save / Cancel buttons */}
-            {!isEditingBeautyProfile ? (
               <button
                 type="button"
-                onClick={handleEditBeautyProfile}
-                className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors px-1"
+                onClick={() => router.push(`/${locale}/appointments/history`)}
+                className="w-full text-base font-medium text-[#7b4ea3] hover:text-[#7b4ea3]/80 transition-colors"
               >
-                Edit Preferences
+                View All Past Visits →
               </button>
-            ) : (
-              <div className="flex gap-3">
-                <SecondaryButton
-                  onClick={handleCancelBeautyProfile}
-                  size="sm"
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  onClick={handleSaveBeautyProfile}
-                  size="sm"
-                >
-                  Save
-                </PrimaryButton>
-              </div>
-            )}
-          </div>
-        </CollapsibleSection>
+            </div>
+          </CollapsibleSection>
 
-        {/* Payment Methods Section */}
-        <CollapsibleSection id="payment" title="Payment Methods">
-          <div className="space-y-3 pt-2">
-            {/* Cards List */}
-            {!showAddCard && !showManageCards && (
-              <>
-                {paymentCards.map((card) => (
+          {/* Nail Gallery */}
+          <CollapsibleSection
+            id="gallery"
+            title="Your Nail Journey"
+            icon="📸"
+            isOpen={openSections.has("gallery")}
+            onToggle={handleToggleSection}
+            badge="9 looks"
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-neutral-600">
+                Your beautiful nail collection from past visits
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  "/assets/images/biab-short.webp",
+                  "/assets/images/gel-x-extensions.jpg",
+                  "/assets/images/biab-medium.webp",
+                ].map((img, i) => (
                   <div
-                    key={card.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-[#fff7ec]"
+                    key={i}
+                    className="aspect-square rounded-xl bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] relative overflow-hidden shadow-sm hover:scale-105 transition-transform cursor-pointer"
+                    onClick={() => router.push(`/${locale}/gallery`)}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-neutral-900">
-                        {card.type} •••• {card.last4}
-                      </span>
-                      {card.isDefault && (
-                        <span className="text-sm px-2 py-0.5 rounded-full bg-[#f4b864]/20 text-neutral-700 font-medium">
-                          Default
-                        </span>
-                      )}
-                    </div>
+                    <img
+                      src={img}
+                      alt="Nail gallery"
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    />
                   </div>
                 ))}
-
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAddCard}
-                    className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors text-left"
-                  >
-                Add New Card
-              </button>
+              </div>
               <button
                 type="button"
-                onClick={handleManageCards}
-                className="text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors text-left"
+                onClick={() => router.push(`/${locale}/gallery`)}
+                className="w-full text-base font-medium text-[#7b4ea3] hover:text-[#7b4ea3]/80 transition-colors"
               >
-                Manage Payment Methods
-                  </button>
-                </div>
-              </>
-            )}
+                View Full Gallery →
+              </button>
+            </div>
+          </CollapsibleSection>
 
-            {/* Add Card Form */}
-            {showAddCard && (
-              <div className="space-y-3 rounded-xl bg-[#fff7ec] p-4">
-                <h3 className="text-sm font-semibold text-neutral-900">
-                  Add New Card
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-neutral-700 mb-1.5 block">
-                      Card Number
-                    </label>
-                    <input
-                      type="text"
-                      value={newCard.cardNumber}
-                      onChange={(e) =>
-                        setNewCard({
-                          ...newCard,
-                          cardNumber: formatCardNumber(e.target.value).slice(
-                            0,
-                            19
-                          ),
-                        })
-                      }
-                      placeholder="1234 5678 9012 3456"
-                      maxLength={19}
-                      className="w-full rounded-lg bg-white px-3 py-2.5 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none border border-neutral-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-neutral-700 mb-1.5 block">
-                      Cardholder Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newCard.cardholderName}
-                      onChange={(e) =>
-                        setNewCard({
-                          ...newCard,
-                          cardholderName: e.target.value,
-                        })
-                      }
-                      placeholder="John Doe"
-                      className="w-full rounded-lg bg-white px-3 py-2.5 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none border border-neutral-200"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <label className="text-sm font-medium text-neutral-700 mb-1.5 block">
-                        Expiry Date
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newCard.expiryMonth}
-                          onChange={(e) =>
-                            setNewCard({
-                              ...newCard,
-                              expiryMonth: e.target.value.replace(/\D/g, "").slice(0, 2),
-                            })
-                          }
-                          placeholder="MM"
-                          maxLength={2}
-                          className="w-full rounded-lg bg-white px-3 py-2.5 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none border border-neutral-200"
-                        />
-                        <input
-                          type="text"
-                          value={newCard.expiryYear}
-                          onChange={(e) =>
-                            setNewCard({
-                              ...newCard,
-                              expiryYear: e.target.value.replace(/\D/g, "").slice(0, 4),
-                            })
-                          }
-                          placeholder="YYYY"
-                          maxLength={4}
-                          className="w-full rounded-lg bg-white px-3 py-2.5 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none border border-neutral-200"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-neutral-700 mb-1.5 block">
-                        CVV
-                      </label>
-                      <input
-                        type="text"
-                        value={newCard.cvv}
-                        onChange={(e) =>
-                          setNewCard({
-                            ...newCard,
-                            cvv: e.target.value.replace(/\D/g, "").slice(0, 4),
-                          })
-                        }
-                        placeholder="123"
-                        maxLength={4}
-                        className="w-full rounded-lg bg-white px-3 py-2.5 text-sm text-neutral-800 placeholder:text-neutral-400 outline-none border border-neutral-200"
-                      />
-                    </div>
-                  </div>
+          {/* Invite Friends */}
+          <CollapsibleSection
+            id="invite"
+            title="Share the Love"
+            icon="💝"
+            isOpen={openSections.has("invite")}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-gradient-to-br from-[#f6ebdd] to-[#f0dfc9] text-center">
+                <div className="text-3xl mb-2">🎁</div>
+                <div className="text-lg font-bold text-neutral-900 mb-1">
+                  Give $10, Get $15
                 </div>
-                <div className="flex gap-2 pt-2">
-                  <SecondaryButton
-                    onClick={handleCancelAddCard}
-                    size="sm"
-                  >
-                    Cancel
-                  </SecondaryButton>
-                  <PrimaryButton
-                    onClick={handleSaveCard}
-                    size="sm"
-                  >
-                    Save Card
-                  </PrimaryButton>
-                </div>
+                <p className="text-sm text-neutral-600">
+                  Share the gift of beautiful nails with friends
+                </p>
               </div>
-            )}
 
-            {/* Manage Cards */}
-            {showManageCards && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-neutral-900">
-                  Manage Payment Methods
-                </h3>
-                {paymentCards.map((card) => (
-                  <div
-                    key={card.id}
-                    className="rounded-xl bg-[#fff7ec] p-4 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-neutral-900">
-                          {card.type} •••• {card.last4}
-                        </span>
-                        {card.isDefault && (
-                          <span className="text-sm px-2 py-0.5 rounded-full bg-[#f4b864]/20 text-neutral-700 font-medium">
-                            Default
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-sm text-neutral-600">
-                      Expires {card.expiryMonth}/{card.expiryYear}
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                      {!card.isDefault && (
-                        <button
-                          type="button"
-                          onClick={() => handleSetDefault(card.id)}
-                          className="flex-1 rounded-full bg-white border-2 border-neutral-200 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 active:scale-[0.98] transition-all duration-150"
-                        >
-                          Set as Default
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCard(card.id)}
-                        className="flex-1 rounded-full bg-red-50 border-2 border-red-200 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 active:scale-[0.98] transition-all duration-150"
-                      >
-                        Delete
-                      </button>
-                    </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-neutral-900">
+                  Friend's Phone Number
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2.5 text-sm font-medium text-neutral-600">
+                    +1
+                  </div>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={friendPhone}
+                    onChange={handlePhoneChange}
+                    placeholder="(555) 123-4567"
+                    className="flex-1 min-w-0 rounded-full bg-neutral-100 px-4 py-2.5 text-base text-neutral-800 placeholder:text-neutral-400 outline-none focus:ring-2 focus:ring-[#7b4ea3]/30 transition-all"
+                  />
+                </div>
+                {inviteSent && (
+                  <p className="text-base text-center text-emerald-600 font-medium">
+                    ✓ Invite sent! 🎉
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/invite`)}
+                className="w-full rounded-full bg-gradient-to-r from-[#f4b864] to-[#d6a249] px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+              >
+                Share Referral Link
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/my-referrals`)}
+                className="w-full text-base font-medium text-[#7b4ea3] hover:text-[#7b4ea3]/80 transition-colors"
+              >
+                View My Referrals →
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Membership */}
+          <CollapsibleSection
+            id="membership"
+            title="Gold Membership"
+            icon="👑"
+            isOpen={openSections.has("membership")}
+            onToggle={handleToggleSection}
+            badge="Active"
+          >
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-gradient-to-br from-[#f4b864]/20 to-[#d6a249]/20 border border-[#f4b864]/30">
+                <div className="text-lg font-bold text-neutral-900 mb-3">
+                  Your Gold Benefits
+                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    { icon: "⚡", text: "Priority booking - skip the wait" },
+                    { icon: "🎂", text: "Birthday surprise gift" },
+                    { icon: "✨", text: "2x points on all services" },
+                    { icon: "💎", text: "Exclusive member-only offers" },
+                  ].map((benefit, i) => (
+                    <li key={i} className="flex items-center gap-3 text-sm text-neutral-700">
+                      <span className="text-lg">{benefit.icon}</span>
+                      <span>{benefit.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <p className="text-sm text-neutral-500 text-center">
+                Thank you for being a valued member! 💜
+              </p>
+            </div>
+          </CollapsibleSection>
+
+          {/* Rate Us */}
+          <CollapsibleSection
+            id="rate-us"
+            title="Love Your Nails?"
+            icon="⭐"
+            isOpen={openSections.has("rate-us")}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4 text-center">
+              <div className="text-4xl">⭐⭐⭐⭐⭐</div>
+              <p className="text-base text-neutral-600">
+                Your reviews help us grow and serve you better!
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  window.open("https://www.google.com/maps/place/Nail+Salon+No.5", "_blank");
+                }}
+                className="w-full rounded-full bg-white border-2 border-[#7b4ea3] px-6 py-3.5 text-base font-bold text-[#7b4ea3] shadow-sm transition-all duration-200 hover:bg-[#7b4ea3] hover:text-white active:scale-[0.98]"
+              >
+                Leave a Google Review
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Beauty Preferences */}
+          <CollapsibleSection
+            id="beauty-profile"
+            title="Your Style Profile"
+            icon="💅"
+            isOpen={openSections.has("beauty-profile")}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-neutral-600">
+                We remember your preferences so every visit feels personalized
+              </p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Favorite Tech", value: "Daniela", icon: "👩‍🎨" },
+                  { label: "Go-To Service", value: "BIAB", icon: "💅" },
+                  { label: "Nail Shape", value: "Almond", icon: "✨" },
+                  { label: "Favorite Finish", value: "Glossy", icon: "✦" },
+                ].map((pref, i) => (
+                  <div key={i} className="p-3 rounded-xl bg-[#fff7ec]">
+                    <div className="text-lg mb-1">{pref.icon}</div>
+                    <div className="text-xs text-neutral-500">{pref.label}</div>
+                    <div className="text-sm font-bold text-neutral-900">{pref.value}</div>
                   </div>
                 ))}
-                <SecondaryButton
-                  onClick={() => setShowManageCards(false)}
-                  size="sm"
-                >
-                  Close
-                </SecondaryButton>
               </div>
-            )}
-          </div>
-        </CollapsibleSection>
+
+              <div className="p-3 rounded-xl bg-[#fff7ec]">
+                <div className="text-xs text-neutral-500 mb-1">Favorite Colors</div>
+                <div className="flex flex-wrap gap-2">
+                  {["Nudes", "Pinks", "French"].map((color) => (
+                    <span
+                      key={color}
+                      className="px-3 py-1 rounded-full bg-[#e9d5f5] text-xs font-medium text-[#7b4ea3]"
+                    >
+                      {color}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/preferences`)}
+                className="w-full text-base font-medium text-[#7b4ea3] hover:text-[#7b4ea3]/80 transition-colors"
+              >
+                Edit Preferences →
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Payment Methods */}
+          <CollapsibleSection
+            id="payment"
+            title="Payment"
+            icon="💳"
+            isOpen={openSections.has("payment")}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-[#fff7ec]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#1a1f71] to-[#2d3494] flex items-center justify-center text-white text-xs font-bold">
+                    VISA
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-neutral-900">•••• 4242</div>
+                    <div className="text-xs text-neutral-500">Expires 12/25</div>
+                  </div>
+                </div>
+                <span className="px-2 py-1 rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">
+                  Default
+                </span>
+              </div>
+              <button
+                type="button"
+                className="w-full text-base font-medium text-[#7b4ea3] hover:text-[#7b4ea3]/80 transition-colors"
+              >
+                Manage Payment Methods →
+              </button>
+            </div>
+          </CollapsibleSection>
+        </div>
+
+        {/* Footer Message */}
+        <div
+          className="mt-8 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 500ms",
+          }}
+        >
+          <p className="text-sm text-neutral-400">
+            Thank you for choosing Nail Salon No.5 💜
+          </p>
+          <p className="text-xs text-neutral-400 mt-1">
+            We appreciate you being part of our family
+          </p>
+        </div>
+
+        {/* Bottom spacing */}
+        <div className="h-6" />
       </div>
-    </PageLayout>
+    </div>
   );
 }
-

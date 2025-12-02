@@ -2,17 +2,8 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import Image from "next/image";
-import { PageLayout } from "@/components/PageLayout";
-import { MainCard } from "@/components/MainCard";
-import { SectionTitle } from "@/components/SectionTitle";
-import { PrimaryButton } from "@/components/PrimaryButton";
-import { SecondaryButton } from "@/components/SecondaryButton";
 
-const SERVICES: Record<
-  string,
-  { name: string; price: number; duration: number }
-> = {
+const SERVICES: Record<string, { name: string; price: number; duration: number }> = {
   "biab-short": { name: "BIAB Short", price: 65, duration: 75 },
   "biab-medium": { name: "BIAB Medium", price: 75, duration: 90 },
   "gelx-extensions": { name: "Gel-X Extensions", price: 90, duration: 105 },
@@ -23,17 +14,18 @@ const SERVICES: Record<
   "mani-pedi": { name: "Classic Mani + Pedi", price: 95, duration: 120 },
 };
 
-const TECHNICIANS: Record<string, string> = {
-  daniela: "Daniela",
-  tiffany: "Tiffany",
-  jenny: "Jenny",
+const TECHNICIANS: Record<string, { name: string; image: string }> = {
+  daniela: { name: "Daniela", image: "/assets/images/tech-daniela.jpeg" },
+  tiffany: { name: "Tiffany", image: "/assets/images/tech-tiffany.jpeg" },
+  jenny: { name: "Jenny", image: "/assets/images/tech-jenny.jpeg" },
 };
 
 const generateTimeSlots = () => {
-  const slots: string[] = [];
+  const slots: { time: string; period: "morning" | "afternoon" }[] = [];
   for (let hour = 9; hour < 18; hour++) {
-    slots.push(`${hour}:00`);
-    slots.push(`${hour}:30`);
+    const period = hour < 12 ? "morning" : "afternoon";
+    slots.push({ time: `${hour}:00`, period });
+    slots.push({ time: `${hour}:30`, period });
   }
   return slots;
 };
@@ -55,6 +47,14 @@ const generateCalendarDays = (year: number, month: number) => {
   }
 
   return days;
+};
+
+const formatTime12h = (time: string) => {
+  const [hour, minute] = time.split(":");
+  const h = parseInt(hour || "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${minute} ${ampm}`;
 };
 
 export default function ChangeAppointmentPage() {
@@ -81,48 +81,38 @@ export default function ChangeAppointmentPage() {
     (sum, service) => sum + service.price,
     0
   );
-  const techName = TECHNICIANS[techId] || "Not selected";
+  const tech = TECHNICIANS[techId];
   const serviceNames =
     selectedServices.length > 0
-      ? selectedServices.map((s) => s.name).join(", ")
+      ? selectedServices.map((s) => s.name).join(" + ")
       : "Not selected";
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Initialize selected date from URL or default to today
-  const initialDate = currentDate
-    ? new Date(currentDate)
-    : today;
+  const initialDate = currentDate ? new Date(currentDate) : today;
   initialDate.setHours(0, 0, 0, 0);
 
+  const [mounted, setMounted] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(initialDate.getMonth());
   const [currentYear, setCurrentYear] = useState(initialDate.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(initialDate);
   const [selectedTime, setSelectedTime] = useState<string>(currentTime);
-  const [goldBarVisible, setGoldBarVisible] = useState(false);
 
   useEffect(() => {
-    setTimeout(() => setGoldBarVisible(true), 50);
+    setMounted(true);
   }, []);
 
   const timeSlots = generateTimeSlots();
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
   ];
+
+  const dayNames = ["S", "M", "T", "W", "T", "F", "S"];
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -143,9 +133,9 @@ export default function ChangeAppointmentPage() {
   };
 
   const handleDateSelect = (date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (date >= today) {
+    const todayCheck = new Date();
+    todayCheck.setHours(0, 0, 0, 0);
+    if (date >= todayCheck) {
       setSelectedDate(date);
     }
   };
@@ -167,243 +157,152 @@ export default function ChangeAppointmentPage() {
     router.push(`/${locale}/book/service`);
   };
 
-  const handleCancel = () => {
-    router.push(`/${locale}/profile`);
-  };
-
   const handleBack = () => {
     router.back();
   };
 
-  const formatDate = (date: Date | null | string) => {
-    if (!date) return "Not selected";
-    const dateObj = typeof date === "string" ? new Date(date) : date;
-    if (isNaN(dateObj.getTime())) return "Not selected";
-    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    return `${daysOfWeek[dateObj.getDay()]}, ${months[dateObj.getMonth()]} ${dateObj.getDate()}`;
+  const formatSelectedDate = (date: Date) => {
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
   };
 
-  const formatTime = (timeString: string) => {
-    if (!timeString) return "Not selected";
-    const [hours, minutes] = timeString.split(":");
-    const hour = parseInt(hours, 10);
-    const ampm = hour >= 12 ? "PM" : "AM";
-    const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
-  };
-
-  const getTechImage = (techId: string) => {
-    if (!techId) return null;
-    return `/assets/images/tech-${techId}.jpeg`;
-  };
+  // Group times by period
+  const morningSlots = timeSlots.filter(s => s.period === "morning");
+  const afternoonSlots = timeSlots.filter(s => s.period === "afternoon");
 
   return (
-    <PageLayout background="#f5e8d8">
-      {/* Top bar with back button */}
-      <div className="pt-2 pb-1 relative flex items-center">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
+    <div className="min-h-screen bg-gradient-to-b from-[#f8f0e5] via-[#f6ebdd] to-[#f4e6d4]">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
+        {/* Header */}
+        <div
+          className="pt-5 pb-2 relative flex items-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(-8px)",
+            transition: "opacity 300ms ease-out, transform 300ms ease-out",
+          }}
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+          <button
+            type="button"
+            onClick={handleBack}
+            className="flex items-center justify-center w-11 h-11 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
           >
-            <path
-              d="M12.5 15L7.5 10L12.5 5"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
 
-        <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-          Change Appointment
+          <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold tracking-tight text-[#7b4ea3]">
+            Nail Salon No.5
+          </div>
         </div>
-      </div>
 
-      {/* Current Appointment Summary Card */}
-      <div className="mt-4 mb-4">
-        <div className="w-full rounded-2xl bg-gradient-to-br from-[#fff7ec] via-[#fef5e7] to-[#fdf2e4] border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]" />
+        {/* Appointment Summary Card */}
+        <div
+          className="mb-5 overflow-hidden rounded-2xl bg-gradient-to-br from-[#7b4ea3] to-[#5c3a7d] shadow-xl"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0) scale(1)" : "translateY(10px) scale(0.97)",
+            transition: "opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms",
+          }}
+        >
           <div className="px-5 py-4">
-            <div className="flex items-start gap-8">
-              {/* Technician Photo */}
-              {techId && getTechImage(techId) && (
-                <div className="flex-shrink-0">
-                  <div className="relative w-16 h-20 rounded-lg overflow-hidden border-2 border-[#d6a249]/30">
-                    <Image
-                      src={getTechImage(techId)!}
-                      alt={techName}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
+            <div className="flex items-center gap-4">
+              {tech && (
+                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
+                  <img src={tech.image} alt={tech.name} className="w-full h-full object-cover" />
                 </div>
               )}
-              
-              {/* Appointment Details */}
-              <div className="flex-1 space-y-2">
-                <div>
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
-                    Service
-                  </div>
-                  <div className="text-base font-semibold text-neutral-900">
-                    {serviceNames || "Not selected"}
-                  </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-white/70 text-xs mb-0.5">Your appointment</div>
+                <div className="text-white font-bold text-base truncate">{serviceNames}</div>
+                <div className="text-[#f4b864] text-sm font-medium">
+                  with {tech?.name || "Artist"} · {totalDuration} min
                 </div>
-                
-                <div>
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
-                    Nail Tech
-                  </div>
-                  <div className="text-base font-semibold text-neutral-900">
-                    {techName}
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">
-                    Date & Time
-                  </div>
-                  <div className="text-base font-semibold text-neutral-900">
-                    {selectedDate && selectedTime
-                      ? `${formatDate(selectedDate)} · ${formatTime(selectedTime)}`
-                      : selectedDate
-                      ? `${formatDate(selectedDate)} · ${formatTime(currentTime || "")}`
-                      : currentDate && currentTime
-                      ? `${formatDate(currentDate)} · ${formatTime(currentTime)}`
-                      : "Not selected"}
-                  </div>
-                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-white">${totalPrice}</div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Calendar Section */}
-      <div className="-mt-1 pb-3 border-b border-[#d6a249]/30">
-        <SectionTitle
-          icon={
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          }
+        {/* Title */}
+        <div
+          className="text-center mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms",
+          }}
         >
-          Change Date
-        </SectionTitle>
+          <h1 className="text-2xl font-bold text-neutral-900">
+            Change Your Appointment
+          </h1>
+          <p className="text-sm text-neutral-500 mt-1">
+            {selectedDate && selectedTime
+              ? `${formatSelectedDate(selectedDate)} at ${formatTime12h(selectedTime)}`
+              : selectedDate
+              ? `${formatSelectedDate(selectedDate)} · Select a time`
+              : "Select a new date and time"
+            }
+          </p>
+        </div>
 
-        <div className="w-full rounded-2xl border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden" style={{ backgroundColor: '#ffffff' }}>
-          {/* Gold Accent Bar */}
-          <div
-            className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]"
-            style={{
-              width: goldBarVisible ? "100%" : "0%",
-              transition: "width 400ms ease-out",
-            }}
-          />
-          <div className="px-5 py-6">
-            <div className="flex items-center justify-between mb-3">
+        {/* Calendar Card */}
+        <div
+          className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)] mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms",
+          }}
+        >
+          {/* Month Navigation */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-neutral-100 active:scale-95 transition-all duration-200"
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M10 12L6 8L10 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
 
-            <div className="text-base font-semibold text-neutral-900">
+            <div className="text-lg font-bold text-neutral-900">
               {monthNames[currentMonth]} {currentYear}
             </div>
 
             <button
               type="button"
               onClick={handleNextMonth}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-neutral-100 active:scale-95 transition-all duration-200"
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M6 4L10 8L6 12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <div
-                key={day}
-                className="text-center text-xs font-semibold text-neutral-500 py-1.5"
-              >
+          {/* Day Names */}
+          <div className="grid grid-cols-7 px-4 pt-3">
+            {dayNames.map((day, i) => (
+              <div key={i} className="text-center text-xs font-bold text-neutral-400 py-2">
                 {day}
               </div>
             ))}
+          </div>
 
+          {/* Calendar Grid */}
+          <div className="grid grid-cols-7 gap-1 px-4 pb-4">
             {calendarDays.map((date, index) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="h-9" />;
+                return <div key={`empty-${index}`} className="h-11" />;
               }
 
-              const isSelected =
-                selectedDate &&
-                date.toDateString() === selectedDate.toDateString();
+              const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
               const isToday = date.toDateString() === today.toDateString();
               const isPast = date < today && !isToday;
 
@@ -413,14 +312,14 @@ export default function ChangeAppointmentPage() {
                   type="button"
                   onClick={() => handleDateSelect(date)}
                   disabled={isPast}
-                  className={`h-9 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`h-11 rounded-xl text-sm font-semibold transition-all duration-200 ${
                     isSelected
-                      ? "bg-gradient-to-br from-[#d6a249] to-[#f4b864] text-white font-bold shadow-md ring-2 ring-[#d6a249] ring-offset-1"
+                      ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg scale-110 z-10"
                       : isPast
                       ? "text-neutral-300 cursor-not-allowed"
                       : isToday
-                      ? "bg-[#fff7ec] text-[#7b4ea3] hover:bg-[#f5e6d3] font-semibold border border-[#d6a249]/30"
-                      : "text-neutral-700 hover:bg-neutral-50"
+                      ? "bg-[#7b4ea3] text-white"
+                      : "text-neutral-700 hover:bg-[#f6ebdd]"
                   }`}
                 >
                   {date.getDate()}
@@ -428,100 +327,122 @@ export default function ChangeAppointmentPage() {
               );
             })}
           </div>
-          </div>
         </div>
-      </div>
 
-      {/* Time Selection */}
-      {selectedDate && (
-        <div className="mt-3">
-          <SectionTitle
-            icon={
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="text-[#d6a249]"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M12 6v6l4 2"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            }
+        {/* Time Selection */}
+        {selectedDate && (
+          <div
+            className="space-y-4"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? "translateY(0)" : "translateY(10px)",
+              transition: "opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms",
+            }}
           >
-            Change Time
-          </SectionTitle>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mt-3">
-            {timeSlots.map((time) => {
-              const isSelected = selectedTime === time;
-              return (
-                <button
-                  key={time}
-                  type="button"
-                  onClick={() => handleTimeSelect(time)}
-                  className={`rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                    isSelected
-                      ? "bg-gradient-to-br from-[#d6a249] to-[#f4b864] text-white shadow-md ring-2 ring-[#d6a249] ring-offset-1"
-                      : "bg-white shadow-sm hover:bg-[#f5e6d3] hover:shadow-md hover:ring-2 hover:ring-[#d6a249]/50 hover:ring-offset-1 text-neutral-700 active:scale-[0.96] border border-neutral-100"
-                  }`}
-                >
-                  {time}
-                </button>
-              );
-            })}
+            {/* Morning Times */}
+            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+                <span className="text-xl">🌅</span>
+                <span className="text-sm font-bold text-neutral-900">Morning</span>
+                <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
+              </div>
+              <div className="p-4 grid grid-cols-3 gap-2">
+                {morningSlots.map((slot) => {
+                  const isSelected = selectedTime === slot.time;
+                  return (
+                    <button
+                      key={slot.time}
+                      type="button"
+                      onClick={() => handleTimeSelect(slot.time)}
+                      className={`py-3 px-2 rounded-xl text-sm font-bold transition-all duration-200 border ${
+                        isSelected
+                          ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg border-[#d6a249] scale-105"
+                          : "bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-neutral-800 border-[#f4b864]/20 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95"
+                      }`}
+                    >
+                      {formatTime12h(slot.time)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Afternoon Times */}
+            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+                <span className="text-xl">☀️</span>
+                <span className="text-sm font-bold text-neutral-900">Afternoon</span>
+                <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
+              </div>
+              <div className="p-4 grid grid-cols-3 gap-2">
+                {afternoonSlots.map((slot) => {
+                  const isSelected = selectedTime === slot.time;
+                  return (
+                    <button
+                      key={slot.time}
+                      type="button"
+                      onClick={() => handleTimeSelect(slot.time)}
+                      className={`py-3 px-2 rounded-xl text-sm font-bold transition-all duration-200 border ${
+                        isSelected
+                          ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg border-[#d6a249] scale-105"
+                          : "bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-neutral-800 border-[#f4b864]/20 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95"
+                      }`}
+                    >
+                      {formatTime12h(slot.time)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Action Buttons */}
-      <div className="mt-6 space-y-3">
-        <PrimaryButton
-          onClick={handleConfirm}
-          disabled={!selectedDate || !selectedTime}
-          size="default"
-          fullWidth={true}
+        {/* Action Buttons */}
+        <div
+          className="mt-6 space-y-3"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 300ms",
+          }}
         >
-          Confirm
-        </PrimaryButton>
-
-        <SecondaryButton
-          onClick={handleChangeService}
-          size="default"
-          fullWidth={true}
-        >
-          Change Service
-        </SecondaryButton>
-
-        <div className="text-center">
           <button
             type="button"
-            onClick={handleCancel}
-            className="text-sm text-neutral-600 underline hover:text-neutral-800 transition-colors"
+            onClick={handleConfirm}
+            disabled={!selectedDate || !selectedTime}
+            className={`w-full py-4 rounded-xl font-bold text-base transition-all duration-200 ${
+              selectedDate && selectedTime
+                ? "bg-gradient-to-r from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+                : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+            }`}
           >
-            Cancel
+            {selectedDate && selectedTime ? "Confirm Changes" : "Select date & time"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleChangeService}
+            className="w-full py-3 rounded-xl font-semibold text-base border-2 border-[#7b4ea3] text-[#7b4ea3] hover:bg-[#7b4ea3]/5 active:scale-[0.98] transition-all duration-200"
+          >
+            Change Service or Tech
           </button>
         </div>
-      </div>
 
-      {/* Reassurance footer */}
-      <div className="mt-6 pb-4">
-        <p className="text-xs text-neutral-500 text-center leading-relaxed">
-          No payment required to reserve · You can reschedule from your profile
-        </p>
+        {/* Footer */}
+        <div
+          className="mt-6 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 400ms",
+          }}
+        >
+          <p className="text-xs text-neutral-400">
+            ✨ No payment required to reserve
+          </p>
+          <p className="text-xs text-neutral-400 mt-0.5">
+            Free cancellation up to 24 hours before
+          </p>
+        </div>
       </div>
-    </PageLayout>
+    </div>
   );
 }
-

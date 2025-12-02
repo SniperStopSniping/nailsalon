@@ -162,5 +162,70 @@
     "message_title": "Message",
     "message_description": "Enter a detailed message for your todo.",
     "submit_button": "Submit"
+  },
+  "Rewards": {
+    "title": "Rewards",
+    "welcome": "Welcome back, {name}!",
+    "your_rewards": "Your Rewards",
+    "apply_to_appointment": "Apply to Appointment",
+    "original_price": "Original Price",
+    "reward_applied_label": "Reward Applied",
+    "new_total": "New Total",
+    "apply_reward": "Apply Reward",
+    "reward_applied": "Reward Applied",
+    "reward_applied_success": "Your reward has been applied successfully!",
+    "change_appointment": "Change Appointment",
+    "earn_more_rewards": "Earn More Rewards",
+    "earn_more_description": "Upload photos of your nails or leave a Google review to earn more rewards!",
+    "upload_photo": "Upload Photo",
+    "leave_google_review": "Leave Google Review",
+    "your_past_nails": "Your Past Nails",
+    "view_all_photos": "View All Photos",
+    "invalid_image": "Please select a valid image file",
+    "image_too_large": "Image must be less than 10MB",
+    "photo_uploaded": "Photo uploaded successfully!"
+  },
+  "AppointmentHistory": {
+    "title": "Your Visits",
+    "subtitle": "A journey of beautiful nails",
+    "tech": "Nail Artist",
+    "price": "Service",
+    "reward_applied": "Reward",
+    "total_paid": "Total",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "no_show": "No Show",
+    "this_appointment_cancelled": "This appointment was cancelled",
+    "no_history": "No appointment history yet"
+  },
+  "Profile": {
+    "title": "My Profile"
+  },
+  "Invite": {
+    "title": "Invite & Earn",
+    "subtitle": "Share the beauty, earn rewards",
+    "description": "Invite your friends to experience our salon. When they book their first appointment, you both get rewarded!",
+    "friends_phone": "Friend's Phone Number",
+    "send_referral": "Send Invite",
+    "referral_sent": "Invite sent successfully! 🎉",
+    "or": "or share your link",
+    "copy_referral_link": "Copy Referral Link",
+    "link_copied": "Link copied to clipboard! 📋",
+    "my_referrals": "View My Referrals",
+    "your_reward": "You Get",
+    "friend_reward": "They Get",
+    "how_it_works": "How It Works"
+  },
+  "Gallery": {
+    "title": "Your Nail Journey",
+    "subtitle": "Every visit tells a story",
+    "total_visits": "Total Visits",
+    "favorite_tech": "Favorite Artist",
+    "favorite_service": "Go-To Style",
+    "upload_new": "Add New Photo",
+    "view_all_photos": "Load More",
+    "tech": "Artist",
+    "empty_state": "Your nail gallery is empty",
+    "empty_description": "Photos from your visits will appear here"
   }
 }

@@ -2,7 +2,6 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { PageLayout } from "@/components/PageLayout";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { FormInput } from "@/components/FormInput";
 import { MainCard } from "@/components/MainCard";
@@ -59,7 +58,7 @@ const SERVICES: Service[] = [
     duration: 60,
     price: 60,
     category: "feet",
-    imageUrl: "/images/services/spa-pedi.jpg",
+    imageUrl: "/assets/images/biab-short.webp",
   },
   {
     id: "gel-pedi",
@@ -67,7 +66,7 @@ const SERVICES: Service[] = [
     duration: 75,
     price: 70,
     category: "feet",
-    imageUrl: "/images/services/gel-pedi.jpg",
+    imageUrl: "/assets/images/biab-medium.webp",
   },
   {
     id: "biab-gelx-combo",
@@ -75,7 +74,7 @@ const SERVICES: Service[] = [
     duration: 150,
     price: 130,
     category: "combo",
-    imageUrl: "/images/services/combo-hands-feet.jpg",
+    imageUrl: "/assets/images/gel-x-extensions.jpg",
   },
   {
     id: "mani-pedi",
@@ -83,14 +82,14 @@ const SERVICES: Service[] = [
     duration: 120,
     price: 95,
     category: "combo",
-    imageUrl: "/images/services/mani-pedi.jpg",
+    imageUrl: "/assets/images/biab-french.jpg",
   },
 ];
 
-const CATEGORY_LABELS: { id: Category; label: string }[] = [
-  { id: "hands", label: "Hands" },
-  { id: "feet", label: "Feet" },
-  { id: "combo", label: "Combo" },
+const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
+  { id: "hands", label: "Hands", icon: "💅" },
+  { id: "feet", label: "Feet", icon: "🦶" },
+  { id: "combo", label: "Combo", icon: "✨" },
 ];
 
 export default function BookServicePage() {
@@ -105,7 +104,12 @@ export default function BookServicePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingServiceIds, setPendingServiceIds] = useState<string[]>([]);
+  const [mounted, setMounted] = useState(false);
   const codeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const filteredServices = SERVICES.filter((service) => {
     if (searchQuery) {
@@ -121,6 +125,8 @@ export default function BookServicePage() {
   };
 
   const selectedCount = selectedServiceIds.length;
+  const selectedServices = SERVICES.filter((s) => selectedServiceIds.includes(s.id));
+  const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
 
   const handleSendCode = () => {
     if (!phone.trim()) return;
@@ -159,23 +165,18 @@ export default function BookServicePage() {
   const handleChooseTech = () => {
     if (!selectedServiceIds.length) return;
     
-    // If user is logged in, proceed normally
     if (authState === "loggedIn") {
       goToTechSelection(selectedServiceIds);
       return;
     }
     
-    // If not logged in, store service IDs and open login modal
     setPendingServiceIds(selectedServiceIds);
     setIsLoginModalOpen(true);
   };
 
   const handleLoginSuccess = () => {
-    // Mark user as logged in
     setAuthState("loggedIn");
-    // Close modal
     setIsLoginModalOpen(false);
-    // Navigate to tech selection with pending service IDs
     if (pendingServiceIds.length > 0) {
       goToTechSelection(pendingServiceIds);
       setPendingServiceIds([]);
@@ -188,267 +189,316 @@ export default function BookServicePage() {
   };
 
   return (
-    <PageLayout>
-      {/* Search Bar */}
-      <div className="pt-2">
-        <div className="flex items-center rounded-full bg-white shadow-sm px-4 py-2.5">
-          <span className="mr-2 text-neutral-400 text-lg">⌕</span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search BIAB, Gel-X, etc."
-            className="flex-1 bg-transparent text-sm text-neutral-800 placeholder:text-neutral-400 outline-none"
-          />
-          {searchQuery && (
+    <div className="min-h-screen bg-gradient-to-b from-[#f8f0e5] via-[#f6ebdd] to-[#f4e6d4]">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
+        {/* Header */}
+        <div
+          className="pt-6 pb-2 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(-8px)",
+            transition: "opacity 300ms ease-out, transform 300ms ease-out",
+          }}
+        >
+          <div className="text-lg font-semibold tracking-tight text-[#7b4ea3]">
+            Nail Salon No.5
+          </div>
+        </div>
+
+        {/* Progress Steps */}
+        <div
+          className="flex items-center justify-center gap-2 mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 50ms",
+          }}
+        >
+          {["Service", "Artist", "Time", "Confirm"].map((step, i) => (
+            <div key={step} className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 ${i === 0 ? "opacity-100" : "opacity-40"}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                  i === 0 ? "bg-[#f4b864] text-neutral-900" : "bg-neutral-300 text-neutral-600"
+                }`}>
+                  {i + 1}
+                </div>
+                <span className={`text-xs font-medium ${i === 0 ? "text-neutral-900" : "text-neutral-500"}`}>
+                  {step}
+                </span>
+              </div>
+              {i < 3 && <div className="w-4 h-px bg-neutral-300" />}
+            </div>
+          ))}
+        </div>
+
+        {/* Search Bar */}
+        <div
+          className="mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms",
+          }}
+        >
+          <div className="flex items-center rounded-2xl bg-white border border-[#e6d6c2] shadow-sm px-4 py-3">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-neutral-400 mr-3">
+              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+              <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search services..."
+              className="flex-1 bg-transparent text-base text-neutral-800 placeholder:text-neutral-400 outline-none"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="ml-2 flex items-center justify-center w-6 h-6 rounded-full bg-neutral-100 hover:bg-neutral-200 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category Tabs */}
+        <div
+          className="flex items-center justify-center gap-2 mb-5"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 150ms",
+          }}
+        >
+          {CATEGORY_LABELS.map((cat) => {
+            const active = cat.id === selectedCategory;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 ${
+                  active
+                    ? "bg-[#7b4ea3] text-white shadow-md"
+                    : "bg-white text-neutral-600 border border-[#e6d6c2] hover:border-[#7b4ea3]/30"
+                }`}
+              >
+                <span>{cat.icon}</span>
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Services Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          {filteredServices.map((service, index) => {
+            const isSelected = selectedServiceIds.includes(service.id);
+            return (
+              <button
+                key={service.id}
+                type="button"
+                onClick={() => toggleService(service.id)}
+                className={`relative rounded-2xl overflow-hidden text-left transition-all duration-200 ${
+                  isSelected
+                    ? "bg-gradient-to-br from-[#f4b864]/20 to-[#d6a249]/10 ring-2 ring-[#f4b864] scale-[1.02] shadow-lg"
+                    : "bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:shadow-lg hover:scale-[1.01] hover:border-[#d6a249]/30"
+                }`}
+                style={{
+                  opacity: mounted ? 1 : 0,
+                  transform: mounted ? "translateY(0)" : "translateY(15px)",
+                  transition: `opacity 300ms ease-out ${200 + index * 50}ms, transform 300ms ease-out ${200 + index * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
+                }}
+              >
+                {/* Image */}
+                <div className="h-[120px] bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] relative overflow-hidden">
+                  <img
+                    src={service.imageUrl}
+                    alt={service.name}
+                    className={`w-full h-full object-cover transition-transform duration-300 ${isSelected ? "scale-105" : ""}`}
+                  />
+                  {/* Selection checkmark */}
+                  {isSelected && (
+                    <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gradient-to-br from-[#f4b864] to-[#d6a249] flex items-center justify-center shadow-lg">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
+                        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div className="p-3">
+                  <div className="text-base font-bold text-neutral-900 leading-tight">
+                    {service.name}
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-sm text-neutral-500">{service.duration} min</span>
+                    <span className="text-base font-bold text-[#7b4ea3]">${service.price}</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Spacer for fixed bottom bar */}
+        {selectedCount > 0 && <div className="h-24" />}
+
+        {/* Auth Footer */}
+        <MainCard className="mt-4">
+          {authState === "loggedOut" && (
+            <div className="space-y-3">
+              <p className="text-lg font-bold text-neutral-800">
+                <span
+                  className="bg-clip-text text-transparent"
+                  style={{
+                    backgroundImage: "linear-gradient(to right, #7b4ea3, #f4b864)",
+                  }}
+                >
+                  New here? Get a free manicure! 💅
+                </span>
+              </p>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
+                  +1
+                </div>
+                <FormInput
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "");
+                    setPhone(digits.slice(0, 10));
+                  }}
+                  placeholder="Phone number"
+                  className="!px-4 !py-2.5 !text-base"
+                />
+                <PrimaryButton
+                  onClick={handleSendCode}
+                  disabled={!phone.trim()}
+                  size="sm"
+                  fullWidth={false}
+                >
+                  →
+                </PrimaryButton>
+              </div>
+              <p className="text-xs text-neutral-400">
+                *New clients only. Conditions apply.
+              </p>
+            </div>
+          )}
+
+          {authState === "verify" && (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-neutral-700">
+                Enter the 6-digit code we sent to +1 {phone}
+              </p>
+              <div className="flex items-center gap-2">
+                <FormInput
+                  ref={codeInputRef}
+                  type="tel"
+                  inputMode="numeric"
+                  value={code}
+                  onChange={(e) =>
+                    setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  placeholder="• • • • • •"
+                  className="!w-full !px-4 !py-2.5 !text-center !tracking-[0.3em] !text-lg"
+                />
+                <PrimaryButton
+                  onClick={handleVerifyCode}
+                  disabled={code.trim().length < 4}
+                  size="sm"
+                  fullWidth={false}
+                >
+                  Verify
+                </PrimaryButton>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthState("loggedOut");
+                  setCode("");
+                }}
+                className="text-sm text-[#7b4ea3] font-medium hover:underline"
+              >
+                ← Change phone number
+              </button>
+            </div>
+          )}
+
+          {authState === "loggedIn" && (
+            <div className="flex items-center justify-around py-1">
+              {[
+                { icon: "🤝", label: "Invite", path: `/${locale}/invite` },
+                { icon: "🎁", label: "Rewards", path: `/${locale}/rewards` },
+                { icon: "👤", label: "Profile", path: `/${locale}/profile` },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => router.push(item.path)}
+                  className="flex flex-col items-center gap-1.5 px-4 py-2 rounded-xl hover:bg-neutral-50 active:scale-95 transition-all"
+                >
+                  <span className="text-2xl">{item.icon}</span>
+                  <span className="text-xs font-semibold text-neutral-700">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </MainCard>
+
+        {/* Blocking Login Modal */}
+        <BlockingLoginModal
+          isOpen={isLoginModalOpen}
+          onClose={handleCloseLoginModal}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      </div>
+
+      {/* Fixed Bottom Selection Bar */}
+      {selectedCount > 0 && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#e6d6c2] shadow-[0_-4px_20px_rgba(0,0,0,0.1)]"
+          style={{
+            animation: "slideUp 0.3s ease-out",
+          }}
+        >
+          <style jsx>{`
+            @keyframes slideUp {
+              from {
+                transform: translateY(100%);
+              }
+              to {
+                transform: translateY(0);
+              }
+            }
+          `}</style>
+          <div className="mx-auto max-w-[430px] px-4 py-4 flex items-center justify-between">
+            <div>
+              <div className="text-sm text-neutral-500">
+                {selectedCount === 1 ? "1 service" : `${selectedCount} services`}
+              </div>
+              <div className="text-xl font-bold text-neutral-900">${totalPrice}</div>
+            </div>
             <button
               type="button"
-              onClick={() => setSearchQuery("")}
-              className="ml-2 flex items-center justify-center w-5 h-5 rounded-full hover:bg-neutral-100 transition-colors"
+              onClick={handleChooseTech}
+              className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#f4b864] to-[#d6a249] px-6 py-3 text-base font-bold text-neutral-900 shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M9 3L3 9M3 3L9 9"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+              Continue
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-          )}
+          </div>
+          {/* Safe area padding for devices with home indicator */}
+          <div className="h-[env(safe-area-inset-bottom)]" />
         </div>
-      </div>
-
-      {/* Category Tabs */}
-      <div className="flex items-center justify-center gap-8 text-sm font-semibold text-neutral-700">
-        {CATEGORY_LABELS.map((cat) => {
-          const active = cat.id === selectedCategory;
-          return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className="relative pb-2 px-1"
-            >
-              <span
-                className={
-                  active ? "text-neutral-900" : "text-neutral-400"
-                }
-              >
-                {cat.label}
-              </span>
-              {active && (
-                <span className="absolute left-0 right-0 bottom-0 h-[2px] rounded-full bg-[#f4b864]" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Services Grid */}
-      <div className="grid grid-cols-2 gap-3">
-        {filteredServices.map((service) => {
-          const isSelected = selectedServiceIds.includes(service.id);
-          return (
-            <button
-              key={service.id}
-              type="button"
-              onClick={() => toggleService(service.id)}
-              className={`relative rounded-2xl overflow-hidden text-left shadow-[0_4px_20px_rgba(0,0,0,0.08)] transition-all duration-150 p-4 min-h-[200px] ${
-                isSelected
-                  ? "bg-[#f5e6d3] ring-2 ring-[#d6a249] ring-offset-1 ring-offset-[#f6ebdd]"
-                  : "bg-white"
-              }`}
-              onMouseEnter={(e) => {
-                if (window.innerWidth >= 768) {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0_4px_20px_rgba(0, 0, 0, 0.1)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (window.innerWidth >= 768) {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0_4px_20px_rgba(0, 0, 0, 0.08)';
-                }
-              }}
-            >
-              <div className="h-[130px] bg-[#f0dfc9] rounded-t-2xl relative overflow-hidden -mx-4 -mt-4 mb-2">
-                <img
-                  src={service.imageUrl}
-                  alt={service.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="px-0">
-                <div className="text-base font-semibold text-neutral-900 leading-tight">
-                  {service.name}
-                </div>
-                <div className="mt-1 text-sm text-neutral-600">
-                  {service.duration} min
-                </div>
-                <div className="mt-1 text-sm font-semibold text-neutral-900">
-                  ${service.price}
-                </div>
-              </div>
-              {isSelected && (
-                <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[#d6a249] flex items-center justify-center text-xs font-bold text-white shadow-md transition-all duration-150">
-                  ✓
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Choose Technician Bar */}
-      {selectedCount > 0 && (
-        <MainCard className="mt-1">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-neutral-900">
-              {selectedCount === 1
-                ? "1 service selected"
-                : `${selectedCount} services selected`}
-            </div>
-            <PrimaryButton
-              onClick={handleChooseTech}
-              size="sm"
-              fullWidth={false}
-            >
-              Choose technician
-            </PrimaryButton>
-          </div>
-        </MainCard>
       )}
-
-      {/* Auth Footer */}
-      <MainCard>
-        {authState === "loggedOut" && (
-          <div className="space-y-2.5">
-            <p className="text-lg font-semibold text-neutral-700">
-              <span
-                className="bg-clip-text text-transparent animate-shimmer inline-block"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #7b4ea3, #f4b864, #7b4ea3, #f4b864, #7b4ea3)",
-                  backgroundSize: "200% 100%",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
-              >
-                Login / sign up for a free manicure*
-              </span>
-            </p>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center rounded-full bg-neutral-100 px-2.5 py-1.5 text-xs text-neutral-600">
-                <span className="mr-1">+1</span>
-              </div>
-              <FormInput
-                type="tel"
-                value={phone}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, "");
-                  setPhone(digits.slice(0, 10));
-                }}
-                placeholder="Phone number"
-                className="!px-3 !py-2 !text-base"
-              />
-              <PrimaryButton
-                onClick={handleSendCode}
-                disabled={!phone.trim()}
-                size="sm"
-                fullWidth={false}
-              >
-                →
-              </PrimaryButton>
-            </div>
-            <p className="text-xs text-neutral-500">
-              *New clients only. Conditions apply.
-            </p>
-          </div>
-        )}
-
-        {authState === "verify" && (
-          <div className="space-y-2.5">
-            <p className="text-xs font-semibold text-neutral-700">
-              {`Enter the 6-digit code we sent to +1 ${phone}`}
-            </p>
-            <div className="flex items-center gap-2 w-full max-w-full">
-              <FormInput
-                ref={codeInputRef}
-                type="tel"
-                inputMode="numeric"
-                value={code}
-                onChange={(e) =>
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                placeholder="-  -  -   -  -  -"
-                className="!w-full !px-3 !py-2 !text-center !tracking-[0.25em] !text-base"
-              />
-              <PrimaryButton
-                onClick={handleVerifyCode}
-                disabled={code.trim().length < 4}
-                size="sm"
-                fullWidth={false}
-              >
-                Verify
-              </PrimaryButton>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthState("loggedOut");
-                setCode("");
-              }}
-              className="text-xs text-neutral-500 underline"
-            >
-              Edit phone number
-            </button>
-          </div>
-        )}
-
-        {authState === "loggedIn" && (
-          <div className="flex items-center justify-between text-xs font-semibold text-neutral-800">
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/invite`)}
-              className="flex flex-col items-center gap-1 active:scale-95 transition-transform duration-150"
-            >
-              <span className="text-lg">🤝</span>
-              <span>Invite</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/rewards`)}
-              className="flex flex-col items-center gap-1 active:scale-95 transition-transform duration-150"
-            >
-              <span className="text-lg">💛</span>
-              <span>Rewards</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/profile`)}
-              className="flex flex-col items-center gap-1 active:scale-95 transition-transform duration-150"
-            >
-              <span className="text-lg">👤</span>
-              <span>Profile</span>
-            </button>
-          </div>
-        )}
-      </MainCard>
-
-      {/* Blocking Login Modal */}
-      <BlockingLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={handleCloseLoginModal}
-        onLoginSuccess={handleLoginSuccess}
-      />
-    </PageLayout>
+    </div>
   );
 }

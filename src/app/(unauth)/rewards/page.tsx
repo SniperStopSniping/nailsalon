@@ -1,8 +1,9 @@
-"use client";
+'use client';
 
-import { useParams, useRouter } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
-import { useTranslations } from "@/providers/I18nProvider";
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+
+import { useTranslations } from '@/providers/I18nProvider';
 
 type Reward = {
   id: string;
@@ -11,17 +12,17 @@ type Reward = {
 };
 
 const USER_REWARDS: Reward[] = [
-  { id: "5-off", label: "$5 OFF", isActive: true },
-  { id: "10-off", label: "$10 OFF", isActive: true },
-  { id: "free-biab", label: "FREE BIAB Fill", isActive: false },
-  { id: "vip", label: "VIP Priority", isActive: true },
+  { id: '5-off', label: '$5 OFF', isActive: true },
+  { id: '10-off', label: '$10 OFF', isActive: true },
+  { id: 'free-biab', label: 'FREE BIAB Fill', isActive: false },
+  { id: 'vip', label: 'VIP Priority', isActive: true },
 ];
 
 export default function RewardsPage() {
   const router = useRouter();
   const params = useParams();
-  const locale = (params?.locale as string) || "en";
-  const t = useTranslations("Rewards");
+  const locale = (params?.locale as string) || 'en';
+  const t = useTranslations('Rewards');
   const [selectedReward, setSelectedReward] = useState<string | null>(null);
   const [rewardApplied, setRewardApplied] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
@@ -30,23 +31,43 @@ export default function RewardsPage() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Animation states
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Appointment details
   const appointmentDetails = {
-    service: "BIAB Medium",
-    date: "Dec 18",
-    time: "2:00 PM",
+    serviceId: 'biab-medium',
+    service: 'BIAB Medium',
+    techId: 'tiffany',
+    date: '2025-12-18',
+    time: '14:00',
+    displayDate: 'Dec 18',
+    displayTime: '2:00 PM',
     originalPrice: 75,
   };
 
   // Calculate discount based on selected reward
   const getDiscountAmount = () => {
-    if (!selectedReward) return 0;
-    const reward = USER_REWARDS.find((r) => r.id === selectedReward);
-    if (!reward) return 0;
+    if (!selectedReward) {
+      return 0;
+    }
+    const reward = USER_REWARDS.find(r => r.id === selectedReward);
+    if (!reward) {
+      return 0;
+    }
 
-    if (reward.label === "$5 OFF") return 5;
-    if (reward.label === "$10 OFF") return 10;
-    if (reward.label === "FREE BIAB Fill") return appointmentDetails.originalPrice;
+    if (reward.label === '$5 OFF') {
+      return 5;
+    }
+    if (reward.label === '$10 OFF') {
+      return 10;
+    }
+    if (reward.label === 'FREE BIAB Fill') {
+      return appointmentDetails.originalPrice;
+    }
     return 0;
   };
 
@@ -63,9 +84,11 @@ export default function RewardsPage() {
   };
 
   const handleApplyReward = () => {
-    if (!selectedReward) return;
+    if (!selectedReward) {
+      return;
+    }
     // TODO: Apply reward to appointment via backend
-    console.log("Applying reward:", selectedReward);
+    console.log('Applying reward:', selectedReward);
     setRewardApplied(true);
   };
 
@@ -75,13 +98,15 @@ export default function RewardsPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     // Validate file type
-    if (!file.type.startsWith("image/")) {
+    if (!file.type.startsWith('image/')) {
       setUploadStatus({
         success: false,
-        message: t("invalid_image"),
+        message: t('invalid_image'),
       });
       setTimeout(() => setUploadStatus(null), 3000);
       return;
@@ -91,22 +116,22 @@ export default function RewardsPage() {
     if (file.size > 10 * 1024 * 1024) {
       setUploadStatus({
         success: false,
-        message: t("image_too_large"),
+        message: t('image_too_large'),
       });
       setTimeout(() => setUploadStatus(null), 3000);
       return;
     }
 
     // TODO: Upload to backend
-    console.log("Uploading photo:", file.name);
+    console.log('Uploading photo:', file.name);
     setUploadStatus({
       success: true,
-      message: t("photo_uploaded"),
+      message: t('photo_uploaded'),
     });
 
     // Reset input
     if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      fileInputRef.current.value = '';
     }
 
     // Clear success message after 3 seconds
@@ -117,28 +142,35 @@ export default function RewardsPage() {
 
   const handleGoogleReview = () => {
     // TODO: Open Google review link
-    console.log("TODO: Open Google review");
+    console.log('TODO: Open Google review');
     window.open(
-      "https://www.google.com/maps/place/Nail+Salon+No.5",
-      "_blank"
+      'https://www.google.com/maps/place/Nail+Salon+No.5',
+      '_blank',
     );
   };
 
-  const activeRewards = USER_REWARDS.filter((r) => r.isActive);
+  const activeRewards = USER_REWARDS.filter(r => r.isActive);
 
   return (
-    <div className="min-h-screen bg-[#f6ebdd] flex justify-center py-4">
-      <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+    <div className="flex min-h-screen justify-center bg-[#f6ebdd] pb-10 pt-6">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col gap-5 px-4">
         {/* Top bar with back button */}
-        <div className="pt-2 relative flex items-center">
+        <div
+          className="relative flex items-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
+            transition: 'opacity 250ms ease-out, transform 250ms ease-out',
+          }}
+        >
           <button
             type="button"
             onClick={handleBack}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
           >
             <svg
-              width="20"
-              height="20"
+              width="22"
+              height="22"
               viewBox="0 0 20 20"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -154,195 +186,247 @@ export default function RewardsPage() {
           </button>
 
           {/* Salon name - centered */}
-          <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
+          <div className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold tracking-tight text-[#7b4ea3]">
             Nail Salon No.5
           </div>
         </div>
 
         {/* Title section */}
-        <div className="text-center pt-2">
-          <h1 className="text-2xl font-bold text-neutral-900">{t("title")}</h1>
-          <p className="text-sm text-neutral-600 mt-1">{t("welcome", { name: "Sarah" })}</p>
+        <div
+          className="space-y-2 pt-2 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 250ms ease-out 100ms, transform 250ms ease-out 100ms',
+          }}
+        >
+          <h1 className="text-3xl font-semibold tracking-tight text-[#7b4ea3]">
+            {t('title')}
+          </h1>
+          <p className="text-xl text-neutral-600">
+            {t('welcome', { name: 'Sarah' })}
+          </p>
         </div>
 
         {/* Main Card: Rewards + Apply to Appointment */}
-        <div className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-5">
-          {/* Reward Pills Section */}
-          {activeRewards.length > 0 && (
-            <div className="space-y-3 pb-5">
-              <h2 className="text-sm font-semibold text-neutral-900">
-                {t("your_rewards")}
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {activeRewards.map((reward) => (
-                  <button
-                    key={reward.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedReward(
-                        selectedReward === reward.id ? null : reward.id
-                      )
-                    }
-                    className={`px-4 py-2 rounded-full text-xs font-semibold transition-all duration-150 ${
-                      selectedReward === reward.id
-                        ? "bg-[#f4b864] text-neutral-900 ring-2 ring-[#d6a249] ring-offset-1 ring-offset-white"
-                        : "bg-neutral-50 text-neutral-700 hover:bg-neutral-100"
-                    } shadow-sm`}
-                  >
-                    {reward.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        <div
+          className="overflow-hidden rounded-2xl border border-[#e6d6c2] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.08)]"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
+            transition: 'opacity 250ms ease-out 200ms, transform 250ms ease-out 200ms',
+          }}
+        >
+          {/* Gold accent bar */}
+          <div
+            className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]"
+            style={{
+              width: mounted ? '100%' : '0%',
+              transition: 'width 400ms ease-out 250ms',
+            }}
+          />
 
-          {/* Divider */}
-          <div className="h-px bg-neutral-200 my-5" />
-
-          {/* Apply to Appointment Section */}
-          <div className="space-y-4 pt-1">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900">
-                {t("apply_to_appointment")}
-              </h3>
-              <p className="text-xs text-neutral-600 mt-1.5">
-                {appointmentDetails.service} · {appointmentDetails.date} ·{" "}
-                {appointmentDetails.time}
-              </p>
-            </div>
-
-            {/* Price breakdown */}
-            {rewardApplied && (
-              <div className="space-y-2 rounded-xl bg-[#fff7ec] p-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-neutral-600">{t("original_price")}</span>
-                  <span className="text-neutral-900 font-semibold">
-                    ${appointmentDetails.originalPrice}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-neutral-600">{t("reward_applied_label")}</span>
-                  <span className="text-green-600 font-semibold">
-                    -${discountAmount}
-                  </span>
-                </div>
-                <div className="border-t border-neutral-200 pt-2 flex justify-between items-center">
-                  <span className="text-sm font-semibold text-neutral-900">
-                    {t("new_total")}
-                  </span>
-                  <span className="text-sm font-bold text-neutral-900">
-                    ${finalPrice.toFixed(2)}
-                  </span>
+          <div className="px-5 py-6">
+            {/* Reward Pills Section */}
+            {activeRewards.length > 0 && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-neutral-900">
+                  {t('your_rewards')}
+                </h2>
+                <div className="flex flex-wrap gap-2.5">
+                  {activeRewards.map(reward => (
+                    <button
+                      key={reward.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedReward(
+                          selectedReward === reward.id ? null : reward.id,
+                        )}
+                      className={`rounded-full px-5 py-3 text-lg font-semibold transition-all duration-200 ${
+                        selectedReward === reward.id
+                          ? 'bg-[#f4b864] text-neutral-900 shadow-md ring-2 ring-[#d6a249] ring-offset-2 ring-offset-white'
+                          : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100 hover:shadow-sm'
+                      }`}
+                    >
+                      {reward.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handleApplyReward}
-              disabled={!selectedReward || rewardApplied}
-              className="w-full rounded-full bg-[#f4b864] py-3 text-sm font-semibold text-neutral-900 hover:bg-[#f4b864]/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {rewardApplied ? t("reward_applied") : t("apply_reward")}
-            </button>
+            {/* Divider */}
+            <div className="my-6 h-px bg-neutral-100" />
 
-            {rewardApplied && (
-              <p className="text-xs text-center text-green-600">
-                {t("reward_applied_success")}
-              </p>
-            )}
+            {/* Apply to Appointment Section */}
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <h3 className="text-xl font-semibold text-neutral-900">
+                  {t('apply_to_appointment')}
+                </h3>
+                <p className="text-lg text-neutral-600">
+                  {appointmentDetails.service}
+                  {' · '}
+                  {appointmentDetails.displayDate}
+                  {' · '}
+                  {appointmentDetails.displayTime}
+                </p>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/change-appointment`)}
-              className="w-full text-xs text-neutral-500 underline hover:text-neutral-700 transition-colors"
-            >
-              {t("change_appointment")}
-            </button>
+              {/* Price breakdown */}
+              {rewardApplied && (
+                <div className="space-y-3 rounded-xl bg-[#fff7ec] p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-lg font-medium text-neutral-600">{t('original_price')}</span>
+                    <span className="text-xl font-semibold text-neutral-900">
+                      $
+                      {appointmentDetails.originalPrice}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-lg font-medium text-neutral-600">{t('reward_applied_label')}</span>
+                    <span className="text-xl font-semibold text-green-600">
+                      -$
+                      {discountAmount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-neutral-200 pt-3">
+                    <span className="text-2xl font-bold text-neutral-900">
+                      {t('new_total')}
+                    </span>
+                    <span className="text-2xl font-bold text-neutral-900">
+                      $
+                      {finalPrice.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleApplyReward}
+                disabled={!selectedReward || rewardApplied}
+                className="w-full rounded-full bg-[#f4b864] px-5 py-4 text-lg font-bold text-neutral-900 shadow-sm transition-all duration-200 ease-out hover:scale-[1.02] hover:shadow-md active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 disabled:hover:shadow-sm"
+              >
+                {rewardApplied ? t('reward_applied') : t('apply_reward')}
+              </button>
+
+              {rewardApplied && (
+                <p className="text-center text-lg font-medium text-green-600">
+                  {t('reward_applied_success')}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/change-appointment?serviceIds=${appointmentDetails.serviceId}&techId=${appointmentDetails.techId}&date=${appointmentDetails.date}&time=${appointmentDetails.time}`)}
+                className="w-full text-lg font-medium text-neutral-500 underline underline-offset-2 transition-colors hover:text-neutral-700"
+              >
+                {t('change_appointment')}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Earn More Rewards Card */}
-        <div className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-neutral-900">
-              {t("earn_more_rewards")}
-            </h3>
-            <p className="text-sm text-neutral-700 leading-relaxed mt-2">
-              {t("earn_more_description")}
-            </p>
+        <div
+          className="overflow-hidden rounded-2xl border border-[#e6d6c2] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.08)]"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
+            transition: 'opacity 250ms ease-out 300ms, transform 250ms ease-out 300ms',
+          }}
+        >
+          <div className="px-5 py-6">
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold text-neutral-900">
+                {t('earn_more_rewards')}
+              </h3>
+              <p className="text-lg leading-relaxed text-neutral-600">
+                {t('earn_more_description')}
+              </p>
+            </div>
+
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            <div className="mt-5 space-y-3">
+              <button
+                type="button"
+                onClick={handleUploadPhoto}
+                className="w-full rounded-full bg-[#f4b864] px-5 py-4 text-lg font-bold text-neutral-900 shadow-sm transition-all duration-200 ease-out hover:scale-[1.02] hover:shadow-md active:scale-[0.97]"
+              >
+                {t('upload_photo')}
+              </button>
+
+              {uploadStatus && (
+                <p
+                  className={`text-center text-lg font-medium ${
+                    uploadStatus.success
+                      ? 'text-green-600'
+                      : 'text-red-500'
+                  }`}
+                >
+                  {uploadStatus.message}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleGoogleReview}
+                className="w-full rounded-full bg-neutral-50 px-5 py-4 text-lg font-semibold text-neutral-700 transition-all duration-200 ease-out hover:scale-[1.01] hover:bg-neutral-100 hover:shadow-sm active:scale-[0.98]"
+              >
+                {t('leave_google_review')}
+              </button>
+            </div>
           </div>
-
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-
-          <button
-            type="button"
-            onClick={handleUploadPhoto}
-            className="w-full rounded-full bg-[#f4b864] py-3 text-sm font-semibold text-neutral-900 hover:bg-[#f4b864]/90 active:scale-[0.98] transition-all duration-150 shadow-sm"
-          >
-            {t("upload_photo")}
-          </button>
-
-          {uploadStatus && (
-            <p
-              className={`text-xs text-center ${
-                uploadStatus.success
-                  ? "text-green-600"
-                  : "text-red-600"
-              }`}
-            >
-              {uploadStatus.message}
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={handleGoogleReview}
-            className="w-full rounded-full bg-white border-2 border-neutral-200 py-3 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 active:scale-[0.98] transition-all duration-150"
-          >
-            {t("leave_google_review")}
-          </button>
         </div>
 
         {/* Past Nails Preview */}
-        <div className="space-y-3.5">
-          <h2 className="text-sm font-semibold text-neutral-900 px-1">
-            {t("your_past_nails")}
+        <div
+          className="space-y-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 250ms ease-out 400ms, transform 250ms ease-out 400ms',
+          }}
+        >
+          <h2 className="px-1 text-xl font-semibold text-neutral-900">
+            {t('your_past_nails')}
           </h2>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-3 gap-3">
             {[
               {
-                id: "2",
-                imageUrl: "/assets/images/gel-x-extensions.jpg",
+                id: '2',
+                imageUrl: '/assets/images/gel-x-extensions.jpg',
               },
               {
-                id: "3",
-                imageUrl: "/assets/images/biab-medium.webp",
+                id: '3',
+                imageUrl: '/assets/images/biab-medium.webp',
               },
               {
-                id: "4",
-                imageUrl: "/assets/images/biab-french.jpg",
+                id: '4',
+                imageUrl: '/assets/images/biab-french.jpg',
               },
-            ].map((photo) => (
+            ].map(photo => (
               <button
                 key={photo.id}
                 type="button"
                 onClick={() => router.push(`/${locale}/gallery`)}
-                className="aspect-square rounded-xl bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] hover:opacity-90 transition-opacity relative overflow-hidden"
+                className="relative aspect-square overflow-hidden rounded-2xl bg-gradient-to-br from-[#f0dfc9] to-[#d9c6aa] shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
               >
                 <img
                   src={photo.imageUrl}
                   alt="Past nails"
-                  className="w-full h-full object-cover"
+                  className="size-full object-cover"
                   onError={(e) => {
-                    e.currentTarget.style.display = "none";
+                    e.currentTarget.style.display = 'none';
                   }}
                 />
               </button>
@@ -351,13 +435,12 @@ export default function RewardsPage() {
           <button
             type="button"
             onClick={() => router.push(`/${locale}/gallery`)}
-            className="w-full text-sm text-[#7b4ea3] font-medium hover:text-[#7b4ea3]/80 transition-colors pt-1"
+            className="w-full pt-1 text-lg font-semibold text-[#7b4ea3] transition-colors hover:text-[#7b4ea3]/80"
           >
-            {t("view_all_photos")}
+            {t('view_all_photos')}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

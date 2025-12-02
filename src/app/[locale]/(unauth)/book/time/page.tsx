@@ -2,10 +2,6 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { PageLayout } from "@/components/PageLayout";
-import { MainCard } from "@/components/MainCard";
-import { SectionTitle } from "@/components/SectionTitle";
 
 const SERVICES: Record<
   string,
@@ -21,17 +17,18 @@ const SERVICES: Record<
   "mani-pedi": { name: "Classic Mani + Pedi", price: 95, duration: 120 },
 };
 
-const TECHNICIANS: Record<string, string> = {
-  daniela: "Daniela",
-  tiffany: "Tiffany",
-  jenny: "Jenny",
+const TECHNICIANS: Record<string, { name: string; image: string }> = {
+  daniela: { name: "Daniela", image: "/assets/images/tech-daniela.jpeg" },
+  tiffany: { name: "Tiffany", image: "/assets/images/tech-tiffany.jpeg" },
+  jenny: { name: "Jenny", image: "/assets/images/tech-jenny.jpeg" },
 };
 
 const generateTimeSlots = () => {
-  const slots: string[] = [];
+  const slots: { time: string; period: "morning" | "afternoon" | "evening" }[] = [];
   for (let hour = 9; hour < 18; hour++) {
-    slots.push(`${hour}:00`);
-    slots.push(`${hour}:30`);
+    const period = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    slots.push({ time: `${hour}:00`, period });
+    slots.push({ time: `${hour}:30`, period });
   }
   return slots;
 };
@@ -55,6 +52,14 @@ const generateCalendarDays = (year: number, month: number) => {
   return days;
 };
 
+const formatTime12h = (time: string) => {
+  const [hour, minute] = time.split(":");
+  const h = parseInt(hour || "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${minute} ${ampm}`;
+};
+
 export default function BookTimePage() {
   const router = useRouter();
   const params = useParams();
@@ -74,39 +79,30 @@ export default function BookTimePage() {
     (sum, service) => sum + service.price,
     0
   );
-  const techName = TECHNICIANS[techId] || "Not selected";
-  const serviceNames = selectedServices.map((s) => s.name).join(", ");
+  const tech = TECHNICIANS[techId];
+  const serviceNames = selectedServices.map((s) => s.name).join(" + ");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const [mounted, setMounted] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [goldBarVisible, setGoldBarVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(today); // Start with today selected
 
   useEffect(() => {
-    setTimeout(() => setGoldBarVisible(true), 50);
+    setMounted(true);
   }, []);
 
   const timeSlots = generateTimeSlots();
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
   ];
+
+  const dayNames = ["S", "M", "T", "W", "T", "F", "S"];
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -127,8 +123,6 @@ export default function BookTimePage() {
   };
 
   const handleDateSelect = (date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     if (date >= today) {
       setSelectedDate(date);
     }
@@ -136,9 +130,6 @@ export default function BookTimePage() {
 
   const handleTimeSelect = (time: string) => {
     if (!selectedDate) return;
-
-    setSelectedTime(time);
-
     const dateStr = selectedDate.toISOString().split("T")[0];
     router.push(
       `/${locale}/book/confirm?serviceIds=${serviceIds.join(",")}&techId=${techId}&date=${dateStr}&time=${time}`
@@ -149,192 +140,171 @@ export default function BookTimePage() {
     router.back();
   };
 
+  const formatSelectedDate = (date: Date) => {
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+  };
+
+  // Group times by period
+  const morningSlots = timeSlots.filter(s => s.period === "morning");
+  const afternoonSlots = timeSlots.filter(s => s.period === "afternoon");
+
   return (
-    <PageLayout background="#f5e8d8">
-      {/* Luxury Step Bar */}
-      <div className="pt-2 pb-1">
-        <div className="flex items-center justify-center max-w-sm mx-auto gap-2">
-          {[
-            { label: "Service", step: 1 },
-            { label: "Tech", step: 2 },
-            { label: "Time", step: 3 },
-            { label: "Confirm", step: 4 },
-          ].map((item, index, array) => (
-            <div key={item.step} className="flex items-center">
-              <div className="flex flex-col items-center">
-                <div
-                  className={`text-[9px] font-medium tracking-wide transition-colors ${
-                    item.step === 3
-                      ? "text-[#7b4ea3]"
-                      : "text-black/70"
-                  }`}
-                >
-                  {item.label}
+    <div className="min-h-screen bg-gradient-to-b from-[#f8f0e5] via-[#f6ebdd] to-[#f4e6d4]">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
+        {/* Header */}
+        <div
+          className="pt-6 pb-4 relative flex items-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(-8px)",
+            transition: "opacity 300ms ease-out, transform 300ms ease-out",
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleBack}
+            className="flex items-center justify-center w-11 h-11 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
+          >
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold tracking-tight text-[#7b4ea3]">
+            Nail Salon No.5
+          </div>
+        </div>
+
+        {/* Progress Steps */}
+        <div
+          className="flex items-center justify-center gap-2 mb-6"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 50ms",
+          }}
+        >
+          {["Service", "Artist", "Time", "Confirm"].map((step, i) => (
+            <div key={step} className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 ${i === 2 ? "opacity-100" : "opacity-40"}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                  i < 2 ? "bg-[#7b4ea3] text-white" : i === 2 ? "bg-[#f4b864] text-neutral-900" : "bg-neutral-300 text-neutral-600"
+                }`}>
+                  {i < 2 ? "✓" : i + 1}
                 </div>
-                <div
-                  className={`mt-0.5 h-px w-6 rounded-full transition-colors ${
-                    item.step === 3
-                      ? "bg-[#7b4ea3]"
-                      : "bg-black/40"
-                  }`}
-                />
+                <span className={`text-xs font-medium ${i === 2 ? "text-neutral-900" : "text-neutral-500"}`}>
+                  {step}
+                </span>
               </div>
-              {index < array.length - 1 && (
-                <div className="mx-1.5 flex-shrink-0">
-                  <svg
-                    width="12"
-                    height="8"
-                    viewBox="0 0 16 12"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="text-black/30"
-                  >
-                    <path
-                      d="M0 6H14M14 6L10 2M14 6L10 10"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-              )}
+              {i < 3 && <div className="w-4 h-px bg-neutral-300" />}
             </div>
           ))}
         </div>
-      </div>
 
-      {/* Top bar with back button */}
-      <div className="pt-1 relative flex items-center">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
+        {/* Booking Summary Card */}
+        <div
+          className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-[#7b4ea3] to-[#5c3a7d] shadow-xl"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0) scale(1)" : "translateY(10px) scale(0.97)",
+            transition: "opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms",
+          }}
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M12.5 15L7.5 10L12.5 5"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-
-        <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-          Select Time
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-4">
+              {tech && (
+                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
+                  <img src={tech.image} alt={tech.name} className="w-full h-full object-cover" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-white/70 text-xs mb-0.5">Your appointment</div>
+                <div className="text-white font-bold text-base truncate">{serviceNames || "Service"}</div>
+                <div className="text-[#f4b864] text-sm font-medium">
+                  with {tech?.name || "Artist"} · {totalDuration} min
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-white">${totalPrice}</div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {/* Calendar Section */}
-      <div className="-mt-1 pb-3 border-b border-[#d6a249]/30">
-        <SectionTitle
-          icon={
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          }
+        {/* Title */}
+        <div
+          className="text-center mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms",
+          }}
         >
-          Choose Date
-        </SectionTitle>
+          <h1 className="text-2xl font-bold text-neutral-900">
+            Pick Your Time
+          </h1>
+          <p className="text-sm text-neutral-500 mt-1">
+            {selectedDate 
+              ? `${formatSelectedDate(selectedDate)} · Tap another date to change`
+              : "Select a day that works for you"
+            }
+          </p>
+        </div>
 
-        <div className="w-full rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden">
-          {/* Gold Accent Bar */}
-          <div
-            className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]"
-            style={{
-              width: goldBarVisible ? "100%" : "0%",
-              transition: "width 400ms ease-out",
-            }}
-          />
-          <div className="px-5 py-6">
-            <div className="flex items-center justify-between mb-3">
+        {/* Calendar Card */}
+        <div
+          className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)] mb-4"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms",
+          }}
+        >
+          {/* Month Navigation */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-neutral-100 active:scale-95 transition-all duration-200"
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M10 12L6 8L10 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
 
-            <div className="text-base font-semibold text-neutral-900">
+            <div className="text-lg font-bold text-neutral-900">
               {monthNames[currentMonth]} {currentYear}
             </div>
 
             <button
               type="button"
               onClick={handleNextMonth}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-neutral-100 active:scale-95 transition-all duration-200"
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M6 4L10 8L6 12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <div
-                key={day}
-                className="text-center text-xs font-semibold text-neutral-500 py-1.5"
-              >
+          {/* Day Names */}
+          <div className="grid grid-cols-7 px-4 pt-3">
+            {dayNames.map((day, i) => (
+              <div key={i} className="text-center text-xs font-bold text-neutral-400 py-2">
                 {day}
               </div>
             ))}
+          </div>
 
+          {/* Calendar Grid */}
+          <div className="grid grid-cols-7 gap-1 px-4 pb-4">
             {calendarDays.map((date, index) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="h-9" />;
+                return <div key={`empty-${index}`} className="h-11" />;
               }
 
-              const isSelected =
-                selectedDate &&
-                date.toDateString() === selectedDate.toDateString();
+              const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
               const isToday = date.toDateString() === today.toDateString();
               const isPast = date < today && !isToday;
 
@@ -344,14 +314,14 @@ export default function BookTimePage() {
                   type="button"
                   onClick={() => handleDateSelect(date)}
                   disabled={isPast}
-                  className={`h-9 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`h-11 rounded-xl text-sm font-semibold transition-all duration-200 ${
                     isSelected
-                      ? "bg-gradient-to-br from-[#d6a249] to-[#f4b864] text-white font-bold shadow-md ring-2 ring-[#d6a249] ring-offset-1"
+                      ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg scale-110 z-10"
                       : isPast
                       ? "text-neutral-300 cursor-not-allowed"
                       : isToday
-                      ? "bg-[#fff7ec] text-[#7b4ea3] hover:bg-[#f5e6d3] font-semibold border border-[#d6a249]/30"
-                      : "text-neutral-700 hover:bg-neutral-50"
+                      ? "bg-[#7b4ea3] text-white"
+                      : "text-neutral-700 hover:bg-[#f6ebdd]"
                   }`}
                 >
                   {date.getDate()}
@@ -359,99 +329,100 @@ export default function BookTimePage() {
               );
             })}
           </div>
-          </div>
         </div>
-      </div>
 
-      {/* Time Selection */}
-      {selectedDate && (
-        <div className="mt-3">
-          <SectionTitle
-            icon={
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="text-[#d6a249]"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M12 6v6l4 2"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            }
-          >
-            Select Time
-          </SectionTitle>
-          <motion.div
-            key={selectedDate.toDateString()}
-            initial="hidden"
-            animate="visible"
-            variants={{
-              hidden: {
-                opacity: 0,
-                y: 8,
-              },
-              visible: {
-                opacity: 1,
-                y: 0,
-                transition: {
-                  duration: 0.25,
-                  ease: "easeOut",
-                  staggerChildren: 0.045,
-                  delayChildren: 0.03,
-                },
-              },
+        {/* Time Selection - Only shows when date is selected */}
+        {selectedDate && (
+          <div
+            className="space-y-4"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? "translateY(0)" : "translateY(10px)",
+              transition: "opacity 300ms ease-out 250ms, transform 300ms ease-out 250ms",
             }}
-            className="grid grid-cols-3 gap-2.5 mt-3"
           >
-            {timeSlots.map((time) => {
-              const isSelectedTime = selectedTime === time;
+            {/* Morning Times */}
+            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+                <span className="text-xl">🌅</span>
+                <span className="text-sm font-bold text-neutral-900">Morning</span>
+                <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
+              </div>
+              <div className="p-4 grid grid-cols-3 gap-2">
+                {morningSlots.map((slot, i) => (
+                  <button
+                    key={slot.time}
+                    type="button"
+                    onClick={() => handleTimeSelect(slot.time)}
+                    className="py-3 px-2 rounded-xl bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-sm font-bold text-neutral-800 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95 transition-all duration-200 border border-[#f4b864]/20"
+                    style={{
+                      animationDelay: `${i * 30}ms`,
+                    }}
+                  >
+                    {formatTime12h(slot.time)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-              return (
-                <motion.button
-                  key={time}
-                  type="button"
-                  onClick={() => handleTimeSelect(time)}
-                  variants={{
-                    hidden: { opacity: 0, y: 10 },
-                    visible: {
-                      opacity: 1,
-                      y: 0,
-                      transition: { duration: 0.22, ease: "easeOut" },
-                    },
-                  }}
-                  className={`w-full rounded-full px-3 py-1.5 text-[13px] font-semibold transition-all duration-200 bg-white shadow-sm shadow-[0_1px_3px_rgba(15,23,42,0.12)] hover:bg-[#f5e6d3] hover:shadow-md hover:shadow-[0_3px_8px_rgba(15,23,42,0.16)] hover:ring-2 hover:ring-[#d6a249]/50 hover:ring-offset-1 text-neutral-700 active:scale-[0.96] border border-neutral-100 ${
-                    isSelectedTime
-                      ? "bg-[#f4b864] text-neutral-900 shadow-md shadow-[0_3px_10px_rgba(15,23,42,0.22)] ring-2 ring-[#d6a249]/70 scale-[1.02]"
-                      : ""
-                  }`}
-                >
-                  {time}
-                </motion.button>
-              );
-            })}
-          </motion.div>
+            {/* Afternoon Times */}
+            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+                <span className="text-xl">☀️</span>
+                <span className="text-sm font-bold text-neutral-900">Afternoon</span>
+                <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
+              </div>
+              <div className="p-4 grid grid-cols-3 gap-2">
+                {afternoonSlots.map((slot, i) => (
+                  <button
+                    key={slot.time}
+                    type="button"
+                    onClick={() => handleTimeSelect(slot.time)}
+                    className="py-3 px-2 rounded-xl bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-sm font-bold text-neutral-800 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95 transition-all duration-200 border border-[#f4b864]/20"
+                    style={{
+                      animationDelay: `${(i + morningSlots.length) * 30}ms`,
+                    }}
+                  >
+                    {formatTime12h(slot.time)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Help text when no date selected */}
+        {!selectedDate && (
+          <div
+            className="text-center py-8"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transition: "opacity 300ms ease-out 300ms",
+            }}
+          >
+            <div className="text-4xl mb-3">📅</div>
+            <p className="text-neutral-500 text-sm">
+              Tap a date above to see available times
+            </p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div
+          className="mt-6 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: "opacity 300ms ease-out 400ms",
+          }}
+        >
+          <p className="text-xs text-neutral-400">
+            ✨ No payment required to reserve
+          </p>
+          <p className="text-xs text-neutral-400 mt-0.5">
+            Free cancellation up to 24 hours before
+          </p>
         </div>
-      )}
-
-      {/* Reassurance footer */}
-      <div className="mt-6 pb-4">
-        <p className="text-xs text-neutral-500 text-center leading-relaxed">
-          No payment required to reserve · You can reschedule from your profile
-        </p>
       </div>
-    </PageLayout>
+    </div>
   );
 }
