@@ -1,3 +1,10 @@
+# 1.0.0 (2025-12-04)
+
+
+### Features
+
+* add theme system, booking flow, SMS, database queries, and component updates ([0aaee7e](https://github.com/SniperStopSniping/nailsalon/commit/0aaee7ef4424a9a5d95e954e2bd58bd0477e4416))
+
 ## [1.7.6](https://github.com/ixartz/SaaS-Boilerplate/compare/v1.7.5...v1.7.6) (2025-05-01)
 
 
