@@ -1,29 +1,33 @@
-"use client";
+'use client';
 
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import Image from 'next/image';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+import { useSalon } from '@/providers/SalonProvider';
+import { themeVars } from '@/theme';
 
 const SERVICES: Record<string, { name: string; price: number; duration: number }> = {
-  "biab-short": { name: "BIAB Short", price: 65, duration: 75 },
-  "biab-medium": { name: "BIAB Medium", price: 75, duration: 90 },
-  "gelx-extensions": { name: "Gel-X Extensions", price: 90, duration: 105 },
-  "biab-french": { name: "BIAB French", price: 75, duration: 90 },
-  "spa-pedi": { name: "SPA Pedicure", price: 60, duration: 60 },
-  "gel-pedi": { name: "Gel Pedicure", price: 70, duration: 75 },
-  "biab-gelx-combo": { name: "BIAB + Gel-X Combo", price: 130, duration: 150 },
-  "mani-pedi": { name: "Classic Mani + Pedi", price: 95, duration: 120 },
+  'biab-short': { name: 'BIAB Short', price: 65, duration: 75 },
+  'biab-medium': { name: 'BIAB Medium', price: 75, duration: 90 },
+  'gelx-extensions': { name: 'Gel-X Extensions', price: 90, duration: 105 },
+  'biab-french': { name: 'BIAB French', price: 75, duration: 90 },
+  'spa-pedi': { name: 'SPA Pedicure', price: 60, duration: 60 },
+  'gel-pedi': { name: 'Gel Pedicure', price: 70, duration: 75 },
+  'biab-gelx-combo': { name: 'BIAB + Gel-X Combo', price: 130, duration: 150 },
+  'mani-pedi': { name: 'Classic Mani + Pedi', price: 95, duration: 120 },
 };
 
 const TECHNICIANS: Record<string, { name: string; image: string }> = {
-  daniela: { name: "Daniela", image: "/assets/images/tech-daniela.jpeg" },
-  tiffany: { name: "Tiffany", image: "/assets/images/tech-tiffany.jpeg" },
-  jenny: { name: "Jenny", image: "/assets/images/tech-jenny.jpeg" },
+  daniela: { name: 'Daniela', image: '/assets/images/tech-daniela.jpeg' },
+  tiffany: { name: 'Tiffany', image: '/assets/images/tech-tiffany.jpeg' },
+  jenny: { name: 'Jenny', image: '/assets/images/tech-jenny.jpeg' },
 };
 
 const generateTimeSlots = () => {
-  const slots: { time: string; period: "morning" | "afternoon" }[] = [];
+  const slots: { time: string; period: 'morning' | 'afternoon' }[] = [];
   for (let hour = 9; hour < 18; hour++) {
-    const period = hour < 12 ? "morning" : "afternoon";
+    const period = hour < 12 ? 'morning' : 'afternoon';
     slots.push({ time: `${hour}:00`, period });
     slots.push({ time: `${hour}:30`, period });
   }
@@ -50,9 +54,9 @@ const generateCalendarDays = (year: number, month: number) => {
 };
 
 const formatTime12h = (time: string) => {
-  const [hour, minute] = time.split(":");
-  const h = parseInt(hour || "0");
-  const ampm = h >= 12 ? "PM" : "AM";
+  const [hour, minute] = time.split(':');
+  const h = Number.parseInt(hour || '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
   const hour12 = h % 12 || 12;
   return `${hour12}:${minute} ${ampm}`;
 };
@@ -61,36 +65,36 @@ export default function ChangeAppointmentPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const locale = (params?.locale as string) || "en";
-  const serviceIdsParam = searchParams.get("serviceIds");
+  const { salonName } = useSalon();
+  const locale = (params?.locale as string) || 'en';
+  const serviceIdsParam = searchParams.get('serviceIds');
   const serviceIds = serviceIdsParam
-    ? serviceIdsParam.split(",").filter((id) => id.trim() !== "")
+    ? serviceIdsParam.split(',').filter(id => id.trim() !== '')
     : [];
-  const techId = searchParams.get("techId") || "";
-  const currentDate = searchParams.get("date") || "";
-  const currentTime = searchParams.get("time") || "";
+  const techId = searchParams.get('techId') || '';
+  const currentDate = searchParams.get('date') || '';
+  const currentTime = searchParams.get('time') || '';
 
   const selectedServices = serviceIds
-    .map((id) => SERVICES[id.trim()])
-    .filter(Boolean);
+    .map(id => SERVICES[id.trim()])
+    .filter((s): s is NonNullable<typeof s> => Boolean(s));
   const totalDuration = selectedServices.reduce(
     (sum, service) => sum + service.duration,
-    0
+    0,
   );
   const totalPrice = selectedServices.reduce(
     (sum, service) => sum + service.price,
-    0
+    0,
   );
   const tech = TECHNICIANS[techId];
-  const serviceNames =
-    selectedServices.length > 0
-      ? selectedServices.map((s) => s.name).join(" + ")
-      : "Not selected";
+  const serviceNames
+    = selectedServices.length > 0
+      ? selectedServices.map(s => s.name).join(' + ')
+      : 'Not selected';
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Initialize selected date from URL or default to today
   const initialDate = currentDate ? new Date(currentDate) : today;
   initialDate.setHours(0, 0, 0, 0);
 
@@ -108,11 +112,11 @@ export default function ChangeAppointmentPage() {
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
-  const dayNames = ["S", "M", "T", "W", "T", "F", "S"];
+  const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -145,11 +149,13 @@ export default function ChangeAppointmentPage() {
   };
 
   const handleConfirm = () => {
-    if (!selectedDate || !selectedTime) return;
+    if (!selectedDate || !selectedTime) {
+      return;
+    }
 
-    const dateStr = selectedDate.toISOString().split("T")[0];
+    const dateStr = selectedDate.toISOString().split('T')[0];
     router.push(
-      `/${locale}/book/confirm?serviceIds=${serviceIds.join(",")}&techId=${techId}&date=${dateStr}&time=${selectedTime}`
+      `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${selectedTime}`,
     );
   };
 
@@ -162,63 +168,72 @@ export default function ChangeAppointmentPage() {
   };
 
   const formatSelectedDate = (date: Date) => {
-    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
   };
 
-  // Group times by period
-  const morningSlots = timeSlots.filter(s => s.period === "morning");
-  const afternoonSlots = timeSlots.filter(s => s.period === "afternoon");
+  const morningSlots = timeSlots.filter(s => s.period === 'morning');
+  const afternoonSlots = timeSlots.filter(s => s.period === 'afternoon');
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#f8f0e5] via-[#f6ebdd] to-[#f4e6d4]">
+    <div
+      className="min-h-screen"
+      style={{
+        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+      }}
+    >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
         {/* Header */}
         <div
-          className="pt-5 pb-2 relative flex items-center"
+          className="relative flex items-center pb-2 pt-5"
           style={{
             opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0)" : "translateY(-8px)",
-            transition: "opacity 300ms ease-out, transform 300ms ease-out",
+            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
+            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
           <button
             type="button"
             onClick={handleBack}
-            className="flex items-center justify-center w-11 h-11 rounded-full hover:bg-white/60 active:scale-95 transition-all duration-200 z-10"
+            aria-label="Go back"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
           >
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
 
-          <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold tracking-tight text-[#7b4ea3]">
-            Nail Salon No.5
+          <div
+            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight"
+            style={{ color: themeVars.accent }}
+          >
+            {salonName}
           </div>
         </div>
 
         {/* Appointment Summary Card */}
         <div
-          className="mb-5 overflow-hidden rounded-2xl bg-gradient-to-br from-[#7b4ea3] to-[#5c3a7d] shadow-xl"
+          className="mb-5 overflow-hidden rounded-2xl shadow-xl"
           style={{
+            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
             opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0) scale(1)" : "translateY(10px) scale(0.97)",
-            transition: "opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms",
+            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
+            transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
           }}
         >
           <div className="px-5 py-4">
             <div className="flex items-center gap-4">
               {tech && (
-                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
-                  <img src={tech.image} alt={tech.name} className="w-full h-full object-cover" />
+                <div className="relative size-14 shrink-0 overflow-hidden rounded-full border-2 border-white/30">
+                  <Image src={tech.image} alt={tech.name} fill className="object-cover" />
                 </div>
               )}
-              <div className="flex-1 min-w-0">
-                <div className="text-white/70 text-xs mb-0.5">Your appointment</div>
-                <div className="text-white font-bold text-base truncate">{serviceNames}</div>
-                <div className="text-[#f4b864] text-sm font-medium">
-                  with {tech?.name || "Artist"} · {totalDuration} min
+              <div className="min-w-0 flex-1">
+                <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
+                <div className="truncate text-base font-bold text-white">{serviceNames}</div>
+                <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
+                  with {tech?.name || 'Artist'} · {totalDuration} min
                 </div>
               </div>
               <div className="text-right">
@@ -230,43 +245,45 @@ export default function ChangeAppointmentPage() {
 
         {/* Title */}
         <div
-          className="text-center mb-4"
+          className="mb-4 text-center"
           style={{
             opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0)" : "translateY(10px)",
-            transition: "opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms",
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
           }}
         >
           <h1 className="text-2xl font-bold text-neutral-900">
             Change Your Appointment
           </h1>
-          <p className="text-sm text-neutral-500 mt-1">
+          <p className="mt-1 text-sm text-neutral-500">
             {selectedDate && selectedTime
               ? `${formatSelectedDate(selectedDate)} at ${formatTime12h(selectedTime)}`
               : selectedDate
-              ? `${formatSelectedDate(selectedDate)} · Select a time`
-              : "Select a new date and time"
-            }
+                ? `${formatSelectedDate(selectedDate)} · Select a time`
+                : 'Select a new date and time'}
           </p>
         </div>
 
         {/* Calendar Card */}
         <div
-          className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)] mb-4"
+          className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
           style={{
+            borderWidth: '1px',
+            borderStyle: 'solid',
+            borderColor: themeVars.cardBorder,
             opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0)" : "translateY(10px)",
-            transition: "opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms",
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
           }}
         >
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+          <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
+              aria-label="Previous month"
+              className="flex size-10 items-center justify-center rounded-full transition-all hover:bg-neutral-100 active:scale-95"
             >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
@@ -278,24 +295,23 @@ export default function ChangeAppointmentPage() {
             <button
               type="button"
               onClick={handleNextMonth}
-              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-neutral-100 active:scale-95 transition-all"
+              aria-label="Next month"
+              className="flex size-10 items-center justify-center rounded-full transition-all hover:bg-neutral-100 active:scale-95"
             >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
 
-          {/* Day Names */}
           <div className="grid grid-cols-7 px-4 pt-3">
             {dayNames.map((day, i) => (
-              <div key={i} className="text-center text-xs font-bold text-neutral-400 py-2">
+              <div key={i} className="py-2 text-center text-xs font-bold text-neutral-400">
                 {day}
               </div>
             ))}
           </div>
 
-          {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1 px-4 pb-4">
             {calendarDays.map((date, index) => {
               if (!date) {
@@ -312,15 +328,35 @@ export default function ChangeAppointmentPage() {
                   type="button"
                   onClick={() => handleDateSelect(date)}
                   disabled={isPast}
-                  className={`h-11 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                    isSelected
-                      ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg scale-110 z-10"
-                      : isPast
-                      ? "text-neutral-300 cursor-not-allowed"
+                  className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
+                  style={{
+                    transform: isSelected ? 'scale(1.1)' : undefined,
+                    zIndex: isSelected ? 10 : undefined,
+                    background: isSelected
+                      ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
                       : isToday
-                      ? "bg-[#7b4ea3] text-white"
-                      : "text-neutral-700 hover:bg-[#f6ebdd]"
-                  }`}
+                        ? themeVars.accent
+                        : undefined,
+                    color: isPast
+                      ? '#d4d4d4'
+                      : isSelected
+                        ? '#171717'
+                        : isToday
+                          ? 'white'
+                          : '#404040',
+                    boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+                    cursor: isPast ? 'not-allowed' : 'pointer',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isPast && !isSelected && !isToday) {
+                      e.currentTarget.style.backgroundColor = themeVars.background;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isPast && !isSelected && !isToday) {
+                      e.currentTarget.style.backgroundColor = '';
+                    }
+                  }}
                 >
                   {date.getDate()}
                 </button>
@@ -335,18 +371,21 @@ export default function ChangeAppointmentPage() {
             className="space-y-4"
             style={{
               opacity: mounted ? 1 : 0,
-              transform: mounted ? "translateY(0)" : "translateY(10px)",
-              transition: "opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms",
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
             }}
           >
             {/* Morning Times */}
-            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
-              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+            <div
+              className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+              style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
+            >
+              <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                 <span className="text-xl">🌅</span>
                 <span className="text-sm font-bold text-neutral-900">Morning</span>
                 <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
               </div>
-              <div className="p-4 grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2 p-4">
                 {morningSlots.map((slot) => {
                   const isSelected = selectedTime === slot.time;
                   return (
@@ -354,11 +393,18 @@ export default function ChangeAppointmentPage() {
                       key={slot.time}
                       type="button"
                       onClick={() => handleTimeSelect(slot.time)}
-                      className={`py-3 px-2 rounded-xl text-sm font-bold transition-all duration-200 border ${
-                        isSelected
-                          ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg border-[#d6a249] scale-105"
-                          : "bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-neutral-800 border-[#f4b864]/20 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95"
-                      }`}
+                      className="rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 hover:scale-105 active:scale-95"
+                      style={{
+                        transform: isSelected ? 'scale(1.05)' : undefined,
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        borderColor: isSelected ? themeVars.primaryDark : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
+                        background: isSelected
+                          ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                          : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                        color: '#171717',
+                        boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+                      }}
                     >
                       {formatTime12h(slot.time)}
                     </button>
@@ -368,13 +414,16 @@ export default function ChangeAppointmentPage() {
             </div>
 
             {/* Afternoon Times */}
-            <div className="overflow-hidden rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
-              <div className="px-5 py-3 border-b border-neutral-100 flex items-center gap-2">
+            <div
+              className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+              style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
+            >
+              <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                 <span className="text-xl">☀️</span>
                 <span className="text-sm font-bold text-neutral-900">Afternoon</span>
                 <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
               </div>
-              <div className="p-4 grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2 p-4">
                 {afternoonSlots.map((slot) => {
                   const isSelected = selectedTime === slot.time;
                   return (
@@ -382,11 +431,18 @@ export default function ChangeAppointmentPage() {
                       key={slot.time}
                       type="button"
                       onClick={() => handleTimeSelect(slot.time)}
-                      className={`py-3 px-2 rounded-xl text-sm font-bold transition-all duration-200 border ${
-                        isSelected
-                          ? "bg-gradient-to-br from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg border-[#d6a249] scale-105"
-                          : "bg-gradient-to-br from-[#fff7ec] to-[#fef5e7] text-neutral-800 border-[#f4b864]/20 hover:from-[#f4b864] hover:to-[#d6a249] hover:text-neutral-900 hover:shadow-md hover:scale-105 active:scale-95"
-                      }`}
+                      className="rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 hover:scale-105 active:scale-95"
+                      style={{
+                        transform: isSelected ? 'scale(1.05)' : undefined,
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        borderColor: isSelected ? themeVars.primaryDark : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
+                        background: isSelected
+                          ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                          : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                        color: '#171717',
+                        boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+                      }}
                     >
                       {formatTime12h(slot.time)}
                     </button>
@@ -402,26 +458,40 @@ export default function ChangeAppointmentPage() {
           className="mt-6 space-y-3"
           style={{
             opacity: mounted ? 1 : 0,
-            transition: "opacity 300ms ease-out 300ms",
+            transition: 'opacity 300ms ease-out 300ms',
           }}
         >
           <button
             type="button"
             onClick={handleConfirm}
             disabled={!selectedDate || !selectedTime}
-            className={`w-full py-4 rounded-xl font-bold text-base transition-all duration-200 ${
-              selectedDate && selectedTime
-                ? "bg-gradient-to-r from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
-                : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-            }`}
+            className="w-full rounded-xl py-4 text-base font-bold transition-all duration-200"
+            style={{
+              background: selectedDate && selectedTime
+                ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                : '#e5e5e5',
+              color: selectedDate && selectedTime ? '#171717' : '#a3a3a3',
+              boxShadow: selectedDate && selectedTime ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+              cursor: !selectedDate || !selectedTime ? 'not-allowed' : 'pointer',
+            }}
           >
-            {selectedDate && selectedTime ? "Confirm Changes" : "Select date & time"}
+            {selectedDate && selectedTime ? 'Confirm Changes' : 'Select date & time'}
           </button>
 
           <button
             type="button"
             onClick={handleChangeService}
-            className="w-full py-3 rounded-xl font-semibold text-base border-2 border-[#7b4ea3] text-[#7b4ea3] hover:bg-[#7b4ea3]/5 active:scale-[0.98] transition-all duration-200"
+            className="w-full rounded-xl border-2 py-3 text-base font-semibold transition-all duration-200 active:scale-[0.98]"
+            style={{
+              borderColor: themeVars.accent,
+              color: themeVars.accent,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${themeVars.accent} 5%, transparent)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '';
+            }}
           >
             Change Service or Tech
           </button>
@@ -432,13 +502,13 @@ export default function ChangeAppointmentPage() {
           className="mt-6 text-center"
           style={{
             opacity: mounted ? 1 : 0,
-            transition: "opacity 300ms ease-out 400ms",
+            transition: 'opacity 300ms ease-out 400ms',
           }}
         >
           <p className="text-xs text-neutral-400">
             ✨ No payment required to reserve
           </p>
-          <p className="text-xs text-neutral-400 mt-0.5">
+          <p className="mt-0.5 text-xs text-neutral-400">
             Free cancellation up to 24 hours before
           </p>
         </div>

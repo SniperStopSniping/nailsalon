@@ -1,0 +1,84 @@
+---
+description: Theme system rules - NEVER hardcode colors
+globs: ["**/*.tsx", "**/*.ts", "src/components/**/*", "src/app/**/*"]
+---
+
+# Theme System Rules
+
+## 🔴 CRITICAL: Never Hardcode Colors
+
+This is a multi-tenant platform. Each salon has its own theme.
+ALL colors must come from theme tokens.
+
+## How to Use Theme Colors
+
+### Method 1: Inline Styles (Preferred)
+
+```typescript
+import { themeVars } from '@/theme';
+
+// ✅ CORRECT
+style={{ 
+  backgroundColor: themeVars.primary,
+  color: themeVars.titleText,
+  borderColor: themeVars.cardBorder,
+}}
+
+// For gradients
+style={{
+  background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+}}
+
+// For transparency
+style={{
+  backgroundColor: `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
+}}
+```
+
+### Method 2: Tailwind Arbitrary Values
+
+```typescript
+// ✅ CORRECT
+className="bg-[var(--theme-primary)]"
+className="text-[var(--theme-accent)]"
+className="border-[var(--theme-card-border)]"
+```
+
+## ❌ NEVER Do This
+
+```typescript
+// ❌ WRONG - Hardcoded hex
+style={{ backgroundColor: '#f4b864' }}
+className="bg-[#f4b864]"
+
+// ❌ WRONG - Tailwind color classes for brand colors
+className="bg-amber-400"
+className="text-purple-600"
+className="border-amber-200"
+```
+
+## Available Theme Tokens
+
+| Token | CSS Variable | Usage |
+|-------|-------------|-------|
+| `themeVars.primary` | `--theme-primary` | Buttons, accents |
+| `themeVars.primaryDark` | `--theme-primary-dark` | Selection rings |
+| `themeVars.accent` | `--theme-accent` | Page titles |
+| `themeVars.background` | `--theme-background` | Page bg |
+| `themeVars.cardBackground` | `--theme-card-background` | Cards |
+| `themeVars.cardBorder` | `--theme-card-border` | Card borders |
+| `themeVars.selectedBackground` | `--theme-selected-background` | Selected items |
+| `themeVars.selectedRing` | `--theme-selected-ring` | Selection rings |
+| `themeVars.titleText` | `--theme-title-text` | Page titles |
+| `themeVars.highlightBackground` | `--theme-highlight-background` | Points |
+
+## Adding New Theme Colors
+
+If you need a new semantic color:
+
+1. Add to `src/theme/theme.types.ts` in ThemeColors interface
+2. Add value to `src/theme/themes.ts` in nailSalonNo5Theme
+3. Add CSS variable mapping in `src/theme/ThemeProvider.tsx`
+4. Add to themeVars object in ThemeProvider.tsx
+
+Never skip these steps and use hardcoded colors instead.

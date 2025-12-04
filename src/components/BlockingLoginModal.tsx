@@ -3,15 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { FormInput } from '@/components/FormInput';
+import { themeVars } from '@/theme';
 
 type AuthState = 'loggedOut' | 'verify' | 'success';
 
 type BlockingLoginModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: () => void;
+  onLoginSuccess: (phone: string) => void;
 };
 
+/**
+ * BlockingLoginModal Component
+ *
+ * Modal for phone-based authentication flow.
+ * Uses theme CSS variables for brand colors.
+ */
 export function BlockingLoginModal({
   isOpen,
   onClose,
@@ -103,10 +110,10 @@ export function BlockingLoginModal({
   useEffect(() => {
     if (authState === 'success') {
       setTimeout(() => {
-        onLoginSuccess();
+        onLoginSuccess(phone);
       }, 2000);
     }
-  }, [authState, onLoginSuccess]);
+  }, [authState, onLoginSuccess, phone]);
 
   // Handle modal open/close animations
   useEffect(() => {
@@ -147,6 +154,9 @@ export function BlockingLoginModal({
     return null;
   }
 
+  // Confetti colors using theme variables
+  const confettiColors = [themeVars.primary, themeVars.accent, '#4ade80', '#f472b6', '#60a5fa'];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Animated backdrop */}
@@ -175,7 +185,7 @@ export function BlockingLoginModal({
                       key={i}
                       className="absolute size-3 rounded-full"
                       style={{
-                        backgroundColor: ['#f4b864', '#7b4ea3', '#4ade80', '#f472b6', '#60a5fa'][i % 5],
+                        backgroundColor: confettiColors[i % 5],
                         animation: `confetti-${i % 4} 1s ease-out forwards`,
                         animationDelay: `${i * 50}ms`,
                       }}
@@ -236,13 +246,17 @@ export function BlockingLoginModal({
               >
                 Thanks for signing up!
                 <br />
-                <span className="font-semibold text-[#7b4ea3]">You're all set to book</span>
+                <span className="font-semibold" style={{ color: themeVars.accent }}>You're all set to book</span>
               </p>
 
               {/* Points earned badge */}
               <div
-                className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#f4b864]/30 bg-gradient-to-r from-[#f4b864]/20 to-[#d6a249]/20 px-4 py-2"
+                className="mt-4 inline-flex items-center gap-2 rounded-full px-4 py-2"
                 style={{
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: `color-mix(in srgb, ${themeVars.primary} 30%, transparent)`,
+                  background: `linear-gradient(to right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 20%, transparent))`,
                   animation: 'fadeSlideUp 0.4s ease-out 0.6s forwards',
                   opacity: 0,
                 }}
@@ -256,8 +270,13 @@ export function BlockingLoginModal({
           {/* Phone Entry State */}
           {authState === 'loggedOut' && (
             <>
-              {/* Header with gradient */}
-              <div className="bg-gradient-to-r from-[#7b4ea3] to-[#9b6dc6] px-6 py-5 text-center">
+              {/* Header with gradient - using theme accent colors */}
+              <div
+                className="px-6 py-5 text-center"
+                style={{
+                  background: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.accentLight})`,
+                }}
+              >
                 <div className="mb-2 text-3xl">💅</div>
                 <h2 className="text-xl font-bold text-white">Almost There!</h2>
                 <p className="mt-1 text-sm text-white/80">
@@ -271,8 +290,16 @@ export function BlockingLoginModal({
                   className="space-y-4"
                   style={{ animation: 'fadeSlideIn 0.3s ease-out' }}
                 >
-                  {/* Benefits */}
-                  <div className="flex items-center gap-3 rounded-xl border border-[#f4b864]/30 bg-gradient-to-r from-[#f4b864]/10 to-[#d6a249]/10 p-3">
+                  {/* Benefits - using theme primary colors */}
+                  <div
+                    className="flex items-center gap-3 rounded-xl p-3"
+                    style={{
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: `color-mix(in srgb, ${themeVars.primary} 30%, transparent)`,
+                      background: `linear-gradient(to right, color-mix(in srgb, ${themeVars.primary} 10%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`,
+                    }}
+                  >
                     <span className="text-xl">🎁</span>
                     <div>
                       <div className="text-sm font-semibold text-neutral-800">Earn rewards every visit</div>
@@ -309,7 +336,10 @@ export function BlockingLoginModal({
                           className="!rounded-xl !p-4 !text-lg !font-medium"
                         />
                         {phone.length === 0 && (
-                          <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 animate-pulse text-sm font-medium text-[#f4b864]">
+                          <div
+                            className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 animate-pulse text-sm font-medium"
+                            style={{ color: themeVars.primary }}
+                          >
                             Tap here
                           </div>
                         )}
@@ -317,17 +347,20 @@ export function BlockingLoginModal({
                     </div>
                   </div>
 
-                  {/* Send code button with press animation */}
+                  {/* Send code button with press animation - using theme gradient */}
                   <button
                     type="button"
                     onClick={handleSendCode}
                     disabled={phone.length < 10}
                     className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
                       phone.length >= 10
-                        ? 'bg-gradient-to-r from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg hover:shadow-xl'
+                        ? 'text-neutral-900 shadow-lg hover:shadow-xl'
                         : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     }`}
                     style={{
+                      background: phone.length >= 10
+                        ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                        : undefined,
                       transform: isButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
@@ -351,8 +384,13 @@ export function BlockingLoginModal({
           {/* Verify Code State */}
           {authState === 'verify' && (
             <>
-              {/* Header with gradient */}
-              <div className="bg-gradient-to-r from-[#7b4ea3] to-[#9b6dc6] px-6 py-5 text-center">
+              {/* Header with gradient - using theme accent colors */}
+              <div
+                className="px-6 py-5 text-center"
+                style={{
+                  background: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.accentLight})`,
+                }}
+              >
                 <div className="mb-2 text-3xl">📱</div>
                 <h2 className="text-xl font-bold text-white">Check Your Phone</h2>
                 <p className="mt-1 text-sm text-white/80">
@@ -403,24 +441,30 @@ export function BlockingLoginModal({
                         className="!w-full !rounded-xl !px-4 !py-5 !text-center !text-2xl !font-bold !tracking-[0.4em]"
                       />
                       {code.length === 0 && (
-                        <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 animate-pulse text-sm font-medium text-[#f4b864]">
+                        <div
+                          className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 animate-pulse text-sm font-medium"
+                          style={{ color: themeVars.primary }}
+                        >
                           Tap to enter
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Verify button with press animation */}
+                  {/* Verify button with press animation - using theme gradient */}
                   <button
                     type="button"
                     onClick={handleVerifyCode}
                     disabled={code.length < 6}
                     className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
                       code.length >= 6
-                        ? 'bg-gradient-to-r from-[#f4b864] to-[#d6a249] text-neutral-900 shadow-lg hover:shadow-xl'
+                        ? 'text-neutral-900 shadow-lg hover:shadow-xl'
                         : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     }`}
                     style={{
+                      background: code.length >= 6
+                        ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                        : undefined,
                       transform: isVerifyButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
@@ -436,7 +480,8 @@ export function BlockingLoginModal({
                         setAuthState('loggedOut');
                         setCode('');
                       }}
-                      className="text-sm font-medium text-[#7b4ea3] hover:underline"
+                      className="text-sm font-medium hover:underline"
+                      style={{ color: themeVars.accent }}
                     >
                       ← Change number
                     </button>

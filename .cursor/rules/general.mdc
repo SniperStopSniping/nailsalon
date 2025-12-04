@@ -1,0 +1,77 @@
+---
+description: General project rules for the Nail Salon Booking Platform
+globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+---
+
+# General Project Rules
+
+## Project Overview
+
+This is a **multi-tenant SaaS nail salon booking platform** with:
+- Franchise-style multi-tenancy (subdomain per salon)
+- Luxury Apple/Tesla-style UI aesthetic
+- Phone-first SMS OTP authentication
+- Dynamic theming per tenant
+
+## Tech Stack
+
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS + theme tokens
+- **Database:** PostgreSQL + Drizzle ORM
+- **Animation:** Framer Motion
+- **State:** React Context (SalonProvider, ThemeProvider)
+
+## File Structure
+
+```
+src/
+├── app/           # Next.js App Router pages
+│   ├── [locale]/  # Internationalized routes
+│   │   ├── (auth)/    # Authenticated routes
+│   │   └── (unauth)/  # Public routes (booking flow)
+├── components/    # Reusable UI components
+├── providers/     # React context providers
+├── theme/         # Theme system
+├── hooks/         # Custom React hooks
+├── libs/          # Utility libraries
+├── models/        # Drizzle ORM schemas
+├── utils/         # Helper functions
+└── types/         # TypeScript types
+```
+
+## Core Principles
+
+1. **Document, don't redesign** - This is an existing product being documented
+2. **Theme tokens only** - Never hardcode colors
+3. **Preserve animations** - Animations are brand identity
+4. **Tenant isolation** - Always scope data to salonId
+5. **Existing patterns** - Follow established conventions
+
+## Import Ordering
+
+```typescript
+// 1. React/Next
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+
+// 2. Third-party
+import { motion } from 'framer-motion';
+
+// 3. Internal providers/hooks
+import { useSalon } from '@/providers/SalonProvider';
+import { themeVars } from '@/theme';
+
+// 4. Internal components
+import { MainCard } from '@/components/MainCard';
+
+// 5. Internal utils/types
+import { cn } from '@/utils/Helpers';
+```
+
+## Related Docs
+
+- See `docs/PRD.md` for product requirements
+- See `docs/TECHNICAL_SPEC.md` for architecture
+- See `docs/AI_RULES.md` for full behavioral rules

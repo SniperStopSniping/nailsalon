@@ -1,14 +1,8 @@
 'use client';
 
-import { useTranslations } from '@/providers/I18nProvider';
-
 import { DashboardHeader } from '@/features/dashboard/DashboardHeader';
 
-}
-
 export default function DashboardLayout(props: { children: React.ReactNode }) {
-  const t = useTranslations('DashboardLayout');
-
   return (
     <>
       <div className="shadow-md">
@@ -17,16 +11,16 @@ export default function DashboardLayout(props: { children: React.ReactNode }) {
             menu={[
               {
                 href: '/dashboard',
-                label: t('home'),
+                label: 'Home',
               },
               // PRO: Link to the /dashboard/todos page
               {
                 href: '/dashboard/organization-profile/organization-members',
-                label: t('members'),
+                label: 'Members',
               },
               {
                 href: '/dashboard/organization-profile',
-                label: t('settings'),
+                label: 'Settings',
               },
               // PRO: Link to the /dashboard/billing page
             ]}

@@ -1,5 +1,6 @@
 import * as React from 'react';
 
+import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
 export type PhoneFrameProps = {
@@ -13,9 +14,13 @@ export const PhoneFrame = React.forwardRef<HTMLDivElement, PhoneFrameProps>(
       <div
         ref={ref}
         className={cn(
-          'mx-auto max-w-sm rounded-[2.5rem] border-[3px] border-[#d9c6aa] bg-gradient-to-b from-[#fff8ef] to-[#fff3e2] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.3)]',
+          'mx-auto max-w-sm rounded-[2.5rem] border-[3px] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.3)]',
           className,
         )}
+        style={{
+          borderColor: themeVars.borderMuted,
+          background: `linear-gradient(to bottom, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+        }}
         {...props}
       >
         {children}

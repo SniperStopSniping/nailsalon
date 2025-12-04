@@ -1,4 +1,6 @@
 import * as React from 'react';
+
+import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
@@ -14,15 +16,17 @@ export interface ButtonProps
 
 /**
  * Unified Button Component
- * 
+ *
  * A minimal, premium button component that serves as the single source of truth
  * for all buttons across the customer-facing app.
- * 
+ *
+ * Uses theme CSS variables for brand colors to support multi-tenant theming.
+ *
  * Variants:
- * - primary: Gold background (#f4b864) with dark text
+ * - primary: Theme primary color background (gold) with dark text
  * - secondary: Neutral background with light border
  * - ghost: Text-only with minimal border
- * 
+ *
  * All buttons share:
  * - Pill-shaped rounded corners (rounded-full)
  * - Consistent padding (px-5 py-3.5 default, px-4 py-2.5 sm)
@@ -43,7 +47,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       disabled,
       ...props
     },
-    ref
+    ref,
   ) => {
     const baseClasses = cn(
       // Base styles - consistent across all variants
@@ -51,26 +55,26 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       'rounded-full', // Pill-shaped
       'font-semibold', // Base font weight
       'transition-all duration-200 ease-out', // Smooth animations
-      'focus:outline-none focus:ring-2 focus:ring-[#d6a249] focus:ring-offset-2',
+      `focus:outline-none focus:ring-2 focus:ring-[${themeVars.primaryDark}] focus:ring-offset-2`,
       'disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none',
-      
+
       // Size variants
       size === 'default' && 'px-5 py-3.5 text-base',
       size === 'sm' && 'px-4 py-2.5 text-sm',
-      
+
       // Full width
       fullWidth && 'w-full',
-      
-      // Variant-specific styles
+
+      // Variant-specific styles using theme variables
       variant === 'primary' && [
-        'bg-[#f4b864]', // Gold background
+        `bg-[${themeVars.primary}]`, // Theme primary (gold)
         'text-neutral-900', // Dark text for contrast
         'font-bold', // Bold for primary
         'shadow-sm', // Subtle shadow
-        'hover:scale-[1.02] hover:shadow-md hover:bg-[#f4b864]/90', // Hover lift
+        `hover:scale-[1.02] hover:shadow-md hover:bg-[${themeVars.primary}]/90`, // Hover lift
         'active:scale-[0.97]', // Press animation
       ],
-      
+
       variant === 'secondary' && [
         'bg-neutral-50', // Neutral background
         'text-neutral-700', // Medium text
@@ -80,7 +84,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'hover:scale-[1.01] hover:bg-neutral-100 hover:shadow-sm', // Subtle hover
         'active:scale-[0.98]', // Gentle press
       ],
-      
+
       variant === 'ghost' && [
         'bg-transparent', // No background
         'text-neutral-700', // Medium text
@@ -89,8 +93,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'hover:bg-neutral-50 hover:border-neutral-300', // Subtle hover
         'active:scale-[0.98]', // Gentle press
       ],
-      
-      className
+
+      className,
     );
 
     return (
@@ -103,7 +107,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {children}
       </button>
     );
-  }
+  },
 );
 
 Button.displayName = 'Button';

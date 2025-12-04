@@ -1,7 +1,9 @@
-"use client";
+'use client';
 
-import { useParams, useRouter } from "next/navigation";
-import { useTranslations } from "@/providers/I18nProvider";
+import { useRouter } from 'next/navigation';
+
+import { useSalon } from '@/providers/SalonProvider';
+import { themeVars } from '@/theme';
 
 type Appointment = {
   id: string;
@@ -9,7 +11,7 @@ type Appointment = {
   service: string;
   tech: string;
   time: string;
-  status: "completed" | "cancelled" | "no-show";
+  status: 'completed' | 'cancelled' | 'no-show';
   originalPrice: number;
   rewardDiscount?: number;
   finalPrice: number;
@@ -17,64 +19,64 @@ type Appointment = {
 
 const APPOINTMENT_HISTORY: Appointment[] = [
   {
-    id: "1",
-    date: "Dec 18, 2025",
-    service: "BIAB Refill",
-    tech: "Tiffany",
-    time: "2:00 PM",
-    status: "completed",
+    id: '1',
+    date: 'Dec 18, 2025',
+    service: 'BIAB Refill',
+    tech: 'Tiffany',
+    time: '2:00 PM',
+    status: 'completed',
     originalPrice: 65,
     rewardDiscount: 5,
     finalPrice: 60,
   },
   {
-    id: "2",
-    date: "Nov 15, 2025",
-    service: "BIAB French",
-    tech: "Daniela",
-    time: "11:00 AM",
-    status: "completed",
+    id: '2',
+    date: 'Nov 15, 2025',
+    service: 'BIAB French',
+    tech: 'Daniela',
+    time: '11:00 AM',
+    status: 'completed',
     originalPrice: 75,
     rewardDiscount: 10,
     finalPrice: 65,
   },
   {
-    id: "3",
-    date: "Oct 20, 2025",
-    service: "Gel-X Extensions",
-    tech: "Jenny",
-    time: "3:30 PM",
-    status: "completed",
+    id: '3',
+    date: 'Oct 20, 2025',
+    service: 'Gel-X Extensions',
+    tech: 'Jenny',
+    time: '3:30 PM',
+    status: 'completed',
     originalPrice: 90,
     finalPrice: 90,
   },
   {
-    id: "4",
-    date: "Sep 25, 2025",
-    service: "BIAB Medium",
-    tech: "Tiffany",
-    time: "1:00 PM",
-    status: "cancelled",
+    id: '4',
+    date: 'Sep 25, 2025',
+    service: 'BIAB Medium',
+    tech: 'Tiffany',
+    time: '1:00 PM',
+    status: 'cancelled',
     originalPrice: 75,
     finalPrice: 0,
   },
   {
-    id: "5",
-    date: "Aug 30, 2025",
-    service: "Gel Manicure",
-    tech: "Daniela",
-    time: "10:30 AM",
-    status: "completed",
+    id: '5',
+    date: 'Aug 30, 2025',
+    service: 'Gel Manicure',
+    tech: 'Daniela',
+    time: '10:30 AM',
+    status: 'completed',
     originalPrice: 45,
     finalPrice: 45,
   },
   {
-    id: "6",
-    date: "Jul 15, 2025",
-    service: "BIAB Short",
-    tech: "Jenny",
-    time: "2:00 PM",
-    status: "completed",
+    id: '6',
+    date: 'Jul 15, 2025',
+    service: 'BIAB Short',
+    tech: 'Jenny',
+    time: '2:00 PM',
+    status: 'completed',
     originalPrice: 65,
     rewardDiscount: 5,
     finalPrice: 60,
@@ -83,49 +85,50 @@ const APPOINTMENT_HISTORY: Appointment[] = [
 
 export default function AppointmentHistoryPage() {
   const router = useRouter();
-  const params = useParams();
-  const locale = (params?.locale as string) || "en";
-  const t = useTranslations("AppointmentHistory");
+  const { salonName } = useSalon();
 
   const handleBack = () => {
     router.back();
   };
 
-  const getStatusColor = (status: Appointment["status"]) => {
+  const getStatusColor = (status: Appointment['status']) => {
     switch (status) {
-      case "completed":
-        return "text-green-600 bg-green-50";
-      case "cancelled":
-        return "text-red-600 bg-red-50";
-      case "no-show":
-        return "text-orange-600 bg-orange-50";
+      case 'completed':
+        return 'text-green-600 bg-green-50';
+      case 'cancelled':
+        return 'text-red-600 bg-red-50';
+      case 'no-show':
+        return 'text-orange-600 bg-orange-50';
       default:
-        return "text-neutral-600 bg-neutral-50";
+        return 'text-neutral-600 bg-neutral-50';
     }
   };
 
-  const getStatusLabel = (status: Appointment["status"]) => {
+  const getStatusLabel = (status: Appointment['status']) => {
     switch (status) {
-      case "completed":
-        return t("completed");
-      case "cancelled":
-        return t("cancelled");
-      case "no-show":
-        return t("no_show");
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      case 'no-show':
+        return 'No Show';
       default:
         return status;
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#f6ebdd] flex justify-center py-4">
-      <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+    <div
+      className="flex min-h-screen justify-center py-4"
+      style={{ backgroundColor: themeVars.background }}
+    >
+      <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Top bar with back button */}
-        <div className="pt-2 relative flex items-center">
+        <div className="relative flex items-center pt-2">
           <button
             type="button"
             onClick={handleBack}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/50 active:scale-95 transition-all duration-150 z-10"
+            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-white/50 active:scale-95"
           >
             <svg
               width="20"
@@ -145,41 +148,44 @@ export default function AppointmentHistoryPage() {
           </button>
 
           {/* Salon name - centered */}
-          <div className="absolute left-1/2 transform -translate-x-1/2 text-xl font-semibold text-[#7b4ea3]">
-            Nail Salon No.5
+          <div
+            className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold"
+            style={{ color: themeVars.accent }}
+          >
+            {salonName}
           </div>
         </div>
 
         {/* Title section */}
-        <div className="text-center pt-2">
+        <div className="pt-2 text-center">
           <h1 className="text-2xl font-bold text-neutral-900">
-            {t("title")}
+            Appointment History
           </h1>
-          <p className="text-sm text-neutral-600 mt-1">
-            {t("subtitle")}
+          <p className="mt-1 text-sm text-neutral-600">
+            Your past visits
           </p>
         </div>
 
         {/* Appointment History List */}
         <div className="space-y-3">
-          {APPOINTMENT_HISTORY.map((appointment) => (
+          {APPOINTMENT_HISTORY.map(appointment => (
             <div
               key={appointment.id}
-              className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-4 space-y-3"
+              className="space-y-3 rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
             >
               {/* Header: Date and Status */}
-              <div className="flex justify-between items-start">
+              <div className="flex items-start justify-between">
                 <div>
                   <div className="text-sm font-semibold text-neutral-900">
                     {appointment.date}
                   </div>
-                  <div className="text-xs text-neutral-600 mt-0.5">
+                  <div className="mt-0.5 text-xs text-neutral-600">
                     {appointment.time}
                   </div>
                 </div>
                 <span
-                  className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
-                    appointment.status
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusColor(
+                    appointment.status,
                   )}`}
                 >
                   {getStatusLabel(appointment.status)}
@@ -192,42 +198,47 @@ export default function AppointmentHistoryPage() {
                   {appointment.service}
                 </div>
                 <div className="text-xs text-neutral-600">
-                  {t("tech")}: {appointment.tech}
+                  Tech:
+                  {' '}
+                  {appointment.tech}
                 </div>
               </div>
 
               {/* Price Breakdown */}
-              {appointment.status === "completed" && (
-                <div className="border-t border-neutral-200/50 pt-2 space-y-1">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-neutral-600">{t("price")}</span>
+              {appointment.status === 'completed' && (
+                <div className="space-y-1 border-t border-neutral-200/50 pt-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-neutral-600">Price</span>
                     <span className="font-semibold text-neutral-900">
-                      ${appointment.originalPrice}
+                      $
+                      {appointment.originalPrice}
                     </span>
                   </div>
                   {appointment.rewardDiscount && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-neutral-600">{t("reward_applied")}</span>
-                      <span className="text-green-600 font-semibold">
-                        -${appointment.rewardDiscount}
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-600">Reward Applied</span>
+                      <span className="font-semibold text-green-600">
+                        -$
+                        {appointment.rewardDiscount}
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center pt-1 border-t border-neutral-200/50">
+                  <div className="flex items-center justify-between border-t border-neutral-200/50 pt-1">
                     <span className="text-sm font-semibold text-neutral-900">
-                      {t("total_paid")}
+                      Total Paid
                     </span>
                     <span className="text-sm font-bold text-neutral-900">
-                      ${appointment.finalPrice}
+                      $
+                      {appointment.finalPrice}
                     </span>
                   </div>
                 </div>
               )}
 
-              {appointment.status === "cancelled" && (
+              {appointment.status === 'cancelled' && (
                 <div className="border-t border-neutral-200/50 pt-2">
                   <div className="text-xs text-neutral-500">
-                    {t("this_appointment_cancelled")}
+                    This appointment was cancelled
                   </div>
                 </div>
               )}
@@ -237,9 +248,9 @@ export default function AppointmentHistoryPage() {
 
         {/* Empty state message (if needed) */}
         {APPOINTMENT_HISTORY.length === 0 && (
-          <div className="rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] p-8 text-center">
+          <div className="rounded-xl bg-white p-8 text-center shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             <p className="text-sm text-neutral-600">
-              {t("no_history")}
+              No appointment history yet
             </p>
           </div>
         )}
@@ -247,4 +258,3 @@ export default function AppointmentHistoryPage() {
     </div>
   );
 }
-

@@ -1,19 +1,16 @@
 'use client';
 
 import { OrganizationProfile } from '@clerk/nextjs';
-import { useTranslations } from '@/providers/I18nProvider';
 
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getI18nPath } from '@/utils/Helpers';
 
 const OrganizationProfilePage = (props: { params: { locale: string } }) => {
-  const t = useTranslations('OrganizationProfile');
-
   return (
     <>
       <TitleBar
-        title={t('title_bar')}
-        description={t('title_bar_description')}
+        title="Organization Profile"
+        description="Manage your organization settings"
       />
 
       <OrganizationProfile

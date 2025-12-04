@@ -1,0 +1,186 @@
+---
+description: Database and multi-tenancy rules
+globs: ["src/models/**/*", "src/app/api/**/*", "**/*.ts"]
+---
+
+# Data Models & Multi-Tenancy Rules
+
+## 🔴 CRITICAL: Always Scope to Salon
+
+This is a multi-tenant platform. Every query MUST include salonId.
+
+```typescript
+// ❌ WRONG - Data leak vulnerability!
+const services = await db.select().from(servicesTable);
+
+// ✅ CORRECT - Scoped to tenant
+const services = await db
+  .select()
+  .from(servicesTable)
+  .where(eq(servicesTable.salonId, currentSalonId));
+```
+
+## Core Data Models
+
+### Salon (Tenant)
+
+```typescript
+{
+  id: string;
+  name: string;              // "Glow Nails"
+  slug: string;              // "glow-nails" (for subdomain)
+  customDomain?: string;     // Future: "glownails.com"
+  themeKey: string;          // References theme registry
+  logoUrl?: string;
+  phone?: string;
+  address?: string;
+  businessHours: JSON;
+  policies: JSON;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+### Service
+
+```typescript
+{
+  id: string;
+  salonId: string;           // 🔴 REQUIRED - tenant scope
+  name: string;              // "BIAB Short"
+  description?: string;
+  price: number;             // In cents or dollars
+  durationMinutes: number;   // 75
+  category: 'hands' | 'feet' | 'combo';
+  imageUrl?: string;
+  isActive: boolean;
+  sortOrder?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+### Technician
+
+```typescript
+{
+  id: string;
+  salonId: string;           // 🔴 REQUIRED - tenant scope
+  name: string;              // "Daniela"
+  bio?: string;
+  avatarUrl?: string;
+  specialties: string[];     // ["BIAB", "Gel-X"]
+  rating?: number;           // 4.8
+  reviewCount: number;
+  workDays: number[];        // [1,2,3,4,5] = Mon-Fri
+  startTime?: string;        // "09:00"
+  endTime?: string;          // "18:00"
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+### Appointment
+
+```typescript
+{
+  id: string;
+  salonId: string;           // 🔴 REQUIRED - tenant scope
+  serviceId: string;
+  technicianId?: string;
+  clientPhone: string;       // Phone-first auth
+  clientName?: string;
+  startTime: Date;
+  endTime: Date;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
+  notes?: string;
+  priceAtBooking: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+## API Route Pattern
+
+```typescript
+// All API routes must validate tenant context
+export async function GET(request: Request) {
+  // 1. Get current salon from context
+  const salonId = await getCurrentSalonId(request);
+  
+  if (!salonId) {
+    return Response.json({ error: 'Salon not found' }, { status: 404 });
+  }
+  
+  // 2. Query with salonId scope
+  const data = await db
+    .select()
+    .from(table)
+    .where(eq(table.salonId, salonId));
+    
+  return Response.json({ data });
+}
+
+export async function POST(request: Request) {
+  const salonId = await getCurrentSalonId(request);
+  const body = await request.json();
+  
+  // 3. Always include salonId in inserts
+  const result = await db.insert(table).values({
+    ...body,
+    salonId, // 🔴 Required
+  });
+  
+  return Response.json({ data: result });
+}
+```
+
+## Drizzle ORM Conventions
+
+```typescript
+import { pgTable, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
+
+export const serviceSchema = pgTable('service', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id),
+  name: text('name').notNull(),
+  // ...
+}, (table) => ({
+  // Add index for common queries
+  salonIdx: index('service_salon_idx').on(table.salonId),
+}));
+```
+
+## Provider Usage
+
+```typescript
+import { useSalon } from '@/providers/SalonProvider';
+
+function MyComponent() {
+  const { salonName } = useSalon();
+  
+  // Use salonName for display
+  return <h1>{salonName}</h1>;
+}
+```
+
+## ❌ Never Do This
+
+```typescript
+// ❌ Query without salonId
+const all = await db.select().from(services);
+
+// ❌ Insert without salonId
+await db.insert(services).values({ name: 'New' });
+
+// ❌ Update across tenants
+await db.update(services).set({ price: 100 });
+
+// ❌ Expose other tenant's data
+if (service.salonId !== currentSalonId) {
+  // Still returning it anyway - WRONG!
+  return service;
+}
+```
