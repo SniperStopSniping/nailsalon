@@ -78,7 +78,6 @@ export function BookConfirmClient({
   const searchParams = useSearchParams();
   useSalon(); // Keep provider connection active
   const locale = (params?.locale as string) || 'en';
-  const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
   const techId = searchParams.get('techId') || '';
   const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
