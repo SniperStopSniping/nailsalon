@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.2...v1.0.3) (2025-12-05)
+
+
+### Bug Fixes
+
+* add return to name modal useEffect ([4d34ce8](https://github.com/SniperStopSniping/nailsalon/commit/4d34ce8e38119e1837b9cdad78d7530a55f7e147))
+
 ## [1.0.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.1...v1.0.2) (2025-12-05)
 
 
