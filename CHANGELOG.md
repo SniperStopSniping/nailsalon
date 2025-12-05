@@ -1,3 +1,10 @@
+## [1.0.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.5...v1.0.6) (2025-12-05)
+
+
+### Bug Fixes
+
+* add missing translations to French locale ([1e7cd88](https://github.com/SniperStopSniping/nailsalon/commit/1e7cd8822397b0ad6222043ca7e6745e406aa89d))
+
 ## [1.0.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.4...v1.0.5) (2025-12-05)
 
 
