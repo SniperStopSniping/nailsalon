@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.1...v1.0.2) (2025-12-05)
+
+
+### Bug Fixes
+
+* remove unused serviceIds variable ([1a726e2](https://github.com/SniperStopSniping/nailsalon/commit/1a726e2215ee2f391757d31f3f8ad2252bafcbe3))
+
 ## [1.0.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.0...v1.0.1) (2025-12-05)
 
 
