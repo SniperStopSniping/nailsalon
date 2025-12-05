@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.0...v1.0.1) (2025-12-05)
+
+
+### Bug Fixes
+
+* add explicit returns to useEffect callbacks for TypeScript ([78bee99](https://github.com/SniperStopSniping/nailsalon/commit/78bee99556a18259eadfcc6a0bbd4ff6a40c04f8))
+
 # 1.0.0 (2025-12-04)
 
 
