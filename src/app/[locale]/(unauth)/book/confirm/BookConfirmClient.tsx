@@ -218,6 +218,7 @@ export function BookConfirmClient({
         return () => clearTimeout(timer);
       }
     }
+    return;
   }, [stage, bookingComplete]);
 
   // Save name to server
