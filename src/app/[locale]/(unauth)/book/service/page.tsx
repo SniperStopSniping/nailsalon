@@ -4,6 +4,8 @@ import { getSalonBySlug, getServicesBySalonId } from '@/libs/queries';
 
 import { BookServiceClient } from './BookServiceClient';
 
+export const dynamic = 'force-dynamic';
+
 // Default salon slug - in production this would come from subdomain
 const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 

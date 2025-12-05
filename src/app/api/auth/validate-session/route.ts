@@ -8,6 +8,8 @@
  */
 
 import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 
 // =============================================================================

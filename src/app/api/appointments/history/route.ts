@@ -1,6 +1,8 @@
 import { eq, and, inArray, desc } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+
+export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentSchema,
