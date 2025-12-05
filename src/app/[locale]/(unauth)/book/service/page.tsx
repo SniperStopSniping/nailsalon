@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { getSalonBySlug, getServicesBySalonId } from '@/libs/queries';
 
 import { BookServiceClient } from './BookServiceClient';
@@ -17,7 +19,11 @@ export default async function BookServicePage() {
 
   if (!salon) {
     // Fallback to empty services if salon not found (shouldn't happen in production)
-    return <BookServiceClient services={[]} />;
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <BookServiceClient services={[]} />
+      </Suspense>
+    );
   }
 
   // Fetch services for this salon
@@ -35,5 +41,9 @@ export default async function BookServicePage() {
     imageUrl: service.imageUrl || '/assets/images/biab-short.webp', // Fallback image
   }));
 
-  return <BookServiceClient services={services} />;
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <BookServiceClient services={services} />
+    </Suspense>
+  );
 }
