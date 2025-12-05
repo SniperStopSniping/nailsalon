@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.4...v1.0.5) (2025-12-05)
+
+
+### Bug Fixes
+
+* resolve all remaining TypeScript errors ([646fcef](https://github.com/SniperStopSniping/nailsalon/commit/646fcef9f4c79f36f05eb48eaf5b34e88db70aea))
+
 ## [1.0.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.3...v1.0.4) (2025-12-05)
 
 
