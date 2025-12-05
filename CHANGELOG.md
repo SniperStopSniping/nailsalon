@@ -1,3 +1,11 @@
+## [1.0.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.6...v1.0.7) (2025-12-05)
+
+
+### Bug Fixes
+
+* add Suspense boundary and remove duplicate dashboard routes ([40e8d4f](https://github.com/SniperStopSniping/nailsalon/commit/40e8d4f5fcfada546160a957e5198f5dcaaeab6c))
+* mark dynamic routes and add client directive to dashboard ([ecbaa50](https://github.com/SniperStopSniping/nailsalon/commit/ecbaa50dbcdee9982f1b3702d0fe8617a1f4de13))
+
 ## [1.0.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.5...v1.0.6) (2025-12-05)
 
 
