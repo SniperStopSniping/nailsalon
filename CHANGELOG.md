@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.3...v1.0.4) (2025-12-05)
+
+
+### Bug Fixes
+
+* add return to useEffects in BookServiceClient ([84d61e4](https://github.com/SniperStopSniping/nailsalon/commit/84d61e4d069cd261a3d9226650f5673c92b6b13d))
+
 ## [1.0.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.2...v1.0.3) (2025-12-05)
 
 
