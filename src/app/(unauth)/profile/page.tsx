@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { themeVars } from '@/theme';
 
@@ -62,6 +62,48 @@ function CollapsibleSection({
   );
 }
 
+// Types for real appointment data
+type AppointmentData = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  totalPrice: number;
+  totalDurationMinutes: number;
+  clientPhone: string;
+};
+
+type ServiceData = {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+  imageUrl: string | null;
+};
+
+type TechnicianData = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
+// Helper functions for date/time formatting
+function formatDateFull(isoString: string): string {
+  const date = new Date(isoString);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString);
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const params = useParams();
@@ -77,8 +119,67 @@ export default function ProfilePage() {
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
-  const [userName, setUserName] = useState('Sarah');
-  const [editedName, setEditedName] = useState('Sarah');
+  const [userName, setUserName] = useState('Guest');
+  const [editedName, setEditedName] = useState('Guest');
+  const [clientPhone, setClientPhone] = useState('');
+
+  // Next appointment - real data from database
+  const [nextAppointment, setNextAppointment] = useState<AppointmentData | null>(null);
+  const [nextAppointmentServices, setNextAppointmentServices] = useState<ServiceData[]>([]);
+  const [nextAppointmentTech, setNextAppointmentTech] = useState<TechnicianData | null>(null);
+  const [appointmentLoading, setAppointmentLoading] = useState(true);
+
+  // Load client name and phone from cookie on mount
+  useEffect(() => {
+    const clientNameCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_name='));
+    if (clientNameCookie) {
+      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
+      if (name) {
+        setUserName(name);
+        setEditedName(name);
+      }
+    }
+
+    const clientPhoneCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_phone='));
+    if (clientPhoneCookie) {
+      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
+      if (phone) setClientPhone(phone);
+    }
+  }, []);
+
+  // Fetch next appointment from real database
+  useEffect(() => {
+    async function fetchNextAppointment() {
+      if (!clientPhone) {
+        setAppointmentLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setNextAppointment(data.data?.appointment || null);
+          setNextAppointmentServices(data.data?.services || []);
+          setNextAppointmentTech(data.data?.technician || null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch next appointment:', error);
+      } finally {
+        setAppointmentLoading(false);
+      }
+    }
+
+    if (clientPhone) {
+      fetchNextAppointment();
+    } else {
+      setAppointmentLoading(false);
+    }
+  }, [clientPhone]);
 
   // Beauty Profile state
   const [isEditingBeautyProfile, setIsEditingBeautyProfile] = useState(false);
@@ -582,40 +683,74 @@ export default function ProfilePage() {
             <h4 className="text-sm font-semibold text-neutral-900">
               Next Appointment
             </h4>
-            <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <div className="text-sm font-semibold text-neutral-900">
-                BIAB Refill
+
+            {appointmentLoading && (
+              <div className="py-4 text-center text-neutral-500">Loading...</div>
+            )}
+
+            {!appointmentLoading && nextAppointment && (
+              <>
+                <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                  <div className="text-sm font-semibold text-neutral-900">
+                    {nextAppointmentServices.map(s => s.name).join(' + ') || 'Appointment'}
+                  </div>
+                  <div className="text-sm text-neutral-600">
+                    Tech: {nextAppointmentTech?.name || 'Any Artist'}
+                  </div>
+                  <div className="text-sm text-neutral-600">
+                    {formatDateFull(nextAppointment.startTime)} · {formatTime(nextAppointment.startTime)}
+                  </div>
+                  <div className="mt-2 space-y-1 border-t border-neutral-200/50 pt-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-neutral-600">Price</span>
+                      <span className="font-semibold text-neutral-900">${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-neutral-200/50 pt-1">
+                      <span className="text-sm font-semibold text-neutral-900">Total</span>
+                      <span className="text-sm font-bold text-neutral-900">${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const serviceIds = nextAppointmentServices.map(s => s.id).join(',');
+                    const techId = nextAppointmentTech?.id || 'any';
+                    const apptDate = new Date(nextAppointment.startTime);
+                    const dateStr = apptDate.toISOString().split('T')[0];
+                    const hours = apptDate.getHours();
+                    const mins = apptDate.getMinutes().toString().padStart(2, '0');
+                    const timeStr = `${hours}:${mins}`;
+                    router.push(
+                      `/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(nextAppointment.clientPhone)}&originalAppointmentId=${encodeURIComponent(nextAppointment.id)}`,
+                    );
+                  }}
+                  className="w-full rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                  style={{ backgroundColor: themeVars.primary }}
+                >
+                  View / Change Appointment
+                </button>
+              </>
+            )}
+
+            {!appointmentLoading && !nextAppointment && (
+              <div className="py-4 text-center">
+                <div className="mb-2 text-3xl">📅</div>
+                <p className="mb-3 text-neutral-600">No upcoming appointments</p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/book/service')}
+                  className="rounded-full px-6 py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                  style={{ backgroundColor: themeVars.primary }}
+                >
+                  Book Now
+                </button>
               </div>
-              <div className="text-sm text-neutral-600">Tech: Tiffany</div>
-              <div className="text-sm text-neutral-600">Dec 18 · 2:00 PM</div>
-              <div className="mt-2 space-y-1 border-t border-neutral-200/50 pt-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-neutral-600">Price</span>
-                  <span className="font-semibold text-neutral-900">$65</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-neutral-600">Reward Applied</span>
-                  <span className="font-semibold text-green-600">-$5</span>
-                </div>
-                <div className="flex items-center justify-between border-t border-neutral-200/50 pt-1">
-                  <span className="text-sm font-semibold text-neutral-900">
-                    Total
-                  </span>
-                  <span className="text-sm font-bold text-neutral-900">$60</span>
-                </div>
-              </div>
-            </div>
+            )}
+
             <button
               type="button"
-              onClick={() => router.push(`/${locale}/change-appointment`)}
-              className="w-full rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-              style={{ backgroundColor: themeVars.primary }}
-            >
-              View / Change Appointment
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/appointments/history`)}
+              onClick={() => router.push('/appointments/history')}
               className="w-full text-sm font-medium transition-colors hover:opacity-80"
               style={{ color: themeVars.accent }}
             >

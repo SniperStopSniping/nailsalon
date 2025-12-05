@@ -65,10 +65,19 @@ export default function RewardsPage() {
     message: string;
   } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [clientName, setClientName] = useState('Guest');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
+    // Load client name from cookie
+    const clientNameCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_name='));
+    if (clientNameCookie) {
+      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
+      if (name) setClientName(name);
+    }
   }, []);
 
   const appointmentDetails = {
@@ -233,9 +242,8 @@ export default function RewardsPage() {
             {t('title')}
           </h1>
           <p className="mt-1 text-base text-neutral-500">
-            {t('welcome', { name: 'Sarah' })}
+            {t('welcome', { name: clientName })}
             {' '}
-            ✨
           </p>
         </div>
 

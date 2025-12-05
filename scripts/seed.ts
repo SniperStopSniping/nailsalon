@@ -10,6 +10,9 @@
  * Run with: npm run db:seed
  */
 
+// Load environment variables from .env and .env.local
+import 'dotenv/config';
+
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -194,7 +197,7 @@ const SERVICES: schema.NewService[] = [
   },
 ];
 
-// Technicians
+// Technicians with weekly schedules
 const TECHNICIANS: schema.NewTechnician[] = [
   {
     id: 'tech_daniela',
@@ -205,6 +208,16 @@ const TECHNICIANS: schema.NewTechnician[] = [
     specialties: ['BIAB', 'Gel-X', 'French'],
     rating: '4.8',
     reviewCount: 127,
+    weeklySchedule: {
+      sunday: null, // Day off
+      monday: { start: '09:00', end: '18:00' },
+      tuesday: { start: '09:00', end: '18:00' },
+      wednesday: { start: '09:00', end: '18:00' },
+      thursday: { start: '09:00', end: '18:00' },
+      friday: { start: '09:00', end: '18:00' },
+      saturday: null, // Day off
+    },
+    // Legacy fields
     workDays: [1, 2, 3, 4, 5], // Mon-Fri
     startTime: '09:00',
     endTime: '18:00',
@@ -219,6 +232,16 @@ const TECHNICIANS: schema.NewTechnician[] = [
     specialties: ['BIAB', 'Gel Manicure'],
     rating: '4.9',
     reviewCount: 203,
+    weeklySchedule: {
+      sunday: null, // Day off
+      monday: { start: '10:00', end: '19:00' },
+      tuesday: { start: '10:00', end: '19:00' },
+      wednesday: { start: '10:00', end: '19:00' },
+      thursday: { start: '10:00', end: '19:00' },
+      friday: { start: '10:00', end: '19:00' },
+      saturday: { start: '10:00', end: '17:00' },
+    },
+    // Legacy fields
     workDays: [1, 2, 3, 4, 5, 6], // Mon-Sat
     startTime: '10:00',
     endTime: '19:00',
@@ -233,6 +256,16 @@ const TECHNICIANS: schema.NewTechnician[] = [
     specialties: ['Gel-X', 'Pedicure'],
     rating: '4.7',
     reviewCount: 89,
+    weeklySchedule: {
+      sunday: null, // Day off
+      monday: null, // Day off
+      tuesday: { start: '09:00', end: '17:00' },
+      wednesday: { start: '09:00', end: '17:00' },
+      thursday: { start: '09:00', end: '17:00' },
+      friday: { start: '09:00', end: '17:00' },
+      saturday: { start: '10:00', end: '16:00' },
+    },
+    // Legacy fields
     workDays: [2, 3, 4, 5, 6], // Tue-Sat
     startTime: '09:00',
     endTime: '17:00',
@@ -314,6 +347,7 @@ async function seed() {
             specialties: tech.specialties,
             rating: tech.rating,
             reviewCount: tech.reviewCount,
+            weeklySchedule: tech.weeklySchedule,
             workDays: tech.workDays,
             startTime: tech.startTime,
             endTime: tech.endTime,

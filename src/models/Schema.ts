@@ -200,7 +200,19 @@ export const technicianSchema = pgTable(
     rating: numeric('rating', { precision: 2, scale: 1 }),
     reviewCount: integer('review_count').default(0),
 
-    // Availability (basic model)
+    // Availability - Per-day schedule with start/end times
+    // null for a day means day off
+    weeklySchedule: jsonb('weekly_schedule').$type<{
+      sunday?: { start: string; end: string } | null;
+      monday?: { start: string; end: string } | null;
+      tuesday?: { start: string; end: string } | null;
+      wednesday?: { start: string; end: string } | null;
+      thursday?: { start: string; end: string } | null;
+      friday?: { start: string; end: string } | null;
+      saturday?: { start: string; end: string } | null;
+    }>(),
+
+    // Legacy fields (kept for backward compatibility)
     workDays: jsonb('work_days').$type<number[]>(), // [1, 2, 3, 4, 5] = Mon-Fri
     startTime: text('start_time'), // "09:00"
     endTime: text('end_time'), // "18:00"
@@ -263,6 +275,8 @@ export const appointmentSchema = pgTable(
     // Status
     status: text('status').notNull().default('confirmed'),
     // 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
+    cancelReason: text('cancel_reason'),
+    // 'rescheduled' | 'client_request' | 'no_show' | null
 
     // Totals (computed from linked services at booking time)
     totalPrice: integer('total_price').notNull(), // Sum of all service prices
@@ -317,9 +331,32 @@ export const appointmentServicesSchema = pgTable(
   }),
 );
 
+// -----------------------------------------------------------------------------
+// Client - Customer profiles keyed by phone number
+// -----------------------------------------------------------------------------
+export const clientSchema = pgTable(
+  'client',
+  {
+    id: text('id').primaryKey(),
+    phone: text('phone').notNull().unique(),
+    firstName: text('first_name'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    phoneIdx: uniqueIndex('client_phone_idx').on(table.phone),
+  }),
+);
+
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
+
+export type Client = typeof clientSchema.$inferSelect;
+export type NewClient = typeof clientSchema.$inferInsert;
 
 export type Salon = typeof salonSchema.$inferSelect;
 export type NewSalon = typeof salonSchema.$inferInsert;
@@ -329,6 +366,18 @@ export type NewService = typeof serviceSchema.$inferInsert;
 
 export type Technician = typeof technicianSchema.$inferSelect;
 export type NewTechnician = typeof technicianSchema.$inferInsert;
+
+// Weekly schedule type for technician availability
+export type DaySchedule = { start: string; end: string } | null;
+export type WeeklySchedule = {
+  sunday?: DaySchedule;
+  monday?: DaySchedule;
+  tuesday?: DaySchedule;
+  wednesday?: DaySchedule;
+  thursday?: DaySchedule;
+  friday?: DaySchedule;
+  saturday?: DaySchedule;
+};
 
 export type TechnicianService = typeof technicianServicesSchema.$inferSelect;
 export type NewTechnicianService = typeof technicianServicesSchema.$inferInsert;
@@ -354,3 +403,10 @@ export const APPOINTMENT_STATUSES = [
   'no_show',
 ] as const;
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+
+export const CANCEL_REASONS = [
+  'rescheduled',
+  'client_request',
+  'no_show',
+] as const;
+export type CancelReason = (typeof CANCEL_REASONS)[number];

@@ -8,7 +8,6 @@ import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
 import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
-import { PHASE_PRODUCTION_BUILD } from 'next/dist/shared/lib/constants';
 import { Client } from 'pg';
 
 import * as schema from '@/models/Schema';
@@ -18,8 +17,10 @@ import { Env } from './Env';
 let client;
 let drizzle;
 
-// Seed demo data for PGlite in-memory database
-async function seedDemoData(db: PgliteDatabase<typeof schema>) {
+// Initialize business configuration for PGlite in-memory database ONLY
+// This sets up the salon, services, and technicians (required for the app to work)
+// Note: NO appointments are created - all appointments come from real user bookings
+async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
   // Check if salon already exists
   const existingSalon = await db
     .select()
@@ -28,7 +29,7 @@ async function seedDemoData(db: PgliteDatabase<typeof schema>) {
     .limit(1);
 
   if (existingSalon.length > 0) {
-    return; // Already seeded
+    return; // Already initialized
   }
 
   // Create salon
@@ -87,12 +88,18 @@ async function seedDemoData(db: PgliteDatabase<typeof schema>) {
     }
   }
 
-  console.log('✅ Demo data seeded for PGlite');
+  // No console.log - silent initialization
 }
 
-// Need a database for production? Check out https://www.prisma.io/?via=saasboilerplatesrc
-// Tested and compatible with Next.js Boilerplate
-if (process.env.NEXT_PHASE !== PHASE_PRODUCTION_BUILD && Env.DATABASE_URL) {
+// =============================================================================
+// DATABASE INITIALIZATION
+// =============================================================================
+// Priority: ALWAYS use real Postgres when DATABASE_URL is set.
+// Only fall back to PGlite in-memory when DATABASE_URL is completely absent.
+// =============================================================================
+
+if (Env.DATABASE_URL) {
+  // Use real PostgreSQL database - data persists across restarts
   client = new Client({
     connectionString: Env.DATABASE_URL,
   });
@@ -103,7 +110,10 @@ if (process.env.NEXT_PHASE !== PHASE_PRODUCTION_BUILD && Env.DATABASE_URL) {
     migrationsFolder: path.join(process.cwd(), 'migrations'),
   });
 } else {
-  // Stores the db connection in the global scope to prevent multiple instances due to hot reloading with Next.js
+  // Fallback: PGlite in-memory database (data lost on restart)
+  // Only used when no DATABASE_URL is configured at all
+  console.warn('[DB] No DATABASE_URL found - using PGlite in-memory database. Data will not persist across restarts.');
+
   const global = globalThis as unknown as { client: PGlite; drizzle: PgliteDatabase<typeof schema>; seeded?: boolean };
 
   if (!global.client) {
@@ -118,9 +128,10 @@ if (process.env.NEXT_PHASE !== PHASE_PRODUCTION_BUILD && Env.DATABASE_URL) {
     migrationsFolder: path.join(process.cwd(), 'migrations'),
   });
 
-  // Seed demo data for development
+  // Initialize business data (salon, services, technicians) for PGlite only
+  // Note: This does NOT create any demo appointments - all appointments come from real bookings
   if (!global.seeded) {
-    await seedDemoData(global.drizzle);
+    await initializeBusinessData(global.drizzle);
     global.seeded = true;
   }
 }

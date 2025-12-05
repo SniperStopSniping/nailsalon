@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FormInput } from '@/components/FormInput';
 import { themeVars } from '@/theme';
 
-type AuthState = 'loggedOut' | 'verify' | 'success';
+type AuthState = 'checking' | 'loggedOut' | 'verify' | 'success';
 
 type BlockingLoginModalProps = {
   isOpen: boolean;
@@ -17,64 +17,149 @@ type BlockingLoginModalProps = {
  * BlockingLoginModal Component
  *
  * Modal for phone-based authentication flow.
+ * Uses Twilio Verify API for real SMS OTP.
  * Uses theme CSS variables for brand colors.
+ * Checks for existing session first to skip OTP if already logged in.
  */
 export function BlockingLoginModal({
   isOpen,
   onClose,
   onLoginSuccess,
 }: BlockingLoginModalProps) {
-  const [authState, setAuthState] = useState<AuthState>('loggedOut');
+  const [authState, setAuthState] = useState<AuthState>('checking');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [isVisible, setIsVisible] = useState(false);
   const [isContentVisible, setIsContentVisible] = useState(false);
   const [isButtonPressed, setIsButtonPressed] = useState(false);
   const [isVerifyButtonPressed, setIsVerifyButtonPressed] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSendCode = useCallback(() => {
-    if (!phone.trim() || phone.length < 10) {
+  const handleSendCode = useCallback(async () => {
+    if (!phone.trim() || phone.length < 10 || isLoading) {
       return;
     }
 
-    // Button press animation
     setIsButtonPressed(true);
-    setTimeout(() => {
-      setIsButtonPressed(false);
-      setAuthState('verify');
-    }, 200);
-  }, [phone]);
+    setIsLoading(true);
+    setError(null);
 
-  const handleVerifyCode = useCallback(() => {
-    if (code.trim().length < 6) {
+    try {
+      const response = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to send code');
+        setIsButtonPressed(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // Success - move to verify state
+      setTimeout(() => {
+        setIsButtonPressed(false);
+        setIsLoading(false);
+        setAuthState('verify');
+      }, 200);
+    } catch {
+      setError('Network error. Please try again.');
+      setIsButtonPressed(false);
+      setIsLoading(false);
+    }
+  }, [phone, isLoading]);
+
+  const handleVerifyCode = useCallback(async () => {
+    if (code.trim().length < 6 || isLoading) {
       return;
     }
 
-    // Button press animation
     setIsVerifyButtonPressed(true);
-    setTimeout(() => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Invalid code');
+        setIsVerifyButtonPressed(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // Success - show celebration
+      setTimeout(() => {
+        setIsVerifyButtonPressed(false);
+        setIsLoading(false);
+        setAuthState('success');
+      }, 200);
+    } catch {
+      setError('Network error. Please try again.');
       setIsVerifyButtonPressed(false);
-      setAuthState('success');
-    }, 200);
-  }, [code]);
-
-  // Auto-send when 10 digits entered
-  useEffect(() => {
-    if (phone.length === 10) {
-      // Small delay so user sees the button activate
-      setTimeout(() => handleSendCode(), 150);
+      setIsLoading(false);
     }
-  }, [phone, handleSendCode]);
+  }, [phone, code, isLoading]);
 
-  // Auto-verify when 6 digits entered
-  useEffect(() => {
-    if (code.length === 6) {
-      // Small delay so user sees the button activate
-      setTimeout(() => handleVerifyCode(), 150);
+  const handleResendCode = useCallback(async () => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to resend code');
+      } else {
+        setCode(''); // Clear existing code
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-  }, [code, handleVerifyCode]);
+  }, [phone, isLoading]);
+
+  // Auto-send when 10 digits entered (only in loggedOut state, not loading)
+  useEffect(() => {
+    if (phone.length === 10 && authState === 'loggedOut' && !isLoading) {
+      // Small delay so user sees the button activate
+      const timer = setTimeout(() => handleSendCode(), 150);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, authState]); // Intentionally exclude handleSendCode to prevent loops
+
+  // Auto-verify when 6 digits entered (only in verify state, not loading)
+  useEffect(() => {
+    if (code.length === 6 && authState === 'verify' && !isLoading) {
+      // Small delay so user sees the button activate
+      const timer = setTimeout(() => handleVerifyCode(), 150);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, authState]); // Intentionally exclude handleVerifyCode to prevent loops
 
   // Auto-focus phone input when modal opens
   useEffect(() => {
@@ -115,6 +200,33 @@ export function BlockingLoginModal({
     }
   }, [authState, onLoginSuccess, phone]);
 
+  // Check for existing session when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const checkExistingSession = async () => {
+      setAuthState('checking');
+      try {
+        const response = await fetch('/api/auth/validate-session');
+        const data = await response.json();
+
+        if (data.valid && data.phone) {
+          // User is already logged in - skip to success
+          setPhone(data.phone);
+          setAuthState('success');
+        } else {
+          // No valid session - show login form
+          setAuthState('loggedOut');
+        }
+      } catch {
+        // Error checking session - show login form
+        setAuthState('loggedOut');
+      }
+    };
+
+    checkExistingSession();
+  }, [isOpen]);
+
   // Handle modal open/close animations
   useEffect(() => {
     if (isOpen) {
@@ -124,7 +236,7 @@ export function BlockingLoginModal({
       setIsContentVisible(false);
       setTimeout(() => {
         setIsVisible(false);
-        setAuthState('loggedOut');
+        setAuthState('checking');
         setPhone('');
         setCode('');
         setIsButtonPressed(false);
@@ -174,6 +286,14 @@ export function BlockingLoginModal({
         }}
       >
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
+          {/* Checking Session State */}
+          {authState === 'checking' && (
+            <div className="flex flex-col items-center justify-center p-12">
+              <div className="size-10 animate-spin rounded-full border-4 border-neutral-200 border-t-neutral-600" />
+              <p className="mt-4 text-sm text-neutral-500">Checking your session...</p>
+            </div>
+          )}
+
           {/* Success State */}
           {authState === 'success' && (
             <div className="p-8 text-center">
@@ -347,25 +467,32 @@ export function BlockingLoginModal({
                     </div>
                   </div>
 
+                  {/* Error message */}
+                  {error && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-center text-sm text-red-600">
+                      {error}
+                    </div>
+                  )}
+
                   {/* Send code button with press animation - using theme gradient */}
                   <button
                     type="button"
                     onClick={handleSendCode}
-                    disabled={phone.length < 10}
+                    disabled={phone.length < 10 || isLoading}
                     className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
-                      phone.length >= 10
+                      phone.length >= 10 && !isLoading
                         ? 'text-neutral-900 shadow-lg hover:shadow-xl'
                         : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     }`}
                     style={{
-                      background: phone.length >= 10
+                      background: phone.length >= 10 && !isLoading
                         ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
                         : undefined,
                       transform: isButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
                   >
-                    {phone.length >= 10 ? 'Send Code →' : `Enter ${10 - phone.length} more digits`}
+                    {isLoading ? 'Sending...' : phone.length >= 10 ? 'Send Code →' : `Enter ${10 - phone.length} more digits`}
                   </button>
 
                   {/* Cancel */}
@@ -455,22 +582,29 @@ export function BlockingLoginModal({
                   <button
                     type="button"
                     onClick={handleVerifyCode}
-                    disabled={code.length < 6}
+                    disabled={code.length < 6 || isLoading}
                     className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
-                      code.length >= 6
+                      code.length >= 6 && !isLoading
                         ? 'text-neutral-900 shadow-lg hover:shadow-xl'
                         : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
                     }`}
                     style={{
-                      background: code.length >= 6
+                      background: code.length >= 6 && !isLoading
                         ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
                         : undefined,
                       transform: isVerifyButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
                   >
-                    {code.length >= 6 ? 'Verify & Continue →' : `Enter ${6 - code.length} more digits`}
+                    {isLoading ? 'Verifying...' : code.length >= 6 ? 'Verify & Continue →' : `Enter ${6 - code.length} more digits`}
                   </button>
+
+                  {/* Error message */}
+                  {error && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-center text-sm text-red-600">
+                      {error}
+                    </div>
+                  )}
 
                   {/* Actions */}
                   <div className="flex items-center justify-between pt-2">
@@ -478,7 +612,9 @@ export function BlockingLoginModal({
                       type="button"
                       onClick={() => {
                         setAuthState('loggedOut');
+                        setPhone(''); // Clear phone so user can enter new one
                         setCode('');
+                        setError(null);
                       }}
                       className="text-sm font-medium hover:underline"
                       style={{ color: themeVars.accent }}
@@ -487,9 +623,11 @@ export function BlockingLoginModal({
                     </button>
                     <button
                       type="button"
-                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-600"
+                      onClick={handleResendCode}
+                      disabled={isLoading}
+                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-600 disabled:opacity-50"
                     >
-                      Resend code
+                      {isLoading ? 'Sending...' : 'Resend code'}
                     </button>
                   </div>
 

@@ -17,6 +17,29 @@ type SectionId =
   | 'rate-us'
   | 'payment';
 
+// Helper functions for date/time formatting
+function formatDateShort(isoString: string): string {
+  const date = new Date(isoString);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatDateFull(isoString: string): string {
+  const date = new Date(isoString);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString);
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+}
+
 // CollapsibleSection component
 function CollapsibleSection({
   id,
@@ -85,6 +108,39 @@ function CollapsibleSection({
   );
 }
 
+// Appointment type from API
+type AppointmentData = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  totalPrice: number;
+  totalDurationMinutes: number;
+  clientPhone: string;
+};
+
+type ServiceData = {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+  imageUrl: string | null;
+};
+
+type TechnicianData = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
+type NextAppointmentResponse = {
+  data: {
+    appointment: AppointmentData | null;
+    services: ServiceData[];
+    technician: TechnicianData | null;
+  };
+};
+
 export default function ProfilePage() {
   const router = useRouter();
   const params = useParams();
@@ -96,12 +152,69 @@ export default function ProfilePage() {
     new Set(['appointments']),
   );
 
-  // User data
-  const [userName, _setUserName] = useState('Sarah');
-  const [_isEditMode, _setIsEditMode] = useState(false);
-  const [_editedName, _setEditedName] = useState('Sarah');
+  // User data - read from cookie
+  const [userName, setUserName] = useState('Guest');
+  const [clientPhone, setClientPhone] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement>(null);
+
+  // Next appointment data - fetched from real database
+  const [nextAppointment, setNextAppointment] = useState<AppointmentData | null>(null);
+  const [nextAppointmentServices, setNextAppointmentServices] = useState<ServiceData[]>([]);
+  const [nextAppointmentTech, setNextAppointmentTech] = useState<TechnicianData | null>(null);
+  const [appointmentLoading, setAppointmentLoading] = useState(true);
+
+  // Load client name and phone from cookie on mount
+  useEffect(() => {
+    const clientNameCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_name='));
+    if (clientNameCookie) {
+      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
+      if (name) setUserName(name);
+    }
+
+    const clientPhoneCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_phone='));
+    if (clientPhoneCookie) {
+      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
+      if (phone) setClientPhone(phone);
+    }
+  }, []);
+
+  // Fetch next appointment from real database
+  useEffect(() => {
+    async function fetchNextAppointment() {
+      if (!clientPhone) {
+        setAppointmentLoading(false);
+        return;
+      }
+
+      try {
+        // Always fetch fresh data - no caching
+        const response = await fetch(`/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`, {
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const data: NextAppointmentResponse = await response.json();
+          setNextAppointment(data.data?.appointment || null);
+          setNextAppointmentServices(data.data?.services || []);
+          setNextAppointmentTech(data.data?.technician || null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch next appointment:', error);
+      } finally {
+        setAppointmentLoading(false);
+      }
+    }
+
+    if (clientPhone) {
+      fetchNextAppointment();
+    } else {
+      setAppointmentLoading(false);
+    }
+  }, [clientPhone]);
 
   // Invite state
   const [friendPhone, setFriendPhone] = useState('');
@@ -378,60 +491,94 @@ export default function ProfilePage() {
             icon="💅"
             isOpen={openSections.has('appointments')}
             onToggle={handleToggleSection}
-            badge="Dec 18"
+            badge={nextAppointment ? formatDateShort(nextAppointment.startTime) : undefined}
           >
             <div className="space-y-4">
-              <div
-                className="flex items-center gap-4 rounded-xl p-4"
-                style={{ background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})` }}
-              >
-                <div className="relative size-16 shrink-0 overflow-hidden rounded-xl bg-white shadow-sm">
-                  <Image
-                    src="/assets/images/biab-medium.webp"
-                    alt="BIAB Refill"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                <div className="flex-1">
-                  <div className="text-lg font-bold text-neutral-900">BIAB Refill</div>
-                  <div className="mt-1 flex items-center gap-1.5 text-sm text-neutral-600">
-                    <span style={{ color: themeVars.accent }}>✦</span>
-                    <span>with Tiffany</span>
-                  </div>
-                  <div className="mt-0.5 text-sm text-neutral-500">
-                    Thu, Dec 18 · 2:00 PM
-                  </div>
-                </div>
-              </div>
+              {appointmentLoading && (
+                <div className="py-4 text-center text-neutral-500">Loading...</div>
+              )}
 
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-neutral-600">Service</span>
-                  <span className="font-semibold">$65</span>
-                </div>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-neutral-600">Your Reward</span>
-                  <span className="font-bold text-emerald-600">-$5</span>
-                </div>
-                <div className="flex items-center justify-between border-t border-emerald-200 pt-2">
-                  <span className="text-lg font-bold text-neutral-900">Total</span>
-                  <span className="text-xl font-bold" style={{ color: themeVars.accent }}>$60</span>
-                </div>
-              </div>
+              {!appointmentLoading && nextAppointment && (
+                <>
+                  <div
+                    className="flex items-center gap-4 rounded-xl p-4"
+                    style={{ background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})` }}
+                  >
+                    <div className="relative size-16 shrink-0 overflow-hidden rounded-xl bg-white shadow-sm">
+                      {nextAppointmentServices[0]?.imageUrl ? (
+                        <Image
+                          src={nextAppointmentServices[0].imageUrl}
+                          alt={nextAppointmentServices.map(s => s.name).join(' + ')}
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-full items-center justify-center text-2xl" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                          💅
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-lg font-bold text-neutral-900">
+                        {nextAppointmentServices.map(s => s.name).join(' + ') || 'Appointment'}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5 text-sm text-neutral-600">
+                        <span style={{ color: themeVars.accent }}>✦</span>
+                        <span>with {nextAppointmentTech?.name || 'Any Artist'}</span>
+                      </div>
+                      <div className="mt-0.5 text-sm text-neutral-500">
+                        {formatDateFull(nextAppointment.startTime)} · {formatTime(nextAppointment.startTime)}
+                      </div>
+                    </div>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  router.push(
-                    `/${locale}/change-appointment?serviceIds=biab-medium&techId=tiffany&date=2025-12-18&time=14:00`,
-                  );
-                }}
-                className="w-full rounded-full px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
-                style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
-              >
-                View / Change Appointment
-              </button>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-neutral-600">Service</span>
+                      <span className="font-semibold">${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-emerald-200 pt-2">
+                      <span className="text-lg font-bold text-neutral-900">Total</span>
+                      <span className="text-xl font-bold" style={{ color: themeVars.accent }}>${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const serviceIds = nextAppointmentServices.map(s => s.id).join(',');
+                      const techId = nextAppointmentTech?.id || 'any';
+                      const apptDate = new Date(nextAppointment.startTime);
+                      const dateStr = apptDate.toISOString().split('T')[0];
+                      const hours = apptDate.getHours();
+                      const mins = apptDate.getMinutes().toString().padStart(2, '0');
+                      const timeStr = `${hours}:${mins}`;
+                      router.push(
+                        `/${locale}/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(nextAppointment.clientPhone)}&originalAppointmentId=${encodeURIComponent(nextAppointment.id)}`,
+                      );
+                    }}
+                    className="w-full rounded-full px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                  >
+                    View / Change Appointment
+                  </button>
+                </>
+              )}
+
+              {!appointmentLoading && !nextAppointment && (
+                <div className="py-4 text-center">
+                  <div className="mb-2 text-3xl">📅</div>
+                  <p className="mb-3 text-neutral-600">No upcoming appointments</p>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/${locale}/book/service`)}
+                    className="rounded-full px-6 py-2.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                  >
+                    Book Now
+                  </button>
+                </div>
+              )}
 
               <button
                 type="button"

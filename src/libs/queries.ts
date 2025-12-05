@@ -1,12 +1,17 @@
 import 'server-only';
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, gte, lt, gt, ne } from 'drizzle-orm';
 
 import {
+  appointmentSchema,
+  clientSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
   technicianServicesSchema,
+  type Appointment,
+  type CancelReason,
+  type Client,
   type Salon,
   type Service,
   type Technician,
@@ -206,5 +211,193 @@ export async function getTechnicianById(
     ...technician,
     serviceIds: serviceAssociations.map(a => a.serviceId),
   };
+}
+
+// =============================================================================
+// CLIENT QUERIES
+// =============================================================================
+
+/**
+ * Get a client by their phone number
+ * @param phone - The client's phone number (E.164 format, e.g., "+15551234567")
+ * @returns The client or null if not found
+ */
+export async function getClientByPhone(phone: string): Promise<Client | null> {
+  // Normalize phone number to digits only for comparison
+  // Include 10-digit version (strip leading 1 if 11 digits) to match stored format
+  const normalizedPhone = phone.replace(/\D/g, '');
+  const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
+    ? normalizedPhone.slice(1)
+    : normalizedPhone;
+  const phoneVariants = [
+    phone,
+    normalizedPhone,
+    tenDigitPhone,
+    `+1${tenDigitPhone}`,
+    `+${normalizedPhone}`,
+  ];
+
+  const results = await db
+    .select()
+    .from(clientSchema)
+    .where(inArray(clientSchema.phone, phoneVariants))
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Upsert a client - create if doesn't exist, update if exists
+ * @param phone - The client's phone number
+ * @param firstName - The client's first name (optional for update)
+ * @returns The upserted client
+ */
+export async function upsertClient(
+  phone: string,
+  firstName?: string,
+): Promise<Client> {
+  const clientId = `client_${crypto.randomUUID()}`;
+
+  const [client] = await db
+    .insert(clientSchema)
+    .values({
+      id: clientId,
+      phone,
+      firstName,
+    })
+    .onConflictDoUpdate({
+      target: clientSchema.phone,
+      set: {
+        firstName: firstName ?? clientSchema.firstName,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return client!;
+}
+
+// =============================================================================
+// APPOINTMENT QUERIES
+// =============================================================================
+
+/**
+ * Get an appointment by its ID
+ * @param appointmentId - The appointment's unique ID
+ * @returns The appointment or null if not found
+ */
+export async function getAppointmentById(
+  appointmentId: string,
+): Promise<Appointment | null> {
+  const results = await db
+    .select()
+    .from(appointmentSchema)
+    .where(eq(appointmentSchema.id, appointmentId))
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Update an appointment's status and optionally cancel reason
+ * @param appointmentId - The appointment's unique ID
+ * @param status - The new status
+ * @param cancelReason - Optional cancel reason (only for cancelled appointments)
+ * @returns The updated appointment or null if not found
+ */
+export async function updateAppointmentStatus(
+  appointmentId: string,
+  status: Appointment['status'],
+  cancelReason?: CancelReason,
+): Promise<Appointment | null> {
+  const [updated] = await db
+    .update(appointmentSchema)
+    .set({
+      status,
+      cancelReason,
+      updatedAt: new Date(),
+    })
+    .where(eq(appointmentSchema.id, appointmentId))
+    .returning();
+
+  return updated ?? null;
+}
+
+/**
+ * Check for overlapping appointments for a technician
+ * @param technicianId - The technician's ID
+ * @param salonId - The salon's ID
+ * @param startTime - Start time of the new appointment
+ * @param endTime - End time of the new appointment
+ * @param excludeAppointmentId - Optional appointment ID to exclude (for rescheduling)
+ * @returns True if there's an overlap, false otherwise
+ */
+export async function checkTechnicianOverlap(
+  technicianId: string,
+  salonId: string,
+  startTime: Date,
+  endTime: Date,
+  excludeAppointmentId?: string,
+): Promise<boolean> {
+  const conditions = [
+    eq(appointmentSchema.technicianId, technicianId),
+    eq(appointmentSchema.salonId, salonId),
+    inArray(appointmentSchema.status, ['pending', 'confirmed']),
+    // Overlap: new start < existing end AND new end > existing start
+    lt(appointmentSchema.startTime, endTime),
+    gt(appointmentSchema.endTime, startTime),
+  ];
+
+  // Exclude the current appointment if rescheduling
+  if (excludeAppointmentId) {
+    conditions.push(ne(appointmentSchema.id, excludeAppointmentId));
+  }
+
+  const overlapping = await db
+    .select()
+    .from(appointmentSchema)
+    .where(and(...conditions))
+    .limit(1);
+
+  return overlapping.length > 0;
+}
+
+/**
+ * Get active upcoming appointments for a client at a salon
+ * @param clientPhone - The client's phone number
+ * @param salonId - The salon's ID
+ * @returns Array of active appointments
+ */
+export async function getActiveAppointmentsForClient(
+  clientPhone: string,
+  salonId: string,
+): Promise<Appointment[]> {
+  const now = new Date();
+
+  // Normalize phone to handle different formats
+  // Include 10-digit version (strip leading 1 if 11 digits) to match stored format
+  const normalizedPhone = clientPhone.replace(/\D/g, '');
+  const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
+    ? normalizedPhone.slice(1)
+    : normalizedPhone;
+  const phoneVariants = [
+    clientPhone,
+    normalizedPhone,
+    tenDigitPhone,
+    `+1${tenDigitPhone}`,
+    `+${normalizedPhone}`,
+  ];
+
+  return db
+    .select()
+    .from(appointmentSchema)
+    .where(
+      and(
+        inArray(appointmentSchema.clientPhone, phoneVariants),
+        eq(appointmentSchema.salonId, salonId),
+        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        gte(appointmentSchema.startTime, now),
+      ),
+    );
 }
 

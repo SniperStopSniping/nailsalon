@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -81,12 +81,17 @@ export function BookConfirmClient({
   const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
   const techId = searchParams.get('techId') || '';
   const clientPhone = searchParams.get('clientPhone') || '';
+  const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
 
   // Booking states
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
+  const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
+
+  // Ref to prevent double booking in React StrictMode
+  const bookingInitiatedRef = useRef(false);
 
   // Animation states
   const [stage, setStage] = useState(0);
@@ -94,6 +99,12 @@ export function BookConfirmClient({
   const [showSparkles, setShowSparkles] = useState(false);
   const [pulseCheck, setPulseCheck] = useState(false);
   const [bounceEmoji, setBounceEmoji] = useState(false);
+
+  // Name capture modal states
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  const nameCheckInitiatedRef = useRef(false);
 
   // Calculate totals from services passed by server
   const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
@@ -119,9 +130,11 @@ export function BookConfirmClient({
 
   // Create the booking
   const createBooking = useCallback(async () => {
-    if (isBooking || bookingComplete) {
+    // Use ref for immediate check to prevent double booking in StrictMode
+    if (bookingInitiatedRef.current) {
       return;
     }
+    bookingInitiatedRef.current = true;
 
     setIsBooking(true);
     setBookingError(null);
@@ -132,22 +145,39 @@ export function BookConfirmClient({
       const startTime = new Date(`${dateStr}T00:00:00`);
       startTime.setHours(hours || 9, minutes || 0, 0, 0);
 
+      const requestBody = {
+        salonSlug,
+        serviceIds: services.map(s => s.id),
+        technicianId: techId === 'any' ? null : techId,
+        clientPhone,
+        startTime: startTime.toISOString(),
+        // If this is a reschedule, include the original appointment ID
+        // The API will cancel the old appointment and bypass duplicate check
+        ...(originalAppointmentId && { originalAppointmentId }),
+      };
+      
+      // Debug: log what we're sending to the API
+      console.log('[BookConfirm] originalAppointmentId from URL:', originalAppointmentId);
+      console.log('[BookConfirm] Request body:', requestBody);
+
       const response = await fetch('/api/appointments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          salonSlug,
-          serviceIds: services.map(s => s.id),
-          technicianId: techId === 'any' ? null : techId,
-          clientPhone,
-          startTime: startTime.toISOString(),
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+
+        // Check for existing appointment error
+        if (errorData.error?.code === 'EXISTING_APPOINTMENT') {
+          setHasExistingAppointment(true);
+          setBookingError(errorData.error?.message || 'You already have an upcoming appointment.');
+          return;
+        }
+
         throw new Error(errorData.error?.message || 'Failed to create booking');
       }
 
@@ -163,7 +193,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [isBooking, bookingComplete, dateStr, timeStr, salonSlug, services, techId, startSuccessAnimations]);
+  }, [isBooking, bookingComplete, dateStr, timeStr, salonSlug, services, techId, clientPhone, originalAppointmentId, startSuccessAnimations]);
 
   // Auto-create booking on mount
   useEffect(() => {
@@ -171,6 +201,61 @@ export function BookConfirmClient({
       createBooking();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Check if we should show name modal after animations complete
+  useEffect(() => {
+    // Use ref for immediate check to prevent double execution in StrictMode
+    if (stage >= 5 && bookingComplete && !nameCheckInitiatedRef.current) {
+      nameCheckInitiatedRef.current = true;
+
+      // Check for existing client_name cookie
+      const clientNameCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('client_name='));
+
+      if (!clientNameCookie) {
+        // Slight delay to let animations fully settle
+        const timer = setTimeout(() => setShowNameModal(true), 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [stage, bookingComplete]);
+
+  // Save name to server
+  const handleSaveName = async () => {
+    if (!firstName.trim() || isSavingName) return;
+
+    setIsSavingName(true);
+    try {
+      const response = await fetch('/api/client/update-name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: clientPhone,
+          firstName: firstName.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        // Cookie is set by the server, close modal
+        setShowNameModal(false);
+      } else {
+        console.error('Failed to save name');
+        // Still close modal on error - don't block the user
+        setShowNameModal(false);
+      }
+    } catch (error) {
+      console.error('Error saving name:', error);
+      setShowNameModal(false);
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  // Skip name capture
+  const handleSkipName = () => {
+    setShowNameModal(false);
+  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) {
@@ -194,7 +279,18 @@ export function BookConfirmClient({
   };
 
   const handleViewAppointment = () => {
-    router.push(`/${locale}/change-appointment?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${timeStr}`);
+    // Use actual booked service IDs and technician (same approach as Profile page)
+    const bookedServiceIds = services.map(s => s.id).join(',');
+    const bookedTechId = technician?.id || 'any';
+    
+    let changeUrl = `/${locale}/change-appointment?serviceIds=${bookedServiceIds}&techId=${bookedTechId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(clientPhone)}`;
+    
+    // Include appointmentId for rescheduling
+    if (appointmentId) {
+      changeUrl += `&originalAppointmentId=${encodeURIComponent(appointmentId)}`;
+    }
+    
+    router.push(changeUrl);
   };
 
   // Confetti colors using theme variables
@@ -226,7 +322,54 @@ export function BookConfirmClient({
     );
   }
 
-  // Show error state
+  // Show existing appointment error with friendly UI
+  if (hasExistingAppointment) {
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center"
+        style={{
+          background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        }}
+      >
+        <div className="mx-auto max-w-[430px] px-4 text-center">
+          <div className="mb-4 text-6xl">📅</div>
+          <h1 className="mb-2 text-2xl font-bold text-neutral-900">
+            You Already Have an Appointment!
+          </h1>
+          <p className="mb-6 text-neutral-500">
+            Please change or cancel your existing appointment from your profile instead of booking a new one.
+          </p>
+
+          {/* Primary CTA - Go to Profile */}
+          <button
+            type="button"
+            onClick={() => router.push(`/${locale}/profile`)}
+            className="mb-3 w-full rounded-2xl px-6 py-4 text-lg font-bold text-neutral-900 shadow-lg transition-all hover:scale-[1.02] hover:shadow-xl active:scale-[0.98]"
+            style={{
+              background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+            }}
+          >
+            View / Change Appointment
+          </button>
+
+          {/* Secondary - Go back to browse services */}
+          <button
+            type="button"
+            onClick={() => router.push(`/${locale}/book/service`)}
+            className="w-full rounded-2xl border-2 bg-white px-6 py-3 font-bold transition-all active:scale-[0.98]"
+            style={{
+              borderColor: themeVars.accent,
+              color: themeVars.accent,
+            }}
+          >
+            Browse Services
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show generic error state
   if (bookingError) {
     return (
       <div
@@ -342,6 +485,24 @@ export function BookConfirmClient({
             transform: scale(1.2) rotate(-5deg);
           }
         }
+        @keyframes modal-fade-in {
+          from {
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+        @keyframes modal-backdrop-fade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
       `}
       </style>
 
@@ -356,6 +517,90 @@ export function BookConfirmClient({
               left={Math.random() * 100}
             />
           ))}
+        </div>
+      )}
+
+      {/* Name Capture Modal */}
+      {showNameModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            animation: 'modal-backdrop-fade 0.3s ease-out forwards',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleSkipName();
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl"
+            style={{
+              animation: 'modal-fade-in 0.3s ease-out forwards',
+            }}
+          >
+            <div className="mb-4 text-center">
+              <div className="mb-3 text-4xl">👋</div>
+              <h2
+                className="text-xl font-bold"
+                style={{ color: themeVars.titleText }}
+              >
+                Before you go...
+              </h2>
+              <p className="mt-1 text-neutral-500">
+                What's your name?
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                className="w-full rounded-xl border-2 px-4 py-3 text-lg outline-none transition-colors"
+                style={{
+                  borderColor: themeVars.cardBorder,
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = themeVars.accent;
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = themeVars.cardBorder;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && firstName.trim()) {
+                    handleSaveName();
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleSkipName}
+                className="flex-1 rounded-xl py-3 font-medium text-neutral-500 transition-colors hover:bg-neutral-100"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveName}
+                disabled={!firstName.trim() || isSavingName}
+                className="flex-1 rounded-xl py-3 font-bold text-white transition-all disabled:opacity-50"
+                style={{
+                  background: `linear-gradient(to right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 80%, black))`,
+                }}
+              >
+                {isSavingName ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+
+            <p className="mt-4 text-center text-xs text-neutral-400">
+              We'll remember you for next time!
+            </p>
+          </div>
         </div>
       )}
 

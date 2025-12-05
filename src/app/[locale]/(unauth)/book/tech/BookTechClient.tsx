@@ -36,6 +36,7 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
   const locale = (params?.locale as string) || 'en';
   const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
   const clientPhone = searchParams.get('clientPhone') || '';
+  const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -50,9 +51,14 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
   const handleSelectTech = (techId: string) => {
     setSelectedTech(techId);
     setTimeout(() => {
-      router.push(
-        `/${locale}/book/time?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhone)}`,
-      );
+      let url = `/${locale}/book/time?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhone)}`;
+
+      // Pass through originalAppointmentId for reschedule flow
+      if (originalAppointmentId) {
+        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+      }
+
+      router.push(url);
     }, 300);
   };
 

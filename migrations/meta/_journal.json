@@ -15,6 +15,27 @@
       "when": 1764828639822,
       "tag": "0001_funny_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1764872498779,
+      "tag": "0002_soft_rumiko_fujikawa",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1764891489073,
+      "tag": "0003_motionless_red_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1764903221830,
+      "tag": "0004_pale_dormammu",
+      "breakpoints": true
     }
   ]
 }

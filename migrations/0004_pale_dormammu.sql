@@ -1,0 +1,1 @@
+ALTER TABLE "technician" ADD COLUMN "weekly_schedule" jsonb;

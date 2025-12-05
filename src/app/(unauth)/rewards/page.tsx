@@ -35,8 +35,18 @@ export default function RewardsPage() {
 
   // Animation states
   const [mounted, setMounted] = useState(false);
+  const [clientName, setClientName] = useState('Guest');
+
   useEffect(() => {
     setMounted(true);
+    // Load client name from cookie
+    const clientNameCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_name='));
+    if (clientNameCookie) {
+      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
+      if (name) setClientName(name);
+    }
   }, []);
 
   // Appointment details
@@ -211,7 +221,7 @@ export default function RewardsPage() {
             Rewards
           </h1>
           <p className="text-xl text-neutral-600">
-            Welcome back, Sarah!
+            Welcome back, {clientName}!
           </p>
         </div>
 

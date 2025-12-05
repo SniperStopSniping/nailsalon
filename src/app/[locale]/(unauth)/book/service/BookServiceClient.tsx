@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
@@ -37,8 +37,13 @@ const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
 export function BookServiceClient({ services }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { salonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
+
+  // Get reschedule params from URL (passed from change-appointment page)
+  const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const urlClientPhone = searchParams.get('clientPhone') || '';
   const [authState, setAuthState] = useState<AuthState>('loggedOut');
   const [selectedCategory, setSelectedCategory] = useState<Category>('hands');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
@@ -48,11 +53,42 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingServiceIds, setPendingServiceIds] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
+  // Check for existing session on mount
   useEffect(() => {
     setMounted(true);
-  }, []);
+
+    // If we have a phone from the URL (reschedule flow), use it directly
+    if (urlClientPhone) {
+      setAuthState('loggedIn');
+      setPhone(urlClientPhone);
+      setIsCheckingSession(false);
+      return;
+    }
+
+    const validateSession = async () => {
+      try {
+        const response = await fetch('/api/auth/validate-session');
+        const data = await response.json();
+
+        if (data.valid && data.phone) {
+          setAuthState('loggedIn');
+          setPhone(data.phone);
+        }
+      } catch {
+        // Session validation failed, stay logged out
+        console.log('Session validation failed, user needs to log in');
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+
+    validateSession();
+  }, [urlClientPhone]);
 
   const filteredServices = services.filter((service) => {
     if (searchQuery) {
@@ -71,38 +107,86 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
   const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
 
-  const handleSendCode = () => {
-    if (!phone.trim()) {
+  const handleSendCode = async () => {
+    if (!phone.trim() || phone.length < 10 || isLoading) {
       return;
     }
-    setAuthState('verify');
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to send code');
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(false);
+      setAuthState('verify');
+    } catch {
+      setError('Network error. Please try again.');
+      setIsLoading(false);
+    }
   };
 
-  const handleVerifyCode = () => {
-    if (code.trim().length < 4) {
+  const handleVerifyCode = async () => {
+    if (code.trim().length < 6 || isLoading) {
       return;
     }
-    setAuthState('loggedIn');
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Invalid code');
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(false);
+      setAuthState('loggedIn');
+    } catch {
+      setError('Network error. Please try again.');
+      setIsLoading(false);
+    }
   };
 
+  // Auto-send code when phone number is complete (10 digits)
   useEffect(() => {
     const digits = phone.replace(/\D/g, '');
-    if (digits.length === 10) {
-      // Auto-send code when phone number is complete
-      if (phone.trim()) {
-        setAuthState('verify');
-      }
+    if (digits.length === 10 && authState === 'loggedOut' && !isLoading) {
+      const timer = setTimeout(() => handleSendCode(), 150);
+      return () => clearTimeout(timer);
     }
-  }, [phone]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, authState]);
 
+  // Auto-verify when code is complete (6 digits)
   useEffect(() => {
-    if (code.length === 6) {
-      // Auto-verify when code is complete
-      if (code.trim().length >= 4) {
-        setAuthState('loggedIn');
-      }
+    if (code.length === 6 && authState === 'verify' && !isLoading) {
+      const timer = setTimeout(() => handleVerifyCode(), 150);
+      return () => clearTimeout(timer);
     }
-  }, [code]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, authState]);
 
   useEffect(() => {
     if (authState === 'verify' && codeInputRef.current) {
@@ -112,7 +196,16 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
 
   const goToTechSelection = (serviceIds: string[], clientPhone: string) => {
     const query = serviceIds.join(',');
-    router.push(`/${locale}/book/tech?serviceIds=${query}&clientPhone=${encodeURIComponent(clientPhone)}`);
+    // Strip +1 prefix if present to get just 10-digit number for the API
+    const normalizedPhone = clientPhone.replace(/^\+1/, '');
+    let url = `/${locale}/book/tech?serviceIds=${query}&clientPhone=${encodeURIComponent(normalizedPhone)}`;
+
+    // Pass through originalAppointmentId for reschedule flow
+    if (originalAppointmentId) {
+      url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+    }
+
+    router.push(url);
   };
 
   const handleChooseTech = () => {
@@ -348,7 +441,14 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
 
         {/* Auth Footer */}
         <MainCard className="mt-4">
-          {authState === 'loggedOut' && (
+          {isCheckingSession && (
+            <div className="flex items-center justify-center py-4">
+              <div className="size-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
+              <span className="ml-2 text-sm text-neutral-500">Checking session...</span>
+            </div>
+          )}
+
+          {!isCheckingSession && authState === 'loggedOut' && (
             <div className="space-y-3">
               <p className="text-lg font-bold text-neutral-800">
                 <span
@@ -360,6 +460,9 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
                   New here? Get a free manicure! 💅
                 </span>
               </p>
+              <p className="-mt-1 text-sm text-neutral-500">
+                Enter your number to sign up or log in
+              </p>
               <div className="flex items-center gap-2">
                 <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
                   +1
@@ -370,26 +473,30 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
                   onChange={(e) => {
                     const digits = e.target.value.replace(/\D/g, '');
                     setPhone(digits.slice(0, 10));
+                    setError(null);
                   }}
                   placeholder="Phone number"
                   className="!px-4 !py-2.5 !text-base"
                 />
                 <PrimaryButton
                   onClick={handleSendCode}
-                  disabled={!phone.trim()}
+                  disabled={!phone.trim() || phone.length < 10 || isLoading}
                   size="sm"
                   fullWidth={false}
                 >
-                  →
+                  {isLoading ? '...' : '→'}
                 </PrimaryButton>
               </div>
+              {error && (
+                <p className="text-xs text-red-500">{error}</p>
+              )}
               <p className="text-xs text-neutral-400">
                 *New clients only. Conditions apply.
               </p>
             </div>
           )}
 
-          {authState === 'verify' && (
+          {!isCheckingSession && authState === 'verify' && (
             <div className="space-y-3">
               <p className="text-sm font-semibold text-neutral-700">
                 Enter the 6-digit code we sent to +1
@@ -402,25 +509,31 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
                   type="tel"
                   inputMode="numeric"
                   value={code}
-                  onChange={e =>
-                    setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => {
+                    setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    setError(null);
+                  }}
                   placeholder="• • • • • •"
                   className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
                 />
                 <PrimaryButton
                   onClick={handleVerifyCode}
-                  disabled={code.trim().length < 4}
+                  disabled={code.trim().length < 6 || isLoading}
                   size="sm"
                   fullWidth={false}
                 >
-                  Verify
+                  {isLoading ? '...' : 'Verify'}
                 </PrimaryButton>
               </div>
+              {error && (
+                <p className="text-xs text-red-500">{error}</p>
+              )}
               <button
                 type="button"
                 onClick={() => {
                   setAuthState('loggedOut');
                   setCode('');
+                  setError(null);
                 }}
                 className="text-sm font-medium hover:underline"
                 style={{ color: themeVars.accent }}
@@ -430,7 +543,7 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
             </div>
           )}
 
-          {authState === 'loggedIn' && (
+          {!isCheckingSession && authState === 'loggedIn' && (
             <div className="flex items-center justify-around py-1">
               {[
                 { icon: '🤝', label: 'Invite', path: `/${locale}/invite` },

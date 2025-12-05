@@ -1,11 +1,18 @@
 /**
- * SMS Notification Module (Stub)
+ * SMS Notification Module
  *
- * This module provides placeholder functions for SMS notifications.
- * In production, these will integrate with Twilio or another SMS provider.
+ * Sends SMS notifications via Twilio for:
+ * - Booking confirmations to clients
+ * - New booking notifications to technicians
+ * - Appointment reminders
+ * - Cancellation confirmations
  *
- * For now, they log to console and return resolved promises.
+ * Falls back to console logging in dev mode if Twilio is not configured.
  */
+
+import twilio from 'twilio';
+
+import { Env } from '@/libs/Env';
 
 // =============================================================================
 // TYPES
@@ -43,23 +50,56 @@ export interface ReminderParams {
 }
 
 // =============================================================================
-// STUB FUNCTIONS
+// TWILIO CLIENT
+// =============================================================================
+
+function getTwilioClient() {
+  if (!Env.TWILIO_ACCOUNT_SID || !Env.TWILIO_AUTH_TOKEN || !Env.TWILIO_PHONE_NUMBER) {
+    return null;
+  }
+  return twilio(Env.TWILIO_ACCOUNT_SID, Env.TWILIO_AUTH_TOKEN);
+}
+
+/**
+ * Send an SMS message via Twilio
+ * Falls back to console logging if Twilio is not configured
+ */
+async function sendSMS(to: string, body: string): Promise<boolean> {
+  const client = getTwilioClient();
+
+  if (!client) {
+    console.log('[SMS DEV MODE] Would send to:', to);
+    console.log('[SMS DEV MODE] Message:', body);
+    console.log('---');
+    return false;
+  }
+
+  try {
+    const message = await client.messages.create({
+      body,
+      from: Env.TWILIO_PHONE_NUMBER,
+      to: `+1${to}`,
+    });
+    console.log('SMS sent successfully:', message.sid);
+    return true;
+  } catch (error) {
+    console.error('Failed to send SMS:', error);
+    // Don't throw - we don't want SMS failures to break bookings
+    return false;
+  }
+}
+
+// =============================================================================
+// SMS FUNCTIONS
 // =============================================================================
 
 /**
  * Send booking confirmation SMS to the client
- *
- * In production, this will:
- * 1. Format a friendly message with appointment details
- * 2. Send via Twilio to the client's phone
- * 3. Log the message in the database for tracking
- *
- * @param params - Booking details for the confirmation message
  */
 export async function sendBookingConfirmationToClient(
   params: BookingConfirmationParams,
 ): Promise<void> {
-  const { phone, clientName, appointmentId, salonName, services, technicianName, startTime, totalPrice } = params;
+  const { phone, clientName, salonName, services, technicianName, startTime, totalPrice } = params;
 
   // Format date for display
   const date = new Date(startTime);
@@ -74,15 +114,9 @@ export async function sendBookingConfirmationToClient(
     hour12: true,
   });
 
-  const message = `
-[SMS STUB] Booking Confirmation to Client
-----------------------------------------
-To: +1${phone}
-From: ${salonName}
+  const message = `💅 ${salonName}
 
-Hi ${clientName || 'there'}! 💅
-
-Your appointment is confirmed:
+Hi ${clientName || 'there'}! Your appointment is confirmed:
 
 📅 ${formattedDate}
 ⏰ ${formattedTime}
@@ -90,30 +124,18 @@ Your appointment is confirmed:
 👩‍🎨 ${technicianName}
 💰 $${(totalPrice / 100).toFixed(0)}
 
-Appointment ID: ${appointmentId}
+We can't wait to see you! ✨`;
 
-We can't wait to see you! ✨
-Reply HELP for assistance or STOP to unsubscribe.
-----------------------------------------
-  `.trim();
-
-  console.log(message);
+  await sendSMS(phone, message);
 }
 
 /**
  * Send notification SMS to the technician about a new booking
- *
- * In production, this will:
- * 1. Look up the technician's phone number
- * 2. Send via Twilio to the tech's phone
- * 3. Log the notification in the database
- *
- * @param params - Booking details for the tech notification
  */
 export async function sendBookingNotificationToTech(
   params: TechNotificationParams,
 ): Promise<void> {
-  const { technicianId, technicianName, appointmentId, clientName, clientPhone, services, startTime, totalDurationMinutes } = params;
+  const { technicianName, clientName, clientPhone, services, startTime, totalDurationMinutes } = params;
 
   // Format date for display
   const date = new Date(startTime);
@@ -128,39 +150,30 @@ export async function sendBookingNotificationToTech(
     hour12: true,
   });
 
-  const message = `
-[SMS STUB] New Booking Notification to Tech
--------------------------------------------
-To: ${technicianName} (${technicianId})
+  // Note: In production, you'd look up the tech's phone number from the database
+  // For now, we just log - tech notification would need their phone stored
+  const message = `📱 New Booking!
 
-📱 New Booking Alert!
+${technicianName}, you have a new appointment:
 
-Client: ${clientName}
-Phone: +1${clientPhone}
-Date: ${formattedDate} at ${formattedTime}
-Services: ${services.join(', ')}
-Duration: ${totalDurationMinutes} min
+👤 ${clientName}
+📞 ${clientPhone}
+📅 ${formattedDate} at ${formattedTime}
+💇 ${services.join(', ')}
+⏱️ ${totalDurationMinutes} min`;
 
-Appointment ID: ${appointmentId}
--------------------------------------------
-  `.trim();
-
-  console.log(message);
+  // TODO: Look up technician's phone number from database
+  // await sendSMS(techPhone, message);
+  console.log('[TECH NOTIFICATION]', message);
 }
 
 /**
  * Send appointment reminder SMS to the client
- *
- * In production, this will be called by a cron job:
- * - 24 hours before appointment
- * - 3 hours before appointment
- *
- * @param params - Reminder details
  */
 export async function sendAppointmentReminder(
   params: ReminderParams,
 ): Promise<void> {
-  const { phone, clientName, appointmentId, salonName, startTime, hoursUntil } = params;
+  const { phone, clientName, salonName, startTime, hoursUntil } = params;
 
   const date = new Date(startTime);
   const formattedTime = date.toLocaleTimeString('en-US', {
@@ -173,28 +186,17 @@ export async function sendAppointmentReminder(
     ? 'tomorrow'
     : `in ${hoursUntil} hours`;
 
-  const message = `
-[SMS STUB] Appointment Reminder
--------------------------------
-To: +1${phone}
-
-Hi ${clientName || 'there'}! 👋
+  const message = `👋 Hi ${clientName || 'there'}!
 
 Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTime}.
 
-Appointment ID: ${appointmentId}
+Need to reschedule? Reply or call us!`;
 
-Need to reschedule? Reply CHANGE or call us.
--------------------------------
-  `.trim();
-
-  console.log(message);
+  await sendSMS(phone, message);
 }
 
 /**
  * Send cancellation confirmation to client
- *
- * @param params - Cancellation details
  */
 export async function sendCancellationConfirmation(params: {
   phone: string;
@@ -202,24 +204,14 @@ export async function sendCancellationConfirmation(params: {
   appointmentId: string;
   salonName: string;
 }): Promise<void> {
-  const { phone, clientName, appointmentId, salonName } = params;
+  const { phone, clientName, salonName } = params;
 
-  const message = `
-[SMS STUB] Cancellation Confirmation
-------------------------------------
-To: +1${phone}
-
-Hi ${clientName || 'there'},
+  const message = `Hi ${clientName || 'there'},
 
 Your appointment at ${salonName} has been cancelled.
 
-Appointment ID: ${appointmentId}
-
 We hope to see you again soon! 💅
-Book anytime at our website.
-------------------------------------
-  `.trim();
+Book anytime at our website.`;
 
-  console.log(message);
+  await sendSMS(phone, message);
 }
-

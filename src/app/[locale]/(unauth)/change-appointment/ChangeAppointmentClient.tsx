@@ -1,34 +1,46 @@
 'use client';
 
 import Image from 'next/image';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
-export type ServiceSummary = {
+// =============================================================================
+// TYPES
+// =============================================================================
+
+interface ServiceData {
   id: string;
   name: string;
-  price: number; // In dollars
+  price: number; // in dollars
   duration: number;
-};
+}
 
-export type TechnicianSummary = {
+interface TechnicianData {
   id: string;
   name: string;
   imageUrl: string;
-} | null;
-
-interface BookTimeClientProps {
-  services: ServiceSummary[];
-  technician: TechnicianSummary;
 }
 
+interface ChangeAppointmentClientProps {
+  services: ServiceData[];
+  technician: TechnicianData | null;
+  dateStr: string;
+  timeStr: string;
+  clientPhone: string;
+  originalAppointmentId?: string;
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
 const generateTimeSlots = () => {
-  const slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[] = [];
+  const slots: { time: string; period: 'morning' | 'afternoon' }[] = [];
   for (let hour = 9; hour < 18; hour++) {
-    const period = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const period = hour < 12 ? 'morning' : 'afternoon';
     slots.push({ time: `${hour}:00`, period });
     slots.push({ time: `${hour}:30`, period });
   }
@@ -62,6 +74,12 @@ const formatTime12h = (time: string) => {
   return `${hour12}:${minute} ${ampm}`;
 };
 
+const formatSelectedDate = (date: Date) => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+};
+
 // Toronto timezone constant
 const TORONTO_TIMEZONE = 'America/Toronto';
 
@@ -85,7 +103,7 @@ const MIN_LEAD_TIME_MINUTES = 30;
 
 // Filter out past time slots and slots within the lead time buffer (using Toronto timezone)
 const filterPastTimeSlots = (
-  slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[],
+  slots: { time: string; period: 'morning' | 'afternoon' }[],
   date: Date | null,
 ) => {
   if (!date) return slots;
@@ -112,31 +130,79 @@ const filterPastTimeSlots = (
   });
 };
 
-export function BookTimeClient({ services, technician }: BookTimeClientProps) {
+// =============================================================================
+// COMPONENT
+// =============================================================================
+
+export function ChangeAppointmentClient({
+  services,
+  technician,
+  dateStr,
+  timeStr,
+  clientPhone,
+  originalAppointmentId,
+}: ChangeAppointmentClientProps) {
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
-  const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
-  const techId = searchParams.get('techId') || '';
-  const clientPhone = searchParams.get('clientPhone') || '';
-  const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
 
-  // Use services passed from server
-  const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
-  const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
-  const serviceNames = services.map(s => s.name).join(' + ');
+  // Calculate totals from services passed by server
+  const totalDuration = services.reduce((sum, s) => sum + s.duration, 0);
+  const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
+  const serviceNames = services.length > 0
+    ? services.map(s => s.name).join(' + ')
+    : 'Not selected';
+  const serviceIds = services.map(s => s.id);
+  const techId = technician?.id || 'any';
 
   // Use Toronto timezone for "today"
   const today = getTorontoToday();
 
+  // Determine initial date - if dateStr is today and all slots are past, use tomorrow
+  const getInitialDate = () => {
+    // Parse date string as local date (not UTC) to avoid timezone issues
+    let parsedDate: Date;
+    if (dateStr) {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      parsedDate = new Date(year!, month! - 1, day!);
+    } else {
+      parsedDate = getTorontoToday();
+    }
+    parsedDate.setHours(0, 0, 0, 0);
+
+    const todayDate = getTorontoToday();
+
+    // If the parsed date is today, check if there are any slots left
+    if (parsedDate.toDateString() === todayDate.toDateString()) {
+      const allSlots = generateTimeSlots();
+      const availableSlots = filterPastTimeSlots(allSlots, parsedDate);
+
+      if (availableSlots.length === 0) {
+        // No slots left today, use tomorrow
+        const tomorrow = new Date(todayDate);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow;
+      }
+    }
+
+    return parsedDate;
+  };
+
+  const initialDate = getInitialDate();
+
   const [mounted, setMounted] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
+  const [currentMonth, setCurrentMonth] = useState(initialDate.getMonth());
+  const [currentYear, setCurrentYear] = useState(initialDate.getFullYear());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(initialDate);
+  const [selectedTime, setSelectedTime] = useState<string>(timeStr);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Cancel appointment state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const allTimeSlots = generateTimeSlots();
 
@@ -167,58 +233,8 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
     }
   }, [salonSlug, techId]);
 
-  // Check if there are any available slots for a given date
-  const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
-    const filteredByTime = filterPastTimeSlots(allTimeSlots, date);
-    return filteredByTime.filter(slot => !booked.includes(slot.time));
-  }, [allTimeSlots]);
-
-  // Find next available date starting from given date
-  const findNextAvailableDate = useCallback(async (startDate: Date): Promise<Date> => {
-    let checkDate = new Date(startDate);
-    const maxDays = 30; // Don't search more than 30 days ahead
-
-    for (let i = 0; i < maxDays; i++) {
-      const availableSlots = getAvailableSlotsForDate(checkDate, []);
-
-      // If today, we need to check if there are any future time slots
-      if (availableSlots.length > 0) {
-        return checkDate;
-      }
-
-      // Move to next day
-      checkDate = new Date(checkDate);
-      checkDate.setDate(checkDate.getDate() + 1);
-    }
-
-    return startDate; // Fallback to original date
-  }, [getAvailableSlotsForDate]);
-
-  // Initialize and check if today has available slots (using Toronto timezone)
   useEffect(() => {
-    const initializeDate = async () => {
-      setMounted(true);
-
-      const todayDate = getTorontoToday();
-
-      // Check if today has any time slots left
-      const todaySlots = filterPastTimeSlots(allTimeSlots, todayDate);
-
-      if (todaySlots.length === 0) {
-        // No slots available today, auto-advance to tomorrow
-        const tomorrow = new Date(todayDate);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        setSelectedDate(tomorrow);
-
-        // Update calendar view if tomorrow is in next month
-        if (tomorrow.getMonth() !== currentMonth) {
-          setCurrentMonth(tomorrow.getMonth());
-          setCurrentYear(tomorrow.getFullYear());
-        }
-      }
-    };
-
-    initializeDate();
+    setMounted(true);
   }, []);
 
   // Fetch booked slots when selected date changes
@@ -239,18 +255,8 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
   const isSlotBooked = (time: string) => bookedSlots.includes(time);
 
   const monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
   const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -274,23 +280,50 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
   };
 
   const handleDateSelect = (date: Date) => {
-    if (date >= today) {
+    const todayCheck = getTorontoToday();
+    if (date >= todayCheck) {
       setSelectedDate(date);
+      // Clear selected time when date changes (user needs to re-select)
+      setSelectedTime('');
     }
   };
 
   const handleTimeSelect = (time: string) => {
-    if (!selectedDate || isSlotBooked(time)) {
+    if (!isSlotBooked(time)) {
+      setSelectedTime(time);
+    }
+  };
+
+  const handleConfirm = () => {
+    if (!selectedDate || !selectedTime) {
       return;
     }
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    let url = `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(clientPhone)}`;
 
-    // Pass through originalAppointmentId for reschedule flow
+    const newDateStr = selectedDate.toISOString().split('T')[0];
+    
+    // Use technician ID or 'any' for the URL (not empty string)
+    const techIdForUrl = technician?.id || 'any';
+    
+    let confirmUrl = `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techIdForUrl}&date=${newDateStr}&time=${selectedTime}&clientPhone=${encodeURIComponent(clientPhone)}`;
+
+    // If this is a reschedule, include the original appointment ID
+    if (originalAppointmentId) {
+      confirmUrl += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+    }
+    
+    // Debug: log the URL being navigated to
+    console.log('[Change Appointment] Navigating to:', confirmUrl);
+    console.log('[Change Appointment] originalAppointmentId:', originalAppointmentId);
+
+    router.push(confirmUrl);
+  };
+
+  const handleChangeService = () => {
+    // Pass originalAppointmentId and clientPhone so the reschedule flow continues
+    let url = `/${locale}/book/service?clientPhone=${encodeURIComponent(clientPhone)}`;
     if (originalAppointmentId) {
       url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
     }
-
     router.push(url);
   };
 
@@ -298,10 +331,52 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
     router.back();
   };
 
-  const formatSelectedDate = (date: Date) => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+  // Check if appointment is within 24 hours (for cancellation fee)
+  const isWithin24Hours = () => {
+    if (!dateStr || !timeStr) return false;
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hour, minute] = timeStr.split(':').map(Number);
+    const appointmentTime = new Date(year!, month! - 1, day!, hour!, minute!);
+
+    const now = new Date();
+    const hoursUntilAppointment = (appointmentTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+    return hoursUntilAppointment < 24;
+  };
+
+  const handleCancelAppointment = async () => {
+    if (!originalAppointmentId) {
+      setCancelError('No appointment to cancel');
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      const response = await fetch(`/api/appointments/${originalAppointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'cancelled',
+          cancelReason: 'client_request',
+        }),
+      });
+
+      if (response.ok) {
+        setShowCancelModal(false);
+        // Navigate to profile with success message
+        router.push(`/${locale}/profile?cancelled=true`);
+      } else {
+        const data = await response.json();
+        setCancelError(data.error?.message || 'Failed to cancel appointment');
+      }
+    } catch {
+      setCancelError('An error occurred. Please try again.');
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   // Check if there are no available slots at all for today
@@ -318,7 +393,7 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
         {/* Header */}
         <div
-          className="relative flex items-center pb-4 pt-6"
+          className="relative flex items-center pb-2 pt-5"
           style={{
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
@@ -344,43 +419,14 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
           </div>
         </div>
 
-        {/* Progress Steps */}
+        {/* Appointment Summary Card */}
         <div
-          className="mb-6 flex items-center justify-center gap-2"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transition: 'opacity 300ms ease-out 50ms',
-          }}
-        >
-          {['Service', 'Artist', 'Time', 'Confirm'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 ${i === 2 ? 'opacity-100' : 'opacity-40'}`}>
-                <div
-                  className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                  style={{
-                    backgroundColor: i < 2 ? themeVars.accent : i === 2 ? themeVars.primary : '#d4d4d4',
-                    color: i < 2 ? 'white' : i === 2 ? '#171717' : '#525252',
-                  }}
-                >
-                  {i < 2 ? '✓' : i + 1}
-                </div>
-                <span className={`text-xs font-medium ${i === 2 ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                  {step}
-                </span>
-              </div>
-              {i < 3 && <div className="h-px w-4 bg-neutral-300" />}
-            </div>
-          ))}
-        </div>
-
-        {/* Booking Summary Card */}
-        <div
-          className="mb-6 overflow-hidden rounded-2xl shadow-xl"
+          className="mb-5 overflow-hidden rounded-2xl shadow-xl"
           style={{
             background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
-            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+            transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
           }}
         >
           <div className="px-5 py-4">
@@ -392,24 +438,13 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
               )}
               <div className="min-w-0 flex-1">
                 <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
-                <div className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
+                <div className="truncate text-base font-bold text-white">{serviceNames}</div>
                 <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                  with
-                  {' '}
-                  {technician?.name || 'Any Artist'}
-                  {' '}
-                  ·
-                  {' '}
-                  {totalDuration}
-                  {' '}
-                  min
+                  with {technician?.name || 'Any Artist'} · {totalDuration} min
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-2xl font-bold text-white">
-                  $
-                  {totalPrice}
-                </div>
+                <div className="text-2xl font-bold text-white">${totalPrice}</div>
               </div>
             </div>
           </div>
@@ -421,16 +456,18 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
           style={{
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
+            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
           }}
         >
           <h1 className="text-2xl font-bold text-neutral-900">
-            Pick Your Time
+            Change Your Appointment
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            {selectedDate
-              ? `${formatSelectedDate(selectedDate)} · Tap another date to change`
-              : 'Select a day that works for you'}
+            {selectedDate && selectedTime
+              ? `${formatSelectedDate(selectedDate)} at ${formatTime12h(selectedTime)}`
+              : selectedDate
+                ? `${formatSelectedDate(selectedDate)} · Select a time`
+                : 'Select a new date and time'}
           </p>
         </div>
 
@@ -443,10 +480,9 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             borderColor: themeVars.cardBorder,
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
+            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
           }}
         >
-          {/* Month Navigation */}
           <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
             <button
               type="button"
@@ -460,9 +496,7 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             </button>
 
             <div className="text-lg font-bold text-neutral-900">
-              {monthNames[currentMonth]}
-              {' '}
-              {currentYear}
+              {monthNames[currentMonth]} {currentYear}
             </div>
 
             <button
@@ -477,7 +511,6 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             </button>
           </div>
 
-          {/* Day Names */}
           <div className="grid grid-cols-7 px-4 pt-3">
             {dayNames.map((day, i) => (
               <div key={i} className="py-2 text-center text-xs font-bold text-neutral-400">
@@ -486,7 +519,6 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             ))}
           </div>
 
-          {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1 px-4 pb-4">
             {calendarDays.map((date, index) => {
               if (!date) {
@@ -546,7 +578,7 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center"
             style={{
               opacity: mounted ? 1 : 0,
-              transition: 'opacity 300ms ease-out 250ms',
+              transition: 'opacity 300ms ease-out 200ms',
             }}
           >
             <div className="mb-2 text-2xl">⏰</div>
@@ -561,14 +593,14 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
           </div>
         )}
 
-        {/* Time Selection - Only shows when date is selected and has available slots */}
+        {/* Time Selection */}
         {selectedDate && !noSlotsAvailable && !allSlotsBooked && (
           <div
             className="space-y-4"
             style={{
               opacity: mounted ? 1 : 0,
               transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 250ms, transform 300ms ease-out 250ms',
+              transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
             }}
           >
             {/* Loading indicator */}
@@ -583,11 +615,7 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             {morningSlots.length > 0 && !loadingSlots && (
               <div
                 className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: themeVars.cardBorder,
-                }}
+                style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
               >
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">🌅</span>
@@ -595,7 +623,8 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
                   <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
-                  {morningSlots.map((slot, i) => {
+                  {morningSlots.map((slot) => {
+                    const isSlotSelected = selectedTime === slot.time;
                     const booked = isSlotBooked(slot.time);
                     return (
                       <button
@@ -606,28 +635,24 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
                           booked
                             ? 'cursor-not-allowed opacity-50'
-                            : 'text-neutral-800 hover:scale-105 hover:text-neutral-900 hover:shadow-md active:scale-95'
+                            : 'hover:scale-105 active:scale-95'
                         }`}
                         style={{
+                          transform: isSlotSelected && !booked ? 'scale(1.05)' : undefined,
                           borderWidth: '1px',
                           borderStyle: 'solid',
                           borderColor: booked
                             ? '#e5e5e5'
-                            : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
+                            : isSlotSelected
+                              ? themeVars.primaryDark
+                              : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
                           background: booked
                             ? '#f5f5f5'
-                            : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                          animationDelay: `${i * 30}ms`,
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                          }
+                            : isSlotSelected
+                              ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                              : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                          color: '#171717',
+                          boxShadow: isSlotSelected && !booked ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
                         }}
                       >
                         {formatTime12h(slot.time)}
@@ -647,11 +672,7 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             {afternoonSlots.length > 0 && !loadingSlots && (
               <div
                 className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: themeVars.cardBorder,
-                }}
+                style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
               >
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">☀️</span>
@@ -659,7 +680,8 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
                   <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
-                  {afternoonSlots.map((slot, i) => {
+                  {afternoonSlots.map((slot) => {
+                    const isSlotSelected = selectedTime === slot.time;
                     const booked = isSlotBooked(slot.time);
                     return (
                       <button
@@ -670,28 +692,24 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
                           booked
                             ? 'cursor-not-allowed opacity-50'
-                            : 'text-neutral-800 hover:scale-105 hover:text-neutral-900 hover:shadow-md active:scale-95'
+                            : 'hover:scale-105 active:scale-95'
                         }`}
                         style={{
+                          transform: isSlotSelected && !booked ? 'scale(1.05)' : undefined,
                           borderWidth: '1px',
                           borderStyle: 'solid',
                           borderColor: booked
                             ? '#e5e5e5'
-                            : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
+                            : isSlotSelected
+                              ? themeVars.primaryDark
+                              : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
                           background: booked
                             ? '#f5f5f5'
-                            : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                          animationDelay: `${(i + morningSlots.length) * 30}ms`,
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                          }
+                            : isSlotSelected
+                              ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                              : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                          color: '#171717',
+                          boxShadow: isSlotSelected && !booked ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
                         }}
                       >
                         {formatTime12h(slot.time)}
@@ -709,21 +727,49 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
           </div>
         )}
 
-        {/* Help text when no date selected */}
-        {!selectedDate && (
-          <div
-            className="py-8 text-center"
+        {/* Action Buttons */}
+        <div
+          className="mt-6 space-y-3"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 300ms ease-out 300ms',
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!selectedDate || !selectedTime}
+            className="w-full rounded-xl py-4 text-base font-bold transition-all duration-200"
             style={{
-              opacity: mounted ? 1 : 0,
-              transition: 'opacity 300ms ease-out 300ms',
+              background: selectedDate && selectedTime
+                ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                : '#e5e5e5',
+              color: selectedDate && selectedTime ? '#171717' : '#a3a3a3',
+              boxShadow: selectedDate && selectedTime ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+              cursor: !selectedDate || !selectedTime ? 'not-allowed' : 'pointer',
             }}
           >
-            <div className="mb-3 text-4xl">📅</div>
-            <p className="text-sm text-neutral-500">
-              Tap a date above to see available times
-            </p>
-          </div>
-        )}
+            {selectedDate && selectedTime ? 'Confirm Changes' : 'Select date & time'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleChangeService}
+            className="w-full rounded-xl border-2 py-3 text-base font-semibold transition-all duration-200 active:scale-[0.98]"
+            style={{
+              borderColor: themeVars.accent,
+              color: themeVars.accent,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${themeVars.accent} 5%, transparent)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '';
+            }}
+          >
+            Change Service or Tech
+          </button>
+        </div>
 
         {/* Footer */}
         <div
@@ -740,7 +786,88 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             Free cancellation up to 24 hours before
           </p>
         </div>
+
+        {/* Cancel Appointment Link */}
+        {originalAppointmentId && (
+          <div
+            className="mt-8 text-center"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transition: 'opacity 300ms ease-out 500ms',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowCancelModal(true)}
+              className="text-sm font-medium text-red-500 underline underline-offset-2 transition-colors hover:text-red-600"
+            >
+              Cancel Appointment
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Cancel Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+            style={{
+              animation: 'fadeIn 200ms ease-out',
+            }}
+          >
+            <div className="mb-4 text-center text-4xl">⚠️</div>
+            <h3 className="mb-2 text-center text-lg font-bold text-neutral-900">
+              Cancel Appointment?
+            </h3>
+            <p className="mb-4 text-center text-sm text-neutral-500">
+              Are you sure you want to cancel your appointment?
+            </p>
+
+            {isWithin24Hours() && (
+              <div
+                className="mb-4 rounded-lg p-3 text-center"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+              >
+                <p className="text-sm font-semibold text-red-600">
+                  ⚠️ Cancellation Fee: $25
+                </p>
+                <p className="mt-1 text-xs text-red-500">
+                  Less than 24 hours notice
+                </p>
+              </div>
+            )}
+
+            {cancelError && (
+              <div className="mb-4 rounded-lg bg-red-50 p-3 text-center">
+                <p className="text-sm text-red-600">{cancelError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setCancelError(null);
+                }}
+                disabled={isCancelling}
+                className="flex-1 rounded-xl border-2 border-neutral-200 py-3 font-semibold text-neutral-700 transition-colors hover:bg-neutral-50"
+              >
+                Keep It
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelAppointment}
+                disabled={isCancelling}
+                className="flex-1 rounded-xl bg-red-500 py-3 font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+              >
+                {isCancelling ? 'Cancelling...' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
