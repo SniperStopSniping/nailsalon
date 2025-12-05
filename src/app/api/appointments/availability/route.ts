@@ -233,7 +233,6 @@ export async function GET(request: Request): Promise<Response> {
           // Check if any appointment overlaps with this slot
           let hasOverlap = false;
           for (const apt of appointments) {
-            const aptEndWithBuffer = new Date(new Date(apt.endTime).getTime() + BUFFER_MINUTES * 60 * 1000);
             // We need the start time too - let me fetch it properly
             const fullApt = await db
               .select({ startTime: appointmentSchema.startTime, endTime: appointmentSchema.endTime })

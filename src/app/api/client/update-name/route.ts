@@ -60,13 +60,6 @@ export async function POST(request: Request) {
 
     // 2. Update any pending/confirmed appointments for this phone
     // We check multiple phone formats since appointments might store phone differently
-    const phoneVariants = [
-      phone,
-      normalizedPhone,
-      `+1${normalizedPhone}`,
-      `+${normalizedPhone}`,
-    ];
-
     await db
       .update(appointmentSchema)
       .set({ clientName: firstName })

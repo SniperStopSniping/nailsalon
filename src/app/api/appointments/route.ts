@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';

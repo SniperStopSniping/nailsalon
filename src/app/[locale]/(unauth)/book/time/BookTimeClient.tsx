@@ -167,32 +167,24 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
     }
   }, [salonSlug, techId]);
 
-  // Check if there are any available slots for a given date
-  const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
-    const filteredByTime = filterPastTimeSlots(allTimeSlots, date);
-    return filteredByTime.filter(slot => !booked.includes(slot.time));
-  }, [allTimeSlots]);
+  // Check if there are any available slots for a given date (unused for now)
+  // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
+  //   const filteredByTime = filterPastTimeSlots(allTimeSlots, date);
+  //   return filteredByTime.filter(slot => !booked.includes(slot.time));
+  // }, [allTimeSlots]);
 
-  // Find next available date starting from given date
-  const findNextAvailableDate = useCallback(async (startDate: Date): Promise<Date> => {
-    let checkDate = new Date(startDate);
-    const maxDays = 30; // Don't search more than 30 days ahead
-
-    for (let i = 0; i < maxDays; i++) {
-      const availableSlots = getAvailableSlotsForDate(checkDate, []);
-
-      // If today, we need to check if there are any future time slots
-      if (availableSlots.length > 0) {
-        return checkDate;
-      }
-
-      // Move to next day
-      checkDate = new Date(checkDate);
-      checkDate.setDate(checkDate.getDate() + 1);
-    }
-
-    return startDate; // Fallback to original date
-  }, [getAvailableSlotsForDate]);
+  // Find next available date starting from given date (unused for now)
+  // const findNextAvailableDate = useCallback(async (startDate: Date): Promise<Date> => {
+  //   let checkDate = new Date(startDate);
+  //   const maxDays = 30;
+  //   for (let i = 0; i < maxDays; i++) {
+  //     const availableSlots = getAvailableSlotsForDate(checkDate, []);
+  //     if (availableSlots.length > 0) return checkDate;
+  //     checkDate = new Date(checkDate);
+  //     checkDate.setDate(checkDate.getDate() + 1);
+  //   }
+  //   return startDate;
+  // }, [getAvailableSlotsForDate]);
 
   // Initialize and check if today has available slots (using Toronto timezone)
   useEffect(() => {

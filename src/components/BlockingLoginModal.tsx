@@ -148,6 +148,7 @@ export function BlockingLoginModal({
       const timer = setTimeout(() => handleSendCode(), 150);
       return () => clearTimeout(timer);
     }
+    return;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone, authState]); // Intentionally exclude handleSendCode to prevent loops
 
@@ -158,6 +159,7 @@ export function BlockingLoginModal({
       const timer = setTimeout(() => handleVerifyCode(), 150);
       return () => clearTimeout(timer);
     }
+    return;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, authState]); // Intentionally exclude handleVerifyCode to prevent loops
 

@@ -268,7 +268,7 @@ export async function upsertClient(
     .onConflictDoUpdate({
       target: clientSchema.phone,
       set: {
-        firstName: firstName ?? clientSchema.firstName,
+        ...(firstName && { firstName }),
         updatedAt: new Date(),
       },
     })
