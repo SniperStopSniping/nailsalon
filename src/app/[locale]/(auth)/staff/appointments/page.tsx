@@ -5,7 +5,6 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -129,7 +128,6 @@ export default function StaffAppointmentsPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
