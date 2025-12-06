@@ -177,18 +177,6 @@ const REWARDS: Reward[] = [
   },
 ];
 
-// --- Props Interface ---
-interface RewardsPageProps {
-  currentPoints?: number;
-  rewards?: Reward[];
-  appointment?: {
-    service: string;
-    tech: string;
-    date: string;
-    image: string;
-  };
-}
-
 // Default appointment context (would come from API in real app)
 const DEFAULT_APPOINTMENT = {
   service: 'BIAB Medium',
@@ -198,11 +186,14 @@ const DEFAULT_APPOINTMENT = {
   image: '/assets/images/biab-medium.webp',
 };
 
-export default function RewardsPage({
-  currentPoints = 5200,
-  rewards = REWARDS,
-  appointment = DEFAULT_APPOINTMENT,
-}: RewardsPageProps) {
+// Default values - in a real app these would come from API/context
+const DEFAULT_POINTS = 5200;
+
+export default function RewardsPage() {
+  // These would typically come from an API or context
+  const currentPoints = DEFAULT_POINTS;
+  const rewards = REWARDS;
+  const appointment = DEFAULT_APPOINTMENT;
   const router = useRouter();
   const params = useParams();
   const { salonName } = useSalon();
