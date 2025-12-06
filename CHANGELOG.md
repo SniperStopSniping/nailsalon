@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.7...v1.1.0) (2025-12-06)
+
+
+### Features
+
+* Add referral system, gallery, staff appointments, and client preferences ([03bf3bf](https://github.com/SniperStopSniping/nailsalon/commit/03bf3bfcf045d74b8f8201ce36b5f63409a5c170))
+
 ## [1.0.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.6...v1.0.7) (2025-12-05)
 
 
