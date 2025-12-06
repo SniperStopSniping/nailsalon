@@ -265,7 +265,7 @@ export default function StaffDashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
   const params = useParams();
-  const { salonName, salonSlug } = useSalon();
+  const { salonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
   const [activeTab, setActiveTab] = useState<TabId>('today');

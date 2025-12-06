@@ -11,15 +11,12 @@
  * - Points breakdown
  */
 
-import { motion } from 'framer-motion';
 import { 
   Gift, 
   Users,
   TrendingUp,
   Clock,
   CheckCircle,
-  XCircle,
-  ChevronRight,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 

@@ -46,12 +46,10 @@ const TIME_OPTIONS = [
 // =============================================================================
 
 function DayScheduleEditor({
-  day,
   label,
   schedule,
   onChange,
 }: {
-  day: string;
   label: string;
   schedule: DaySchedule;
   onChange: (schedule: DaySchedule) => void;
@@ -523,7 +521,6 @@ export default function StaffSchedulePage() {
                   {DAYS.map((day, index) => (
                     <DayScheduleEditor
                       key={day}
-                      day={day}
                       label={DAY_LABELS[index]!}
                       schedule={weeklySchedule[day] ?? null}
                       onChange={(schedule) => handleDayChange(day, schedule)}
