@@ -136,7 +136,7 @@ if (Env.DATABASE_URL) {
 
   // Run migrations only once
   if (!globalForDb.pgMigrated) {
-    await migratePg(drizzle, {
+    await migratePg(globalForDb.pgDrizzle!, {
       migrationsFolder: path.join(process.cwd(), 'migrations'),
     });
     globalForDb.pgMigrated = true;
