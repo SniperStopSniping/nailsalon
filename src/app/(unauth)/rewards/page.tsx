@@ -22,8 +22,6 @@ import { useEffect, useMemo, useState } from 'react';
 
 import RedeemSheet from '@/components/RedeemSheet';
 import { useSalon } from '@/providers/SalonProvider';
-import { themeVars } from '@/theme';
-
 // --- Premium Color Palette ---
 const colors = {
   espresso: '#3F2B24', // Primary text - warm brown
