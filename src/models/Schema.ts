@@ -553,6 +553,82 @@ export const clientPreferencesSchema = pgTable(
   }),
 );
 
+// -----------------------------------------------------------------------------
+// TechnicianTimeOff - Track vacation, sick days, personal time
+// -----------------------------------------------------------------------------
+export const technicianTimeOffSchema = pgTable(
+  'technician_time_off',
+  {
+    id: text('id').primaryKey(),
+    technicianId: text('technician_id')
+      .notNull()
+      .references(() => technicianSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Time off period
+    startDate: timestamp('start_date', { mode: 'date' }).notNull(),
+    endDate: timestamp('end_date', { mode: 'date' }).notNull(),
+
+    // Reason for time off
+    reason: text('reason'), // 'vacation' | 'sick' | 'personal' | 'training' | 'other'
+    notes: text('notes'),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    technicianIdx: index('time_off_technician_idx').on(table.technicianId),
+    salonIdx: index('time_off_salon_idx').on(table.salonId),
+    dateRangeIdx: index('time_off_date_range_idx').on(table.technicianId, table.startDate, table.endDate),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// TechnicianBlockedSlot - Block specific time slots (lunch, breaks, cleaning)
+// -----------------------------------------------------------------------------
+export const technicianBlockedSlotSchema = pgTable(
+  'technician_blocked_slot',
+  {
+    id: text('id').primaryKey(),
+    technicianId: text('technician_id')
+      .notNull()
+      .references(() => technicianSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // For recurring blocks (e.g., daily lunch break)
+    dayOfWeek: integer('day_of_week'), // 0=Sunday, 6=Saturday (null if one-time)
+    startTime: text('start_time').notNull(), // "12:00"
+    endTime: text('end_time').notNull(), // "13:00"
+
+    // For one-time blocks (specific date)
+    specificDate: timestamp('specific_date', { mode: 'date' }), // null if recurring
+
+    // Description
+    label: text('label'), // "Lunch", "Cleaning", "Personal"
+    isRecurring: boolean('is_recurring').default(true),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    technicianIdx: index('blocked_slot_technician_idx').on(table.technicianId),
+    salonIdx: index('blocked_slot_salon_idx').on(table.salonId),
+    dayIdx: index('blocked_slot_day_idx').on(table.technicianId, table.dayOfWeek),
+  }),
+);
+
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
@@ -601,6 +677,12 @@ export type NewReward = typeof rewardSchema.$inferInsert;
 
 export type ClientPreferences = typeof clientPreferencesSchema.$inferSelect;
 export type NewClientPreferences = typeof clientPreferencesSchema.$inferInsert;
+
+export type TechnicianTimeOff = typeof technicianTimeOffSchema.$inferSelect;
+export type NewTechnicianTimeOff = typeof technicianTimeOffSchema.$inferInsert;
+
+export type TechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferSelect;
+export type NewTechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferInsert;
 
 // =============================================================================
 // CONST EXPORTS
@@ -653,3 +735,22 @@ export const REWARD_STATUSES = [
   'expired',
 ] as const;
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
+
+export const TIME_OFF_REASONS = [
+  'vacation',
+  'sick',
+  'personal',
+  'training',
+  'other',
+] as const;
+export type TimeOffReason = (typeof TIME_OFF_REASONS)[number];
+
+export const BLOCKED_SLOT_LABELS = [
+  'lunch',
+  'break',
+  'cleaning',
+  'meeting',
+  'personal',
+  'other',
+] as const;
+export type BlockedSlotLabel = (typeof BLOCKED_SLOT_LABELS)[number];

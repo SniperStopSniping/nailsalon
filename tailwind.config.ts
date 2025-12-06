@@ -64,12 +64,22 @@ const config = {
           '50%': { transform: 'scale(1.18)' },
           '100%': { transform: 'scale(0.94)' },
         },
+        'spring-up': {
+          '0%': { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0%)' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         shimmer: 'shimmer 6s ease-in-out infinite',
         sparkle: 'sparkle 2s ease-in-out infinite',
+        'spring-up': 'spring-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards',
+        'fade-in': 'fade-in 0.3s ease-out forwards',
       },
     },
   },

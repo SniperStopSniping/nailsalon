@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
@@ -16,37 +16,78 @@ type SectionId =
   | 'invite'
   | 'membership'
   | 'rate-us'
-  | 'payment'
-  | 'settings';
+  | 'payment';
 
+// Helper functions for date/time formatting
+function formatDateShort(isoString: string): string {
+  const date = new Date(isoString);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatDateFull(isoString: string): string {
+  const date = new Date(isoString);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString);
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+}
+
+// CollapsibleSection component
 function CollapsibleSection({
   id,
   title,
+  icon,
   children,
   isOpen,
   onToggle,
+  badge,
 }: {
   id: SectionId;
   title: string;
+  icon: string;
   children: React.ReactNode;
   isOpen: boolean;
   onToggle: (id: SectionId) => void;
+  badge?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+    <div
+      className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+      style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
+    >
       <button
         type="button"
         onClick={() => onToggle(id)}
-        className="flex h-12 w-full items-center justify-between px-4 py-3.5 text-left"
+        className="flex w-full items-center justify-between p-5 text-left transition-colors hover:bg-neutral-50/50"
       >
-        <h3 className="text-sm font-semibold text-neutral-900">{title}</h3>
+        <div className="flex items-center gap-3">
+          <span className="text-xl">{icon}</span>
+          <span className="text-base font-bold text-neutral-900">{title}</span>
+          {badge && (
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-bold"
+              style={{ backgroundColor: `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`, color: themeVars.accent }}
+            >
+              {badge}
+            </span>
+          )}
+        </div>
         <svg
-          width="16"
-          height="16"
+          width="18"
+          height="18"
           viewBox="0 0 16 16"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          className={`opacity-60 transition-transform duration-150 ${
+          className={`text-neutral-400 transition-transform duration-200 ${
             isOpen ? 'rotate-180' : ''
           }`}
         >
@@ -59,12 +100,16 @@ function CollapsibleSection({
           />
         </svg>
       </button>
-      {isOpen && <div className="px-4 pb-4">{children}</div>}
+      {isOpen && (
+        <div className="border-t border-neutral-100 px-5 pb-5 pt-0">
+          <div className="pt-4">{children}</div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Types for real appointment data
+// Appointment type from API
 type AppointmentData = {
   id: string;
   startTime: string;
@@ -87,6 +132,14 @@ type TechnicianData = {
   id: string;
   name: string;
   avatarUrl: string | null;
+};
+
+type NextAppointmentResponse = {
+  data: {
+    appointment: AppointmentData | null;
+    services: ServiceData[];
+    technician: TechnicianData | null;
+  };
 };
 
 // Reward data type
@@ -120,44 +173,22 @@ type PreferencesData = {
   appointmentNotes: string | null;
 };
 
-// Helper functions for date/time formatting
-function formatDateFull(isoString: string): string {
-  const date = new Date(isoString);
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
-}
-
-function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const hour12 = hours % 12 || 12;
-  return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-}
-
 export default function ProfilePage() {
   const router = useRouter();
-  const params = useParams();
-  const pathname = usePathname();
-  const { salonSlug } = useSalon();
-  const locale = (params?.locale as string) || 'en';
-  const [showLanguageSelector, setShowLanguageSelector] = useState(false);
+  const { salonName, salonSlug } = useSalon();
 
-  // Collapsible sections state
+  const [mounted, setMounted] = useState(false);
   const [openSections, setOpenSections] = useState<Set<SectionId>>(
-    new Set(['appointments', 'invite', 'gallery']),
+    new Set(['appointments']),
   );
-  const [appointmentReminders, setAppointmentReminders] = useState(true);
 
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
+  // User data - read from cookie
   const [userName, setUserName] = useState('Guest');
-  const [editedName, setEditedName] = useState('Guest');
   const [clientPhone, setClientPhone] = useState('');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const profileImageInputRef = useRef<HTMLInputElement>(null);
 
-  // Next appointment - real data from database
+  // Next appointment data - fetched from real database
   const [nextAppointment, setNextAppointment] = useState<AppointmentData | null>(null);
   const [nextAppointmentServices, setNextAppointmentServices] = useState<ServiceData[]>([]);
   const [nextAppointmentTech, setNextAppointmentTech] = useState<TechnicianData | null>(null);
@@ -177,7 +208,7 @@ export default function ProfilePage() {
   const [galleryLoading, setGalleryLoading] = useState(true);
 
   // Client preferences - real data from database
-  const [_preferences, setPreferences] = useState<PreferencesData | null>(null);
+  const [preferences, setPreferences] = useState<PreferencesData | null>(null);
   const [preferencesLoading, setPreferencesLoading] = useState(true);
 
   // Load client name and phone from cookie on mount
@@ -189,7 +220,6 @@ export default function ProfilePage() {
       const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
       if (name) {
         setUserName(name);
-        setEditedName(name);
       }
     }
 
@@ -198,7 +228,9 @@ export default function ProfilePage() {
       .find(row => row.startsWith('client_phone='));
     if (clientPhoneCookie) {
       const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) setClientPhone(phone);
+      if (phone) {
+        setClientPhone(phone);
+      }
     }
   }, []);
 
@@ -211,9 +243,12 @@ export default function ProfilePage() {
       }
 
       try {
-        const response = await fetch(`/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`);
+        // Always fetch fresh data - no caching
+        const response = await fetch(`/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`, {
+          cache: 'no-store',
+        });
         if (response.ok) {
-          const data = await response.json();
+          const data: NextAppointmentResponse = await response.json();
           setNextAppointment(data.data?.appointment || null);
           setNextAppointmentServices(data.data?.services || []);
           setNextAppointmentTech(data.data?.technician || null);
@@ -326,34 +361,7 @@ export default function ProfilePage() {
 
         if (response.ok) {
           const data = await response.json();
-          const prefs: PreferencesData | null = data.data?.preferences;
-          setPreferences(prefs);
-
-          // Also update the beautyProfile state for editing
-          if (prefs) {
-            const updatedBeautyProfile = {
-              email: '',
-              favTech: prefs.favoriteTechId || 'Any',
-              nailLength: prefs.nailLength ? prefs.nailLength.charAt(0).toUpperCase() + prefs.nailLength.slice(1) : 'Medium',
-              nailShape: prefs.nailShape ? prefs.nailShape.charAt(0).toUpperCase() + prefs.nailShape.slice(1) : 'Almond',
-              finish: prefs.finishes && prefs.finishes.length > 0
-                ? prefs.finishes[0]!.charAt(0).toUpperCase() + prefs.finishes[0]!.slice(1)
-                : 'Glossy',
-              favColors: prefs.colorFamilies
-                ? prefs.colorFamilies.map(c => c.charAt(0).toUpperCase() + c.slice(1))
-                : ['Nudes', 'Pinks'],
-              favBrands: prefs.preferredBrands
-                ? prefs.preferredBrands.map(b => b.toUpperCase())
-                : ['OPI'],
-              favService: prefs.favoriteServices && prefs.favoriteServices.length > 0
-                ? prefs.favoriteServices[0]!.toUpperCase()
-                : 'BIAB',
-              designStyles: ['French', 'Minimal art'],
-              notes: prefs.techNotes || '',
-            };
-            setBeautyProfile(updatedBeautyProfile);
-            setEditedBeautyProfile(updatedBeautyProfile);
-          }
+          setPreferences(data.data?.preferences || null);
         }
       } catch (error) {
         console.error('Failed to fetch preferences:', error);
@@ -369,22 +377,6 @@ export default function ProfilePage() {
     }
   }, [clientPhone, salonSlug]);
 
-  // Beauty Profile state
-  const [isEditingBeautyProfile, setIsEditingBeautyProfile] = useState(false);
-  const [beautyProfile, setBeautyProfile] = useState({
-    email: '',
-    favTech: 'Any',
-    nailLength: 'Medium',
-    nailShape: 'Almond',
-    finish: 'Glossy',
-    favColors: ['Nudes', 'Pinks'],
-    favBrands: ['OPI'],
-    favService: 'BIAB',
-    designStyles: ['French', 'Minimal art'],
-    notes: '',
-  });
-  const [editedBeautyProfile, setEditedBeautyProfile] = useState(beautyProfile);
-
   // Invite state
   const [friendPhone, setFriendPhone] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
@@ -392,45 +384,19 @@ export default function ProfilePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const isSendingRef = useRef(false);
 
-  // Profile image state
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [profileUploadStatus, setProfileUploadStatus] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
-  const profileImageInputRef = useRef<HTMLInputElement>(null);
-
-  // Payment methods state
-  type PaymentCard = {
-    id: string;
-    type: 'Visa' | 'Mastercard' | 'Amex' | 'Discover';
-    last4: string;
-    expiryMonth: string;
-    expiryYear: string;
-    isDefault: boolean;
+  // Stats
+  const userStats = {
+    totalVisits: 12,
+    memberSince: 'March 2024',
+    pointsBalance: 240,
+    nextReward: 60,
+    tier: 'Gold',
+    savedAmount: 85,
   };
 
-  const [paymentCards, setPaymentCards] = useState<PaymentCard[]>([
-    {
-      id: '1',
-      type: 'Visa',
-      last4: '4242',
-      expiryMonth: '12',
-      expiryYear: '2025',
-      isDefault: true,
-    },
-  ]);
-  const [showAddCard, setShowAddCard] = useState(false);
-  const [showManageCards, setShowManageCards] = useState(false);
-  const [newCard, setNewCard] = useState({
-    cardNumber: '',
-    expiryMonth: '',
-    expiryYear: '',
-    cvv: '',
-    cardholderName: '',
-  });
-  const [_cardError, setCardError] = useState<string | null>(null);
-  const [_deleteError, setDeleteError] = useState<string | null>(null);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const toggleSection = (sectionId: SectionId) => {
     setOpenSections((prev) => {
@@ -444,82 +410,28 @@ export default function ProfilePage() {
     });
   };
 
+  const handleToggleSection = useCallback((sectionId: SectionId) => {
+    toggleSection(sectionId);
+  }, []);
+
   const handleBack = () => {
     router.back();
   };
 
-  const handleEditProfile = () => {
-    setIsEditMode(true);
-    setEditedName(userName);
+  const handleProfileImageClick = () => {
+    profileImageInputRef.current?.click();
   };
 
-  const handleSaveName = () => {
-    setUserName(editedName);
-    setIsEditMode(false);
-    // TODO: Save to backend
-  };
-
-  const handleCancelEdit = () => {
-    setEditedName(userName);
-    setIsEditMode(false);
-  };
-
-  const handleEditBeautyProfile = () => {
-    setIsEditingBeautyProfile(true);
-    setEditedBeautyProfile(beautyProfile);
-  };
-
-  const handleSaveBeautyProfile = async () => {
-    if (!clientPhone || !salonSlug) {
-      setBeautyProfile(editedBeautyProfile);
-      setIsEditingBeautyProfile(false);
+  const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
       return;
     }
-
-    const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-    if (normalizedPhone.length !== 10) {
-      setBeautyProfile(editedBeautyProfile);
-      setIsEditingBeautyProfile(false);
+    if (!file.type.startsWith('image/')) {
       return;
     }
-
-    try {
-      const response = await fetch('/api/client/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: normalizedPhone,
-          salonSlug,
-          favoriteTechId: editedBeautyProfile.favTech.toLowerCase() !== 'any' ? editedBeautyProfile.favTech.toLowerCase() : null,
-          favoriteServices: editedBeautyProfile.favService ? [editedBeautyProfile.favService.toLowerCase()] : null,
-          nailShape: editedBeautyProfile.nailShape.toLowerCase(),
-          nailLength: editedBeautyProfile.nailLength.toLowerCase(),
-          finishes: editedBeautyProfile.finish ? [editedBeautyProfile.finish.toLowerCase()] : null,
-          colorFamilies: editedBeautyProfile.favColors.map(c => c.toLowerCase()),
-          preferredBrands: editedBeautyProfile.favBrands.map(b => b.toLowerCase()),
-          techNotes: editedBeautyProfile.notes || null,
-        }),
-      });
-
-      if (response.ok) {
-        setBeautyProfile(editedBeautyProfile);
-      }
-    } catch (error) {
-      console.error('Error saving beauty profile:', error);
-    }
-
-    setIsEditingBeautyProfile(false);
-  };
-
-  const handleCancelBeautyProfile = () => {
-    setEditedBeautyProfile(beautyProfile);
-    setIsEditingBeautyProfile(false);
-  };
-
-  const toggleArrayItem = (array: string[], item: string) => {
-    return array.includes(item)
-      ? array.filter(i => i !== item)
-      : [...array, item];
+    const imageUrl = URL.createObjectURL(file);
+    setProfileImage(imageUrl);
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -532,8 +444,12 @@ export default function ProfilePage() {
   const normalizedClientPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
 
   const handleSendReferral = useCallback(async () => {
-    if (isSendingRef.current || inviteSending) return;
-    if (friendPhone.length !== 10) return;
+    if (isSendingRef.current || inviteSending) {
+      return;
+    }
+    if (friendPhone.length !== 10) {
+      return;
+    }
 
     isSendingRef.current = true;
     setInviteSending(true);
@@ -576,233 +492,34 @@ export default function ProfilePage() {
       setInviteSending(false);
       isSendingRef.current = false;
     }
-  }, [friendPhone, clientPhone, userName, salonSlug, inviteSending]);
-
-  const handleProfileImageClick = () => {
-    profileImageInputRef.current?.click();
-  };
-
-  const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setProfileUploadStatus({
-        success: false,
-        message: 'Please select an image file',
-      });
-      setTimeout(() => setProfileUploadStatus(null), 3000);
-      return;
-    }
-
-    // Validate file size (max 5MB for profile images)
-    if (file.size > 5 * 1024 * 1024) {
-      setProfileUploadStatus({
-        success: false,
-        message: 'Image must be less than 5MB',
-      });
-      setTimeout(() => setProfileUploadStatus(null), 3000);
-      return;
-    }
-
-    // Create preview URL
-    const imageUrl = URL.createObjectURL(file);
-    setProfileImage(imageUrl);
-
-    // TODO: Upload to backend
-    setProfileUploadStatus({
-      success: true,
-      message: 'Profile photo updated! 💛',
-    });
-
-    // Clear success message after 3 seconds
-    setTimeout(() => {
-      setProfileUploadStatus(null);
-    }, 3000);
-  };
-
-  // Payment methods handlers
-  const getCardType = (cardNumber: string): PaymentCard['type'] => {
-    const num = cardNumber.replace(/\D/g, '');
-    if (num.startsWith('4')) {
-      return 'Visa';
-    }
-    if (num.startsWith('5') || num.startsWith('2')) {
-      return 'Mastercard';
-    }
-    if (num.startsWith('3')) {
-      return 'Amex';
-    }
-    return 'Discover';
-  };
-
-  const handleAddCard = () => {
-    setShowAddCard(true);
-    setShowManageCards(false);
-  };
-
-  const handleManageCards = () => {
-    setShowManageCards(true);
-    setShowAddCard(false);
-  };
-
-  const handleSaveCard = () => {
-    setCardError(null);
-    const cardNumber = newCard.cardNumber.replace(/\D/g, '');
-    if (cardNumber.length < 13 || cardNumber.length > 19) {
-      setCardError('Please enter a valid card number');
-      return;
-    }
-    if (!newCard.expiryMonth || !newCard.expiryYear) {
-      setCardError('Please enter expiry date');
-      return;
-    }
-    if (newCard.cvv.length < 3 || newCard.cvv.length > 4) {
-      setCardError('Please enter a valid CVV');
-      return;
-    }
-    if (!newCard.cardholderName.trim()) {
-      setCardError('Please enter cardholder name');
-      return;
-    }
-
-    // Remove default from all cards if this is set as default
-    const updatedCards = paymentCards.map(card => ({
-      ...card,
-      isDefault: false,
-    }));
-
-    // Add new card
-    const newCardData: PaymentCard = {
-      id: Date.now().toString(),
-      type: getCardType(cardNumber),
-      last4: cardNumber.slice(-4),
-      expiryMonth: newCard.expiryMonth,
-      expiryYear: newCard.expiryYear,
-      isDefault: true, // New card is default
-    };
-
-    setPaymentCards([...updatedCards, newCardData]);
-    setNewCard({
-      cardNumber: '',
-      expiryMonth: '',
-      expiryYear: '',
-      cvv: '',
-      cardholderName: '',
-    });
-    setShowAddCard(false);
-
-    // TODO: Save to backend
-  };
-
-  const handleCancelAddCard = () => {
-    setShowAddCard(false);
-    setNewCard({
-      cardNumber: '',
-      expiryMonth: '',
-      expiryYear: '',
-      cvv: '',
-      cardholderName: '',
-    });
-  };
-
-  const handleSetDefault = (cardId: string) => {
-    setPaymentCards(
-      paymentCards.map(card => ({
-        ...card,
-        isDefault: card.id === cardId,
-      })),
-    );
-    // TODO: Update backend
-  };
-
-  const handleDeleteCard = (cardId: string) => {
-    setDeleteError(null);
-    if (paymentCards.length === 1) {
-      setDeleteError('You must have at least one payment method');
-      return;
-    }
-    const cardToDelete = paymentCards.find(c => c.id === cardId);
-    if (cardToDelete?.isDefault && paymentCards.length > 1) {
-      // Set first remaining card as default
-      const remainingCards = paymentCards.filter(c => c.id !== cardId);
-      if (remainingCards.length > 0 && remainingCards[0]) {
-        remainingCards[0].isDefault = true;
-      }
-      setPaymentCards(remainingCards);
-    } else {
-      setPaymentCards(paymentCards.filter(c => c.id !== cardId));
-    }
-    // TODO: Delete from backend
-  };
-
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/\D/g, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = (matches && matches[0]) || '';
-    const parts = [];
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    if (parts.length) {
-      return parts.join(' ');
-    } else {
-      return v;
-    }
-  };
-
-  // Language selection
-  const languages: Array<{ code: string; name: string }> = [
-    { code: 'en', name: 'English' },
-    { code: 'es', name: 'Spanish' },
-  ];
-
-  const currentLanguage
-    = languages.find(lang => lang.code === locale) || { code: 'en', name: 'English' };
-
-  const handleLanguageChange = (langCode: string) => {
-    if (langCode === locale) {
-      setShowLanguageSelector(false);
-      return;
-    }
-
-    setShowLanguageSelector(false);
-    // Navigate to the same page with new locale
-    const segments = pathname.split('/').filter(Boolean);
-
-    // Find and replace the locale segment (should be first segment)
-    if (segments[0] === locale) {
-      segments[0] = langCode;
-    } else {
-      // If locale is not in path, prepend it
-      segments.unshift(langCode);
-    }
-
-    const newPath = `/${segments.join('/')}`;
-
-    // Use router.push for navigation
-    router.push(newPath);
-  };
+  }, [friendPhone, normalizedClientPhone, userName, salonSlug, inviteSending]);
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4"
-      style={{ backgroundColor: themeVars.background }}
+      className="min-h-screen pb-10"
+      style={{
+        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+      }}
     >
-      <div className="mx-auto flex w-full max-w-[430px] flex-col gap-2.5 px-4">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4">
         {/* Top bar with back button */}
-        <div className="relative flex items-center pt-2">
+        <div
+          className="relative flex items-center pb-2 pt-6"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
+            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
+          }}
+        >
           <button
             type="button"
             onClick={handleBack}
-            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-white/50 active:scale-95"
+            aria-label="Go back"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
           >
             <svg
-              width="20"
-              height="20"
+              width="22"
+              height="22"
               viewBox="0 0 20 20"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -816,1334 +533,841 @@ export default function ProfilePage() {
               />
             </svg>
           </button>
+
+          <div
+            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight"
+            style={{ color: themeVars.accent }}
+          >
+            {salonName}
+          </div>
         </div>
 
-        {/* Title */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-neutral-900">My Profile</h1>
-          <p className="mt-1 text-base font-bold text-neutral-700">
-            Hi there,
-            {userName}
-            ! 👋
-          </p>
-        </div>
-
-        {/* Profile Header Card (not collapsible) */}
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex items-center gap-4">
-            {/* Avatar */}
-            <div className="relative">
-              <div
-                className="flex size-16 items-center justify-center overflow-hidden rounded-full text-2xl"
-                style={{ background: `linear-gradient(to bottom right, ${themeVars.selectedBackground}, ${themeVars.borderMuted})` }}
-              >
-                {profileImage
-                  ? (
-                      <Image
-                        src={profileImage}
-                        alt="Profile"
-                        width={64}
-                        height={64}
-                        className="size-full object-cover"
-                        unoptimized
-                      />
-                    )
-                  : (
-                      <span>👤</span>
-                    )}
-              </div>
-              <input
-                ref={profileImageInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleProfileImageChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={handleProfileImageClick}
-                className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full text-sm font-bold text-neutral-900 shadow-sm transition-colors hover:opacity-90"
-                style={{ backgroundColor: themeVars.primary }}
-              >
-                +
-              </button>
-            </div>
-
-            {/* Name and Phone */}
-            <div className="flex-1 text-center">
-              {isEditMode
+        {/* Welcome Hero Section */}
+        <div
+          className="pb-2 pt-4 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+          }}
+        >
+          {/* Profile Avatar */}
+          <div className="relative mb-4 inline-block">
+            <div
+              className="flex size-24 items-center justify-center overflow-hidden rounded-full border-4 border-white text-4xl shadow-lg"
+              style={{ background: `linear-gradient(to bottom right, ${themeVars.accentSelected}, color-mix(in srgb, ${themeVars.accentSelected} 80%, ${themeVars.accent}))` }}
+            >
+              {profileImage
                 ? (
-                    <input
-                      type="text"
-                      value={editedName}
-                      onChange={e => setEditedName(e.target.value)}
-                      className="w-full rounded-lg px-3 py-1.5 text-center text-base font-semibold text-neutral-900 outline-none ring-2"
-                      style={{ backgroundColor: themeVars.surfaceAlt, '--tw-ring-color': themeVars.primary } as React.CSSProperties}
+                    <Image
+                      src={profileImage}
+                      alt="Profile"
+                      width={96}
+                      height={96}
+                      className="size-full object-cover"
+                      unoptimized
                     />
                   )
                 : (
-                    <div className="text-base font-semibold text-neutral-900">
-                      {userName}
-                    </div>
+                    <span>👤</span>
                   )}
-              <div className="mt-0.5 text-sm text-neutral-600">
-                +1 (555) 123-4567
-              </div>
             </div>
+            <input
+              ref={profileImageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleProfileImageChange}
+              className="hidden"
+              aria-label="Upload profile image"
+            />
+            <button
+              type="button"
+              onClick={handleProfileImageClick}
+              className="absolute bottom-0 right-0 flex size-8 items-center justify-center rounded-full text-lg font-bold text-neutral-900 shadow-md transition-transform hover:scale-110"
+              style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+            >
+              +
+            </button>
+          </div>
 
-            {/* Edit button */}
-            {!isEditMode && (
-              <button
-                type="button"
-                onClick={handleEditProfile}
-                className="text-sm text-neutral-500 transition-colors hover:text-neutral-700"
-              >
-                Edit
-              </button>
-            )}
+          {/* Personalized Welcome */}
+          <h1 className="mb-1 text-2xl font-bold text-neutral-900">
+            Welcome back,
+            {' '}
+            {userName}
+            ! ✨
+          </h1>
+          <p className="mb-2 text-base text-neutral-500">
+            We're so happy to see you
+          </p>
+
+          {/* Member Badge */}
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2"
+            style={{
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderColor: `color-mix(in srgb, ${themeVars.primary} 30%, transparent)`,
+              background: `linear-gradient(to right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 20%, transparent))`,
+            }}
+          >
+            <span className="text-lg">👑</span>
+            <span className="text-sm font-bold" style={{ color: themeVars.accent }}>
+              {userStats.tier}
+              {' '}
+              Member
+            </span>
+            <span className="text-xs text-neutral-500">
+              since
+              {userStats.memberSince}
+            </span>
           </div>
         </div>
 
-        {/* Profile image upload status */}
-        {profileUploadStatus && (
-          <p
-            className={`text-center text-sm ${
-              profileUploadStatus.success
-                ? 'text-green-600'
-                : 'text-red-600'
-            }`}
+        {/* Stats Summary Card */}
+        <div
+          className="my-6 overflow-hidden rounded-2xl shadow-xl"
+          style={{
+            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
+            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
+          }}
+        >
+          <div className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-sm text-white/80">Your Journey With Us</div>
+              <div className="text-sm font-semibold" style={{ color: themeVars.primary }}>
+                💰 $
+                {userStats.savedAmount}
+                {' '}
+                saved!
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex-1 text-center">
+                <div className="text-3xl font-bold text-white">{userStats.totalVisits}</div>
+                <div className="mt-0.5 text-xs text-white/70">Visits</div>
+              </div>
+              <div className="h-12 w-px bg-white/20" />
+              <div className="flex-1 text-center">
+                <div className="text-3xl font-bold" style={{ color: themeVars.primary }}>{userStats.pointsBalance}</div>
+                <div className="mt-0.5 text-xs text-white/70">Points</div>
+              </div>
+              <div className="h-12 w-px bg-white/20" />
+              <div className="flex-1 text-center">
+                <div className="text-3xl font-bold text-white">{userStats.nextReward}</div>
+                <div className="mt-0.5 text-xs text-white/70">To Free Fill</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div
+          className="mb-6 grid grid-cols-2 gap-3"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => router.push('/book/service')}
+            className="rounded-2xl p-4 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
+            style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
           >
-            {profileUploadStatus.message}
-          </p>
-        )}
+            <span className="mb-2 block text-2xl">📅</span>
+            <span className="text-base font-bold text-neutral-900">Book Now</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/rewards')}
+            className="rounded-2xl bg-white p-4 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
+            style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
+          >
+            <span className="mb-2 block text-2xl">🎁</span>
+            <span className="text-base font-bold text-neutral-900">My Rewards</span>
+          </button>
+        </div>
 
-        {/* Save/Cancel buttons - shown when in edit mode */}
-        {isEditMode && (
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              className="flex-1 rounded-full border-2 border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:bg-neutral-50 active:scale-[0.98]"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveName}
-              disabled={!editedName.trim()}
-              className="flex-1 rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: themeVars.primary }}
-            >
-              Save
-            </button>
-          </div>
-        )}
+        {/* Sections */}
+        <div className="space-y-4">
+          {/* Next Appointment */}
+          <CollapsibleSection
+            id="appointments"
+            title="Next Appointment"
+            icon="💅"
+            isOpen={openSections.has('appointments')}
+            onToggle={handleToggleSection}
+            badge={nextAppointment ? formatDateShort(nextAppointment.startTime) : undefined}
+          >
+            <div className="space-y-4">
+              {appointmentLoading && (
+                <div className="py-4 text-center text-neutral-500">Loading...</div>
+              )}
 
-        {/* My Appointments Section */}
-        <CollapsibleSection id="appointments" title="My Appointments" isOpen={openSections.has('appointments')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            <h4 className="text-sm font-semibold text-neutral-900">
-              Next Appointment
-            </h4>
-
-            {appointmentLoading && (
-              <div className="py-4 text-center text-neutral-500">Loading...</div>
-            )}
-
-            {!appointmentLoading && nextAppointment && (
-              <>
-                <div className="space-y-2 rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
-                  <div className="text-sm font-semibold text-neutral-900">
-                    {nextAppointmentServices.map(s => s.name).join(' + ') || 'Appointment'}
-                  </div>
-                  <div className="text-sm text-neutral-600">
-                    Tech: {nextAppointmentTech?.name || 'Any Artist'}
-                  </div>
-                  <div className="text-sm text-neutral-600">
-                    {formatDateFull(nextAppointment.startTime)} · {formatTime(nextAppointment.startTime)}
-                  </div>
-                  <div className="mt-2 space-y-1 border-t border-neutral-200/50 pt-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-neutral-600">Price</span>
-                      <span className="font-semibold text-neutral-900">${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
+              {!appointmentLoading && nextAppointment && (
+                <>
+                  <div
+                    className="flex items-center gap-4 rounded-xl p-4"
+                    style={{ background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})` }}
+                  >
+                    <div className="relative size-16 shrink-0 overflow-hidden rounded-xl bg-white shadow-sm">
+                      {nextAppointmentServices[0]?.imageUrl
+                        ? (
+                            <Image
+                              src={nextAppointmentServices[0].imageUrl}
+                              alt={nextAppointmentServices.map(s => s.name).join(' + ')}
+                              fill
+                              className="object-cover"
+                            />
+                          )
+                        : (
+                            <div className="flex size-full items-center justify-center text-2xl" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                              💅
+                            </div>
+                          )}
                     </div>
-                    <div className="flex items-center justify-between border-t border-neutral-200/50 pt-1">
-                      <span className="text-sm font-semibold text-neutral-900">Total</span>
-                      <span className="text-sm font-bold text-neutral-900">${(nextAppointment.totalPrice / 100).toFixed(0)}</span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const serviceIds = nextAppointmentServices.map(s => s.id).join(',');
-                    const techId = nextAppointmentTech?.id || 'any';
-                    const apptDate = new Date(nextAppointment.startTime);
-                    const dateStr = apptDate.toISOString().split('T')[0];
-                    const hours = apptDate.getHours();
-                    const mins = apptDate.getMinutes().toString().padStart(2, '0');
-                    const timeStr = `${hours}:${mins}`;
-                    router.push(
-                      `/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(nextAppointment.clientPhone)}&originalAppointmentId=${encodeURIComponent(nextAppointment.id)}`,
-                    );
-                  }}
-                  className="w-full rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                  style={{ backgroundColor: themeVars.primary }}
-                >
-                  View / Change Appointment
-                </button>
-              </>
-            )}
-
-            {!appointmentLoading && !nextAppointment && (
-              <div className="py-4 text-center">
-                <div className="mb-2 text-3xl">📅</div>
-                <p className="mb-3 text-neutral-600">No upcoming appointments</p>
-                <button
-                  type="button"
-                  onClick={() => router.push('/book/service')}
-                  className="rounded-full px-6 py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                  style={{ backgroundColor: themeVars.primary }}
-                >
-                  Book Now
-                </button>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => router.push('/appointments/history')}
-              className="w-full text-sm font-medium transition-colors hover:opacity-80"
-              style={{ color: themeVars.accent }}
-            >
-              View Appointment History
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* My Nail Gallery Section */}
-        <CollapsibleSection id="gallery" title="My Nail Gallery" isOpen={openSections.has('gallery')} onToggle={toggleSection}>
-          <div className="pt-2">
-            {galleryLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <div
-                  className="size-6 animate-spin rounded-full border-2 border-t-transparent"
-                  style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
-                />
-              </div>
-            ) : galleryPhotos.length > 0 ? (
-              <>
-                <div className="grid grid-cols-3 gap-2">
-                  {galleryPhotos.slice(0, 3).map(photo => (
-                    <button
-                      key={photo.id}
-                      type="button"
-                      aria-label="View gallery"
-                      className="relative aspect-square cursor-pointer overflow-hidden rounded-xl shadow-sm transition-transform hover:scale-105"
-                      style={{ background: `linear-gradient(to bottom right, ${themeVars.selectedBackground}, ${themeVars.borderMuted})` }}
-                      onClick={() => router.push(`/${locale}/gallery`)}
-                    >
-                      <Image
-                        src={photo.thumbnailUrl || photo.imageUrl}
-                        alt="Nail gallery"
-                        fill
-                        className="object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="mb-2 text-sm text-neutral-600">
-                  Your nail photos will appear here after your appointments
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3].map(i => (
-                    <div
-                      key={i}
-                      className="relative aspect-square overflow-hidden rounded-xl"
-                      style={{ background: `linear-gradient(to bottom right, ${themeVars.background}, color-mix(in srgb, ${themeVars.primaryDark} 20%, white))` }}
-                    >
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-2xl opacity-30">💅</span>
+                    <div className="flex-1">
+                      <div className="text-lg font-bold text-neutral-900">
+                        {nextAppointmentServices.map(s => s.name).join(' + ') || 'Appointment'}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5 text-sm text-neutral-600">
+                        <span style={{ color: themeVars.accent }}>✦</span>
+                        <span>
+                          with
+                          {' '}
+                          {nextAppointmentTech?.name || 'Any Artist'}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-sm text-neutral-500">
+                        {formatDateFull(nextAppointment.startTime)}
+                        {' · '}
+                        {formatTime(nextAppointment.startTime)}
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-neutral-600">Service</span>
+                      <span className="font-semibold">
+                        $
+                        {(nextAppointment.totalPrice / 100).toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-emerald-200 pt-2">
+                      <span className="text-lg font-bold text-neutral-900">Total</span>
+                      <span className="text-xl font-bold" style={{ color: themeVars.accent }}>
+                        $
+                        {(nextAppointment.totalPrice / 100).toFixed(0)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const serviceIds = nextAppointmentServices.map(s => s.id).join(',');
+                      const techId = nextAppointmentTech?.id || 'any';
+                      const apptDate = new Date(nextAppointment.startTime);
+                      const dateStr = apptDate.toISOString().split('T')[0];
+                      const hours = apptDate.getHours();
+                      const mins = apptDate.getMinutes().toString().padStart(2, '0');
+                      const timeStr = `${hours}:${mins}`;
+                      router.push(
+                        `/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(nextAppointment.clientPhone)}&originalAppointmentId=${encodeURIComponent(nextAppointment.id)}`,
+                      );
+                    }}
+                    className="w-full rounded-full px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                  >
+                    View / Change Appointment
+                  </button>
+                </>
+              )}
+
+              {!appointmentLoading && !nextAppointment && (
+                <div className="py-4 text-center">
+                  <div className="mb-2 text-3xl">📅</div>
+                  <p className="mb-3 text-neutral-600">No upcoming appointments</p>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/book/service')}
+                    className="rounded-full px-6 py-2.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                  >
+                    Book Now
+                  </button>
                 </div>
-                <p className="mt-2 text-center text-xs text-neutral-400">
-                  Placeholders - your real photos will replace these
-                </p>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/gallery`)}
-              className="mt-3 text-sm font-medium transition-colors hover:opacity-80"
-              style={{ color: themeVars.accent }}
-            >
-              View All Photos
-            </button>
-          </div>
-        </CollapsibleSection>
+              )}
 
-        {/* Rewards Section */}
-        <CollapsibleSection id="rewards" title="Rewards" isOpen={openSections.has('rewards')} onToggle={toggleSection}>
-          <div className="space-y-4 pt-1">
-            {/* Loading state */}
-            {rewardsLoading && (
-              <div className="py-4 text-center text-neutral-500">Loading rewards...</div>
-            )}
+              <button
+                type="button"
+                onClick={() => router.push('/appointments/history')}
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                View All Past Visits →
+              </button>
+            </div>
+          </CollapsibleSection>
 
-            {/* No rewards */}
-            {!rewardsLoading && rewards.length === 0 && (
-              <div className="py-4 text-center">
-                <div className="mb-2 text-3xl">🎁</div>
-                <p className="text-sm text-neutral-600">No rewards yet</p>
-                <p className="mt-1 text-xs text-neutral-500">Invite friends to earn free manicures!</p>
-              </div>
-            )}
-
-            {/* Rewards list */}
-            {!rewardsLoading && rewards.length > 0 && (
-              <div className="space-y-3">
-                {rewards.map((reward) => {
-                  const isActive = reward.status === 'active' && !reward.isExpired;
-                  const isUsed = reward.status === 'used';
-                  const isExpired = reward.status === 'expired' || reward.isExpired;
-
-                  let statusBadge = { label: 'Active', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)' };
-                  if (isUsed) {
-                    statusBadge = { label: 'Used', color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)' };
-                  } else if (isExpired) {
-                    statusBadge = { label: 'Expired', color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)' };
-                  }
-
-                  const rewardLabel = reward.type === 'referral_referee'
-                    ? `${reward.points.toLocaleString()} pts - Referral Reward`
-                    : `${reward.points.toLocaleString()} pts - Referrer Bonus`;
-
-                  return (
-                    <div
-                      key={reward.id}
-                      className="rounded-xl p-3"
-                      style={{ backgroundColor: themeVars.surfaceAlt }}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xl">🎁</span>
-                          <div>
-                            <div className="text-sm font-semibold text-neutral-900">
-                              {rewardLabel}
+          {/* Nail Gallery */}
+          <CollapsibleSection
+            id="gallery"
+            title="Your Nail Journey"
+            icon="📸"
+            isOpen={openSections.has('gallery')}
+            onToggle={handleToggleSection}
+            badge={
+              galleryLoading
+                ? '...'
+                : galleryPhotos.length > 0
+                  ? `${galleryPhotos.length} looks`
+                  : 'Start your collection'
+            }
+          >
+            <div className="space-y-4">
+              {galleryLoading
+                ? (
+                    <div className="flex items-center justify-center py-4">
+                      <div
+                        className="size-6 animate-spin rounded-full border-2 border-t-transparent"
+                        style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                      />
+                    </div>
+                  )
+                : galleryPhotos.length > 0
+                  ? (
+                      <>
+                        <p className="text-sm text-neutral-600">
+                          Your beautiful nail collection from past visits
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {galleryPhotos.slice(0, 3).map(photo => (
+                            <button
+                              key={photo.id}
+                              type="button"
+                              aria-label="View gallery"
+                              className="relative aspect-square cursor-pointer overflow-hidden rounded-xl shadow-sm transition-transform hover:scale-105"
+                              style={{ background: `linear-gradient(to bottom right, ${themeVars.selectedBackground}, ${themeVars.borderMuted})` }}
+                              onClick={() => router.push('/gallery')}
+                            >
+                              <Image
+                                src={photo.thumbnailUrl || photo.imageUrl}
+                                alt="Nail gallery"
+                                fill
+                                className="object-cover"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )
+                  : (
+                      <>
+                        <p className="text-sm text-neutral-600">
+                          Your nail photos will appear here after your appointments
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[1, 2, 3].map(i => (
+                            <div
+                              key={i}
+                              className="relative aspect-square overflow-hidden rounded-xl"
+                              style={{ background: `linear-gradient(to bottom right, ${themeVars.background}, color-mix(in srgb, ${themeVars.primaryDark} 20%, white))` }}
+                            >
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-2xl opacity-30">💅</span>
+                              </div>
                             </div>
-                            {isActive && reward.daysUntilExpiry !== null && (
-                              <div className="mt-0.5 text-xs text-neutral-500">
-                                Expires in {reward.daysUntilExpiry} day{reward.daysUntilExpiry !== 1 ? 's' : ''}
+                          ))}
+                        </div>
+                        <p className="text-center text-xs text-neutral-400">
+                          Placeholders - your real photos will replace these
+                        </p>
+                      </>
+                    )}
+              <button
+                type="button"
+                onClick={() => router.push('/gallery')}
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                View Full Gallery →
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Invite Friends */}
+          <CollapsibleSection
+            id="invite"
+            title="Share the Love"
+            icon="💝"
+            isOpen={openSections.has('invite')}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ background: `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})` }}
+              >
+                <div className="mb-2 text-3xl">🎁</div>
+                <div className="mb-1 text-lg font-bold text-neutral-900">
+                  Give $10, Get $15
+                </div>
+                <p className="text-sm text-neutral-600">
+                  Share the gift of beautiful nails with friends
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="friend-phone" className="text-sm font-bold text-neutral-900">
+                  Friend&apos;s Phone Number
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2.5 text-sm font-medium text-neutral-600">
+                    +1
+                  </div>
+                  <input
+                    id="friend-phone"
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={friendPhone}
+                    onChange={handlePhoneChange}
+                    placeholder="(555) 123-4567"
+                    className="min-w-0 flex-1 rounded-full bg-neutral-100 px-4 py-2.5 text-base text-neutral-800 outline-none transition-all placeholder:text-neutral-400 focus:ring-2"
+                    style={{ '--tw-ring-color': `color-mix(in srgb, ${themeVars.accent} 30%, transparent)` } as React.CSSProperties}
+                    disabled={inviteSending}
+                  />
+                </div>
+                {inviteError && (
+                  <p className="text-center text-base font-medium text-red-600">
+                    {inviteError}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSendReferral}
+                disabled={friendPhone.length !== 10 || inviteSending}
+                className="w-full rounded-full px-6 py-3.5 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+              >
+                {inviteSending ? 'Sending...' : 'Send Referral'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push('/invite')}
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                Share Referral Link
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push('/my-referrals')}
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                View My Referrals →
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Rewards */}
+          <CollapsibleSection
+            id="rewards"
+            title="My Rewards"
+            icon="🎁"
+            isOpen={openSections.has('rewards')}
+            onToggle={handleToggleSection}
+            badge={rewards.filter(r => r.status === 'active' && !r.isExpired).length > 0 ? `${rewards.filter(r => r.status === 'active' && !r.isExpired).length} Active` : undefined}
+          >
+            <div className="space-y-4">
+              {/* Loading state */}
+              {rewardsLoading && (
+                <div className="py-4 text-center text-neutral-500">Loading rewards...</div>
+              )}
+
+              {/* No rewards */}
+              {!rewardsLoading && rewards.length === 0 && (
+                <div className="py-4 text-center">
+                  <div className="mb-2 text-3xl">🎁</div>
+                  <p className="text-sm text-neutral-600">No rewards yet</p>
+                  <p className="mt-1 text-xs text-neutral-500">Invite friends to earn free manicures!</p>
+                </div>
+              )}
+
+              {/* Rewards list */}
+              {!rewardsLoading && rewards.length > 0 && (
+                <div className="space-y-3">
+                  {rewards.map((reward) => {
+                    const isActive = reward.status === 'active' && !reward.isExpired;
+                    const isUsed = reward.status === 'used';
+                    const isExpired = reward.status === 'expired' || reward.isExpired;
+
+                    let statusBadge = { label: 'Active', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)' };
+                    if (isUsed) {
+                      statusBadge = { label: 'Used', color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)' };
+                    } else if (isExpired) {
+                      statusBadge = { label: 'Expired', color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)' };
+                    }
+
+                    const rewardLabel = reward.type === 'referral_referee'
+                      ? `${reward.points.toLocaleString()} pts - Referral Reward`
+                      : `${reward.points.toLocaleString()} pts - Referrer Bonus`;
+
+                    return (
+                      <div
+                        key={reward.id}
+                        className="rounded-xl p-3"
+                        style={{ backgroundColor: themeVars.surfaceAlt }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">🎁</span>
+                            <div>
+                              <div className="text-sm font-semibold text-neutral-900">
+                                {rewardLabel}
                               </div>
-                            )}
-                            {isUsed && reward.usedAt && (
-                              <div className="mt-0.5 text-xs text-neutral-500">
-                                Used on {new Date(reward.usedAt).toLocaleDateString()}
-                              </div>
-                            )}
-                            {isExpired && !isUsed && (
-                              <div className="mt-0.5 text-xs text-neutral-500">
-                                Reward expired
-                              </div>
-                            )}
+                              {isActive && reward.daysUntilExpiry !== null && (
+                                <div className="mt-0.5 text-xs text-neutral-500">
+                                  Expires in
+                                  {' '}
+                                  {reward.daysUntilExpiry}
+                                  {' '}
+                                  day
+                                  {reward.daysUntilExpiry !== 1 ? 's' : ''}
+                                </div>
+                              )}
+                              {isUsed && reward.usedAt && (
+                                <div className="mt-0.5 text-xs text-neutral-500">
+                                  Used on
+                                  {' '}
+                                  {new Date(reward.usedAt).toLocaleDateString()}
+                                </div>
+                              )}
+                              {isExpired && !isUsed && (
+                                <div className="mt-0.5 text-xs text-neutral-500">
+                                  Reward expired
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div
+                            className="rounded-full px-2 py-0.5 text-xs font-medium"
+                            style={{ color: statusBadge.color, backgroundColor: statusBadge.bgColor }}
+                          >
+                            {statusBadge.label}
                           </div>
                         </div>
-                        <div
-                          className="rounded-full px-2 py-0.5 text-xs font-medium"
-                          style={{ color: statusBadge.color, backgroundColor: statusBadge.bgColor }}
-                        >
-                          {statusBadge.label}
-                        </div>
-                      </div>
-                      {isActive && (
-                        <button
-                          type="button"
-                          onClick={() => router.push('/book/service')}
-                          className="mt-3 w-full rounded-full py-2 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                          style={{ backgroundColor: themeVars.primary }}
-                        >
-                          Book Now to Redeem
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Points section */}
-            <div className="border-t border-neutral-100 pt-4">
-              <div className="text-sm text-neutral-900">
-                You have
-                {' '}
-                <span className="font-semibold">{activePoints.toLocaleString()} points</span>
-              </div>
-              <div className="mt-2 space-y-2">
-                <div className="flex justify-between text-sm text-neutral-600">
-                  {activePoints >= 2500 ? (
-                    <span>You have enough points for a FREE Manicure!</span>
-                  ) : (
-                    <span>{(2500 - activePoints).toLocaleString()} points until FREE Manicure</span>
-                  )}
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ 
-                      width: `${Math.min(100, (activePoints / 2500) * 100)}%`, 
-                      background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` 
-                    }}
-                  />
-                </div>
-                <div className="text-xs text-neutral-500">
-                  2,500 pts = Free Gel Manicure
-                </div>
-              </div>
-            </div>
-          </div>
-        </CollapsibleSection>
-
-        {/* Invite & Earn Section */}
-        <CollapsibleSection id="invite" title="Invite & Earn" isOpen={openSections.has('invite')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-neutral-700">
-              Invite friends and earn a free manicure.
-            </p>
-            <div className="space-y-2">
-              <label htmlFor="friend-phone-unauth" className="text-sm font-medium text-neutral-900">
-                Friend&apos;s Phone Number
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center rounded-full bg-neutral-100 px-2.5 py-1.5 text-sm text-neutral-600">
-                  <span className="mr-1">+1</span>
-                </div>
-                <input
-                  id="friend-phone-unauth"
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={friendPhone}
-                  onChange={handlePhoneChange}
-                  placeholder="Phone number"
-                  className="min-w-0 flex-1 rounded-full bg-neutral-100 px-3 py-2 text-base text-neutral-800 outline-none placeholder:text-neutral-400"
-                  autoComplete="off"
-                  disabled={inviteSending}
-                />
-              </div>
-              {inviteError && (
-                <p className="mt-1 text-center text-sm text-red-600">
-                  {inviteError}
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handleSendReferral}
-              disabled={friendPhone.length !== 10 || inviteSending}
-              className="w-full rounded-full py-3 text-sm font-semibold text-neutral-900 shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: themeVars.primary }}
-            >
-              {inviteSending ? 'Sending...' : 'Send Referral'}
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/invite`)}
-              className="w-full text-sm font-medium transition-colors hover:opacity-80"
-              style={{ color: themeVars.accent }}
-            >
-              Share Referral Link
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/my-referrals`)}
-              className="text-sm font-medium transition-colors hover:opacity-80"
-              style={{ color: themeVars.accent }}
-            >
-              My Referrals
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* Membership Section */}
-        <CollapsibleSection id="membership" title="Membership" isOpen={openSections.has('membership')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            <div className="text-sm text-neutral-900">
-              Current tier:
-              {' '}
-              <span className="font-semibold">Gold</span>
-            </div>
-            <ul className="space-y-1.5 text-sm text-neutral-600">
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5" style={{ color: themeVars.primary }}>•</span>
-                <span>Priority booking</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5" style={{ color: themeVars.primary }}>•</span>
-                <span>Birthday gift</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-0.5" style={{ color: themeVars.primary }}>•</span>
-                <span>Extra reward points</span>
-              </li>
-            </ul>
-            <button
-              type="button"
-              onClick={() => {}}
-              className="text-sm font-medium transition-colors hover:opacity-80"
-              style={{ color: themeVars.accent }}
-            >
-              Membership Details
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* Rate Us on Google Section */}
-        <CollapsibleSection id="rate-us" title="Rate Us on Google" isOpen={openSections.has('rate-us')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-neutral-700">
-              Love your nails? Help us grow.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank');
-              }}
-              className="w-full rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-              style={{ backgroundColor: themeVars.primary }}
-            >
-              Rate Us on Google
-            </button>
-          </div>
-        </CollapsibleSection>
-
-        {/* Beauty Profile Section */}
-        <CollapsibleSection id="beauty-profile" title="Beauty Preferences" isOpen={openSections.has('beauty-profile')} onToggle={toggleSection}>
-          {preferencesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div
-                className="size-6 animate-spin rounded-full border-2 border-t-transparent"
-                style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
-              />
-            </div>
-          ) : (
-          <div className="space-y-2.5 pt-2">
-            {/* Card 1 - Contact & Basics */}
-            <div className="space-y-4 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <div className="space-y-2">
-                <label htmlFor="beauty-email" className="text-sm font-medium text-neutral-900">
-                  Email (Optional)
-                </label>
-                <input
-                  id="beauty-email"
-                  type="email"
-                  value={
-                    isEditingBeautyProfile
-                      ? editedBeautyProfile.email
-                      : beautyProfile.email
-                  }
-                  onChange={e =>
-                    setEditedBeautyProfile({
-                      ...editedBeautyProfile,
-                      email: e.target.value,
-                    })}
-                  disabled={!isEditingBeautyProfile}
-                  placeholder="your@email.com"
-                  className="w-full rounded-full bg-neutral-100 px-4 py-2 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 disabled:opacity-60"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Favorite Technician
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {['Daniela', 'Tiffany', 'Jenny'].map((tech) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favTech === tech
-                      : beautyProfile.favTech === tech;
-                    return (
-                      <button
-                        key={tech}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favTech: tech,
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {tech}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2 - Nail Preferences */}
-            <div className="space-y-4 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Nail Length
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {['Short', 'Medium', 'Long'].map((length) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.nailLength === length
-                      : beautyProfile.nailLength === length;
-                    return (
-                      <button
-                        key={length}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            nailLength: length,
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {length}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Nail Shape
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {['Square', 'Squoval', 'Almond', 'Coffin', 'Stiletto'].map(
-                    (shape) => {
-                      const isSelected = isEditingBeautyProfile
-                        ? editedBeautyProfile.nailShape === shape
-                        : beautyProfile.nailShape === shape;
-                      return (
-                        <button
-                          key={shape}
-                          type="button"
-                          onClick={() =>
-                            isEditingBeautyProfile
-                            && setEditedBeautyProfile({
-                              ...editedBeautyProfile,
-                              nailShape: shape,
-                            })}
-                          disabled={!isEditingBeautyProfile}
-                          className={`rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150 ${
-                            isSelected
-                              ? 'text-neutral-900 ring-2 ring-offset-1'
-                              : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                          } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                          style={isSelected ? {
-                            backgroundColor: themeVars.accentSelected,
-                            '--tw-ring-color': themeVars.accent,
-                            '--tw-ring-offset-color': themeVars.surfaceAlt,
-                            borderWidth: 0,
-                          } as React.CSSProperties : {
-                            borderWidth: '1px',
-                            borderStyle: 'solid',
-                            borderColor: themeVars.accent,
-                          }}
-                        >
-                          {shape}
-                        </button>
-                      );
-                    },
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Finish
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {['Glossy', 'Matte', 'Chrome', 'Cat-eye'].map((finish) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.finish === finish
-                      : beautyProfile.finish === finish;
-                    return (
-                      <button
-                        key={finish}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            finish,
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {finish}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Favorite Colors
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    'Nudes',
-                    'Pinks',
-                    'Neutrals',
-                    'Bright',
-                    'Dark',
-                    'French',
-                    'Glitter',
-                  ].map((color) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favColors.includes(color)
-                      : beautyProfile.favColors.includes(color);
-                    return (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favColors: toggleArrayItem(
-                              editedBeautyProfile.favColors,
-                              color,
-                            ),
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {color}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 3 - Favourite Gel Brands */}
-            <div className="space-y-3 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <span className="text-sm font-medium text-neutral-900">
-                Favorite Brands
-              </span>
-              <div className="flex flex-wrap gap-3">
-                {[
-                  'Kokoist',
-                  'OPI',
-                  'Valentino',
-                  'TGB',
-                  'Bio Sculpture',
-                  'IceGel',
-                  'Presto',
-                  'Aprés',
-                  'F Gel',
-                  'Vetro',
-                  'DND',
-                  'Beetles',
-                ].map((brand) => {
-                  const isSelected = isEditingBeautyProfile
-                    ? editedBeautyProfile.favBrands.includes(brand)
-                    : beautyProfile.favBrands.includes(brand);
-                  return (
-                    <button
-                      key={brand}
-                      type="button"
-                      onClick={() =>
-                        isEditingBeautyProfile
-                        && setEditedBeautyProfile({
-                          ...editedBeautyProfile,
-                          favBrands: toggleArrayItem(
-                            editedBeautyProfile.favBrands,
-                            brand,
-                          ),
-                        })}
-                      disabled={!isEditingBeautyProfile}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 ${
-                        isSelected
-                          ? 'text-neutral-900 ring-2 ring-offset-1'
-                          : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                      } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                      style={isSelected ? {
-                        backgroundColor: themeVars.accentSelected,
-                        '--tw-ring-color': themeVars.accent,
-                        '--tw-ring-offset-color': themeVars.surfaceAlt,
-                        borderWidth: 0,
-                      } as React.CSSProperties : {
-                        borderWidth: '1px',
-                        borderStyle: 'solid',
-                        borderColor: themeVars.accent,
-                      }}
-                    >
-                      {brand}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Card 4 - Favourite Services & Styles */}
-            <div className="space-y-4 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Favorite Service
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    'BIAB',
-                    'Gel-X',
-                    'Gel Manicure',
-                    'Classic Mani/Pedi',
-                    'Combo',
-                  ].map((service) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.favService === service
-                      : beautyProfile.favService === service;
-                    return (
-                      <button
-                        key={service}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            favService: service,
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {service}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <span className="text-sm font-medium text-neutral-900">
-                  Design Styles
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    'French',
-                    'Minimal art',
-                    'Heavy art',
-                    'Chrome/Aura',
-                    'Glitter',
-                    '3D charms',
-                    'Simple designs',
-                  ].map((design) => {
-                    const isSelected = isEditingBeautyProfile
-                      ? editedBeautyProfile.designStyles.includes(design)
-                      : beautyProfile.designStyles.includes(design);
-                    return (
-                      <button
-                        key={design}
-                        type="button"
-                        onClick={() =>
-                          isEditingBeautyProfile
-                          && setEditedBeautyProfile({
-                            ...editedBeautyProfile,
-                            designStyles: toggleArrayItem(
-                              editedBeautyProfile.designStyles,
-                              design,
-                            ),
-                          })}
-                        disabled={!isEditingBeautyProfile}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'text-neutral-900 ring-2 ring-offset-1'
-                            : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
-                        } ${!isEditingBeautyProfile ? 'cursor-default' : ''}`}
-                        style={isSelected ? {
-                          backgroundColor: themeVars.accentSelected,
-                          '--tw-ring-color': themeVars.accent,
-                          '--tw-ring-offset-color': themeVars.surfaceAlt,
-                          borderWidth: 0,
-                        } as React.CSSProperties : {
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: themeVars.accent,
-                        }}
-                      >
-                        {design}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Card 5 - Notes for Your Tech */}
-            <div className="space-y-3 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
-              <label htmlFor="tech-notes" className="text-sm font-medium text-neutral-900">
-                Notes for Your Technician
-              </label>
-              <textarea
-                id="tech-notes"
-                value={
-                  isEditingBeautyProfile
-                    ? editedBeautyProfile.notes
-                    : beautyProfile.notes
-                }
-                onChange={e =>
-                  setEditedBeautyProfile({
-                    ...editedBeautyProfile,
-                    notes: e.target.value,
-                  })}
-                disabled={!isEditingBeautyProfile}
-                placeholder="e.g., I prefer shorter cuticle work, extra gentle on my left thumb..."
-                rows={4}
-                className="w-full resize-none rounded-xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 disabled:opacity-60"
-              />
-            </div>
-
-            {/* Edit / Save / Cancel buttons */}
-            {!isEditingBeautyProfile
-              ? (
-                  <button
-                    type="button"
-                    onClick={handleEditBeautyProfile}
-                    className="px-1 text-sm font-medium transition-colors hover:opacity-80"
-                    style={{ color: themeVars.accent }}
-                  >
-                    Edit Preferences
-                  </button>
-                )
-              : (
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={handleCancelBeautyProfile}
-                      className="flex-1 rounded-full border-2 border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:bg-neutral-50 active:scale-[0.98]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveBeautyProfile}
-                      className="flex-1 rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                      style={{ backgroundColor: themeVars.primary }}
-                    >
-                      Save
-                    </button>
-                  </div>
-                )}
-          </div>
-          )}
-        </CollapsibleSection>
-
-        {/* Payment Methods Section */}
-        <CollapsibleSection id="payment" title="Payment Methods" isOpen={openSections.has('payment')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            {/* Cards List */}
-            {!showAddCard && !showManageCards && (
-              <>
-                {paymentCards.map(card => (
-                  <div
-                    key={card.id}
-                    className="flex items-center justify-between rounded-xl p-3"
-                    style={{ backgroundColor: themeVars.surfaceAlt }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-neutral-900">
-                        {card.type}
-                        {' '}
-                        ••••
-                        {card.last4}
-                      </span>
-                      {card.isDefault && (
-                        <span
-                          className="rounded-full px-2 py-0.5 text-sm font-medium text-neutral-700"
-                          style={{ backgroundColor: `color-mix(in srgb, ${themeVars.primary} 20%, transparent)` }}
-                        >
-                          Default
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAddCard}
-                    className="text-left text-sm font-medium transition-colors hover:opacity-80"
-                    style={{ color: themeVars.accent }}
-                  >
-                    Add New Card
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleManageCards}
-                    className="text-left text-sm font-medium transition-colors hover:opacity-80"
-                    style={{ color: themeVars.accent }}
-                  >
-                    Manage Payment Methods
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Add Card Form */}
-            {showAddCard && (
-              <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: themeVars.surfaceAlt }}>
-                <h3 className="text-sm font-semibold text-neutral-900">
-                  Add New Card
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label htmlFor="card-number" className="mb-1.5 block text-sm font-medium text-neutral-700">
-                      Card Number
-                    </label>
-                    <input
-                      id="card-number"
-                      type="text"
-                      value={newCard.cardNumber}
-                      onChange={e =>
-                        setNewCard({
-                          ...newCard,
-                          cardNumber: formatCardNumber(e.target.value).slice(
-                            0,
-                            19,
-                          ),
-                        })}
-                      placeholder="1234 5678 9012 3456"
-                      maxLength={19}
-                      className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="cardholder-name" className="mb-1.5 block text-sm font-medium text-neutral-700">
-                      Cardholder Name
-                    </label>
-                    <input
-                      id="cardholder-name"
-                      type="text"
-                      value={newCard.cardholderName}
-                      onChange={e =>
-                        setNewCard({
-                          ...newCard,
-                          cardholderName: e.target.value,
-                        })}
-                      placeholder="John Doe"
-                      className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <label htmlFor="expiry-month" className="mb-1.5 block text-sm font-medium text-neutral-700">
-                        Expiry Date
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          id="expiry-month"
-                          type="text"
-                          value={newCard.expiryMonth}
-                          onChange={e =>
-                            setNewCard({
-                              ...newCard,
-                              expiryMonth: e.target.value.replace(/\D/g, '').slice(0, 2),
-                            })}
-                          placeholder="MM"
-                          maxLength={2}
-                          className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                        />
-                        <input
-                          id="expiry-year"
-                          aria-label="Expiry Year"
-                          type="text"
-                          value={newCard.expiryYear}
-                          onChange={e =>
-                            setNewCard({
-                              ...newCard,
-                              expiryYear: e.target.value.replace(/\D/g, '').slice(0, 4),
-                            })}
-                          placeholder="YYYY"
-                          maxLength={4}
-                          className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor="card-cvv" className="mb-1.5 block text-sm font-medium text-neutral-700">
-                        CVV
-                      </label>
-                      <input
-                        id="card-cvv"
-                        type="text"
-                        value={newCard.cvv}
-                        onChange={e =>
-                          setNewCard({
-                            ...newCard,
-                            cvv: e.target.value.replace(/\D/g, '').slice(0, 4),
-                          })}
-                        placeholder="123"
-                        maxLength={4}
-                        className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleCancelAddCard}
-                    className="flex-1 rounded-full border-2 border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:bg-neutral-50 active:scale-[0.98]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveCard}
-                    className="flex-1 rounded-full py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                    style={{ backgroundColor: themeVars.primary }}
-                  >
-                    Save Card
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Manage Cards */}
-            {showManageCards && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-neutral-900">
-                  Manage Payment Methods
-                </h3>
-                {paymentCards.map(card => (
-                  <div
-                    key={card.id}
-                    className="space-y-3 rounded-xl p-4"
-                    style={{ backgroundColor: themeVars.surfaceAlt }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-neutral-900">
-                          {card.type}
-                          {' '}
-                          ••••
-                          {card.last4}
-                        </span>
-                        {card.isDefault && (
-                          <span
-                            className="rounded-full px-2 py-0.5 text-sm font-medium text-neutral-700"
-                            style={{ backgroundColor: `color-mix(in srgb, ${themeVars.primary} 20%, transparent)` }}
+                        {isActive && (
+                          <button
+                            type="button"
+                            onClick={() => router.push('/book/service')}
+                            className="mt-3 w-full rounded-full py-2 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                            style={{ backgroundColor: themeVars.primary }}
                           >
-                            Default
-                          </span>
+                            Book Now to Redeem
+                          </button>
                         )}
                       </div>
-                    </div>
-                    <div className="text-sm text-neutral-600">
-                      Expires
-                      {' '}
-                      {card.expiryMonth}
-                      /
-                      {card.expiryYear}
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                      {!card.isDefault && (
-                        <button
-                          type="button"
-                          onClick={() => handleSetDefault(card.id)}
-                          className="flex-1 rounded-full border-2 border-neutral-200 bg-white py-2 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:bg-neutral-50 active:scale-[0.98]"
-                        >
-                          Set as Default
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCard(card.id)}
-                        className="flex-1 rounded-full border-2 border-red-200 bg-red-50 py-2 text-sm font-semibold text-red-600 transition-all duration-150 hover:bg-red-100 active:scale-[0.98]"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setShowManageCards(false)}
-                  className="w-full rounded-full border-2 border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:bg-neutral-50 active:scale-[0.98]"
-                >
-                  Close
-                </button>
-              </div>
-            )}
-          </div>
-        </CollapsibleSection>
-
-        {/* Settings Section */}
-        <CollapsibleSection id="settings" title="Settings" isOpen={openSections.has('settings')} onToggle={toggleSection}>
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-neutral-900">
-                Appointment Reminders
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setAppointmentReminders(!appointmentReminders)}
-                className="relative h-6 w-11 rounded-full transition-colors duration-150"
-                style={{ backgroundColor: appointmentReminders ? themeVars.primary : '#d4d4d4' }}
-              >
-                <div
-                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
-                    appointmentReminders ? 'translate-x-5' : ''
-                  }`}
-                />
-              </button>
-            </div>
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setShowLanguageSelector(!showLanguageSelector)}
-                className="flex w-full items-center justify-between text-sm text-neutral-900"
-              >
-                <span>
-                  Language:
-                  {currentLanguage.name}
-                </span>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className={`transition-transform duration-150 ${
-                    showLanguageSelector ? 'rotate-90' : ''
-                  }`}
-                >
-                  <path
-                    d="M6 4L10 8L6 12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-
-              {/* Language Selector */}
-              {showLanguageSelector && (
-                <div className="space-y-1 rounded-xl p-2" style={{ backgroundColor: themeVars.surfaceAlt }}>
-                  {languages.map(lang => (
-                    <button
-                      key={lang.code}
-                      type="button"
-                      onClick={() => handleLanguageChange(lang.code)}
-                      className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
-                        locale === lang.code
-                          ? 'text-neutral-900'
-                          : 'text-neutral-700 hover:bg-white'
-                      }`}
-                      style={locale === lang.code ? { backgroundColor: themeVars.primary } : undefined}
-                    >
-                      {lang.name}
-                      {locale === lang.code && (
-                        <span className="ml-2 text-sm">✓</span>
-                      )}
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
-            </div>
-          </div>
-        </CollapsibleSection>
 
-        {/* Sign Out Button */}
-        <button
-          type="button"
-          onClick={async () => {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            router.push('/book/service');
+              {/* Points section */}
+              <div className="border-t border-neutral-100 pt-4">
+                <div className="text-sm text-neutral-900">
+                  You have
+                  {' '}
+                  <span className="font-semibold">
+                    {activePoints.toLocaleString()}
+                    {' '}
+                    points
+                  </span>
+                </div>
+                <div className="mt-2 space-y-2">
+                  <div className="flex justify-between text-sm text-neutral-600">
+                    {activePoints >= 2500
+                      ? (
+                          <span>You have enough points for a FREE Manicure!</span>
+                        )
+                      : (
+                          <span>
+                            {(2500 - activePoints).toLocaleString()}
+                            {' '}
+                            points until FREE Manicure
+                          </span>
+                        )}
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(100, (activePoints / 2500) * 100)}%`,
+                        background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-xs text-neutral-500">
+                    2,500 pts = Free Gel Manicure
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          {/* Membership */}
+          <CollapsibleSection
+            id="membership"
+            title="Gold Membership"
+            icon="👑"
+            isOpen={openSections.has('membership')}
+            onToggle={handleToggleSection}
+            badge="Active"
+          >
+            <div className="space-y-4">
+              <div
+                className="rounded-xl p-4"
+                style={{
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: `color-mix(in srgb, ${themeVars.primary} 30%, transparent)`,
+                  background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 20%, transparent))`,
+                }}
+              >
+                <div className="mb-3 text-lg font-bold text-neutral-900">
+                  Your Gold Benefits
+                </div>
+                <ul className="space-y-2.5">
+                  {[
+                    { icon: '⚡', text: 'Priority booking - skip the wait' },
+                    { icon: '🎂', text: 'Birthday surprise gift' },
+                    { icon: '✨', text: '2x points on all services' },
+                    { icon: '💎', text: 'Exclusive member-only offers' },
+                  ].map(benefit => (
+                    <li key={benefit.text} className="flex items-center gap-3 text-sm text-neutral-700">
+                      <span className="text-lg">{benefit.icon}</span>
+                      <span>{benefit.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <p className="text-center text-sm text-neutral-500">
+                Thank you for being a valued member! 💜
+              </p>
+            </div>
+          </CollapsibleSection>
+
+          {/* Rate Us */}
+          <CollapsibleSection
+            id="rate-us"
+            title="Love Your Nails?"
+            icon="⭐"
+            isOpen={openSections.has('rate-us')}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4 text-center">
+              <div className="text-4xl">⭐⭐⭐⭐⭐</div>
+              <p className="text-base text-neutral-600">
+                Your reviews help us grow and serve you better!
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank');
+                }}
+                className="w-full rounded-full border-2 bg-white px-6 py-3.5 text-base font-bold shadow-sm transition-all duration-200 active:scale-[0.98]"
+                style={{
+                  borderColor: themeVars.accent,
+                  color: themeVars.accent,
+                }}
+              >
+                Leave a Google Review
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Beauty Preferences */}
+          <CollapsibleSection
+            id="beauty-profile"
+            title="Your Style Profile"
+            icon="💅"
+            isOpen={openSections.has('beauty-profile')}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-neutral-600">
+                We remember your preferences so every visit feels personalized
+              </p>
+
+              {preferencesLoading
+                ? (
+                    <div className="flex items-center justify-center py-4">
+                      <div
+                        className="size-6 animate-spin rounded-full border-2 border-t-transparent"
+                        style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                      />
+                    </div>
+                  )
+                : preferences
+                  ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            {
+                              label: 'Favorite Tech',
+                              value: preferences.favoriteTechId
+                                ? preferences.favoriteTechId.charAt(0).toUpperCase() + preferences.favoriteTechId.slice(1)
+                                : 'Not set',
+                              icon: '👩‍🎨',
+                            },
+                            {
+                              label: 'Go-To Service',
+                              value: preferences.favoriteServices && preferences.favoriteServices.length > 0
+                                ? preferences.favoriteServices[0]!.toUpperCase()
+                                : 'Not set',
+                              icon: '💅',
+                            },
+                            {
+                              label: 'Nail Shape',
+                              value: preferences.nailShape
+                                ? preferences.nailShape.charAt(0).toUpperCase() + preferences.nailShape.slice(1)
+                                : 'Not set',
+                              icon: '✨',
+                            },
+                            {
+                              label: 'Favorite Finish',
+                              value: preferences.finishes && preferences.finishes.length > 0
+                                ? preferences.finishes[0]!.charAt(0).toUpperCase() + preferences.finishes[0]!.slice(1)
+                                : 'Not set',
+                              icon: '✦',
+                            },
+                          ].map(pref => (
+                            <div key={pref.label} className="rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                              <div className="mb-1 text-lg">{pref.icon}</div>
+                              <div className="text-xs text-neutral-500">{pref.label}</div>
+                              <div className="text-sm font-bold text-neutral-900">{pref.value}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {preferences.colorFamilies && preferences.colorFamilies.length > 0 && (
+                          <div className="rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                            <div className="mb-1 text-xs text-neutral-500">Favorite Colors</div>
+                            <div className="flex flex-wrap gap-2">
+                              {preferences.colorFamilies.map(color => (
+                                <span
+                                  key={color}
+                                  className="rounded-full px-3 py-1 text-xs font-medium"
+                                  style={{ backgroundColor: themeVars.accentSelected, color: themeVars.accent }}
+                                >
+                                  {color.charAt(0).toUpperCase() + color.slice(1)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  : (
+                      <div className="py-4 text-center">
+                        <div className="mb-2 text-3xl">✨</div>
+                        <p className="text-sm text-neutral-600">No preferences saved yet</p>
+                        <p className="mt-1 text-xs text-neutral-500">Set your style profile for a personalized experience</p>
+                      </div>
+                    )}
+
+              <button
+                type="button"
+                onClick={() => router.push('/preferences')}
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                {preferences
+                  ? 'Edit Preferences →'
+                  : 'Set Up My Style Profile →'}
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Payment Methods */}
+          <CollapsibleSection
+            id="payment"
+            title="Payment"
+            icon="💳"
+            isOpen={openSections.has('payment')}
+            onToggle={handleToggleSection}
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-xl p-4" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-[#1a1f71] to-[#2d3494] text-xs font-bold text-white">
+                    VISA
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-neutral-900">•••• 4242</div>
+                    <div className="text-xs text-neutral-500">Expires 12/25</div>
+                  </div>
+                </div>
+                <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">
+                  Default
+                </span>
+              </div>
+              <button
+                type="button"
+                className="w-full text-base font-medium transition-colors hover:opacity-80"
+                style={{ color: themeVars.accent }}
+              >
+                Manage Payment Methods →
+              </button>
+            </div>
+          </CollapsibleSection>
+
+          {/* Sign Out Button */}
+          <button
+            type="button"
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' });
+              router.push('/book/service');
+            }}
+            className="w-full rounded-xl border-2 border-red-200 bg-red-50 py-3 text-base font-semibold text-red-600 transition-all duration-150 hover:bg-red-100 active:scale-[0.98]"
+          >
+            Sign Out
+          </button>
+        </div>
+
+        {/* Footer Message */}
+        <div
+          className="mt-8 text-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 300ms ease-out 500ms',
           }}
-          className="w-full rounded-xl border-2 border-red-200 bg-red-50 py-3 text-sm font-semibold text-red-600 transition-all duration-150 hover:bg-red-100 active:scale-[0.98]"
         >
-          Sign Out
-        </button>
+          <p className="text-sm text-neutral-400">
+            Thank you for choosing
+            {' '}
+            {salonName}
+            {' '}
+            💜
+          </p>
+          <p className="mt-1 text-xs text-neutral-400">
+            We appreciate you being part of our family
+          </p>
+        </div>
+
+        {/* Bottom spacing */}
+        <div className="h-6" />
       </div>
 
       {/* Confetti Popup */}
