@@ -3,7 +3,7 @@
 import { useUser } from '@clerk/nextjs';
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { themeVars } from '@/theme';
 
@@ -123,7 +123,7 @@ function CancelReasonSelector({
 // Staff Appointments Page - Enhanced with Full Workflow
 // =============================================================================
 
-export default function StaffAppointmentsPage() {
+function StaffAppointmentsContent() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
   const params = useParams();
@@ -794,5 +794,21 @@ export default function StaffAppointmentsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Wrap in Suspense for useSearchParams
+export default function StaffAppointmentsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full animate-spin mx-auto mb-2" />
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    }>
+      <StaffAppointmentsContent />
+    </Suspense>
   );
 }

@@ -2,6 +2,9 @@ import { and, eq, gte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/models/Schema';

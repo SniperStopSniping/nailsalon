@@ -1,6 +1,9 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import { referralSchema, rewardSchema, type Referral, type ReferralStatus } from '@/models/Schema';

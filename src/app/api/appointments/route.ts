@@ -1,6 +1,9 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/libs/DB';
 import {
   getActiveAppointmentsForClient,

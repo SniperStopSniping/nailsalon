@@ -1,6 +1,9 @@
 import { and, eq, gte, inArray, lt } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
 import { appointmentSchema, technicianSchema, type WeeklySchedule } from '@/models/Schema';
 

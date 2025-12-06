@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
 
 import { BookConfirmClient } from './BookConfirmClient';
@@ -29,13 +31,15 @@ export default async function BookConfirmPage({
 
   if (!salon) {
     return (
-      <BookConfirmClient
-        services={[]}
-        technician={null}
-        salonSlug={DEFAULT_SALON_SLUG}
-        dateStr={dateStr}
-        timeStr={timeStr}
-      />
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full" /></div>}>
+        <BookConfirmClient
+          services={[]}
+          technician={null}
+          salonSlug={DEFAULT_SALON_SLUG}
+          dateStr={dateStr}
+          timeStr={timeStr}
+        />
+      </Suspense>
     );
   }
 
@@ -65,12 +69,14 @@ export default async function BookConfirmPage({
   }));
 
   return (
-    <BookConfirmClient
-      services={services}
-      technician={technician}
-      salonSlug={salon.slug}
-      dateStr={dateStr}
-      timeStr={timeStr}
-    />
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full" /></div>}>
+      <BookConfirmClient
+        services={services}
+        technician={technician}
+        salonSlug={salon.slug}
+        dateStr={dateStr}
+        timeStr={timeStr}
+      />
+    </Suspense>
   );
 }

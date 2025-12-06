@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { getSalonBySlug, getServicesByIds, getTechniciansBySalonId } from '@/libs/queries';
 
 import { BookTechClient } from './BookTechClient';
@@ -23,7 +25,11 @@ export default async function BookTechPage({
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
   if (!salon) {
-    return <BookTechClient technicians={[]} services={[]} />;
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full" /></div>}>
+        <BookTechClient technicians={[]} services={[]} />
+      </Suspense>
+    );
   }
 
   // Fetch technicians for this salon
@@ -51,5 +57,9 @@ export default async function BookTechPage({
     duration: service.durationMinutes,
   }));
 
-  return <BookTechClient technicians={technicians} services={services} />;
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full" /></div>}>
+      <BookTechClient technicians={technicians} services={services} />
+    </Suspense>
+  );
 }

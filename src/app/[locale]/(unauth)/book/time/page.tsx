@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
 
 import { BookTimeClient } from './BookTimeClient';
@@ -52,5 +54,9 @@ export default async function BookTimePage({
     duration: service.durationMinutes,
   }));
 
-  return <BookTimeClient services={services} technician={technician} />;
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full" /></div>}>
+      <BookTimeClient services={services} technician={technician} />
+    </Suspense>
+  );
 }
