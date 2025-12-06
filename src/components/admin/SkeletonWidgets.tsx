@@ -10,17 +10,19 @@
  * - Smooth fade-in transition
  */
 
+import type { Transition } from 'framer-motion';
 import { motion } from 'framer-motion';
 
 // Shimmer animation keyframes
+const shimmerTransition: Transition = {
+  repeat: Infinity,
+  duration: 1.5,
+  ease: 'linear',
+};
+
 const shimmerAnimation = {
   initial: { x: '-100%' },
   animate: { x: '100%' },
-  transition: {
-    repeat: Infinity,
-    duration: 1.5,
-    ease: 'linear' as const,
-  },
 };
 
 /**
@@ -42,7 +44,7 @@ function SkeletonBox({
         className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
         initial={shimmerAnimation.initial}
         animate={shimmerAnimation.animate}
-        transition={shimmerAnimation.transition}
+        transition={shimmerTransition}
       />
     </div>
   );
