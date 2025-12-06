@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -95,6 +96,7 @@ export default function StaffClientProfilePage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
   const params = useParams();
+  const { salonSlug } = useSalon();
   const phone = params?.phone as string;
 
   const [mounted, setMounted] = useState(false);
