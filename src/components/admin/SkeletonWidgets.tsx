@@ -19,7 +19,7 @@ const shimmerAnimation = {
   transition: {
     repeat: Infinity,
     duration: 1.5,
-    ease: 'linear',
+    ease: 'linear' as const,
   },
 };
 
