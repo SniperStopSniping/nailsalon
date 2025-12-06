@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.0...v1.1.1) (2025-12-06)
+
+
+### Bug Fixes
+
+* resolve TypeScript type error in DB.ts for migratePg call ([0fcaf10](https://github.com/SniperStopSniping/nailsalon/commit/0fcaf1028aa61fe0f59908bbf6158b3581aa7e7b))
+
 # [1.1.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.0.7...v1.1.0) (2025-12-06)
 
 
