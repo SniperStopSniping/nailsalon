@@ -2,10 +2,30 @@
 
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
+
+// Type for preferences data from API
+type PreferencesData = {
+  id: string;
+  salonId: string;
+  normalizedClientPhone: string;
+  favoriteTechId: string | null;
+  favoriteServices: string[] | null;
+  nailShape: string | null;
+  nailLength: string | null;
+  finishes: string[] | null;
+  colorFamilies: string[] | null;
+  preferredBrands: string[] | null;
+  sensitivities: string[] | null;
+  musicPreference: string | null;
+  conversationLevel: string | null;
+  beveragePreference: string[] | null;
+  techNotes: string | null;
+  appointmentNotes: string | null;
+};
 
 const TECHNICIANS = [
   { id: 'daniela', name: 'Daniela', image: '/assets/images/tech-daniela.jpeg' },
@@ -112,29 +132,105 @@ function Section({
 export default function PreferencesPage() {
   const router = useRouter();
   const params = useParams();
-  const { salonName } = useSalon();
+  const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
   const [mounted, setMounted] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [favoriteTech, setFavoriteTech] = useState('daniela');
-  const [favoriteServices, setFavoriteServices] = useState<string[]>(['biab']);
-  const [nailShape, setNailShape] = useState('almond');
-  const [nailLength, setNailLength] = useState('medium');
-  const [finishes, setFinishes] = useState<string[]>(['glossy']);
-  const [colorFamilies, setColorFamilies] = useState<string[]>(['nudes', 'pinks', 'french']);
-  const [preferredBrands, setPreferredBrands] = useState<string[]>(['opi']);
-  const [sensitivities, setSensitivities] = useState<string[]>(['none']);
+  // Client phone from cookie
+  const [clientPhone, setClientPhone] = useState('');
+
+  // Form state - start with empty/default values
+  const [favoriteTech, setFavoriteTech] = useState<string | null>(null);
+  const [favoriteServices, setFavoriteServices] = useState<string[]>([]);
+  const [nailShape, setNailShape] = useState<string | null>(null);
+  const [nailLength, setNailLength] = useState<string | null>(null);
+  const [finishes, setFinishes] = useState<string[]>([]);
+  const [colorFamilies, setColorFamilies] = useState<string[]>([]);
+  const [preferredBrands, setPreferredBrands] = useState<string[]>([]);
+  const [sensitivities, setSensitivities] = useState<string[]>([]);
   const [techNotes, setTechNotes] = useState('');
   const [appointmentNotes, setAppointmentNotes] = useState('');
-  const [musicPreference, setMusicPreference] = useState('soft');
-  const [conversationLevel, setConversationLevel] = useState('friendly');
+  const [musicPreference, setMusicPreference] = useState<string | null>(null);
+  const [conversationLevel, setConversationLevel] = useState<string | null>(null);
   const [beveragePreference, setBeveragePreference] = useState<string[]>([]);
 
+  // Normalize phone number to 10 digits
+  const normalizePhone = useCallback((phone: string): string => {
+    return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+  }, []);
+
+  // Load client phone from cookie
   useEffect(() => {
     setMounted(true);
+
+    const clientPhoneCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_phone='));
+    if (clientPhoneCookie) {
+      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
+      if (phone) setClientPhone(phone);
+    }
   }, []);
+
+  // Fetch existing preferences from API
+  useEffect(() => {
+    async function fetchPreferences() {
+      if (!clientPhone || !salonSlug) {
+        setLoading(false);
+        return;
+      }
+
+      const normalizedPhone = normalizePhone(clientPhone);
+      if (normalizedPhone.length !== 10) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/client/preferences?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const prefs: PreferencesData | null = data.data?.preferences;
+
+          if (prefs) {
+            // Populate form with existing preferences
+            setFavoriteTech(prefs.favoriteTechId);
+            setFavoriteServices(prefs.favoriteServices || []);
+            setNailShape(prefs.nailShape);
+            setNailLength(prefs.nailLength);
+            setFinishes(prefs.finishes || []);
+            setColorFamilies(prefs.colorFamilies || []);
+            setPreferredBrands(prefs.preferredBrands || []);
+            setSensitivities(prefs.sensitivities || []);
+            setTechNotes(prefs.techNotes || '');
+            setAppointmentNotes(prefs.appointmentNotes || '');
+            setMusicPreference(prefs.musicPreference);
+            setConversationLevel(prefs.conversationLevel);
+            setBeveragePreference(prefs.beveragePreference || []);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch preferences:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (clientPhone && salonSlug) {
+      fetchPreferences();
+    } else if (mounted) {
+      // No phone, stop loading
+      setLoading(false);
+    }
+  }, [clientPhone, salonSlug, normalizePhone, mounted]);
 
   const handleBack = () => {
     router.back();
@@ -152,11 +248,59 @@ export default function PreferencesPage() {
     }
   };
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => {
-      router.push(`/${locale}/profile`);
-    }, 1500);
+  const handleSave = async () => {
+    if (!clientPhone || !salonSlug) {
+      setError('Unable to save preferences. Please log in again.');
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(clientPhone);
+    if (normalizedPhone.length !== 10) {
+      setError('Invalid phone number format.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/client/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          salonSlug,
+          favoriteTechId: favoriteTech,
+          favoriteServices: favoriteServices.length > 0 ? favoriteServices : null,
+          nailShape,
+          nailLength,
+          finishes: finishes.length > 0 ? finishes : null,
+          colorFamilies: colorFamilies.length > 0 ? colorFamilies : null,
+          preferredBrands: preferredBrands.length > 0 ? preferredBrands : null,
+          sensitivities: sensitivities.length > 0 ? sensitivities : null,
+          musicPreference,
+          conversationLevel,
+          beveragePreference: beveragePreference.length > 0 ? beveragePreference : null,
+          techNotes: techNotes || null,
+          appointmentNotes: appointmentNotes || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error?.message || 'Failed to save preferences');
+      }
+
+      setSaved(true);
+      setTimeout(() => {
+        router.push(`/${locale}/profile`);
+      }, 1500);
+    } catch (err) {
+      console.error('Error saving preferences:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save preferences');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -178,6 +322,7 @@ export default function PreferencesPage() {
           <button
             type="button"
             onClick={handleBack}
+            aria-label="Go back"
             className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
@@ -204,7 +349,17 @@ export default function PreferencesPage() {
           <p className="text-sm text-neutral-500">Help us personalize every visit just for you</p>
         </div>
 
-        <div className="space-y-5">
+        {/* Loading state */}
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div
+              className="size-8 animate-spin rounded-full border-2 border-t-transparent"
+              style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+            />
+          </div>
+        )}
+
+        <div className="space-y-5" style={{ display: loading ? 'none' : 'block' }}>
           <Section title="Your Favorite Artist" icon="👩‍🎨" delay={100} mounted={mounted}>
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
               {TECHNICIANS.map(tech => (
@@ -723,11 +878,14 @@ export default function PreferencesPage() {
         </div>
 
         <div className="mt-8 space-y-3" style={{ opacity: mounted ? 1 : 0, transition: 'opacity 300ms ease-out 650ms' }}>
+          {error && (
+            <p className="text-center text-sm text-red-600">{error}</p>
+          )}
           <button
             type="button"
             onClick={handleSave}
-            disabled={saved}
-            className="w-full rounded-xl py-4 text-base font-bold transition-all duration-200"
+            disabled={saved || saving || loading}
+            className="w-full rounded-xl py-4 text-base font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
             style={{
               background: saved
                 ? 'rgb(34 197 94)'
@@ -736,7 +894,7 @@ export default function PreferencesPage() {
               boxShadow: saved ? undefined : '0 10px 15px -3px rgb(0 0 0 / 0.1)',
             }}
           >
-            {saved ? '✓ Saved! Taking you back...' : 'Save My Preferences'}
+            {saved ? '✓ Saved! Taking you back...' : saving ? 'Saving...' : 'Save My Preferences'}
           </button>
         </div>
 

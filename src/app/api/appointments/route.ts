@@ -15,9 +15,12 @@ import { sendBookingConfirmationToClient, sendBookingNotificationToTech } from '
 import {
   appointmentSchema,
   appointmentServicesSchema,
+  referralSchema,
+  rewardSchema,
   technicianSchema,
   type Appointment,
   type AppointmentService,
+  type Reward,
   type Service,
   type WeeklySchedule,
 } from '@/models/Schema';
@@ -298,8 +301,55 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 5. Calculate total price and duration
-    const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
+    // 4e. Check for active rewards that can be applied
+    let appliedReward: Reward | null = null;
+    let discountedServiceId: string | null = null;
+    let discountAmount = 0;
+
+    // Look for active rewards for this client that aren't expired
+    const activeRewards = await db
+      .select()
+      .from(rewardSchema)
+      .where(
+        and(
+          eq(rewardSchema.salonId, salon.id),
+          eq(rewardSchema.clientPhone, data.clientPhone),
+          eq(rewardSchema.status, 'active'),
+        ),
+      );
+
+    // Find a reward that matches one of the booked services
+    for (const reward of activeRewards) {
+      // Check if reward is expired
+      if (reward.expiresAt && new Date(reward.expiresAt) < new Date()) {
+        // Mark as expired in background
+        db.update(rewardSchema)
+          .set({ status: 'expired' })
+          .where(eq(rewardSchema.id, reward.id))
+          .catch(err => console.error('Error expiring reward:', err));
+        continue;
+      }
+
+      // Check if any booked service matches the eligible service
+      const eligibleServiceName = reward.eligibleServiceName?.toLowerCase() || 'gel manicure';
+      const matchingService = services.find(
+        s => s.name.toLowerCase().includes(eligibleServiceName) ||
+             eligibleServiceName.includes(s.name.toLowerCase()),
+      );
+
+      if (matchingService) {
+        appliedReward = reward;
+        discountedServiceId = matchingService.id;
+        discountAmount = matchingService.price;
+        break;
+      }
+    }
+
+    // 5. Calculate total price and duration (apply discount if reward found)
+    let totalPrice = services.reduce((sum, s) => sum + s.price, 0);
+    if (appliedReward && discountAmount > 0) {
+      totalPrice = Math.max(0, totalPrice - discountAmount);
+    }
     const totalDurationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
 
     // 6. Compute endTime from startTime + total duration
@@ -495,15 +545,21 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 9. Insert appointment services (with price/duration snapshot)
+    // Apply reward discount to the matching service if applicable
     const appointmentServices: AppointmentService[] = [];
     for (const service of services) {
+      // If this service is discounted by a reward, set price to 0
+      const priceAtBooking = (appliedReward && service.id === discountedServiceId)
+        ? 0
+        : service.price;
+
       const [apptService] = await db
         .insert(appointmentServicesSchema)
         .values({
           id: `apptSvc_${crypto.randomUUID()}`,
           appointmentId: appointment.id,
           serviceId: service.id,
-          priceAtBooking: service.price,
+          priceAtBooking,
           durationAtBooking: service.durationMinutes,
         })
         .returning();
@@ -520,6 +576,52 @@ export async function POST(request: Request): Promise<Response> {
         'cancelled',
         'rescheduled',
       );
+    }
+
+    // 9c. Link the applied reward to this appointment (mark as pending redemption)
+    if (appliedReward) {
+      await db
+        .update(rewardSchema)
+        .set({
+          usedInAppointmentId: appointment.id,
+        })
+        .where(eq(rewardSchema.id, appliedReward.id));
+    }
+
+    // 9d. Check for claimed referrals for this client and update status to 'booked'
+    // This handles the case where a referee (person who claimed a referral) books their first appointment
+    const phoneVariants = [
+      data.clientPhone,
+      `+1${data.clientPhone}`,
+      `+${data.clientPhone}`,
+    ];
+
+    const claimedReferrals = await db
+      .select()
+      .from(referralSchema)
+      .where(
+        and(
+          eq(referralSchema.salonId, salon.id),
+          inArray(referralSchema.refereePhone, phoneVariants),
+          eq(referralSchema.status, 'claimed'),
+        ),
+      );
+
+    // Update claimed referrals based on expiry status
+    for (const referral of claimedReferrals) {
+      if (referral.expiresAt && new Date(referral.expiresAt) < new Date()) {
+        // Referral has expired - mark as expired
+        await db
+          .update(referralSchema)
+          .set({ status: 'expired' })
+          .where(eq(referralSchema.id, referral.id));
+      } else {
+        // Within expiry window - update to 'booked'
+        await db
+          .update(referralSchema)
+          .set({ status: 'booked' })
+          .where(eq(referralSchema.id, referral.id));
+      }
     }
 
     // 10. Send SMS notifications (stub functions)
@@ -588,6 +690,117 @@ export async function POST(request: Request): Promise<Response> {
           message: 'An unexpected error occurred while creating the appointment',
         },
       } satisfies ErrorResponse,
+      { status: 500 },
+    );
+  }
+}
+
+// =============================================================================
+// GET /api/appointments - Fetch appointments (for staff dashboard)
+// =============================================================================
+// Query params:
+//   - date: 'today' or YYYY-MM-DD
+//   - status: comma-separated list of statuses to filter by
+//   - salonSlug: optional salon filter
+// =============================================================================
+
+export async function GET(request: Request): Promise<Response> {
+  try {
+    const { searchParams } = new URL(request.url);
+    const dateParam = searchParams.get('date');
+    const statusParam = searchParams.get('status');
+    // Note: salonSlug filter can be added here for multi-salon support
+    // const salonSlug = searchParams.get('salonSlug');
+
+    // Build date range for query
+    let startOfDay: Date;
+    let endOfDay: Date;
+
+    if (dateParam === 'today') {
+      startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+    } else if (dateParam) {
+      startOfDay = new Date(dateParam);
+      startOfDay.setHours(0, 0, 0, 0);
+      endOfDay = new Date(dateParam);
+      endOfDay.setHours(23, 59, 59, 999);
+    } else {
+      // Default to today
+      startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+    }
+
+    // Parse status filter
+    const statuses = statusParam ? statusParam.split(',').map(s => s.trim()) : ['confirmed', 'in_progress'];
+
+    // Build query
+    const appointments = await db
+      .select()
+      .from(appointmentSchema)
+      .where(
+        and(
+          sql`${appointmentSchema.startTime} >= ${startOfDay}`,
+          sql`${appointmentSchema.startTime} <= ${endOfDay}`,
+          inArray(appointmentSchema.status, statuses),
+        ),
+      )
+      .orderBy(appointmentSchema.startTime);
+
+    // Fetch services and photos for each appointment
+    const appointmentsWithDetails = await Promise.all(
+      appointments.map(async (appt) => {
+        // Get services
+        const services = await db
+          .select({
+            name: sql<string>`(SELECT name FROM service WHERE id = ${appointmentServicesSchema.serviceId})`,
+          })
+          .from(appointmentServicesSchema)
+          .where(eq(appointmentServicesSchema.appointmentId, appt.id));
+
+        // Get photos
+        const photos = await db.query.appointmentPhotoSchema?.findMany({
+          where: (photo, { eq: photoEq }) => photoEq(photo.appointmentId, appt.id),
+          orderBy: (photo, { desc }) => [desc(photo.createdAt)],
+        }) || [];
+
+        return {
+          id: appt.id,
+          clientName: appt.clientName,
+          clientPhone: appt.clientPhone,
+          startTime: appt.startTime.toISOString(),
+          endTime: appt.endTime.toISOString(),
+          status: appt.status,
+          technicianId: appt.technicianId,
+          totalPrice: appt.totalPrice,
+          services: services.map(s => ({ name: s.name })),
+          photos: photos.map(p => ({
+            id: p.id,
+            imageUrl: p.imageUrl,
+            thumbnailUrl: p.thumbnailUrl,
+            photoType: p.photoType,
+          })),
+        };
+      }),
+    );
+
+    return Response.json({
+      data: {
+        appointments: appointmentsWithDetails,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching appointments:', error);
+    return Response.json(
+      {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to fetch appointments',
+        },
+      },
       { status: 500 },
     );
   }

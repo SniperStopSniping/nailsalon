@@ -285,6 +285,13 @@ export const appointmentSchema = pgTable(
     // Additional
     notes: text('notes'),
 
+    // Lifecycle timestamps (for staff workflow)
+    startedAt: timestamp('started_at', { mode: 'date' }), // When tech starts the appointment
+    completedAt: timestamp('completed_at', { mode: 'date' }), // When appointment is finished
+
+    // Payment
+    paymentStatus: text('payment_status').default('pending'), // 'pending' | 'paid'
+
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -332,6 +339,51 @@ export const appointmentServicesSchema = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// AppointmentPhoto - Photos uploaded by technicians for completed appointments
+// -----------------------------------------------------------------------------
+export const appointmentPhotoSchema = pgTable(
+  'appointment_photo',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Use normalized 10-digit phone (matches phone-handling.mdc rule)
+    normalizedClientPhone: text('normalized_client_phone').notNull(),
+
+    // Photo type: before/after the service
+    photoType: text('photo_type').notNull().default('after'), // 'before' | 'after'
+
+    // Cloud storage (Cloudinary)
+    cloudinaryPublicId: text('cloudinary_public_id').notNull(),
+    imageUrl: text('image_url').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+
+    // Optional metadata
+    caption: text('caption'), // e.g. "BIAB + chrome, almond"
+    isPublic: boolean('is_public').default(false), // for salon marketing gallery later
+
+    // Who uploaded
+    uploadedByTechId: text('uploaded_by_tech_id').references(
+      () => technicianSchema.id,
+    ),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    appointmentIdx: index('photo_appointment_idx').on(table.appointmentId),
+    clientIdx: index('photo_client_phone_idx').on(table.normalizedClientPhone),
+    salonIdx: index('photo_salon_idx').on(table.salonId),
+    typeIdx: index('photo_type_idx').on(table.appointmentId, table.photoType),
+  }),
+);
+
+// -----------------------------------------------------------------------------
 // Client - Customer profiles keyed by phone number
 // -----------------------------------------------------------------------------
 export const clientSchema = pgTable(
@@ -348,6 +400,156 @@ export const clientSchema = pgTable(
   },
   (table) => ({
     phoneIdx: uniqueIndex('client_phone_idx').on(table.phone),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// Referral - Track referrals sent by clients (link-based flow)
+// -----------------------------------------------------------------------------
+export const referralSchema = pgTable(
+  'referral',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Who sent the referral
+    referrerPhone: text('referrer_phone').notNull(),
+    referrerName: text('referrer_name'),
+
+    // Who was referred (filled when they claim the referral)
+    refereePhone: text('referee_phone'), // Nullable - filled on claim
+    refereeName: text('referee_name'), // Filled on claim
+
+    // Status tracking
+    // 'sent' = Link generated, waiting for claim
+    // 'claimed' = Friend verified, waiting for booking
+    // 'booked' = Friend created booking within 14 days
+    // 'reward_earned' = First booking completed, referrer credited
+    // 'expired' = 14 days passed without booking
+    status: text('status').notNull().default('sent'),
+
+    // Claim tracking (14-day expiration rule)
+    claimedAt: timestamp('claimed_at', { mode: 'date' }), // When friend verified
+    expiresAt: timestamp('expires_at', { mode: 'date' }), // claimedAt + 14 days
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    salonIdx: index('referral_salon_idx').on(table.salonId),
+    referrerIdx: index('referral_referrer_idx').on(table.salonId, table.referrerPhone),
+    refereeIdx: index('referral_referee_idx').on(table.refereePhone),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// Reward - Track rewards earned from referrals
+// -----------------------------------------------------------------------------
+export const rewardSchema = pgTable(
+  'reward',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Who owns this reward
+    clientPhone: text('client_phone').notNull(),
+    clientName: text('client_name'),
+
+    // Link to referral that created this reward
+    referralId: text('referral_id').references(() => referralSchema.id),
+
+    // Type: 'referral_referee' (friend who was referred)
+    //       'referral_referrer' (person who sent referral)
+    type: text('type').notNull(),
+
+    // Points value (2500 points = 1 free manicure)
+    points: integer('points').notNull().default(0),
+
+    // Eligible service - for now just "Gel Manicure"
+    eligibleServiceName: text('eligible_service_name').default('Gel Manicure'),
+
+    // Status: 'active' | 'used' | 'expired'
+    status: text('status').notNull().default('active'),
+
+    // Expiration and usage tracking
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
+    usedAt: timestamp('used_at', { mode: 'date' }),
+    usedInAppointmentId: text('used_in_appointment_id').references(() => appointmentSchema.id),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    salonIdx: index('reward_salon_idx').on(table.salonId),
+    clientIdx: index('reward_client_idx').on(table.clientPhone),
+    referralIdx: index('reward_referral_idx').on(table.referralId),
+    statusIdx: index('reward_status_idx').on(table.clientPhone, table.status),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// ClientPreferences - Client style preferences per salon (multi-tenant)
+// -----------------------------------------------------------------------------
+export const clientPreferencesSchema = pgTable(
+  'client_preferences',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Client identification (normalized 10-digit phone)
+    normalizedClientPhone: text('normalized_client_phone').notNull(),
+    clientId: text('client_id').references(() => clientSchema.id),
+
+    // Favorite technician (FK to technician within this salon)
+    favoriteTechId: text('favorite_tech_id').references(() => technicianSchema.id),
+
+    // Preferences stored as JSON arrays
+    favoriteServices: jsonb('favorite_services').$type<string[]>(),
+    nailShape: text('nail_shape'),
+    nailLength: text('nail_length'),
+    finishes: jsonb('finishes').$type<string[]>(),
+    colorFamilies: jsonb('color_families').$type<string[]>(),
+    preferredBrands: jsonb('preferred_brands').$type<string[]>(),
+    sensitivities: jsonb('sensitivities').$type<string[]>(),
+
+    // Salon experience preferences
+    musicPreference: text('music_preference'),
+    conversationLevel: text('conversation_level'),
+    beveragePreference: jsonb('beverage_preference').$type<string[]>(),
+
+    // Notes
+    techNotes: text('tech_notes'),
+    appointmentNotes: text('appointment_notes'),
+
+    // Timestamps
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    // Unique constraint: one preferences row per client per salon
+    uniqueClientSalon: uniqueIndex('client_prefs_salon_phone_idx').on(
+      table.salonId,
+      table.normalizedClientPhone,
+    ),
+    salonIdx: index('client_prefs_salon_idx').on(table.salonId),
+    clientIdx: index('client_prefs_client_idx').on(table.normalizedClientPhone),
   }),
 );
 
@@ -388,6 +590,18 @@ export type NewAppointment = typeof appointmentSchema.$inferInsert;
 export type AppointmentService = typeof appointmentServicesSchema.$inferSelect;
 export type NewAppointmentService = typeof appointmentServicesSchema.$inferInsert;
 
+export type AppointmentPhoto = typeof appointmentPhotoSchema.$inferSelect;
+export type NewAppointmentPhoto = typeof appointmentPhotoSchema.$inferInsert;
+
+export type Referral = typeof referralSchema.$inferSelect;
+export type NewReferral = typeof referralSchema.$inferInsert;
+
+export type Reward = typeof rewardSchema.$inferSelect;
+export type NewReward = typeof rewardSchema.$inferInsert;
+
+export type ClientPreferences = typeof clientPreferencesSchema.$inferSelect;
+export type NewClientPreferences = typeof clientPreferencesSchema.$inferInsert;
+
 // =============================================================================
 // CONST EXPORTS
 // =============================================================================
@@ -398,11 +612,18 @@ export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 export const APPOINTMENT_STATUSES = [
   'pending',
   'confirmed',
+  'in_progress',
   'cancelled',
   'completed',
   'no_show',
 ] as const;
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+
+export const PAYMENT_STATUSES = ['pending', 'paid'] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PHOTO_TYPES = ['before', 'after'] as const;
+export type PhotoType = (typeof PHOTO_TYPES)[number];
 
 export const CANCEL_REASONS = [
   'rescheduled',
@@ -410,3 +631,25 @@ export const CANCEL_REASONS = [
   'no_show',
 ] as const;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
+
+export const REFERRAL_STATUSES = [
+  'sent',
+  'claimed',
+  'booked',
+  'reward_earned',
+  'expired',
+] as const;
+export type ReferralStatus = (typeof REFERRAL_STATUSES)[number];
+
+export const REWARD_TYPES = [
+  'referral_referee',
+  'referral_referrer',
+] as const;
+export type RewardType = (typeof REWARD_TYPES)[number];
+
+export const REWARD_STATUSES = [
+  'active',
+  'used',
+  'expired',
+] as const;
+export type RewardStatus = (typeof REWARD_STATUSES)[number];

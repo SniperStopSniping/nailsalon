@@ -34,6 +34,14 @@ export async function POST() {
       path: '/',
     });
 
+    cookieStore.set('client_name', '', {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0,
+      path: '/',
+    });
+
     return NextResponse.json({
       success: true,
       message: 'Logged out successfully',

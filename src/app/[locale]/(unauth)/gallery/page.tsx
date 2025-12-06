@@ -3,121 +3,129 @@
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
+// =============================================================================
+// Types
+// =============================================================================
+
 type GalleryPhoto = {
   id: string;
-  date: string;
-  service: string;
-  tech: string;
+  appointmentId: string;
+  photoType: string;
   imageUrl: string;
-  isFavorite?: boolean;
+  thumbnailUrl: string | null;
+  caption: string | null;
+  createdAt: string;
+  appointmentDate: string;
+  services: string[];
+  technicianName: string | null;
 };
 
-const RECENT_PHOTOS: GalleryPhoto[] = [
-  {
-    id: '1',
-    date: 'Dec 18, 2025',
-    service: 'BIAB Short',
-    tech: 'Daniela',
-    imageUrl: '/assets/images/biab-short.webp',
-    isFavorite: true,
-  },
-  {
-    id: '2',
-    date: 'Dec 5, 2025',
-    service: 'Gel-X Extensions',
-    tech: 'Tiffany',
-    imageUrl: '/assets/images/gel-x-extensions.jpg',
-  },
-  {
-    id: '3',
-    date: 'Nov 28, 2025',
-    service: 'BIAB Medium',
-    tech: 'Jenny',
-    imageUrl: '/assets/images/biab-medium.webp',
-    isFavorite: true,
-  },
-  {
-    id: '4',
-    date: 'Nov 15, 2025',
-    service: 'BIAB French',
-    tech: 'Daniela',
-    imageUrl: '/assets/images/biab-french.jpg',
-  },
-  {
-    id: '5',
-    date: 'Nov 2, 2025',
-    service: 'Gel Manicure',
-    tech: 'Tiffany',
-    imageUrl: '/assets/images/biab-short.webp',
-  },
-  {
-    id: '6',
-    date: 'Oct 20, 2025',
-    service: 'BIAB Short',
-    tech: 'Jenny',
-    imageUrl: '/assets/images/biab-medium.webp',
-  },
-  {
-    id: '7',
-    date: 'Oct 8, 2025',
-    service: 'Gel-X Extensions',
-    tech: 'Daniela',
-    imageUrl: '/assets/images/gel-x-extensions.jpg',
-  },
-  {
-    id: '8',
-    date: 'Sep 25, 2025',
-    service: 'BIAB Medium',
-    tech: 'Tiffany',
-    imageUrl: '/assets/images/biab-french.jpg',
-  },
-  {
-    id: '9',
-    date: 'Sep 12, 2025',
-    service: 'Classic Mani/Pedi',
-    tech: 'Jenny',
-    imageUrl: '/assets/images/biab-short.webp',
-  },
-];
+// =============================================================================
+// Helper: Normalize phone number
+// =============================================================================
+
+function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+}
+
+// =============================================================================
+// Gallery Page Component
+// =============================================================================
 
 export default function GalleryPage() {
   const router = useRouter();
-  const { salonName } = useSalon();
+  const { salonSlug, salonName } = useSalon();
   const t = useTranslations('Gallery');
-  const [mounted, setMounted] = useState(false);
-  const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [mounted, setMounted] = useState(false);
+  const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
+  const [clientPhone, setClientPhone] = useState('');
+
+  // Load client phone from cookie and fetch photos
   useEffect(() => {
     setMounted(true);
+
+    const clientPhoneCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_phone='));
+
+    if (clientPhoneCookie) {
+      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
+      if (phone) {
+        setClientPhone(phone);
+      }
+    }
   }, []);
+
+  // Fetch photos when we have phone and salon
+  const fetchPhotos = useCallback(async () => {
+    if (!clientPhone || !salonSlug) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const normalizedPhone = normalizePhone(clientPhone);
+      const response = await fetch(
+        `/api/gallery?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setPhotos(data.data?.photos || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch gallery:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [clientPhone, salonSlug]);
+
+  useEffect(() => {
+    if (clientPhone && salonSlug) {
+      fetchPhotos();
+    }
+  }, [clientPhone, salonSlug, fetchPhotos]);
 
   const handleBack = () => {
     router.back();
   };
 
-  const handleUpload = () => {
-    fileInputRef.current?.click();
-  };
+  // Calculate stats from real photos
+  const totalVisits = new Set(photos.map(p => p.appointmentId)).size;
 
-  // Calculate stats
-  const totalVisits = RECENT_PHOTOS.length;
-  const techCounts = RECENT_PHOTOS.reduce((acc, photo) => {
-    acc[photo.tech] = (acc[photo.tech] || 0) + 1;
+  const techCounts = photos.reduce((acc, photo) => {
+    if (photo.technicianName) {
+      acc[photo.technicianName] = (acc[photo.technicianName] || 0) + 1;
+    }
     return acc;
   }, {} as Record<string, number>);
   const favoriteTech = Object.entries(techCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
-  const serviceCounts = RECENT_PHOTOS.reduce((acc, photo) => {
-    acc[photo.service] = (acc[photo.service] || 0) + 1;
+  const serviceCounts = photos.reduce((acc, photo) => {
+    photo.services.forEach(service => {
+      acc[service] = (acc[service] || 0) + 1;
+    });
     return acc;
   }, {} as Record<string, number>);
   const favoriteService = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
 
   return (
     <div
@@ -188,294 +196,226 @@ export default function GalleryPage() {
           </p>
         </div>
 
-        {/* Stats Summary Card */}
-        <div
-          className="mb-6 overflow-hidden rounded-2xl shadow-xl"
-          style={{
-            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
-            opacity: mounted ? 1 : 0,
-            transform: mounted
-              ? 'translateY(0) scale(1)'
-              : 'translateY(10px) scale(0.97)',
-            transition:
-              'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
-          }}
-        >
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 text-center">
-                <div className="text-3xl font-bold text-white">{totalVisits}</div>
-                <div className="mt-0.5 text-xs text-white/70">{t('total_visits')}</div>
-              </div>
-              <div className="h-12 w-px bg-white/20" />
-              <div className="flex-1 px-2 text-center">
-                <div className="truncate text-lg font-bold" style={{ color: themeVars.primary }}>{favoriteTech}</div>
-                <div className="mt-0.5 text-xs text-white/70">{t('favorite_tech')}</div>
-              </div>
-              <div className="h-12 w-px bg-white/20" />
-              <div className="flex-1 px-1 text-center">
-                <div className="truncate text-sm font-bold text-white">{favoriteService}</div>
-                <div className="mt-0.5 text-xs text-white/70">{t('favorite_service')}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Upload Button */}
-        <button
-          type="button"
-          onClick={handleUpload}
-          className="mb-6 flex w-full items-center justify-center gap-3 rounded-full px-6 py-4 text-lg font-bold text-neutral-900 shadow-lg transition-all duration-200 ease-out hover:scale-[1.02] hover:shadow-xl active:scale-[0.98]"
-          style={{
-            background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition:
-              'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
-          }}
-        >
-          <span className="text-xl">📸</span>
-          {t('upload_new')}
-        </button>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          aria-label="Upload photo"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              // Handle file upload
-            }
-          }}
-        />
-
-        {/* Photo Grid */}
-        <div className="space-y-4">
-          {RECENT_PHOTOS.map((photo, index) => (
+        {/* Loading state */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-16">
             <div
-              key={photo.id}
-              className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-              style={{
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                borderColor: themeVars.cardBorder,
-                opacity: mounted ? 1 : 0,
-                transform: mounted
-                  ? 'translateY(0) scale(1)'
-                  : 'translateY(15px) scale(0.98)',
-                transition: `opacity 300ms ease-out ${250 + index * 40}ms, transform 300ms ease-out ${250 + index * 40}ms`,
-              }}
-            >
-              {/* Image */}
-              <button
-                type="button"
-                className="group relative aspect-[4/3] w-full cursor-pointer"
-                onClick={() => setSelectedPhoto(photo)}
-                style={{
-                  background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
-                }}
-              >
-                <Image
-                  src={photo.imageUrl}
-                  alt={photo.service}
-                  fill
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-                {/* Favorite badge */}
-                {photo.isFavorite && (
-                  <div className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-lg backdrop-blur-sm">
-                    <span className="text-red-500">❤️</span>
-                  </div>
-                )}
-                {/* Hover overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              </button>
-
-              {/* Info */}
-              <div className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-lg font-bold text-neutral-900">
-                      {photo.service}
-                    </div>
-                    <div className="mt-1 flex items-center gap-1.5 text-sm text-neutral-600">
-                      <span style={{ color: themeVars.accent }}>✦</span>
-                      <span>
-                        {t('tech')}
-                        :
-                        {' '}
-                        {photo.tech}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-neutral-700">
-                      {photo.date}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Load More */}
-        <button
-          type="button"
-          className="mt-6 w-full py-3 text-base font-bold transition-colors"
-          style={{
-            color: themeVars.accent,
-            opacity: mounted ? 1 : 0,
-            transition: 'opacity 300ms ease-out 600ms',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '0.8';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
-        >
-          {t('view_all_photos')}
-        </button>
-
-        {/* Empty State (hidden when there are photos) */}
-        {RECENT_PHOTOS.length === 0 && (
-          <div
-            className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-            style={{
-              borderWidth: '1px',
-              borderStyle: 'solid',
-              borderColor: themeVars.cardBorder,
-            }}
-          >
-            <div className="px-6 py-16 text-center">
-              <div
-                className="mx-auto mb-4 flex size-20 items-center justify-center rounded-full"
-                style={{
-                  background: `linear-gradient(to bottom right, ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}))`,
-                }}
-              >
-                <span className="text-4xl">📷</span>
-              </div>
-              <p className="text-lg font-semibold text-neutral-700">
-                {t('empty_state')}
-              </p>
-              <p className="mb-6 mt-1 text-sm text-neutral-500">
-                {t('empty_description')}
-              </p>
-              <button
-                type="button"
-                onClick={handleUpload}
-                className="rounded-full px-6 py-3 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
-                style={{ backgroundColor: themeVars.primary }}
-              >
-                {t('upload_new')}
-              </button>
-            </div>
+              className="size-8 animate-spin rounded-full border-4 border-t-transparent"
+              style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+            />
+            <p className="mt-4 text-neutral-500">Loading your nail journey...</p>
           </div>
         )}
 
-        {/* Photo Modal */}
-        {selectedPhoto && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Photo detail"
-          >
-            {/* Backdrop button for closing */}
-            <button
-              type="button"
-              className="absolute inset-0 cursor-default"
-              onClick={() => setSelectedPhoto(null)}
-              onKeyDown={e => e.key === 'Escape' && setSelectedPhoto(null)}
-              aria-label="Close modal"
-              tabIndex={-1}
-            />
-            <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <button
-                type="button"
-                onClick={() => setSelectedPhoto(null)}
-                aria-label="Close modal"
-                className="absolute right-3 top-3 z-10 flex size-10 items-center justify-center rounded-full bg-white/90 shadow-lg backdrop-blur-sm transition-colors hover:bg-white"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M18 6L6 18M6 6L18 18"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
+        {/* Content when not loading */}
+        {!loading && (
+          <>
+            {/* Stats Summary Card - only show when there are photos */}
+            {photos.length > 0 && (
               <div
-                className="relative aspect-square"
+                className="mb-6 overflow-hidden rounded-2xl shadow-xl"
                 style={{
-                  background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                  background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
+                  opacity: mounted ? 1 : 0,
+                  transform: mounted
+                    ? 'translateY(0) scale(1)'
+                    : 'translateY(10px) scale(0.97)',
+                  transition:
+                    'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
                 }}
               >
-                <Image
-                  src={selectedPhoto.imageUrl}
-                  alt={selectedPhoto.service}
-                  fill
-                  className="object-cover"
-                />
-              </div>
-              <div className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-xl font-bold text-neutral-900">
-                      {selectedPhoto.service}
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 text-center">
+                      <div className="text-3xl font-bold text-white">{totalVisits}</div>
+                      <div className="mt-0.5 text-xs text-white/70">{t('total_visits')}</div>
                     </div>
-                    <div className="mt-1 flex items-center gap-1.5 text-base text-neutral-600">
-                      <span style={{ color: themeVars.accent }}>✦</span>
-                      <span>
-                        Nail Artist:
-                        {selectedPhoto.tech}
-                      </span>
+                    <div className="h-12 w-px bg-white/20" />
+                    <div className="flex-1 px-2 text-center">
+                      <div className="truncate text-lg font-bold" style={{ color: themeVars.primary }}>{favoriteTech}</div>
+                      <div className="mt-0.5 text-xs text-white/70">{t('favorite_tech')}</div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-base font-semibold text-neutral-700">
-                      {selectedPhoto.date}
+                    <div className="h-12 w-px bg-white/20" />
+                    <div className="flex-1 px-1 text-center">
+                      <div className="truncate text-sm font-bold text-white">{favoriteService}</div>
+                      <div className="mt-0.5 text-xs text-white/70">{t('favorite_service')}</div>
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 flex gap-3">
+              </div>
+            )}
+
+            {/* Photo Grid */}
+            {photos.length > 0 && (
+              <div className="space-y-4">
+                {photos.map((photo, index) => (
+                  <div
+                    key={photo.id}
+                    className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                    style={{
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: themeVars.cardBorder,
+                      opacity: mounted ? 1 : 0,
+                      transform: mounted
+                        ? 'translateY(0) scale(1)'
+                        : 'translateY(15px) scale(0.98)',
+                      transition: `opacity 300ms ease-out ${250 + index * 40}ms, transform 300ms ease-out ${250 + index * 40}ms`,
+                    }}
+                  >
+                    {/* Image */}
+                    <button
+                      type="button"
+                      className="group relative aspect-[4/3] w-full cursor-pointer"
+                      onClick={() => setSelectedPhoto(photo)}
+                      style={{
+                        background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                      }}
+                    >
+                      <Image
+                        src={photo.imageUrl}
+                        alt={photo.services.join(', ') || 'Nail photo'}
+                        fill
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                      {/* Photo type badge */}
+                      {photo.photoType === 'before' && (
+                        <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-xs font-medium shadow-lg backdrop-blur-sm">
+                          Before
+                        </div>
+                      )}
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                    </button>
+
+                    {/* Info */}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="text-lg font-bold text-neutral-900">
+                            {photo.services.join(', ') || 'Nail Service'}
+                          </div>
+                          {photo.technicianName && (
+                            <div className="mt-1 flex items-center gap-1.5 text-sm text-neutral-600">
+                              <span style={{ color: themeVars.accent }}>✦</span>
+                              <span>
+                                {t('tech')}
+                                :
+                                {' '}
+                                {photo.technicianName}
+                              </span>
+                            </div>
+                          )}
+                          {photo.caption && (
+                            <div className="mt-1 text-sm italic text-neutral-500">
+                              {photo.caption}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-neutral-700">
+                            {formatDate(photo.appointmentDate)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Empty State */}
+            {photos.length === 0 && (
+              <div
+                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                style={{
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: themeVars.cardBorder,
+                  opacity: mounted ? 1 : 0,
+                  transform: mounted ? 'translateY(0)' : 'translateY(15px)',
+                  transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
+                }}
+              >
+                <div className="flex flex-col items-center px-6 py-12 text-center">
+                  <div className="mb-4 text-6xl">📸</div>
+                  <h2
+                    className="mb-2 text-xl font-bold"
+                    style={{ color: themeVars.titleText }}
+                  >
+                    Your Nail Journey Starts Here
+                  </h2>
+                  <p className="mb-6 max-w-xs text-neutral-500">
+                    Photos from your appointments will appear here after your visits. Each session adds to your beautiful nail collection!
+                  </p>
+
+                  {/* Placeholder images */}
+                  <div className="grid w-full grid-cols-3 gap-2">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="relative aspect-square overflow-hidden rounded-xl"
+                        style={{
+                          background: `linear-gradient(to bottom right, ${themeVars.background}, color-mix(in srgb, ${themeVars.primaryDark} 20%, white))`,
+                        }}
+                      >
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-2xl opacity-30">💅</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="mt-4 text-xs text-neutral-400">
+                    These placeholders will be replaced with your real nail photos
+                  </p>
+
                   <button
                     type="button"
-                    className="flex-1 rounded-full px-4 py-3 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                    onClick={() => router.push('/book/service')}
+                    className="mt-6 rounded-full px-6 py-3 font-bold text-neutral-900 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                     style={{
                       background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
                     }}
                   >
-                    Book Same Style
-                  </button>
-                  <button
-                    type="button"
-                    className="flex size-12 items-center justify-center rounded-full bg-neutral-100 text-xl transition-colors hover:bg-neutral-200"
-                  >
-                    {selectedPhoto.isFavorite ? '❤️' : '🤍'}
+                    Book Your First Appointment
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
-
-        {/* Bottom spacing */}
-        <div className="h-6" />
       </div>
+
+      {/* Photo Detail Modal */}
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setSelectedPhoto(null)}
+          onKeyDown={(e) => e.key === 'Escape' && setSelectedPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
+        >
+          <div className="relative max-h-[90vh] max-w-[90vw]">
+            <Image
+              src={selectedPhoto.imageUrl}
+              alt={selectedPhoto.services.join(', ') || 'Nail photo'}
+              width={800}
+              height={600}
+              className="rounded-lg object-contain"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute -right-2 -top-2 flex size-10 items-center justify-center rounded-full bg-white shadow-lg"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

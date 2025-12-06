@@ -4,18 +4,29 @@ import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
-import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 
 import * as schema from '@/models/Schema';
 
 import { Env } from './Env';
 
-let client;
-let drizzle;
+// Global type for caching database connections across hot reloads
+type GlobalWithDb = typeof globalThis & {
+  // PostgreSQL pool
+  pgPool?: Pool;
+  pgDrizzle?: NodePgDatabase<typeof schema>;
+  pgMigrated?: boolean;
+  // PGlite
+  pgliteClient?: PGlite;
+  pgliteDrizzle?: PgliteDatabase<typeof schema>;
+  pgliteSeeded?: boolean;
+};
+
+const globalForDb = globalThis as GlobalWithDb;
 
 // Initialize business configuration for PGlite in-memory database ONLY
 // This sets up the salon, services, and technicians (required for the app to work)
@@ -96,43 +107,62 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
 // =============================================================================
 // Priority: ALWAYS use real Postgres when DATABASE_URL is set.
 // Only fall back to PGlite in-memory when DATABASE_URL is completely absent.
+// Uses connection pooling for PostgreSQL to handle connection drops gracefully.
 // =============================================================================
+
+let drizzle: NodePgDatabase<typeof schema> | PgliteDatabase<typeof schema>;
 
 if (Env.DATABASE_URL) {
   // Use real PostgreSQL database - data persists across restarts
-  client = new Client({
-    connectionString: Env.DATABASE_URL,
-  });
-  await client.connect();
+  // Use Pool instead of Client for automatic connection management and reconnection
+  if (!globalForDb.pgPool) {
+    globalForDb.pgPool = new Pool({
+      connectionString: Env.DATABASE_URL,
+      // Pool configuration for resilience
+      max: 10, // Maximum connections in pool
+      idleTimeoutMillis: 30000, // Close idle connections after 30s
+      connectionTimeoutMillis: 5000, // Timeout after 5s if can't connect
+    });
 
-  drizzle = drizzlePg(client, { schema });
-  await migratePg(drizzle, {
-    migrationsFolder: path.join(process.cwd(), 'migrations'),
-  });
+    // Handle pool errors gracefully
+    globalForDb.pgPool.on('error', (err) => {
+      console.error('[DB] Unexpected pool error:', err.message);
+    });
+
+    globalForDb.pgDrizzle = drizzlePg(globalForDb.pgPool, { schema });
+  }
+
+  drizzle = globalForDb.pgDrizzle!;
+
+  // Run migrations only once
+  if (!globalForDb.pgMigrated) {
+    await migratePg(drizzle, {
+      migrationsFolder: path.join(process.cwd(), 'migrations'),
+    });
+    globalForDb.pgMigrated = true;
+  }
 } else {
   // Fallback: PGlite in-memory database (data lost on restart)
   // Only used when no DATABASE_URL is configured at all
   console.warn('[DB] No DATABASE_URL found - using PGlite in-memory database. Data will not persist across restarts.');
 
-  const global = globalThis as unknown as { client: PGlite; drizzle: PgliteDatabase<typeof schema>; seeded?: boolean };
+  if (!globalForDb.pgliteClient) {
+    globalForDb.pgliteClient = new PGlite();
+    await globalForDb.pgliteClient.waitReady;
 
-  if (!global.client) {
-    global.client = new PGlite();
-    await global.client.waitReady;
-
-    global.drizzle = drizzlePglite(global.client, { schema });
+    globalForDb.pgliteDrizzle = drizzlePglite(globalForDb.pgliteClient, { schema });
   }
 
-  drizzle = global.drizzle;
-  await migratePglite(global.drizzle, {
+  drizzle = globalForDb.pgliteDrizzle!;
+  await migratePglite(drizzle, {
     migrationsFolder: path.join(process.cwd(), 'migrations'),
   });
 
   // Initialize business data (salon, services, technicians) for PGlite only
   // Note: This does NOT create any demo appointments - all appointments come from real bookings
-  if (!global.seeded) {
-    await initializeBusinessData(global.drizzle);
-    global.seeded = true;
+  if (!globalForDb.pgliteSeeded) {
+    await initializeBusinessData(drizzle);
+    globalForDb.pgliteSeeded = true;
   }
 }
 

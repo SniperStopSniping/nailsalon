@@ -36,6 +36,41 @@
       "when": 1764903221830,
       "tag": "0004_pale_dormammu",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1764968828294,
+      "tag": "0005_careless_earthquake",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1764987881812,
+      "tag": "0006_classy_barracuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1764992878610,
+      "tag": "0007_complex_wonder_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1764996986793,
+      "tag": "0008_grey_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1764998617711,
+      "tag": "0009_awesome_metal_master",
+      "breakpoints": true
     }
   ]
 }

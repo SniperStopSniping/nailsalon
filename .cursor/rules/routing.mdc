@@ -1,0 +1,34 @@
+---
+description: Route structure and duplicate file rules
+globs: ["src/app/**/*"]
+---
+
+# Route Structure Rules
+
+## CRITICAL: Dual Route Architecture
+
+This project has TWO parallel route structures:
+
+| Path | Purpose |
+|------|---------|
+| `src/app/(unauth)/` | Non-locale routes (redirects to locale) |
+| `src/app/[locale]/(unauth)/` | **ACTIVE** locale-aware routes |
+
+**The browser loads `[locale]` versions.** When editing pages, ALWAYS check and update BOTH files:
+
+- `src/app/(unauth)/invite/page.tsx`
+- `src/app/[locale]/(unauth)/invite/page.tsx` <-- This is what users see
+
+## Before Editing Any Page
+
+1. Check if the file exists in both locations
+2. Make changes to BOTH files
+3. Verify by checking network requests - look for `app/%5Blocale%5D` in the URL
+
+## Common Duplicate Pages
+
+- `profile/page.tsx`
+- `invite/page.tsx`
+- `my-referrals/page.tsx`
+- `rewards/page.tsx`
+- `gallery/page.tsx`

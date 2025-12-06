@@ -1,0 +1,48 @@
+---
+description: Phone number handling and API patterns
+globs: ["src/app/**/*.tsx", "src/app/api/**/*.ts"]
+---
+
+# Phone Number Handling
+
+## Cookie Format
+
+The `client_phone` cookie stores E.164 format: `+15551234567`
+
+## API Requirement
+
+All referral/appointment APIs require exactly **10 digits**: `5551234567`
+
+## Standard Normalization Pattern
+
+Always use this pattern when reading phone from cookie:
+
+```typescript
+// 1. Store RAW phone from cookie
+const [userPhone, setUserPhone] = useState('');
+
+useEffect(() => {
+  const cookie = document.cookie.split('; ').find(row => row.startsWith('client_phone='));
+  if (cookie) {
+    const phone = decodeURIComponent(cookie.split('=')[1] || '');
+    if (phone) setUserPhone(phone);  // Store raw: "+15551234567"
+  }
+}, []);
+
+// 2. Normalize at COMPONENT SCOPE (not inside useEffect)
+const normalizedPhone = userPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+
+// 3. Use normalized phone in API calls
+body: JSON.stringify({
+  referrerPhone: normalizedPhone,  // Sends: "5551234567"
+})
+```
+
+## Why This Pattern?
+
+- `replace(/\D/g, '')` removes `+` → `15551234567` (11 digits)
+- `replace(/^1(\d{10})$/, '$1')` strips leading `1` → `5551234567` (10 digits)
+
+## Reference Implementation
+
+See `src/app/[locale]/(unauth)/profile/page.tsx` lines 197-204 and 339.

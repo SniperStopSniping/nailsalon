@@ -49,6 +49,13 @@ export interface ReminderParams {
   hoursUntil: number;
 }
 
+export interface ReferralInviteParams {
+  refereePhone: string;
+  referrerName: string;
+  salonName: string;
+  referralId: string;
+}
+
 // =============================================================================
 // TWILIO CLIENT
 // =============================================================================
@@ -214,4 +221,28 @@ We hope to see you again soon! 💅
 Book anytime at our website.`;
 
   await sendSMS(phone, message);
+}
+
+/**
+ * Send referral invite SMS to a friend
+ */
+export async function sendReferralInvite(
+  params: ReferralInviteParams,
+): Promise<boolean> {
+  const { refereePhone, referrerName, salonName, referralId } = params;
+
+  // Build the claim URL
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+    || 'http://localhost:3000';
+  const claimUrl = `${baseUrl}/referral/${referralId}`;
+
+  const message = `🎉 ${referrerName} sent you a FREE manicure at ${salonName}!
+
+Claim your gift here:
+${claimUrl}
+
+Book within 14 days to get your free manicure! 💅✨`;
+
+  return sendSMS(refereePhone, message);
 }

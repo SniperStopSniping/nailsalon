@@ -1,7 +1,9 @@
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { db } from '@/libs/DB';
 import { getAppointmentById, updateAppointmentStatus } from '@/libs/queries';
-import { APPOINTMENT_STATUSES, CANCEL_REASONS } from '@/models/Schema';
+import { APPOINTMENT_STATUSES, CANCEL_REASONS, referralSchema, rewardSchema } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -103,6 +105,60 @@ export async function PATCH(
 
     if (!updatedAppointment) {
       throw new Error('Failed to update appointment');
+    }
+
+    // 6. If status changed to 'completed', handle reward completion
+    if (data.status === 'completed') {
+      // Mark any reward linked to this appointment as 'used'
+      const linkedReward = await db
+        .select()
+        .from(rewardSchema)
+        .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+        .limit(1);
+
+      if (linkedReward.length > 0) {
+        const reward = linkedReward[0]!;
+        await db
+          .update(rewardSchema)
+          .set({
+            status: 'used',
+            usedAt: new Date(),
+          })
+          .where(eq(rewardSchema.id, reward.id));
+
+        // If this is a referee reward, update the referral status and create referrer reward
+        if (reward.type === 'referral_referee' && reward.referralId) {
+          // Update referral status to reward_earned
+          await db
+            .update(referralSchema)
+            .set({ status: 'reward_earned' })
+            .where(eq(referralSchema.id, reward.referralId));
+
+          // Get the referral to find the referrer info
+          const [referral] = await db
+            .select()
+            .from(referralSchema)
+            .where(eq(referralSchema.id, reward.referralId))
+            .limit(1);
+
+          if (referral) {
+            // Create a reward for the referrer (2500 points = free gel manicure)
+            await db.insert(rewardSchema).values({
+              id: `reward_${crypto.randomUUID()}`,
+              salonId: referral.salonId,
+              clientPhone: referral.referrerPhone,
+              clientName: referral.referrerName,
+              referralId: referral.id,
+              type: 'referral_referrer',
+              points: 2500,
+              eligibleServiceName: 'Gel Manicure',
+              status: 'active',
+              // Referrer reward doesn't expire (or give them 30 days)
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            });
+          }
+        }
+      }
     }
 
     return Response.json({

@@ -1,0 +1,1 @@
+ALTER TABLE "reward" ADD COLUMN "points" integer DEFAULT 0 NOT NULL;

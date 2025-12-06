@@ -2,8 +2,10 @@
 
 import Image from 'next/image';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ConfettiPopup } from '@/components/ConfettiPopup';
+import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
 type SectionId =
@@ -87,6 +89,37 @@ type TechnicianData = {
   avatarUrl: string | null;
 };
 
+// Reward data type
+type RewardData = {
+  id: string;
+  type: 'referral_referee' | 'referral_referrer';
+  eligibleServiceName: string | null;
+  status: 'active' | 'used' | 'expired';
+  expiresAt: string | null;
+  usedAt: string | null;
+  createdAt: string;
+  isExpired: boolean;
+  daysUntilExpiry: number | null;
+  points: number;
+};
+
+// Client preferences type
+type PreferencesData = {
+  favoriteTechId: string | null;
+  favoriteServices: string[] | null;
+  nailShape: string | null;
+  nailLength: string | null;
+  finishes: string[] | null;
+  colorFamilies: string[] | null;
+  preferredBrands: string[] | null;
+  sensitivities: string[] | null;
+  musicPreference: string | null;
+  conversationLevel: string | null;
+  beveragePreference: string[] | null;
+  techNotes: string | null;
+  appointmentNotes: string | null;
+};
+
 // Helper functions for date/time formatting
 function formatDateFull(isoString: string): string {
   const date = new Date(isoString);
@@ -108,6 +141,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const params = useParams();
   const pathname = usePathname();
+  const { salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
 
@@ -128,6 +162,23 @@ export default function ProfilePage() {
   const [nextAppointmentServices, setNextAppointmentServices] = useState<ServiceData[]>([]);
   const [nextAppointmentTech, setNextAppointmentTech] = useState<TechnicianData | null>(null);
   const [appointmentLoading, setAppointmentLoading] = useState(true);
+
+  // Rewards - real data from database
+  const [rewards, setRewards] = useState<RewardData[]>([]);
+  const [rewardsLoading, setRewardsLoading] = useState(true);
+  const [activePoints, setActivePoints] = useState(0);
+
+  // Gallery photos - real data from database
+  const [galleryPhotos, setGalleryPhotos] = useState<Array<{
+    id: string;
+    imageUrl: string;
+    thumbnailUrl: string | null;
+  }>>([]);
+  const [galleryLoading, setGalleryLoading] = useState(true);
+
+  // Client preferences - real data from database
+  const [_preferences, setPreferences] = useState<PreferencesData | null>(null);
+  const [preferencesLoading, setPreferencesLoading] = useState(true);
 
   // Load client name and phone from cookie on mount
   useEffect(() => {
@@ -181,16 +232,153 @@ export default function ProfilePage() {
     }
   }, [clientPhone]);
 
+  // Fetch rewards from database
+  useEffect(() => {
+    async function fetchRewards() {
+      if (!clientPhone || !salonSlug) {
+        setRewardsLoading(false);
+        return;
+      }
+
+      // Normalize phone to 10 digits
+      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+      if (normalizedPhone.length !== 10) {
+        setRewardsLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setRewards(data.data?.rewards || []);
+          setActivePoints(data.meta?.activePoints || 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch rewards:', error);
+      } finally {
+        setRewardsLoading(false);
+      }
+    }
+
+    if (clientPhone && salonSlug) {
+      fetchRewards();
+    } else {
+      setRewardsLoading(false);
+    }
+  }, [clientPhone, salonSlug]);
+
+  // Fetch gallery photos from database
+  useEffect(() => {
+    async function fetchGalleryPhotos() {
+      if (!clientPhone || !salonSlug) {
+        setGalleryLoading(false);
+        return;
+      }
+
+      try {
+        const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+        if (normalizedPhone.length !== 10) {
+          setGalleryLoading(false);
+          return;
+        }
+
+        const response = await fetch(
+          `/api/gallery?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setGalleryPhotos(data.data?.photos || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch gallery photos:', error);
+      } finally {
+        setGalleryLoading(false);
+      }
+    }
+
+    if (clientPhone && salonSlug) {
+      fetchGalleryPhotos();
+    } else {
+      setGalleryLoading(false);
+    }
+  }, [clientPhone, salonSlug]);
+
+  // Fetch client preferences from database
+  useEffect(() => {
+    async function fetchPreferences() {
+      if (!clientPhone || !salonSlug) {
+        setPreferencesLoading(false);
+        return;
+      }
+
+      try {
+        const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+        if (normalizedPhone.length !== 10) {
+          setPreferencesLoading(false);
+          return;
+        }
+
+        const response = await fetch(
+          `/api/client/preferences?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const prefs: PreferencesData | null = data.data?.preferences;
+          setPreferences(prefs);
+
+          // Also update the beautyProfile state for editing
+          if (prefs) {
+            const updatedBeautyProfile = {
+              email: '',
+              favTech: prefs.favoriteTechId || 'Any',
+              nailLength: prefs.nailLength ? prefs.nailLength.charAt(0).toUpperCase() + prefs.nailLength.slice(1) : 'Medium',
+              nailShape: prefs.nailShape ? prefs.nailShape.charAt(0).toUpperCase() + prefs.nailShape.slice(1) : 'Almond',
+              finish: prefs.finishes && prefs.finishes.length > 0
+                ? prefs.finishes[0]!.charAt(0).toUpperCase() + prefs.finishes[0]!.slice(1)
+                : 'Glossy',
+              favColors: prefs.colorFamilies
+                ? prefs.colorFamilies.map(c => c.charAt(0).toUpperCase() + c.slice(1))
+                : ['Nudes', 'Pinks'],
+              favBrands: prefs.preferredBrands
+                ? prefs.preferredBrands.map(b => b.toUpperCase())
+                : ['OPI'],
+              favService: prefs.favoriteServices && prefs.favoriteServices.length > 0
+                ? prefs.favoriteServices[0]!.toUpperCase()
+                : 'BIAB',
+              designStyles: ['French', 'Minimal art'],
+              notes: prefs.techNotes || '',
+            };
+            setBeautyProfile(updatedBeautyProfile);
+            setEditedBeautyProfile(updatedBeautyProfile);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch preferences:', error);
+      } finally {
+        setPreferencesLoading(false);
+      }
+    }
+
+    if (clientPhone && salonSlug) {
+      fetchPreferences();
+    } else {
+      setPreferencesLoading(false);
+    }
+  }, [clientPhone, salonSlug]);
+
   // Beauty Profile state
   const [isEditingBeautyProfile, setIsEditingBeautyProfile] = useState(false);
   const [beautyProfile, setBeautyProfile] = useState({
     email: '',
-    favTech: 'Daniela',
+    favTech: 'Any',
     nailLength: 'Medium',
     nailShape: 'Almond',
     finish: 'Glossy',
     favColors: ['Nudes', 'Pinks'],
-    favBrands: ['Kokoist', 'OPI'],
+    favBrands: ['OPI'],
     favService: 'BIAB',
     designStyles: ['French', 'Minimal art'],
     notes: '',
@@ -199,7 +387,9 @@ export default function ProfilePage() {
 
   // Invite state
   const [friendPhone, setFriendPhone] = useState('');
-  const [inviteSent, setInviteSent] = useState(false);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
   const isSendingRef = useRef(false);
 
   // Profile image state
@@ -279,10 +469,46 @@ export default function ProfilePage() {
     setEditedBeautyProfile(beautyProfile);
   };
 
-  const handleSaveBeautyProfile = () => {
-    setBeautyProfile(editedBeautyProfile);
+  const handleSaveBeautyProfile = async () => {
+    if (!clientPhone || !salonSlug) {
+      setBeautyProfile(editedBeautyProfile);
+      setIsEditingBeautyProfile(false);
+      return;
+    }
+
+    const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+    if (normalizedPhone.length !== 10) {
+      setBeautyProfile(editedBeautyProfile);
+      setIsEditingBeautyProfile(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/client/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          salonSlug,
+          favoriteTechId: editedBeautyProfile.favTech.toLowerCase() !== 'any' ? editedBeautyProfile.favTech.toLowerCase() : null,
+          favoriteServices: editedBeautyProfile.favService ? [editedBeautyProfile.favService.toLowerCase()] : null,
+          nailShape: editedBeautyProfile.nailShape.toLowerCase(),
+          nailLength: editedBeautyProfile.nailLength.toLowerCase(),
+          finishes: editedBeautyProfile.finish ? [editedBeautyProfile.finish.toLowerCase()] : null,
+          colorFamilies: editedBeautyProfile.favColors.map(c => c.toLowerCase()),
+          preferredBrands: editedBeautyProfile.favBrands.map(b => b.toLowerCase()),
+          techNotes: editedBeautyProfile.notes || null,
+        }),
+      });
+
+      if (response.ok) {
+        setBeautyProfile(editedBeautyProfile);
+      }
+    } catch (error) {
+      console.error('Error saving beauty profile:', error);
+    }
+
     setIsEditingBeautyProfile(false);
-    // TODO: Save to backend
   };
 
   const handleCancelBeautyProfile = () => {
@@ -297,24 +523,60 @@ export default function ProfilePage() {
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const digits = input.value.replace(/\D/g, '').slice(0, 10);
-
-    // Update state
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
     setFriendPhone(digits);
-
-    // Auto-send when 10 digits entered
-    if (digits.length === 10 && !inviteSent && !isSendingRef.current) {
-      isSendingRef.current = true;
-      // TODO: Send invite via backend
-      setInviteSent(true);
-      setTimeout(() => {
-        setInviteSent(false);
-        setFriendPhone('');
-        isSendingRef.current = false;
-      }, 3000);
-    }
+    setInviteError(null);
   };
+
+  // Normalize client phone for API call - strip non-digits and leading country code "1"
+  const normalizedClientPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+
+  const handleSendReferral = useCallback(async () => {
+    if (isSendingRef.current || inviteSending) return;
+    if (friendPhone.length !== 10) return;
+
+    isSendingRef.current = true;
+    setInviteSending(true);
+    setInviteError(null);
+
+    try {
+      const response = await fetch('/api/referrals/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          referrerPhone: normalizedClientPhone,
+          referrerName: userName || 'Your friend',
+          refereePhone: friendPhone,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.error?.code === 'DUPLICATE_REFERRAL') {
+          setInviteError('You have already sent a referral to this number');
+        } else if (data.error?.code === 'SELF_REFERRAL') {
+          setInviteError('You cannot refer yourself');
+        } else if (data.error?.code === 'EXISTING_CLIENT') {
+          setInviteError('This number already has an account with us');
+        } else {
+          setInviteError(data.error?.message || 'Failed to send referral');
+        }
+        return;
+      }
+
+      // Success! Show confetti
+      setShowConfetti(true);
+      setFriendPhone('');
+    } catch (err) {
+      console.error('Error sending referral:', err);
+      setInviteError('Something went wrong. Please try again.');
+    } finally {
+      setInviteSending(false);
+      isSendingRef.current = false;
+    }
+  }, [friendPhone, clientPhone, userName, salonSlug, inviteSending]);
 
   const handleProfileImageClick = () => {
     profileImageInputRef.current?.click();
@@ -762,35 +1024,58 @@ export default function ProfilePage() {
         {/* My Nail Gallery Section */}
         <CollapsibleSection id="gallery" title="My Nail Gallery" isOpen={openSections.has('gallery')} onToggle={toggleSection}>
           <div className="pt-2">
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                {
-                  id: '1',
-                  imageUrl: '/assets/images/biab-short.webp',
-                },
-                {
-                  id: '2',
-                  imageUrl: '/assets/images/gel-x-extensions.jpg',
-                },
-                {
-                  id: '3',
-                  imageUrl: '/assets/images/biab-medium.webp',
-                },
-              ].map(photo => (
+            {galleryLoading ? (
+              <div className="flex items-center justify-center py-4">
                 <div
-                  key={photo.id}
-                  className="relative aspect-square overflow-hidden rounded-xl"
-                  style={{ background: `linear-gradient(to bottom right, ${themeVars.selectedBackground}, ${themeVars.borderMuted})` }}
-                >
-                  <Image
-                    src={photo.imageUrl}
-                    alt="Nail gallery"
-                    fill
-                    className="object-cover"
-                  />
+                  className="size-6 animate-spin rounded-full border-2 border-t-transparent"
+                  style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                />
+              </div>
+            ) : galleryPhotos.length > 0 ? (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {galleryPhotos.slice(0, 3).map(photo => (
+                    <button
+                      key={photo.id}
+                      type="button"
+                      aria-label="View gallery"
+                      className="relative aspect-square cursor-pointer overflow-hidden rounded-xl shadow-sm transition-transform hover:scale-105"
+                      style={{ background: `linear-gradient(to bottom right, ${themeVars.selectedBackground}, ${themeVars.borderMuted})` }}
+                      onClick={() => router.push(`/${locale}/gallery`)}
+                    >
+                      <Image
+                        src={photo.thumbnailUrl || photo.imageUrl}
+                        alt="Nail gallery"
+                        fill
+                        className="object-cover"
+                      />
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-2 text-sm text-neutral-600">
+                  Your nail photos will appear here after your appointments
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 2, 3].map(i => (
+                    <div
+                      key={i}
+                      className="relative aspect-square overflow-hidden rounded-xl"
+                      style={{ background: `linear-gradient(to bottom right, ${themeVars.background}, color-mix(in srgb, ${themeVars.primaryDark} 20%, white))` }}
+                    >
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-2xl opacity-30">💅</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-center text-xs text-neutral-400">
+                  Placeholders - your real photos will replace these
+                </p>
+              </>
+            )}
             <button
               type="button"
               onClick={() => router.push(`/${locale}/gallery`)}
@@ -805,39 +1090,120 @@ export default function ProfilePage() {
         {/* Rewards Section */}
         <CollapsibleSection id="rewards" title="Rewards" isOpen={openSections.has('rewards')} onToggle={toggleSection}>
           <div className="space-y-4 pt-1">
-            <div className="text-sm text-neutral-900">
-              You have
-              {' '}
-              <span className="font-semibold">240 points</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-neutral-600">
-                <span>60 points until FREE BIAB Fill</span>
+            {/* Loading state */}
+            {rewardsLoading && (
+              <div className="py-4 text-center text-neutral-500">Loading rewards...</div>
+            )}
+
+            {/* No rewards */}
+            {!rewardsLoading && rewards.length === 0 && (
+              <div className="py-4 text-center">
+                <div className="mb-2 text-3xl">🎁</div>
+                <p className="text-sm text-neutral-600">No rewards yet</p>
+                <p className="mt-1 text-xs text-neutral-500">Invite friends to earn free manicures!</p>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: '75%', background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
-                />
+            )}
+
+            {/* Rewards list */}
+            {!rewardsLoading && rewards.length > 0 && (
+              <div className="space-y-3">
+                {rewards.map((reward) => {
+                  const isActive = reward.status === 'active' && !reward.isExpired;
+                  const isUsed = reward.status === 'used';
+                  const isExpired = reward.status === 'expired' || reward.isExpired;
+
+                  let statusBadge = { label: 'Active', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)' };
+                  if (isUsed) {
+                    statusBadge = { label: 'Used', color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)' };
+                  } else if (isExpired) {
+                    statusBadge = { label: 'Expired', color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)' };
+                  }
+
+                  const rewardLabel = reward.type === 'referral_referee'
+                    ? `${reward.points.toLocaleString()} pts - Referral Reward`
+                    : `${reward.points.toLocaleString()} pts - Referrer Bonus`;
+
+                  return (
+                    <div
+                      key={reward.id}
+                      className="rounded-xl p-3"
+                      style={{ backgroundColor: themeVars.surfaceAlt }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">🎁</span>
+                          <div>
+                            <div className="text-sm font-semibold text-neutral-900">
+                              {rewardLabel}
+                            </div>
+                            {isActive && reward.daysUntilExpiry !== null && (
+                              <div className="mt-0.5 text-xs text-neutral-500">
+                                Expires in {reward.daysUntilExpiry} day{reward.daysUntilExpiry !== 1 ? 's' : ''}
+                              </div>
+                            )}
+                            {isUsed && reward.usedAt && (
+                              <div className="mt-0.5 text-xs text-neutral-500">
+                                Used on {new Date(reward.usedAt).toLocaleDateString()}
+                              </div>
+                            )}
+                            {isExpired && !isUsed && (
+                              <div className="mt-0.5 text-xs text-neutral-500">
+                                Reward expired
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div
+                          className="rounded-full px-2 py-0.5 text-xs font-medium"
+                          style={{ color: statusBadge.color, backgroundColor: statusBadge.bgColor }}
+                        >
+                          {statusBadge.label}
+                        </div>
+                      </div>
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={() => router.push('/book/service')}
+                          className="mt-3 w-full rounded-full py-2 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                          style={{ backgroundColor: themeVars.primary }}
+                        >
+                          Book Now to Redeem
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => router.push(`/${locale}/rewards`)}
-                className="flex-1 rounded-full py-2 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                style={{ backgroundColor: themeVars.primary }}
-              >
-                View Rewards
-              </button>
-              <button
-                type="button"
-                onClick={() => {}}
-                className="text-sm font-medium transition-colors hover:opacity-80"
-                style={{ color: themeVars.accent }}
-              >
-                Learn More
-              </button>
+            )}
+
+            {/* Points section */}
+            <div className="border-t border-neutral-100 pt-4">
+              <div className="text-sm text-neutral-900">
+                You have
+                {' '}
+                <span className="font-semibold">{activePoints.toLocaleString()} points</span>
+              </div>
+              <div className="mt-2 space-y-2">
+                <div className="flex justify-between text-sm text-neutral-600">
+                  {activePoints >= 2500 ? (
+                    <span>You have enough points for a FREE Manicure!</span>
+                  ) : (
+                    <span>{(2500 - activePoints).toLocaleString()} points until FREE Manicure</span>
+                  )}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ 
+                      width: `${Math.min(100, (activePoints / 2500) * 100)}%`, 
+                      background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` 
+                    }}
+                  />
+                </div>
+                <div className="text-xs text-neutral-500">
+                  2,500 pts = Free Gel Manicure
+                </div>
+              </div>
             </div>
           </div>
         </CollapsibleSection>
@@ -850,7 +1216,7 @@ export default function ProfilePage() {
             </p>
             <div className="space-y-2">
               <label htmlFor="friend-phone-unauth" className="text-sm font-medium text-neutral-900">
-                Friend's Phone Number
+                Friend&apos;s Phone Number
               </label>
               <div className="flex items-center gap-2">
                 <div className="flex items-center rounded-full bg-neutral-100 px-2.5 py-1.5 text-sm text-neutral-600">
@@ -866,19 +1232,29 @@ export default function ProfilePage() {
                   placeholder="Phone number"
                   className="min-w-0 flex-1 rounded-full bg-neutral-100 px-3 py-2 text-base text-neutral-800 outline-none placeholder:text-neutral-400"
                   autoComplete="off"
+                  disabled={inviteSending}
                 />
               </div>
-              {inviteSent && (
-                <p className="mt-1 text-center text-sm text-green-600">
-                  Invite Sent
+              {inviteError && (
+                <p className="mt-1 text-center text-sm text-red-600">
+                  {inviteError}
                 </p>
               )}
             </div>
             <button
               type="button"
-              onClick={() => router.push(`/${locale}/invite`)}
-              className="w-full rounded-full py-3 text-sm font-semibold text-neutral-900 shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+              onClick={handleSendReferral}
+              disabled={friendPhone.length !== 10 || inviteSending}
+              className="w-full rounded-full py-3 text-sm font-semibold text-neutral-900 shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: themeVars.primary }}
+            >
+              {inviteSending ? 'Sending...' : 'Send Referral'}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/${locale}/invite`)}
+              className="w-full text-sm font-medium transition-colors hover:opacity-80"
+              style={{ color: themeVars.accent }}
             >
               Share Referral Link
             </button>
@@ -947,6 +1323,14 @@ export default function ProfilePage() {
 
         {/* Beauty Profile Section */}
         <CollapsibleSection id="beauty-profile" title="Beauty Preferences" isOpen={openSections.has('beauty-profile')} onToggle={toggleSection}>
+          {preferencesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div
+                className="size-6 animate-spin rounded-full border-2 border-t-transparent"
+                style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+              />
+            </div>
+          ) : (
           <div className="space-y-2.5 pt-2">
             {/* Card 1 - Contact & Basics */}
             <div className="space-y-4 rounded-xl p-4 shadow-sm" style={{ backgroundColor: themeVars.surfaceAlt }}>
@@ -1427,6 +1811,7 @@ export default function ProfilePage() {
                   </div>
                 )}
           </div>
+          )}
         </CollapsibleSection>
 
         {/* Payment Methods Section */}
@@ -1747,7 +2132,29 @@ export default function ProfilePage() {
             </div>
           </div>
         </CollapsibleSection>
+
+        {/* Sign Out Button */}
+        <button
+          type="button"
+          onClick={async () => {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            router.push('/book/service');
+          }}
+          className="w-full rounded-xl border-2 border-red-200 bg-red-50 py-3 text-sm font-semibold text-red-600 transition-all duration-150 hover:bg-red-100 active:scale-[0.98]"
+        >
+          Sign Out
+        </button>
       </div>
+
+      {/* Confetti Popup */}
+      <ConfettiPopup
+        isOpen={showConfetti}
+        onClose={() => setShowConfetti(false)}
+        title="You just gifted your friend a FREE manicure!"
+        message="They'll receive a text with your referral. When they book, you both win!"
+        emoji="🎊"
+        autoDismissMs={4000}
+      />
     </div>
   );
 }
