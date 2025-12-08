@@ -109,7 +109,7 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
 
   const handleContinue = () => {
     if (!selectedDate || !selectedTime) return;
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    const dateStr = selectedDate.toISOString().split('T')[0] ?? '';
     const params = new URLSearchParams();
     params.set('serviceIds', serviceIds.join(','));
     params.set('techId', techId);
