@@ -624,9 +624,9 @@ export default function MembershipContent() {
   const [loading, setLoading] = useState(true);
 
   // User data (in production, would come from API)
-  const [visits, setVisits] = useState(12);
+  const [visits] = useState(12);
   const [pointsEarned, setPointsEarned] = useState(2400);
-  const [savedAmount, setSavedAmount] = useState(340);
+  const [savedAmount] = useState(340);
   const [clientPhone, setClientPhone] = useState('');
 
   // Load client phone from cookie
