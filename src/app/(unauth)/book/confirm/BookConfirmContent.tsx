@@ -174,7 +174,9 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
   // Format time for display
   const displayTime = timeStr ? (() => {
-    const [hours, minutes] = timeStr.split(':').map(Number);
+    const parts = timeStr.split(':').map(Number);
+    const hours = parts[0] ?? 0;
+    const minutes = parts[1] ?? 0;
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const hour12 = hours % 12 || 12;
     return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
