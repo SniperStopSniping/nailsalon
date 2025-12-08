@@ -10,7 +10,6 @@ import {
   STAFF_ROLES,
   SKILL_LEVELS,
   PAY_TYPES,
-  ONBOARDING_STATUSES,
   type WeeklySchedule,
 } from '@/models/Schema';
 

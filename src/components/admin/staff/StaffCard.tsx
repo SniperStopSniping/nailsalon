@@ -1,10 +1,7 @@
 'use client';
 
 import { forwardRef } from 'react';
-import { motion } from 'framer-motion';
 import { ChevronRight, Star, GripVertical } from 'lucide-react';
-
-import type { StaffStatus, SkillLevel } from '@/models/Schema';
 
 // =============================================================================
 // Types
@@ -103,22 +100,6 @@ function getSkillBadge(skillLevel: string | null): { label: string; className: s
       return { label: 'Junior', className: 'bg-gray-100 text-gray-600' };
     default:
       return null;
-  }
-}
-
-function getRoleLabel(role: string | null): string {
-  switch (role) {
-    case 'admin':
-      return 'Admin';
-    case 'senior':
-      return 'Senior Tech';
-    case 'junior':
-      return 'Junior Tech';
-    case 'front_desk':
-      return 'Front Desk';
-    case 'tech':
-    default:
-      return 'Technician';
   }
 }
 

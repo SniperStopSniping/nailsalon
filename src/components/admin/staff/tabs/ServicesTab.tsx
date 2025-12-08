@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Check, GripVertical } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 import { useSalon } from '@/providers/SalonProvider';
 

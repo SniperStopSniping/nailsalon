@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ChevronLeft, Star, Camera, Loader2 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 
@@ -13,7 +13,6 @@ import { ClientsTab } from './tabs/ClientsTab';
 import { EarningsTab } from './tabs/EarningsTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
-import type { StaffCardData } from './StaffCard';
 import type { StaffStatus } from '@/models/Schema';
 
 // =============================================================================
@@ -105,7 +104,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [technician, setTechnician] = useState<TechnicianDetail | null>(null);
   const [stats, setStats] = useState<TechnicianStats | null>(null);
-  const [services, setServices] = useState<{ serviceId: string; enabled: boolean; priority: number }[]>([]);
+  const [_services, setServices] = useState<{ serviceId: string; enabled: boolean; priority: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   

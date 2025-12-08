@@ -1,11 +1,11 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, Check, Camera, Loader2 } from 'lucide-react';
+import { Check, Camera, Loader2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
-import { STAFF_ROLES, SKILL_LEVELS, type StaffRole, type SkillLevel } from '@/models/Schema';
+import type { StaffRole, SkillLevel } from '@/models/Schema';
 
 // =============================================================================
 // Types

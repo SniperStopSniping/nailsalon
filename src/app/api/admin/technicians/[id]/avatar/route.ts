@@ -182,7 +182,7 @@ export async function POST(
     });
 
     // Update technician's avatarUrl
-    const [updated] = await db
+    const [_updated] = await db
       .update(technicianSchema)
       .set({
         avatarUrl: uploadResult.secure_url,
@@ -289,7 +289,7 @@ export async function DELETE(
     }
 
     // Clear avatarUrl
-    const [updated] = await db
+    const [_updated] = await db
       .update(technicianSchema)
       .set({
         avatarUrl: null,

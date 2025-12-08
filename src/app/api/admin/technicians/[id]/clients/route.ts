@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, ilike } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';

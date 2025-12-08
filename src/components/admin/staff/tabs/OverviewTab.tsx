@@ -72,7 +72,7 @@ function formatPercent(rate: number | undefined | null): string {
 // Component
 // =============================================================================
 
-export function OverviewTab({ technician, stats, onRefresh }: OverviewTabProps) {
+export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: OverviewTabProps) {
   return (
     <div className="p-4 space-y-4">
       {/* Today's Stats */}

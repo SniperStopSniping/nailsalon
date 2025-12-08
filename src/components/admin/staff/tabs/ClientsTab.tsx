@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Search, User, ChevronRight } from 'lucide-react';
+import { Search, User } from 'lucide-react';
 
 import { useSalon } from '@/providers/SalonProvider';
 

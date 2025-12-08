@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, Trash2, Check, UserCheck } from 'lucide-react';
 
 import { useSalon } from '@/providers/SalonProvider';
-import { STAFF_ROLES, SKILL_LEVELS, type StaffRole, type SkillLevel } from '@/models/Schema';
+import type { StaffRole, SkillLevel } from '@/models/Schema';
 
 // =============================================================================
 // Types

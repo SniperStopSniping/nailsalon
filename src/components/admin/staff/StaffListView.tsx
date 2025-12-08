@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Search, Plus, User, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -195,13 +195,6 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
   useEffect(() => {
     fetchStaff();
   }, [fetchStaff]);
-
-  // Filter counts
-  const getFilterCount = (filter: FilterTab): number => {
-    if (filter === 'all') return staff.length;
-    if (filter === 'inactive') return staff.filter((s) => !s.isActive).length;
-    return staff.filter((s) => s.isActive && s.currentStatus === filter).length;
-  };
 
   // Clear search
   const clearSearch = () => {

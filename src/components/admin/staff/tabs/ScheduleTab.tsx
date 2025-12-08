@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Copy, Check, Plus, Calendar, X, Trash2 } from 'lucide-react';
 
 import { useSalon } from '@/providers/SalonProvider';
-import { TIME_OFF_REASONS, type TimeOffReason } from '@/models/Schema';
+import type { TimeOffReason } from '@/models/Schema';
 
 // =============================================================================
 // Types
