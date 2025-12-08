@@ -280,30 +280,32 @@ export function ChangeAppointmentClient({
 
   // Smooth scroll to time slots after loading completes
   useEffect(() => {
-    if (pendingScrollRef.current && !loadingSlots) {
-      pendingScrollRef.current = false;
-      
-      // Small delay to ensure DOM is rendered after loading state change
-      const timer = setTimeout(async () => {
-        if (!morningSlotsRef.current) return;
-        
-        // Calculate position to show morning card at bottom of viewport
-        const rect = morningSlotsRef.current.getBoundingClientRect();
-        const targetY = window.scrollY + rect.bottom - window.innerHeight;
-        
-        // First scroll - slow and smooth to morning card (800ms)
-        await smoothScrollTo(Math.max(0, targetY), 800);
-        
-        // Pause for 150ms
-        await new Promise(resolve => setTimeout(resolve, 150));
-        
-        // Second scroll - continue to bottom (1200ms)
-        const bottomY = document.documentElement.scrollHeight - window.innerHeight;
-        await smoothScrollTo(bottomY, 1200);
-      }, 100);
-      
-      return () => clearTimeout(timer);
+    if (!pendingScrollRef.current || loadingSlots) {
+      return;
     }
+    
+    pendingScrollRef.current = false;
+    
+    // Small delay to ensure DOM is rendered after loading state change
+    const timer = setTimeout(async () => {
+      if (!morningSlotsRef.current) return;
+      
+      // Calculate position to show morning card at bottom of viewport
+      const rect = morningSlotsRef.current.getBoundingClientRect();
+      const targetY = window.scrollY + rect.bottom - window.innerHeight;
+      
+      // First scroll - slow and smooth to morning card (800ms)
+      await smoothScrollTo(Math.max(0, targetY), 800);
+      
+      // Pause for 150ms
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Second scroll - continue to bottom (1200ms)
+      const bottomY = document.documentElement.scrollHeight - window.innerHeight;
+      await smoothScrollTo(bottomY, 1200);
+    }, 100);
+    
+    return () => clearTimeout(timer);
   }, [loadingSlots, smoothScrollTo]);
 
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
