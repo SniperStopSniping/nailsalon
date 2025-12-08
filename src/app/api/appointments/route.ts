@@ -14,7 +14,12 @@ import {
   getTechnicianById,
   updateAppointmentStatus,
 } from '@/libs/queries';
-import { sendBookingConfirmationToClient, sendBookingNotificationToTech } from '@/libs/SMS';
+import {
+  sendBookingConfirmationToClient,
+  sendBookingNotificationToTech,
+  sendCancellationNotificationToTech,
+  sendRescheduleConfirmation,
+} from '@/libs/SMS';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -572,13 +577,40 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 9b. If this is a reschedule, cancel the original appointment
+    // 9b. If this is a reschedule, cancel the original appointment and send SMS
     if (originalAppointment && data.originalAppointmentId) {
       await updateAppointmentStatus(
         data.originalAppointmentId,
         'cancelled',
         'rescheduled',
       );
+
+      // Send reschedule confirmation SMS to client
+      await sendRescheduleConfirmation({
+        phone: data.clientPhone,
+        clientName,
+        salonName: salon.name,
+        oldStartTime: originalAppointment.startTime.toISOString(),
+        newStartTime: startTime.toISOString(),
+        services: services.map(s => s.name),
+        technicianName: technician?.name ?? 'Any available artist',
+      });
+
+      // Notify technician about the reschedule (if original had one assigned)
+      if (originalAppointment.technicianId) {
+        const originalTech = await getTechnicianById(originalAppointment.technicianId, salon.id);
+        if (originalTech) {
+          await sendCancellationNotificationToTech({
+            technicianName: originalTech.name,
+            // Note: technicianPhone not currently stored in schema, will log instead of SMS
+            technicianPhone: undefined,
+            clientName: clientName ?? 'Guest',
+            startTime: originalAppointment.startTime.toISOString(),
+            services: services.map(s => s.name),
+            cancelReason: 'rescheduled',
+          });
+        }
+      }
     }
 
     // 9c. Link the applied reward to this appointment (mark as pending redemption)

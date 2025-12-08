@@ -786,7 +786,7 @@ export function BookConfirmClient({
             {/* Points Earned - Clickable - using theme colors */}
             <button
               type="button"
-              onClick={() => router.push(`/${locale}/rewards`)}
+              onClick={() => router.push('/rewards')}
               className="flex w-full cursor-pointer items-center gap-4 rounded-2xl p-4 text-left transition-all hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
               style={{
                 borderWidth: '1px',

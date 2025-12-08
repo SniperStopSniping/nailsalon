@@ -141,7 +141,7 @@ Use **Lucide React icons** styled like SF Symbols:
 
 | [`src/app/[locale]/(auth)/admin/layout.tsx`](src/app/[locale]/(auth)/admin/layout.tsx) | Admin layout wrapper |
 
-| [`src/app/(auth)/admin/page.tsx`](src/app/\\\\\\\\\\(auth)/admin/page.tsx) | Redirect to locale version |
+| [`src/app/(auth)/admin/page.tsx`](src/app/\\\\\\\\\\\(auth)/admin/page.tsx) | Redirect to locale version |
 
 | [`src/components/admin/IOSWidget.tsx`](src/components/admin/IOSWidget.tsx) | Glassmorphic widget |
 

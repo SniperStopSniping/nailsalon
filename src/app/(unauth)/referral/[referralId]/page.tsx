@@ -4,7 +4,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
-import { themeVars } from '@/theme';
 
 type ClaimState = 'loading' | 'form' | 'verify' | 'success' | 'error' | 'already_claimed';
 
@@ -202,8 +201,7 @@ export default function ClaimReferralPage() {
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4"
-      style={{ backgroundColor: themeVars.background }}
+      className="flex min-h-screen justify-center py-4 bg-[var(--n5-bg-page)]"
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Loading State */}
@@ -221,15 +219,15 @@ export default function ClaimReferralPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="text-center">
               <div className="mb-4 text-4xl">😔</div>
-              <h1 className="mb-2 text-xl font-bold text-neutral-900">
+              <h1 className="mb-2 text-xl font-bold font-heading text-[var(--n5-ink-main)]">
                 Oops!
               </h1>
-              <p className="mb-6 text-neutral-600">{errorMessage}</p>
+              <p className="mb-6 font-body text-[var(--n5-ink-muted)]">{errorMessage}</p>
               <button
                 type="button"
                 onClick={() => router.push('/')}
-                className="rounded-full px-6 py-3 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                style={{ backgroundColor: themeVars.primary }}
+                className="px-6 py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Go to Home
               </button>
@@ -242,17 +240,17 @@ export default function ClaimReferralPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="text-center">
               <div className="mb-4 text-4xl">✅</div>
-              <h1 className="mb-2 text-xl font-bold text-neutral-900">
+              <h1 className="mb-2 text-xl font-bold font-heading text-[var(--n5-ink-main)]">
                 Already Claimed
               </h1>
-              <p className="mb-6 text-neutral-600">
+              <p className="mb-6 font-body text-[var(--n5-ink-muted)]">
                 This referral has already been claimed.
               </p>
               <button
                 type="button"
                 onClick={() => router.push('/profile')}
-                className="rounded-full px-6 py-3 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                style={{ backgroundColor: themeVars.primary }}
+                className="px-6 py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Go to Profile
               </button>
@@ -273,10 +271,10 @@ export default function ClaimReferralPage() {
 
             {/* Referrer Info Card */}
             <div
-              className="rounded-xl p-4 text-center"
-              style={{ backgroundColor: themeVars.selectedBackground }}
+              className="p-4 text-center bg-[var(--n5-bg-selected)]"
+              style={{ borderRadius: 'var(--n5-radius-md)' }}
             >
-              <p className="text-sm text-neutral-700">
+              <p className="text-sm font-body text-[var(--n5-ink-main)]">
                 You&apos;ve been referred by{' '}
                 <span className="font-semibold">{referrerDisplay}</span>
                 {' '}({referralInfo.referrerPhoneMasked}) 💅
@@ -353,8 +351,8 @@ export default function ClaimReferralPage() {
                     type="button"
                     onClick={handleSendCode}
                     disabled={!name.trim() || phone.length !== 10 || isLoading}
-                    className="w-full rounded-full py-3.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ backgroundColor: themeVars.primary }}
+                    className="w-full py-3.5 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ borderRadius: 'var(--n5-radius-pill)' }}
                   >
                     {isLoading ? 'Sending code...' : 'Claim my free manicure'}
                   </button>

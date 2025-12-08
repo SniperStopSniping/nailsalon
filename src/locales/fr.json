@@ -177,7 +177,8 @@
     "locked": "Verrouillé",
     "appointment": "Rendez-vous",
     "with": "avec",
-    "apply": "Appliquer"
+    "apply": "Appliquer",
+    "first_visit_message": "Réservez votre première visite pour commencer à gagner des récompenses."
   },
   "AppointmentHistory": {
     "title": "Your Visits",

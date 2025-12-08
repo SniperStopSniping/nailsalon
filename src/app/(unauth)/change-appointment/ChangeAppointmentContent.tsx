@@ -871,3 +871,5 @@ export function ChangeAppointmentClient({
     </div>
   );
 }
+
+export default ChangeAppointmentClient;

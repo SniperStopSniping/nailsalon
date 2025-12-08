@@ -629,6 +629,39 @@ export const technicianBlockedSlotSchema = pgTable(
   }),
 );
 
+// -----------------------------------------------------------------------------
+// SalonPageAppearance - Per-page theme settings (custom vs themed)
+// -----------------------------------------------------------------------------
+export const salonPageAppearanceSchema = pgTable(
+  'salon_page_appearance',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Page identifier: 'rewards' | 'profile' | 'gallery' | 'book-service' | etc.
+    pageName: text('page_name').notNull(),
+
+    // Mode: 'custom' = use existing styles (no theme), 'theme' = use themeKey
+    mode: text('mode').notNull().default('custom'),
+
+    // Theme key when mode = 'theme': 'espresso' | 'lavender' | etc.
+    themeKey: text('theme_key'),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    uniqueSalonPage: uniqueIndex('salon_page_appearance_unique').on(table.salonId, table.pageName),
+    salonIdx: index('salon_page_appearance_salon_idx').on(table.salonId),
+  }),
+);
+
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
@@ -683,6 +716,9 @@ export type NewTechnicianTimeOff = typeof technicianTimeOffSchema.$inferInsert;
 
 export type TechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferSelect;
 export type NewTechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferInsert;
+
+export type SalonPageAppearance = typeof salonPageAppearanceSchema.$inferSelect;
+export type NewSalonPageAppearance = typeof salonPageAppearanceSchema.$inferInsert;
 
 // =============================================================================
 // CONST EXPORTS
@@ -754,3 +790,19 @@ export const BLOCKED_SLOT_LABELS = [
   'other',
 ] as const;
 export type BlockedSlotLabel = (typeof BLOCKED_SLOT_LABELS)[number];
+
+export const PAGE_APPEARANCE_MODES = ['custom', 'theme'] as const;
+export type PageAppearanceMode = (typeof PAGE_APPEARANCE_MODES)[number];
+
+export const THEMEABLE_PAGES = [
+  'rewards',
+  'profile',
+  'gallery',
+  'book-service',
+  'book-tech',
+  'book-time',
+  'book-confirm',
+  'preferences',
+  'invite',
+] as const;
+export type ThemeablePage = (typeof THEMEABLE_PAGES)[number];

@@ -4,7 +4,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
-import { themeVars } from '@/theme';
 
 type ReferralData = {
   id: string;
@@ -33,20 +32,20 @@ function formatDate(isoString: string): string {
 function getStatusBadge(status: string, isExpired: boolean) {
   // If expired (either explicitly or via isExpired flag), show expired badge
   if (status === 'expired' || isExpired) {
-    return { label: 'Expired', color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)' };
+    return { label: 'Expired', color: 'var(--n5-error)', bgColor: 'color-mix(in srgb, var(--n5-error) 15%, transparent)' };
   }
 
   switch (status) {
     case 'sent':
-      return { label: 'Sent', color: themeVars.primary, bgColor: `color-mix(in srgb, ${themeVars.primary} 20%, transparent)` };
+      return { label: 'Sent', color: 'var(--n5-accent)', bgColor: `color-mix(in srgb, var(--n5-accent) 20%, transparent)` };
     case 'claimed':
       return { label: 'Claimed', color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)' };
     case 'booked':
       return { label: 'Booked', color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.15)' };
     case 'reward_earned':
-      return { label: 'Rewarded!', color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)' };
+      return { label: 'Rewarded!', color: 'var(--n5-success)', bgColor: 'color-mix(in srgb, var(--n5-success) 15%, transparent)' };
     default:
-      return { label: status, color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)' };
+      return { label: status, color: 'var(--n5-ink-muted)', bgColor: 'color-mix(in srgb, var(--n5-ink-muted) 15%, transparent)' };
   }
 }
 
@@ -128,8 +127,7 @@ export default function MyReferralsPage() {
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4"
-      style={{ backgroundColor: themeVars.background }}
+      className="flex min-h-screen justify-center py-4 bg-[var(--n5-bg-page)]"
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Top bar with back button */}
@@ -137,7 +135,7 @@ export default function MyReferralsPage() {
           <button
             type="button"
             onClick={handleBack}
-            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-white/50 active:scale-95"
+            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-[var(--n5-bg-card)]/50 active:scale-95"
           >
             <svg
               width="20"
@@ -158,8 +156,7 @@ export default function MyReferralsPage() {
 
           {/* Salon name - centered */}
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold"
-            style={{ color: themeVars.accent }}
+            className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold font-heading text-[var(--n5-accent)]"
           >
             {salonName}
           </div>
@@ -167,8 +164,8 @@ export default function MyReferralsPage() {
 
         {/* Title section */}
         <div className="pt-2 text-center">
-          <h1 className="text-2xl font-bold text-neutral-900">My Referrals</h1>
-          <p className="mt-1 text-sm text-neutral-600">
+          <h1 className="text-2xl font-bold font-heading text-[var(--n5-ink-main)]">My Referrals</h1>
+          <p className="mt-1 text-sm font-body text-[var(--n5-ink-muted)]">
             Track your referrals and rewards
           </p>
         </div>
@@ -202,8 +199,8 @@ export default function MyReferralsPage() {
               type="button"
               onClick={handleLookup}
               disabled={!isValidPhone || loading}
-              className="mt-4 w-full rounded-full py-3 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: themeVars.primary }}
+              className="mt-4 w-full py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ borderRadius: 'var(--n5-radius-pill)' }}
             >
               {loading ? 'Looking up...' : 'View My Referrals'}
             </button>
@@ -222,10 +219,10 @@ export default function MyReferralsPage() {
               </div>
               <div className="h-10 w-px bg-neutral-200" />
               <div className="text-center">
-                <div className="text-2xl font-bold" style={{ color: themeVars.accent }}>
+                <div className="text-2xl font-bold font-body text-[var(--n5-accent)]">
                   {referrals.filter(r => r.status === 'reward_earned').length}
                 </div>
-                <div className="text-sm text-neutral-500">Rewarded</div>
+                <div className="text-sm font-body text-[var(--n5-ink-muted)]">Rewarded</div>
               </div>
               <div className="h-10 w-px bg-neutral-200" />
               <div className="text-center">
@@ -262,8 +259,8 @@ export default function MyReferralsPage() {
               <button
                 type="button"
                 onClick={() => router.push(`/${locale}/invite`)}
-                className="mt-4 rounded-full px-6 py-2.5 text-sm font-semibold text-neutral-900 transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-                style={{ backgroundColor: themeVars.primary }}
+                className="mt-4 px-6 py-2.5 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Invite Friends
               </button>
@@ -333,8 +330,8 @@ export default function MyReferralsPage() {
           <button
             type="button"
             onClick={() => router.push(`/${locale}/invite`)}
-            className="w-full rounded-full py-3 text-sm font-semibold text-neutral-900 shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-            style={{ backgroundColor: themeVars.primary }}
+            className="w-full py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: 'var(--n5-radius-pill)' }}
           >
             Invite More Friends
           </button>

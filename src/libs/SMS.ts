@@ -224,6 +224,106 @@ Book anytime at our website.`;
 }
 
 /**
+ * Send reschedule confirmation SMS to the client
+ */
+export async function sendRescheduleConfirmation(params: {
+  phone: string;
+  clientName?: string;
+  salonName: string;
+  oldStartTime: string;
+  newStartTime: string;
+  services: string[];
+  technicianName: string;
+}): Promise<void> {
+  const { phone, clientName, salonName, oldStartTime, newStartTime, services, technicianName } = params;
+
+  // Format old date/time
+  const oldDate = new Date(oldStartTime);
+  const oldFormattedDate = oldDate.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+  const oldFormattedTime = oldDate.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  // Format new date/time
+  const newDate = new Date(newStartTime);
+  const newFormattedDate = newDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+  const newFormattedTime = newDate.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const message = `💅 ${salonName}
+
+Hi ${clientName || 'there'}! Your appointment has been rescheduled:
+
+❌ Old: ${oldFormattedDate} at ${oldFormattedTime}
+✅ New: ${newFormattedDate} at ${newFormattedTime}
+
+💇 ${services.join(' + ')}
+👩‍🎨 ${technicianName}
+
+See you soon! ✨`;
+
+  await sendSMS(phone, message);
+}
+
+/**
+ * Send cancellation/reschedule notification to the technician
+ */
+export async function sendCancellationNotificationToTech(params: {
+  technicianName: string;
+  technicianPhone?: string;
+  clientName: string;
+  startTime: string;
+  services: string[];
+  cancelReason: 'cancelled' | 'rescheduled';
+}): Promise<void> {
+  const { technicianName, technicianPhone, clientName, startTime, services, cancelReason } = params;
+
+  // Format date for display
+  const date = new Date(startTime);
+  const formattedDate = date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+  const formattedTime = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const actionText = cancelReason === 'rescheduled' ? 'rescheduled' : 'cancelled';
+  const emoji = cancelReason === 'rescheduled' ? '📅' : '❌';
+
+  const message = `${emoji} Appointment ${actionText}
+
+${technicianName}, an appointment has been ${actionText}:
+
+👤 ${clientName}
+📅 ${formattedDate} at ${formattedTime}
+💇 ${services.join(', ')}`;
+
+  // Log for now - in production, send if technicianPhone is available
+  if (technicianPhone) {
+    await sendSMS(technicianPhone, message);
+  } else {
+    console.log('[TECH NOTIFICATION]', message);
+  }
+}
+
+/**
  * Send referral invite SMS to a friend
  */
 export async function sendReferralInvite(

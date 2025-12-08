@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
-import { themeVars } from '@/theme';
 
 type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
 
@@ -159,7 +158,7 @@ export default function AppointmentHistoryPage() {
     <div
       className="min-h-screen pb-10"
       style={{
-        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        background: `linear-gradient(to bottom, color-mix(in srgb, var(--n5-bg-page) 95%, white), var(--n5-bg-page), color-mix(in srgb, var(--n5-bg-page) 95%, var(--n5-accent-hover)))`,
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4">
@@ -175,20 +174,20 @@ export default function AppointmentHistoryPage() {
             type="button"
             onClick={handleBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-[var(--n5-bg-card)]/60 active:scale-95"
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <div className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight" style={{ color: themeVars.accent }}>
+          <div className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight font-heading text-[var(--n5-accent)]">
             {salonName}
           </div>
         </div>
 
         <div className="pb-6 pt-4 text-center" style={{ opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(10px)', transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms' }}>
-          <h1 className="text-3xl font-bold tracking-tight" style={{ color: themeVars.titleText }}>Your Visits</h1>
-          <p className="mt-1 text-base italic text-neutral-500">Your nail journey</p>
+          <h1 className="text-3xl font-bold tracking-tight font-heading text-[var(--n5-ink-main)]">Your Visits</h1>
+          <p className="mt-1 text-base italic font-body text-[var(--n5-ink-muted)]">Your nail journey</p>
         </div>
 
         {loading && (
@@ -199,22 +198,28 @@ export default function AppointmentHistoryPage() {
         )}
 
         {!loading && appointments.length > 0 && (
-          <div className="mb-6 overflow-hidden rounded-2xl shadow-xl" style={{ background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))` }}>
+          <div
+            className="mb-6 overflow-hidden shadow-[var(--n5-shadow-lg)]"
+            style={{
+              borderRadius: 'var(--n5-radius-card)',
+              background: `linear-gradient(to bottom right, var(--n5-ink-main), color-mix(in srgb, var(--n5-ink-main) 70%, black))`
+            }}
+          >
             <div className="px-6 py-5">
               <div className="flex items-center justify-between">
                 <div className="flex-1 text-center">
-                  <div className="text-3xl font-bold text-white">{appointments.length}</div>
-                  <div className="mt-0.5 text-sm text-white/70">Total Visits</div>
+                  <div className="text-3xl font-bold font-body text-[var(--n5-ink-inverse)]">{appointments.length}</div>
+                  <div className="mt-0.5 text-sm font-body text-[var(--n5-ink-inverse)]/70">Total Visits</div>
                 </div>
-                <div className="h-12 w-px bg-white/20" />
+                <div className="h-12 w-px bg-[var(--n5-ink-inverse)]/20" />
                 <div className="flex-1 text-center">
-                  <div className="text-3xl font-bold text-white">{completedAppointments.length}</div>
-                  <div className="mt-0.5 text-sm text-white/70">Completed</div>
+                  <div className="text-3xl font-bold font-body text-[var(--n5-ink-inverse)]">{completedAppointments.length}</div>
+                  <div className="mt-0.5 text-sm font-body text-[var(--n5-ink-inverse)]/70">Completed</div>
                 </div>
-                <div className="h-12 w-px bg-white/20" />
+                <div className="h-12 w-px bg-[var(--n5-ink-inverse)]/20" />
                 <div className="flex-1 text-center">
-                  <div className="text-3xl font-bold" style={{ color: themeVars.primary }}>${totalSpent.toFixed(0)}</div>
-                  <div className="mt-0.5 text-sm text-white/70">Total Spent</div>
+                  <div className="text-3xl font-bold font-body text-[var(--n5-accent)]">${totalSpent.toFixed(0)}</div>
+                  <div className="mt-0.5 text-sm font-body text-[var(--n5-ink-inverse)]/70">Total Spent</div>
                 </div>
               </div>
             </div>
@@ -227,7 +232,7 @@ export default function AppointmentHistoryPage() {
               const serviceNames = appointment.services.map(s => s.name).join(' + ');
               const firstServiceImage = appointment.services[0]?.imageUrl;
               return (
-                <div key={appointment.id} className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]" style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder, opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0) scale(1)' : 'translateY(15px) scale(0.98)', transition: `opacity 300ms ease-out ${200 + index * 60}ms, transform 300ms ease-out ${200 + index * 60}ms` }}>
+                <div key={appointment.id} className="overflow-hidden shadow-[var(--n5-shadow-md)] bg-[var(--n5-bg-card)] border border-[var(--n5-border)]" style={{ borderRadius: 'var(--n5-radius-card)', opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0) scale(1)' : 'translateY(15px) scale(0.98)', transition: `opacity 300ms ease-out ${200 + index * 60}ms, transform 300ms ease-out ${200 + index * 60}ms` }}>
                   <div className={`h-1 ${getStatusBarColor(appointment.status, appointment.cancelReason)}`} />
                   <div className="p-5">
                     <div className="mb-4 flex items-start justify-between">
@@ -247,8 +252,8 @@ export default function AppointmentHistoryPage() {
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="text-lg font-bold text-neutral-900">{serviceNames || 'Service'}</div>
-                        <div className="mt-1 flex items-center gap-1.5 text-base text-neutral-600">
-                          <span style={{ color: themeVars.accent }}>✦</span>
+                        <div className="mt-1 flex items-center gap-1.5 text-base font-body text-[var(--n5-ink-muted)]">
+                          <span className="text-[var(--n5-accent)]">✦</span>
                           <span className="font-medium">Tech:</span>
                           <span>{appointment.technician?.name || 'Any Artist'}</span>
                         </div>
@@ -261,9 +266,9 @@ export default function AppointmentHistoryPage() {
                           <span className="text-base font-semibold text-neutral-700">${(appointment.totalPrice / 100).toFixed(0)}</span>
                         </div>
                         {appointment.status === 'completed' && (
-                          <div className="flex items-center justify-between border-t border-neutral-100 pt-2.5">
-                            <span className="text-lg font-bold text-neutral-900">Total Paid</span>
-                            <span className="text-xl font-bold" style={{ color: themeVars.accent }}>${(appointment.totalPrice / 100).toFixed(0)}</span>
+                          <div className="flex items-center justify-between border-t border-[var(--n5-border)] pt-2.5">
+                            <span className="text-lg font-bold font-body text-[var(--n5-ink-main)]">Total Paid</span>
+                            <span className="text-xl font-bold font-body text-[var(--n5-accent)]">${(appointment.totalPrice / 100).toFixed(0)}</span>
                           </div>
                         )}
                       </div>
@@ -280,8 +285,8 @@ export default function AppointmentHistoryPage() {
                             const timeStr = `${apptDate.getHours()}:${apptDate.getMinutes().toString().padStart(2, '0')}`;
                             router.push(`/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(clientPhone)}&originalAppointmentId=${encodeURIComponent(appointment.id)}`);
                           }}
-                          className="w-full rounded-xl py-3 text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
-                          style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`, color: '#171717' }}
+                          className="w-full py-3 text-sm font-bold font-body text-[var(--n5-button-primary-text)] transition-all hover:scale-[1.02] active:scale-[0.98]"
+                          style={{ borderRadius: 'var(--n5-radius-md)', background: `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))` }}
                         >
                           View / Change
                         </button>
@@ -311,20 +316,20 @@ export default function AppointmentHistoryPage() {
         )}
 
         {!loading && appointments.length === 0 && (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]" style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}>
+          <div className="overflow-hidden shadow-[var(--n5-shadow-md)] bg-[var(--n5-bg-card)] border border-[var(--n5-border)]" style={{ borderRadius: 'var(--n5-radius-card)' }}>
             <div className="px-6 py-12 text-center">
-              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full" style={{ backgroundColor: themeVars.background }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: themeVars.accent }}>
+              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-[var(--n5-bg-page)]">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[var(--n5-accent)]">
                   <path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-neutral-700">No visits yet</p>
-              <p className="mt-1 text-sm text-neutral-500">Book your first appointment to start your nail journey</p>
+              <p className="text-lg font-semibold font-body text-[var(--n5-ink-main)]">No visits yet</p>
+              <p className="mt-1 text-sm font-body text-[var(--n5-ink-muted)]">Book your first appointment to start your nail journey</p>
               <button
                 type="button"
                 onClick={() => router.push('/book/service')}
-                className="mt-4 rounded-full px-6 py-3 text-base font-bold text-neutral-900 shadow-sm transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
-                style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                className="mt-4 px-6 py-3 text-base font-bold font-body text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
+                style={{ borderRadius: 'var(--n5-radius-pill)', background: `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))` }}
               >
                 Book Now
               </button>

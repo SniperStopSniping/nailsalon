@@ -177,7 +177,8 @@
     "locked": "Locked",
     "appointment": "Appointment",
     "with": "with",
-    "apply": "Apply"
+    "apply": "Apply",
+    "first_visit_message": "Book your first visit to start earning rewards."
   },
   "AppointmentHistory": {
     "title": "Your Visits",

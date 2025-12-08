@@ -71,6 +71,13 @@
       "when": 1764998617711,
       "tag": "0009_awesome_metal_master",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1765000000000,
+      "tag": "0010_add_salon_page_appearance",
+      "breakpoints": true
     }
   ]
 }

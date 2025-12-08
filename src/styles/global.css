@@ -33,6 +33,70 @@
     --ring: 222.2 84% 4.9%;
 
     --radius: 0.5rem;
+
+    /* ============================================
+       N5 THEME TOKENS - Espresso Defaults
+       These are the default values used when no
+       ThemeProvider is active (custom mode).
+       ThemeProvider overrides these when a theme
+       is selected (espresso, lavender, etc.)
+       ============================================ */
+
+    /* COLORS */
+    --n5-bg-page: #FDF7F0;
+    --n5-bg-card: #ffffff;
+    --n5-bg-surface: #FAF4EC;
+    --n5-bg-highlight: #FFF8E1;
+    --n5-bg-selected: #F5EDE5;
+    --n5-ink-main: #3F2B24;
+    --n5-ink-muted: #8A7E78;
+    --n5-ink-inverse: #FDF7F0;
+    --n5-accent: #D6A249;
+    --n5-accent-soft: #FFF8E1;
+    --n5-accent-hover: #C5933E;
+    --n5-border: #F0E6DE;
+    --n5-border-muted: #E5DDD5;
+    --n5-border-accent: #D6A249;
+    --n5-success: #34C759;
+    --n5-warning: #FF9500;
+    --n5-error: #EF4444;
+
+    /* TYPOGRAPHY */
+    --n5-font-heading: 'Playfair Display', Georgia, serif;
+    --n5-font-body: 'Inter', system-ui, sans-serif;
+
+    /* RADII */
+    --n5-radius-card: 2rem;
+    --n5-radius-sheet: 2.5rem;
+    --n5-radius-md: 1rem;
+    --n5-radius-sm: 0.5rem;
+    --n5-radius-button: 0.75rem;
+    --n5-radius-pill: 9999px;
+
+    /* SHADOWS */
+    --n5-shadow-sm: 0 2px 8px -2px rgba(63, 43, 36, 0.10);
+    --n5-shadow-md: 0 4px 20px -10px rgba(0, 0, 0, 0.05);
+    --n5-shadow-lg: 0 25px 50px -12px rgba(214, 162, 73, 0.25);
+    --n5-shadow-dock: 0 8px 30px rgba(63, 43, 36, 0.1);
+    --n5-shadow-modal: 0 -20px 60px -20px rgba(63, 43, 36, 0.2);
+
+    /* SPACING */
+    --n5-space-xs: 0.25rem;
+    --n5-space-sm: 0.5rem;
+    --n5-space-md: 1rem;
+    --n5-space-lg: 1.5rem;
+    --n5-space-xl: 2rem;
+    --n5-space-2xl: 3rem;
+
+    /* BUTTONS */
+    --n5-button-primary-bg: #D6A249;
+    --n5-button-primary-text: #ffffff;
+    --n5-button-secondary-bg: #ffffff;
+    --n5-button-secondary-text: #3F2B24;
+    --n5-button-ghost-text: #8A7E78;
+    --n5-button-radius: 0.75rem;
+    --n5-button-padding-x: 1.5rem;
+    --n5-button-padding-y: 0.75rem;
   }
 
   .dark {
@@ -79,5 +143,13 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* N5 Theme Font Utilities */
+  .font-heading {
+    font-family: var(--n5-font-heading);
+  }
+  .font-body {
+    font-family: var(--n5-font-body);
   }
 }

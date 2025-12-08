@@ -1,0 +1,211 @@
+---
+description: Premium Layout Theme - iOS glassmorphism design extracted from the rewards page
+globs:
+alwaysApply: false
+---
+
+# Premium Layout Theme
+
+Use this theme when asked for "premium layout", "rewards page style", "iOS glassmorphism theme", or "DQ-style grid".
+
+## Color Palette
+
+| Name | Hex | Usage |
+|------|-----|-------|
+| espresso | `#3F2B24` | Primary text - warm brown |
+| taupe | `#8A7E78` | Secondary text |
+| gold | `#D6A249` | Accent, highlights, selection |
+| ivory | `#FDF7F0` | Page background |
+| cream | `#FFF8E1` | Soft cream accents |
+| peach | `#FFE0B2` | Soft peach accents |
+
+## Animations (framer-motion)
+
+### Page Entrance
+```tsx
+initial={{ y: 20, opacity: 0 }}
+animate={{ y: 0, opacity: 1 }}
+transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+```
+
+### Staggered Items
+```tsx
+initial={{ opacity: 0, y: 20 }}
+animate={{ opacity: 1, y: 0 }}
+transition={{ duration: 0.4, delay: baseDelay + index * 0.05, ease: [0.16, 1, 0.3, 1] }}
+```
+
+### Dock Entrance
+```tsx
+initial={{ y: 100, opacity: 0 }}
+animate={{ y: 0, opacity: 1 }}
+transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+```
+
+### Progress Bar Fill
+```tsx
+initial={{ width: 0 }}
+animate={{ width: `${percent}%` }}
+transition={{ duration: 1.5, ease: 'easeOut' }}
+```
+
+## Glassmorphism Styles
+
+### Light Glass (buttons, badges)
+```tsx
+style={{
+  backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+  borderColor: 'rgba(255, 255, 255, 0.4)',
+}}
+```
+
+### Medium Glass (cards, overlays)
+```tsx
+style={{
+  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
+  borderColor: 'rgba(255, 255, 255, 0.5)',
+  boxShadow: '0 8px 16px rgba(0,0,0,0.1)',
+}}
+```
+
+### Heavy Glass (dock, header when scrolled)
+```tsx
+style={{
+  backgroundColor: 'rgba(253, 247, 240, 0.85)',
+  backdropFilter: 'blur(20px) saturate(150%)',
+  WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+  borderColor: 'rgba(255, 255, 255, 0.4)',
+  boxShadow: '0 20px 40px -12px rgba(63, 43, 36, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.5)',
+}}
+```
+
+### Frost Overlay (locked states)
+```tsx
+style={{
+  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+  transform: 'translateZ(0)', // Force GPU layer for Chrome mobile
+}}
+```
+
+## Card Styles
+
+### Hero/Wallet Card
+```tsx
+className="relative w-full overflow-hidden rounded-[2rem] bg-white"
+style={{
+  aspectRatio: '1.7 / 1',
+  boxShadow: '0 25px 50px -12px rgba(214, 162, 73, 0.25)',
+}}
+```
+
+### Grid Item Card
+```tsx
+className="relative w-full rounded-[1.75rem] overflow-hidden"
+style={{
+  aspectRatio: '4 / 5',
+  boxShadow: '0 4px 20px -10px rgba(0,0,0,0.05)',
+}}
+```
+
+### Floating Dock
+```tsx
+className="w-full max-w-md rounded-[2rem] border backdrop-blur-xl"
+style={{
+  padding: '0.75rem 1rem 0.75rem 0.75rem',
+  // Use heavy glass styles
+}}
+```
+
+## Typography
+
+| Style | Classes |
+|-------|---------|
+| Display Large (points) | `text-6xl font-light tracking-tighter` |
+| Heading (sections) | `font-serif text-xl tracking-tight` |
+| Card Title | `text-[19px] font-bold leading-tight` |
+| Label (uppercase) | `text-[10px] font-bold tracking-[0.2em] uppercase` |
+| Label Small | `text-[10px] font-bold tracking-[0.15em] uppercase` |
+| Body | `text-[13px] font-medium` |
+| Caption | `text-xs font-medium` |
+
+## Spacing
+
+| Area | Value |
+|------|-------|
+| Page container | `px-5 max-w-lg mx-auto` |
+| Page top padding | `pt-20` (for fixed header) |
+| Page bottom padding | `pb-40` (for floating dock) |
+| Section gap | `space-y-8` |
+| Grid | `grid grid-cols-2 gap-4` |
+| Card padding | `p-5` or `p-6` |
+
+## Key Components
+
+### 1. Scroll-Reactive Header
+- Fixed position with `z-40`
+- Transparent when at top, glassmorphism when scrolled
+- Back button: `w-10 h-10 rounded-full`, changes style on scroll
+- Title: Centered, fades in when scrolled
+
+### 2. Hero Wallet Card
+- Pearlescent mesh gradient background (multiple blurred circles)
+- Watermark icon (Crown) with `opacity-[0.03]`
+- Large points display with "pts" suffix
+- Progress bar with animated fill
+- "Next Reward" info text
+
+### 3. Tiered Rewards Grid
+- Grouped by tier with headline showing tier name + min points
+- 2-column grid layout
+- **Locked cards**: Frosted glass overlay, centered lock icon in glass circle, gradient bottom overlay with text
+- **Unlocked cards**: Clean gradient background, points pill, icon circle, title/subtitle, "Redeem" button
+
+### 4. Floating Dynamic Island Dock
+- Fixed at `bottom-6`
+- Contains: thumbnail image, appointment info, action button
+- Heavy glassmorphism
+- Slides up on page load
+
+### 5. Selection States
+- Ring: `ring-2 ring-offset-2` with `--tw-ring-color: #D6A249`
+- Checkmark: Gold circle with white check icon, scales in/out
+- Button: Changes from white to gold when selected
+
+## Button Styles
+
+### Primary Action
+```tsx
+className="px-5 py-3 rounded-xl text-[13px] font-semibold tracking-wide active:scale-[0.96]"
+style={{
+  backgroundColor: colors.gold,
+  color: 'white',
+  boxShadow: '0 8px 20px rgba(214, 162, 73, 0.3)',
+}}
+```
+
+### Secondary/Outline
+```tsx
+className="py-3 rounded-xl text-[13px] font-semibold border active:scale-[0.96]"
+style={{
+  backgroundColor: 'white',
+  borderColor: '#F0E6DE',
+  color: colors.espresso,
+  boxShadow: '0 2px 8px -2px rgba(63, 43, 36, 0.1)',
+}}
+```
+
+### Icon Button (Back)
+```tsx
+className="w-10 h-10 rounded-full flex items-center justify-center active:scale-90"
+// Use light glass when not scrolled, transparent when scrolled
+```
+
+## Reference Implementation
+
+See `src/app/(unauth)/rewards/page.tsx` for the full implementation of this theme.

@@ -2,8 +2,16 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getAppointmentById, updateAppointmentStatus } from '@/libs/queries';
-import { APPOINTMENT_STATUSES, CANCEL_REASONS, referralSchema, rewardSchema } from '@/models/Schema';
+import { getAppointmentById, getSalonById, getTechnicianById, updateAppointmentStatus } from '@/libs/queries';
+import { sendCancellationConfirmation, sendCancellationNotificationToTech } from '@/libs/SMS';
+import {
+  APPOINTMENT_STATUSES,
+  appointmentServicesSchema,
+  CANCEL_REASONS,
+  referralSchema,
+  rewardSchema,
+  serviceSchema,
+} from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -107,7 +115,45 @@ export async function PATCH(
       throw new Error('Failed to update appointment');
     }
 
-    // 6. If status changed to 'completed', handle reward completion
+    // 6. If status changed to 'cancelled', send SMS notifications
+    if (data.status === 'cancelled' && data.cancelReason !== 'rescheduled') {
+      // Get salon info for SMS
+      const salon = await getSalonById(existingAppointment.salonId);
+      const salonName = salon?.name || 'the salon';
+
+      // Send cancellation SMS to client
+      await sendCancellationConfirmation({
+        phone: existingAppointment.clientPhone,
+        clientName: existingAppointment.clientName || undefined,
+        appointmentId,
+        salonName,
+      });
+
+      // Notify technician if one was assigned
+      if (existingAppointment.technicianId) {
+        const technician = await getTechnicianById(existingAppointment.technicianId, existingAppointment.salonId);
+        if (technician) {
+          // Get services for the appointment
+          const appointmentServices = await db
+            .select({ name: serviceSchema.name })
+            .from(appointmentServicesSchema)
+            .innerJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
+            .where(eq(appointmentServicesSchema.appointmentId, appointmentId));
+
+          await sendCancellationNotificationToTech({
+            technicianName: technician.name,
+            // Note: technicianPhone not currently stored in schema, will log instead of SMS
+            technicianPhone: undefined,
+            clientName: existingAppointment.clientName || 'Guest',
+            startTime: existingAppointment.startTime.toISOString(),
+            services: appointmentServices.map(s => s.name),
+            cancelReason: 'cancelled',
+          });
+        }
+      }
+    }
+
+    // 7. If status changed to 'completed', handle reward completion
     if (data.status === 'completed') {
       // Mark any reward linked to this appointment as 'used'
       const linkedReward = await db

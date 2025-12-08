@@ -26,6 +26,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 
 import { ModalHeader, BackButton } from './AppModal';
+import { PageThemesSettings } from './PageThemesSettings';
 
 /**
  * Section Container
@@ -44,7 +45,7 @@ function Section({ title, footer, children }: SectionProps) {
           {title}
         </div>
       )}
-      <div className="bg-white rounded-[10px] overflow-hidden border border-gray-200/50 shadow-sm mx-4">
+      <div className="bg-white rounded-[10px] border border-gray-200/50 shadow-sm mx-4 overflow-visible">
         {children}
       </div>
       {footer && (
@@ -121,6 +122,7 @@ function Row({
             <button
               type="button"
               onClick={handleToggle}
+              aria-label={`Toggle ${label}`}
               className={`
                 w-[51px] h-[31px] rounded-full p-0.5 transition-colors duration-300 relative
                 ${isOn ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}
@@ -250,7 +252,12 @@ export function SettingsModal({
           <Row label="Display Zoom" value="Standard" isLast />
         </Section>
 
-        {/* Section 4: About */}
+        {/* Section 4: Page Themes */}
+        <Section title="Appearance">
+          <PageThemesSettings className="bg-white rounded-[10px] overflow-visible" />
+        </Section>
+
+        {/* Section 5: About */}
         <Section title="About">
           <Row label="Version" value="1.0.0" type="link" />
           <Row label="Terms of Service" />

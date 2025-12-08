@@ -1,5 +1,6 @@
 'use client';
 
+import { Gift, Handshake, User } from 'lucide-react';
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -33,6 +34,59 @@ const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
   { id: 'feet', label: 'Feet', icon: '🦶' },
   { id: 'combo', label: 'Combo', icon: '✨' },
 ];
+
+const triggerHaptic = () => {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate(10);
+  }
+};
+
+type FloatingDockProps = {
+  locale: string;
+};
+
+const FloatingDock = ({ locale }: FloatingDockProps) => {
+  const router = useRouter();
+
+  return (
+    <div
+      role="navigation"
+      aria-label="Bottom Navigation"
+      className="bg-white/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-white/50 px-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] backdrop-blur-xl"
+    >
+      <button
+        onClick={() => {
+          triggerHaptic();
+          router.push(`/${locale}/invite`);
+        }}
+        aria-label="Go to Invite"
+        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
+      >
+        <Handshake strokeWidth={2} className="size-6" />
+      </button>
+      <button
+        onClick={() => {
+          triggerHaptic();
+          router.push(`/${locale}/rewards`);
+        }}
+        aria-label="Go to Rewards"
+        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
+      >
+        <Gift strokeWidth={2} className="size-6" />
+      </button>
+      <button
+        onClick={() => {
+          triggerHaptic();
+          router.push(`/${locale}/profile`);
+        }}
+        aria-label="Go to Profile"
+        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
+      >
+        <User strokeWidth={2} className="size-6" />
+      </button>
+    </div>
+  );
+};
 
 export function BookServiceClient({ services }: BookServiceClientProps) {
   const router = useRouter();
@@ -441,130 +495,120 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
         {/* Spacer for fixed bottom bar */}
         {selectedCount > 0 && <div className="h-24" />}
 
-        {/* Auth Footer */}
-        <MainCard className="mt-4">
-          {isCheckingSession && (
-            <div className="flex items-center justify-center py-4">
-              <div className="size-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
-              <span className="ml-2 text-sm text-neutral-500">Checking session...</span>
-            </div>
-          )}
+        {/* Spacer for floating dock when logged in */}
+        {!isCheckingSession && authState === 'loggedIn' && <div className="h-16" />}
 
-          {!isCheckingSession && authState === 'loggedOut' && (
-            <div className="space-y-3">
-              <p className="text-lg font-bold text-neutral-800">
-                <span
-                  className="bg-clip-text text-transparent"
-                  style={{
-                    backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
-                  }}
-                >
-                  New here? Get a free manicure! 💅
-                </span>
-              </p>
-              <p className="-mt-1 text-sm text-neutral-500">
-                Enter your number to sign up or log in
-              </p>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
-                  +1
+        {/* Auth Footer - hidden when logged in */}
+        {(isCheckingSession || authState !== 'loggedIn') && (
+          <MainCard className="mt-4">
+            {isCheckingSession && (
+              <div className="flex items-center justify-center py-4">
+                <div className="size-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
+                <span className="ml-2 text-sm text-neutral-500">Checking session...</span>
+              </div>
+            )}
+
+            {!isCheckingSession && authState === 'loggedOut' && (
+              <div className="space-y-3">
+                <p className="text-lg font-bold text-neutral-800">
+                  <span
+                    className="bg-clip-text text-transparent"
+                    style={{
+                      backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
+                    }}
+                  >
+                    New here? Get a free manicure! 💅
+                  </span>
+                </p>
+                <p className="-mt-1 text-sm text-neutral-500">
+                  Enter your number to sign up or log in
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
+                    +1
+                  </div>
+                  <FormInput
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      setPhone(digits.slice(0, 10));
+                      setError(null);
+                    }}
+                    placeholder="Phone number"
+                    className="!px-4 !py-2.5 !text-base"
+                  />
+                  <PrimaryButton
+                    onClick={handleSendCode}
+                    disabled={!phone.trim() || phone.length < 10 || isLoading}
+                    size="sm"
+                    fullWidth={false}
+                  >
+                    {isLoading ? '...' : '→'}
+                  </PrimaryButton>
                 </div>
-                <FormInput
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
-                    setPhone(digits.slice(0, 10));
-                    setError(null);
-                  }}
-                  placeholder="Phone number"
-                  className="!px-4 !py-2.5 !text-base"
-                />
-                <PrimaryButton
-                  onClick={handleSendCode}
-                  disabled={!phone.trim() || phone.length < 10 || isLoading}
-                  size="sm"
-                  fullWidth={false}
-                >
-                  {isLoading ? '...' : '→'}
-                </PrimaryButton>
+                {error && (
+                  <p className="text-xs text-red-500">{error}</p>
+                )}
+                <p className="text-xs text-neutral-400">
+                  *New clients only. Conditions apply.
+                </p>
               </div>
-              {error && (
-                <p className="text-xs text-red-500">{error}</p>
-              )}
-              <p className="text-xs text-neutral-400">
-                *New clients only. Conditions apply.
-              </p>
-            </div>
-          )}
+            )}
 
-          {!isCheckingSession && authState === 'verify' && (
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-neutral-700">
-                Enter the 6-digit code we sent to +1
-                {' '}
-                {phone}
-              </p>
-              <div className="flex items-center gap-2">
-                <FormInput
-                  ref={codeInputRef}
-                  type="tel"
-                  inputMode="numeric"
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
-                    setError(null);
-                  }}
-                  placeholder="• • • • • •"
-                  className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
-                />
-                <PrimaryButton
-                  onClick={handleVerifyCode}
-                  disabled={code.trim().length < 6 || isLoading}
-                  size="sm"
-                  fullWidth={false}
-                >
-                  {isLoading ? '...' : 'Verify'}
-                </PrimaryButton>
-              </div>
-              {error && (
-                <p className="text-xs text-red-500">{error}</p>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthState('loggedOut');
-                  setCode('');
-                  setError(null);
-                }}
-                className="text-sm font-medium hover:underline"
-                style={{ color: themeVars.accent }}
-              >
-                ← Change phone number
-              </button>
-            </div>
-          )}
-
-          {!isCheckingSession && authState === 'loggedIn' && (
-            <div className="flex items-center justify-around py-1">
-              {[
-                { icon: '🤝', label: 'Invite', path: `/${locale}/invite` },
-                { icon: '🎁', label: 'Rewards', path: `/${locale}/rewards` },
-                { icon: '👤', label: 'Profile', path: `/${locale}/profile` },
-              ].map(item => (
+            {!isCheckingSession && authState === 'verify' && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-neutral-700">
+                  Enter the 6-digit code we sent to +1
+                  {' '}
+                  {phone}
+                </p>
+                <div className="flex items-center gap-2">
+                  <FormInput
+                    ref={codeInputRef}
+                    type="tel"
+                    inputMode="numeric"
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setError(null);
+                    }}
+                    placeholder="• • • • • •"
+                    className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
+                  />
+                  <PrimaryButton
+                    onClick={handleVerifyCode}
+                    disabled={code.trim().length < 6 || isLoading}
+                    size="sm"
+                    fullWidth={false}
+                  >
+                    {isLoading ? '...' : 'Verify'}
+                  </PrimaryButton>
+                </div>
+                {error && (
+                  <p className="text-xs text-red-500">{error}</p>
+                )}
                 <button
-                  key={item.label}
                   type="button"
-                  onClick={() => router.push(item.path)}
-                  className="flex flex-col items-center gap-1.5 rounded-xl px-4 py-2 transition-all hover:bg-neutral-50 active:scale-95"
+                  onClick={() => {
+                    setAuthState('loggedOut');
+                    setCode('');
+                    setError(null);
+                  }}
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: themeVars.accent }}
                 >
-                  <span className="text-2xl">{item.icon}</span>
-                  <span className="text-xs font-semibold text-neutral-700">{item.label}</span>
+                  ← Change phone number
                 </button>
-              ))}
-            </div>
-          )}
-        </MainCard>
+              </div>
+            )}
+          </MainCard>
+        )}
+
+        {/* Floating Dock - shown when logged in */}
+        {!isCheckingSession && authState === 'loggedIn' && (
+          <FloatingDock locale={locale} />
+        )}
 
         {/* Blocking Login Modal */}
         <BlockingLoginModal
