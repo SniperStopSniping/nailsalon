@@ -65,7 +65,13 @@ function isWithinSchedule(
     return { valid: false, reason: 'Technician has no schedule configured' };
   }
 
-  const dayOfWeek = startTime.getDay(); // 0 = Sunday, 6 = Saturday
+  // Convert to Toronto timezone for proper comparison
+  // This is critical because Vercel servers run in UTC, but schedule times are stored as Toronto local time
+  const TORONTO_TZ = 'America/Toronto';
+  const startInToronto = new Date(startTime.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
+  const endInToronto = new Date(endTime.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
+
+  const dayOfWeek = startInToronto.getDay(); // 0 = Sunday, 6 = Saturday
   const dayName = DAY_NAMES[dayOfWeek]!;
   const daySchedule = schedule[dayName];
 
@@ -77,9 +83,9 @@ function isWithinSchedule(
   const [schedStartHour, schedStartMin] = daySchedule.start.split(':').map(Number);
   const [schedEndHour, schedEndMin] = daySchedule.end.split(':').map(Number);
 
-  // Get appointment times in minutes from midnight
-  const apptStartMinutes = startTime.getHours() * 60 + startTime.getMinutes();
-  const apptEndMinutes = endTime.getHours() * 60 + endTime.getMinutes();
+  // Get appointment times in minutes from midnight (using Toronto-converted times)
+  const apptStartMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
+  const apptEndMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
   const schedStartMinutes = (schedStartHour || 0) * 60 + (schedStartMin || 0);
   const schedEndMinutes = (schedEndHour || 0) * 60 + (schedEndMin || 0);
 

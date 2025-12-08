@@ -585,9 +585,9 @@ export default function RewardsContent() {
   const router = useRouter();
   const { salonSlug } = useSalon();
 
-  // Default 25,000 points for all new users
-  const [currentPoints, setCurrentPoints] = useState(25000);
-  const [streak, setStreak] = useState(7);
+  // Start with 0 - actual points will load from API
+  const [currentPoints, setCurrentPoints] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
   const [clientPhone, setClientPhone] = useState('');
   const [selectedReward, setSelectedReward] = useState<RewardData | null>(null);

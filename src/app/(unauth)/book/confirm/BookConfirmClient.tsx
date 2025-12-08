@@ -271,20 +271,46 @@ const BookingCard = ({
 };
 
 /**
- * Loading State
+ * Loading State - High-end spa aesthetic
  */
 const LoadingState = () => (
   <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)]">
     <motion.div
-      animate={{ rotate: 360 }}
-      transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-      className="mb-6 text-6xl"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="flex flex-col items-center"
     >
-      💅
+      {/* Elegant pulsing dots */}
+      <div className="flex items-center gap-2 mb-8">
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            className="size-2 rounded-full bg-[var(--n5-accent)]"
+            animate={{
+              scale: [1, 1.3, 1],
+              opacity: [0.4, 1, 0.4],
+            }}
+            transition={{
+              duration: 1.2,
+              repeat: Infinity,
+              delay: i * 0.2,
+              ease: 'easeInOut',
+            }}
+          />
+        ))}
+      </div>
+      
+      {/* Refined typography */}
+      <motion.p
+        initial={{ opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.5 }}
+        className="font-heading text-sm tracking-[0.2em] uppercase text-[var(--n5-ink-muted)]"
+      >
+        Confirming
+      </motion.p>
     </motion.div>
-    <p className="font-heading text-lg font-semibold text-[var(--n5-accent)]">
-      Confirming your appointment...
-    </p>
   </div>
 );
 
@@ -293,10 +319,8 @@ const LoadingState = () => (
  */
 const ExistingAppointmentState = ({
   onViewProfile,
-  onBrowseServices,
 }: {
   onViewProfile: () => void;
-  onBrowseServices: () => void;
 }) => (
   <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
     <motion.div
@@ -349,7 +373,7 @@ const ExistingAppointmentState = ({
         type="button"
         onClick={() => {
           triggerHaptic();
-          onBrowseServices();
+          onViewProfile();
         }}
         className="w-full border py-3 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-accent)]"
         style={{
@@ -357,7 +381,7 @@ const ExistingAppointmentState = ({
           borderColor: 'var(--n5-accent)',
         }}
       >
-        Browse Services
+        View Profile
       </motion.button>
     </motion.div>
   </div>
@@ -677,24 +701,33 @@ const NameCaptureModal = ({
 }) => (
   <AnimatePresence>
     {isOpen && (
-      <>
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] backdrop-blur-sm"
-          style={{ backgroundColor: 'color-mix(in srgb, var(--n5-ink-main) 40%, transparent)' }}
-          onClick={onSkip}
-        />
+        className="fixed inset-0 z-[60] flex items-center justify-center p-4 backdrop-blur-sm"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--n5-ink-main) 40%, transparent)',
+          // GPU layer for Android stability - prevents modal shift when keyboard opens
+          transform: 'translateZ(0)',
+          WebkitTransform: 'translateZ(0)',
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onSkip();
+        }}
+      >
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          className="fixed left-1/2 top-1/2 z-[70] w-[90%] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden bg-[var(--n5-bg-card)]"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="w-full max-w-sm overflow-hidden bg-[var(--n5-bg-card)]"
           style={{
             borderRadius: n5.radiusCard,
             boxShadow: n5.shadowLg,
+            // Prevent keyboard from pushing modal too high on Android
+            maxHeight: '85vh',
           }}
+          onClick={(e) => e.stopPropagation()}
         >
           <div style={{ padding: n5.spaceLg }}>
             <div className="mb-4 text-center">
@@ -745,7 +778,7 @@ const NameCaptureModal = ({
             </p>
           </div>
         </motion.div>
-      </>
+      </motion.div>
     )}
   </AnimatePresence>
 );
@@ -909,7 +942,6 @@ export function BookConfirmClient({
     return (
       <ExistingAppointmentState
         onViewProfile={() => router.push(`/${locale}/profile`)}
-        onBrowseServices={() => router.push(`/${locale}/book/service`)}
       />
     );
   }

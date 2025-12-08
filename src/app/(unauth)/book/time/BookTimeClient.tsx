@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -138,6 +138,38 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
+  // Ref for smooth scrolling to morning time slots
+  const morningSlotsRef = useRef<HTMLDivElement>(null);
+
+  // Custom smooth scroll with adjustable duration
+  const smoothScrollTo = useCallback((targetY: number, duration: number): Promise<void> => {
+    return new Promise((resolve) => {
+      const startY = window.scrollY;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      const easeInOutCubic = (t: number): number => {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      };
+
+      const step = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeProgress = easeInOutCubic(progress);
+        
+        window.scrollTo(0, startY + difference * easeProgress);
+
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else {
+          resolve();
+        }
+      };
+
+      requestAnimationFrame(step);
+    });
+  }, []);
+
   const allTimeSlots = generateTimeSlots();
 
   // Fetch booked slots for selected date and technician
@@ -265,9 +297,27 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
     }
   };
 
-  const handleDateSelect = (date: Date) => {
+  const handleDateSelect = async (date: Date) => {
     if (date >= today) {
       setSelectedDate(date);
+      // Wait for slots to load
+      setTimeout(async () => {
+        if (!morningSlotsRef.current) return;
+        
+        // Calculate position to show morning card at bottom of viewport
+        const rect = morningSlotsRef.current.getBoundingClientRect();
+        const targetY = window.scrollY + rect.bottom - window.innerHeight;
+        
+        // First scroll - slow and smooth to morning card (800ms)
+        await smoothScrollTo(Math.max(0, targetY), 800);
+        
+        // Pause for 150ms
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        // Second scroll - continue to bottom (1200ms)
+        const bottomY = document.documentElement.scrollHeight - window.innerHeight;
+        await smoothScrollTo(bottomY, 1200);
+      }, 400);
     }
   };
 
@@ -574,7 +624,8 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             {/* Morning Times */}
             {morningSlots.length > 0 && !loadingSlots && (
               <div
-                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                ref={morningSlotsRef}
+                className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
                 style={{
                   borderWidth: '1px',
                   borderStyle: 'solid',

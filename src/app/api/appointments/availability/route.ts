@@ -1,11 +1,11 @@
-import { and, eq, gte, inArray, lt } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, lte } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
-import { appointmentSchema, technicianSchema, type WeeklySchedule } from '@/models/Schema';
+import { appointmentSchema, technicianSchema, technicianTimeOffSchema, type WeeklySchedule } from '@/models/Schema';
 
 // =============================================================================
 // GET /api/appointments/availability
@@ -17,6 +17,9 @@ import { appointmentSchema, technicianSchema, type WeeklySchedule } from '@/mode
 
 // Buffer time between appointments (cleanup time)
 const BUFFER_MINUTES = 10;
+
+// Toronto timezone - all schedule times are stored in Toronto local time
+const TORONTO_TZ = 'America/Toronto';
 
 // Days of week mapping
 const DAY_NAMES: (keyof WeeklySchedule)[] = [
@@ -82,9 +85,12 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // Parse the date to get day of week
+    // Use Toronto timezone to ensure correct day-of-week calculation on UTC servers
     const [year, month, day] = date.split('-').map(Number);
     const selectedDate = new Date(year!, month! - 1, day!);
-    const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
+    // Convert to Toronto timezone before getting day of week
+    const selectedDateInToronto = new Date(selectedDate.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
+    const dayOfWeek = selectedDateInToronto.getDay(); // 0 = Sunday, 6 = Saturday
     const dayName = DAY_NAMES[dayOfWeek]!;
 
     // Calculate date range for the given day
@@ -135,6 +141,31 @@ export async function GET(request: Request): Promise<Response> {
             eq(technicianSchema.isActive, true),
           ),
         );
+    }
+
+    // Filter out technicians who are on time off for this date
+    if (technicians.length > 0) {
+      try {
+        const techIds = technicians.map(t => t.id);
+        const techsOnTimeOff = await db
+          .select({ technicianId: technicianTimeOffSchema.technicianId })
+          .from(technicianTimeOffSchema)
+          .where(
+            and(
+              inArray(technicianTimeOffSchema.technicianId, techIds),
+              lte(technicianTimeOffSchema.startDate, selectedDate),
+              gte(technicianTimeOffSchema.endDate, selectedDate),
+            ),
+          );
+
+        if (techsOnTimeOff.length > 0) {
+          const timeOffTechIds = new Set(techsOnTimeOff.map(t => t.technicianId));
+          technicians = technicians.filter(t => !timeOffTechIds.has(t.id));
+        }
+      } catch (timeOffError) {
+        // Table might not exist yet - continue without time off filtering
+        console.warn('Time off query failed (table may not exist):', timeOffError);
+      }
     }
 
     // If no technicians found, all slots are unavailable

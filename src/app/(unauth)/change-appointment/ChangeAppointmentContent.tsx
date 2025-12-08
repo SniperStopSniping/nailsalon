@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -204,6 +204,40 @@ export function ChangeAppointmentClient({
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
+  // Ref for smooth scrolling to morning time slots
+  const morningSlotsRef = useRef<HTMLDivElement>(null);
+  // Ref to track if we should scroll after loading completes
+  const pendingScrollRef = useRef(false);
+
+  // Custom smooth scroll with adjustable duration
+  const smoothScrollTo = useCallback((targetY: number, duration: number): Promise<void> => {
+    return new Promise((resolve) => {
+      const startY = window.scrollY;
+      const difference = targetY - startY;
+      const startTime = performance.now();
+
+      const easeInOutCubic = (t: number): number => {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      };
+
+      const step = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeProgress = easeInOutCubic(progress);
+        
+        window.scrollTo(0, startY + difference * easeProgress);
+
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else {
+          resolve();
+        }
+      };
+
+      requestAnimationFrame(step);
+    });
+  }, []);
+
   const allTimeSlots = generateTimeSlots();
 
   // Fetch booked slots for selected date and technician
@@ -243,6 +277,34 @@ export function ChangeAppointmentClient({
       fetchBookedSlots(selectedDate);
     }
   }, [selectedDate, mounted, fetchBookedSlots]);
+
+  // Smooth scroll to time slots after loading completes
+  useEffect(() => {
+    if (pendingScrollRef.current && !loadingSlots) {
+      pendingScrollRef.current = false;
+      
+      // Small delay to ensure DOM is rendered after loading state change
+      const timer = setTimeout(async () => {
+        if (!morningSlotsRef.current) return;
+        
+        // Calculate position to show morning card at bottom of viewport
+        const rect = morningSlotsRef.current.getBoundingClientRect();
+        const targetY = window.scrollY + rect.bottom - window.innerHeight;
+        
+        // First scroll - slow and smooth to morning card (800ms)
+        await smoothScrollTo(Math.max(0, targetY), 800);
+        
+        // Pause for 150ms
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        // Second scroll - continue to bottom (1200ms)
+        const bottomY = document.documentElement.scrollHeight - window.innerHeight;
+        await smoothScrollTo(bottomY, 1200);
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loadingSlots, smoothScrollTo]);
 
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
@@ -285,6 +347,8 @@ export function ChangeAppointmentClient({
       setSelectedDate(date);
       // Clear selected time when date changes (user needs to re-select)
       setSelectedTime('');
+      // Mark that we want to scroll after loading completes
+      pendingScrollRef.current = true;
     }
   };
 
@@ -614,7 +678,8 @@ export function ChangeAppointmentClient({
             {/* Morning Times */}
             {morningSlots.length > 0 && !loadingSlots && (
               <div
-                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                ref={morningSlotsRef}
+                className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
                 style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
               >
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">

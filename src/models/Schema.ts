@@ -195,10 +195,29 @@ export const technicianSchema = pgTable(
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
 
+    // Contact
+    email: text('email'),
+    phone: text('phone'),
+
+    // Role & Compensation
+    // commissionRate stored as decimal: 0.4 = 40%
+    role: text('role').default('tech'),
+    commissionRate: numeric('commission_rate', { precision: 5, scale: 2 }).default('0'),
+    payType: text('pay_type').default('commission'),
+    hourlyRate: numeric('hourly_rate', { precision: 8, scale: 2 }),
+    salaryAmount: numeric('salary_amount', { precision: 10, scale: 2 }),
+
+    // Real-time Status
+    currentStatus: text('current_status').default('available'),
+
     // Professional
     specialties: jsonb('specialties').$type<string[]>(),
     rating: numeric('rating', { precision: 2, scale: 1 }),
     reviewCount: integer('review_count').default(0),
+
+    // Skills
+    languages: jsonb('languages').$type<string[]>(),
+    skillLevel: text('skill_level').default('standard'),
 
     // Availability - Per-day schedule with start/end times
     // null for a day means day off
@@ -216,6 +235,25 @@ export const technicianSchema = pgTable(
     workDays: jsonb('work_days').$type<number[]>(), // [1, 2, 3, 4, 5] = Mon-Fri
     startTime: text('start_time'), // "09:00"
     endTime: text('end_time'), // "18:00"
+
+    // Admin
+    notes: text('notes'),
+    displayOrder: integer('display_order').default(0),
+
+    // Future Auth Link (nullable, no FK constraint yet)
+    userId: text('user_id'),
+
+    // Employment Lifecycle
+    hiredAt: timestamp('hired_at', { mode: 'date' }).defaultNow(),
+    terminatedAt: timestamp('terminated_at', { mode: 'date' }),
+    returnDate: timestamp('return_date', { mode: 'date' }),
+    onboardingStatus: text('onboarding_status').default('pending'),
+
+    // Booking Settings
+    acceptingNewClients: boolean('accepting_new_clients').default(true),
+
+    // Multi-location Hook
+    primaryLocationId: text('primary_location_id'),
 
     // Status
     isActive: boolean('is_active').default(true),
@@ -244,6 +282,10 @@ export const technicianServicesSchema = pgTable(
     serviceId: text('service_id')
       .notNull()
       .references(() => serviceSchema.id),
+    // Custom ordering for this tech's services
+    priority: integer('priority').default(0),
+    // Toggle service without removing the relationship
+    enabled: boolean('enabled').default(true),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.technicianId, table.serviceId] }),
@@ -806,3 +848,19 @@ export const THEMEABLE_PAGES = [
   'invite',
 ] as const;
 export type ThemeablePage = (typeof THEMEABLE_PAGES)[number];
+
+// Staff Management Constants
+export const STAFF_ROLES = ['tech', 'junior', 'senior', 'admin', 'front_desk'] as const;
+export type StaffRole = (typeof STAFF_ROLES)[number];
+
+export const STAFF_STATUSES = ['available', 'busy', 'break', 'off'] as const;
+export type StaffStatus = (typeof STAFF_STATUSES)[number];
+
+export const SKILL_LEVELS = ['junior', 'standard', 'senior', 'master'] as const;
+export type SkillLevel = (typeof SKILL_LEVELS)[number];
+
+export const PAY_TYPES = ['commission', 'hourly', 'salary'] as const;
+export type PayType = (typeof PAY_TYPES)[number];
+
+export const ONBOARDING_STATUSES = ['pending', 'active', 'offboarded'] as const;
+export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];

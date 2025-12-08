@@ -130,6 +130,7 @@ export async function getServiceById(
  */
 export type TechnicianWithServices = Technician & {
   serviceIds: string[];
+  enabledServiceIds: string[];
 };
 
 /**
@@ -159,19 +160,79 @@ export async function getTechniciansBySalonId(
     .from(technicianServicesSchema)
     .where(inArray(technicianServicesSchema.technicianId, technicianIds));
 
-  // Build a map of technician ID to service IDs
+  // Build a map of technician ID to service IDs (all assigned + only enabled)
   const techServiceMap = new Map<string, string[]>();
+  const techEnabledServiceMap = new Map<string, string[]>();
   for (const assoc of serviceAssociations) {
     const existing = techServiceMap.get(assoc.technicianId) ?? [];
     existing.push(assoc.serviceId);
     techServiceMap.set(assoc.technicianId, existing);
+    
+    // Only add to enabled map if enabled is true
+    if (assoc.enabled) {
+      const enabledExisting = techEnabledServiceMap.get(assoc.technicianId) ?? [];
+      enabledExisting.push(assoc.serviceId);
+      techEnabledServiceMap.set(assoc.technicianId, enabledExisting);
+    }
   }
 
   // Combine technicians with their service IDs
   return technicians.map(tech => ({
     ...tech,
     serviceIds: techServiceMap.get(tech.id) ?? [],
+    enabledServiceIds: techEnabledServiceMap.get(tech.id) ?? [],
   }));
+}
+
+/**
+ * Get technicians who can perform a specific service
+ * @param salonId - The salon's unique ID
+ * @param serviceId - The service ID to filter by
+ * @param clientPhone - Optional client phone to check returning client status
+ * @returns Array of technicians who can perform the service
+ */
+export async function getTechniciansForService(
+  salonId: string,
+  serviceId: string,
+  clientPhone?: string,
+): Promise<TechnicianWithServices[]> {
+  // Get all active technicians
+  const allTechnicians = await getTechniciansBySalonId(salonId);
+  
+  // Filter to those who have this service enabled
+  let eligibleTechnicians = allTechnicians.filter(
+    tech => tech.enabledServiceIds.includes(serviceId)
+  );
+  
+  // If client phone provided, filter by acceptingNewClients
+  if (clientPhone) {
+    // Check which technicians have seen this client before
+    const clientAppointments = await db
+      .select({ technicianId: appointmentSchema.technicianId })
+      .from(appointmentSchema)
+      .where(
+        and(
+          eq(appointmentSchema.salonId, salonId),
+          eq(appointmentSchema.clientPhone, clientPhone),
+          eq(appointmentSchema.status, 'completed'),
+        ),
+      );
+    
+    const returningTechIds = new Set(
+      clientAppointments.map(a => a.technicianId).filter(Boolean) as string[]
+    );
+    
+    // Filter: if tech doesn't accept new clients, only include if client is returning
+    eligibleTechnicians = eligibleTechnicians.filter(tech => {
+      if (tech.acceptingNewClients) return true;
+      return returningTechIds.has(tech.id);
+    });
+  } else {
+    // No client phone - only show techs accepting new clients
+    eligibleTechnicians = eligibleTechnicians.filter(tech => tech.acceptingNewClients);
+  }
+  
+  return eligibleTechnicians;
 }
 
 /**
@@ -210,6 +271,7 @@ export async function getTechnicianById(
   return {
     ...technician,
     serviceIds: serviceAssociations.map(a => a.serviceId),
+    enabledServiceIds: serviceAssociations.filter(a => a.enabled).map(a => a.serviceId),
   };
 }
 

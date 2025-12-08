@@ -352,17 +352,17 @@ export function BookConfirmClient({
             View / Change Appointment
           </button>
 
-          {/* Secondary - Go back to browse services */}
+          {/* Secondary - View Profile */}
           <button
             type="button"
-            onClick={() => router.push(`/${locale}/book/service`)}
+            onClick={() => router.push(`/${locale}/profile`)}
             className="w-full rounded-2xl border-2 bg-white px-6 py-3 font-bold transition-all active:scale-[0.98]"
             style={{
               borderColor: themeVars.accent,
               color: themeVars.accent,
             }}
           >
-            Browse Services
+            View Profile
           </button>
         </div>
       </div>
@@ -527,6 +527,9 @@ export function BookConfirmClient({
           style={{
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
             animation: 'modal-backdrop-fade 0.3s ease-out forwards',
+            // GPU layer for Android stability - prevents modal shift when keyboard opens
+            transform: 'translateZ(0)',
+            WebkitTransform: 'translateZ(0)',
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) handleSkipName();
@@ -536,7 +539,10 @@ export function BookConfirmClient({
             className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl"
             style={{
               animation: 'modal-fade-in 0.3s ease-out forwards',
+              // Prevent keyboard from pushing modal too high on Android
+              maxHeight: '85vh',
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 text-center">
               <div className="mb-3 text-4xl">👋</div>
