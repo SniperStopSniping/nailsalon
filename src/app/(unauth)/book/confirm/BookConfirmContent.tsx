@@ -78,12 +78,16 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
   useEffect(() => {
     setMounted(true);
-    // Load saved phone/name from cookie
-    const savedPhone = document.cookie.split('; ').find(row => row.startsWith('client_phone='))?.split('=')[1];
+    // Use clientPhone from URL if provided (e.g., for rescheduling), otherwise load from cookie
+    if (clientPhone) {
+      setPhone(formatPhone(clientPhone));
+    } else {
+      const savedPhone = document.cookie.split('; ').find(row => row.startsWith('client_phone='))?.split('=')[1];
+      if (savedPhone) setPhone(decodeURIComponent(savedPhone));
+    }
     const savedName = document.cookie.split('; ').find(row => row.startsWith('client_name='))?.split('=')[1];
-    if (savedPhone) setPhone(decodeURIComponent(savedPhone));
     if (savedName) setName(decodeURIComponent(savedName));
-  }, []);
+  }, [clientPhone]);
 
   const handleBack = () => {
     router.back();
