@@ -28,7 +28,12 @@ export default function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
-  // Skip middleware entirely for API routes
+  // Super-admin API routes need Clerk auth
+  if (request.nextUrl.pathname.startsWith('/api/super-admin')) {
+    return clerkMiddleware()(request, event);
+  }
+
+  // Skip middleware entirely for other API routes
   if (request.nextUrl.pathname.startsWith('/api')) {
     return NextResponse.next();
   }
