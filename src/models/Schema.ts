@@ -81,6 +81,23 @@ export const salonSchema = pgTable(
     slug: text('slug').notNull().unique(),
     customDomain: text('custom_domain'),
 
+    // Ownership (non-unique - one Clerk user can own multiple salons)
+    ownerClerkUserId: text('owner_clerk_user_id'),
+
+    // Plan & Billing
+    plan: text('plan').default('single_salon'),
+    // 'free' | 'single_salon' | 'multi_salon' | 'enterprise'
+    maxLocations: integer('max_locations').default(1),
+    maxTechnicians: integer('max_technicians').default(10),
+    isMultiLocationEnabled: boolean('is_multi_location_enabled').default(false),
+
+    // Salon Status (for super admin control)
+    status: text('status').default('active'),
+    // 'active' | 'suspended' | 'trial' | 'cancelled'
+
+    // Internal Notes (super admin only, not visible to salon admins)
+    internalNotes: text('internal_notes'),
+
     // Branding
     themeKey: text('theme_key').default('nail-salon-no5'),
     logoUrl: text('logo_url'),
@@ -136,6 +153,8 @@ export const salonSchema = pgTable(
   (table) => ({
     slugIdx: uniqueIndex('salon_slug_idx').on(table.slug),
     customDomainIdx: uniqueIndex('salon_custom_domain_idx').on(table.customDomain),
+    ownerIdx: index('salon_owner_idx').on(table.ownerClerkUserId),
+    statusIdx: index('salon_status_idx').on(table.status),
   }),
 );
 
@@ -864,3 +883,10 @@ export type PayType = (typeof PAY_TYPES)[number];
 
 export const ONBOARDING_STATUSES = ['pending', 'active', 'offboarded'] as const;
 export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
+
+// Super Admin / Platform Constants
+export const ORG_PLANS = ['free', 'single_salon', 'multi_salon', 'enterprise'] as const;
+export type OrgPlan = (typeof ORG_PLANS)[number];
+
+export const ORG_STATUSES = ['active', 'suspended', 'trial', 'cancelled'] as const;
+export type OrgStatus = (typeof ORG_STATUSES)[number];
