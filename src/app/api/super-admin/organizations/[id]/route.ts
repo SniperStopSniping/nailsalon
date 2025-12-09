@@ -1,21 +1,18 @@
-import { auth, clerkClient } from '@clerk/nextjs/server';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { eq, sql, gte } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { isSuperAdmin } from '@/libs/super-admin';
+import { requireSuperAdmin } from '@/libs/superAdmin';
 import {
-  appointmentSchema,
-  clientPreferencesSchema,
-  ORG_PLANS,
-  ORG_STATUSES,
-  type OrgPlan,
-  type OrgStatus,
   salonSchema,
   technicianSchema,
+  appointmentSchema,
+  SALON_PLANS,
+  SALON_STATUSES,
+  type SalonPlan,
+  type SalonStatus,
 } from '@/models/Schema';
 
-// Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 // =============================================================================
@@ -24,144 +21,97 @@ export const dynamic = 'force-dynamic';
 
 const updateSalonSchema = z.object({
   name: z.string().min(1).optional(),
-  slug: z.string().min(1).regex(/^[a-z0-9-]+$/).optional(),
-  ownerClerkUserId: z.string().nullable().optional(),
-  plan: z.enum(ORG_PLANS).optional(),
-  status: z.enum(ORG_STATUSES).optional(),
-  maxLocations: z.number().min(1).optional(),
-  maxTechnicians: z.number().min(1).optional(),
+  slug: z.string().min(1).optional(),
+  plan: z.enum(SALON_PLANS).optional(),
+  status: z.enum(SALON_STATUSES).optional(),
+  maxLocations: z.coerce.number().min(1).optional(),
   isMultiLocationEnabled: z.boolean().optional(),
-  internalNotes: z.string().nullable().optional(),
+  ownerEmail: z.string().email().optional().nullable(),
+  ownerClerkUserId: z.string().optional().nullable(),
+  internalNotes: z.string().optional().nullable(),
 });
 
 // =============================================================================
-// HELPER: Verify Super Admin
-// =============================================================================
-
-async function verifySuperAdmin(): Promise<{ authorized: false; response: Response } | { authorized: true; userEmail: string }> {
-  const { userId } = await auth();
-
-  if (!userId) {
-    return {
-      authorized: false,
-      response: Response.json({ error: 'Unauthorized' }, { status: 401 }),
-    };
-  }
-
-  const clerk = await clerkClient();
-  const user = await clerk.users.getUser(userId);
-  const userEmail = user.emailAddresses[0]?.emailAddress ?? '';
-
-  if (!isSuperAdmin(userEmail)) {
-    return {
-      authorized: false,
-      response: Response.json({ error: 'Forbidden - Super Admin access required' }, { status: 403 }),
-    };
-  }
-
-  return { authorized: true, userEmail };
-}
-
-// =============================================================================
-// GET /api/super-admin/organizations/[id] - Get salon details
+// GET /api/super-admin/organizations/[id] - Get salon detail
 // =============================================================================
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  try {
-    const authResult = await verifySuperAdmin();
-    if (!authResult.authorized) {
-      return authResult.response;
-    }
+  const guard = await requireSuperAdmin();
+  if (guard) return guard;
 
+  try {
     const { id } = await params;
 
-    // Get the salon
-    const salons = await db
+    // Get salon
+    const [salon] = await db
       .select()
       .from(salonSchema)
       .where(eq(salonSchema.id, id))
       .limit(1);
 
-    const salon = salons[0];
     if (!salon) {
-      return Response.json({ error: 'Organization not found' }, { status: 404 });
+      return Response.json(
+        { error: 'Salon not found' },
+        { status: 404 },
+      );
     }
 
     // Get technician count
-    const techCountResult = await db
+    const [techCount] = await db
       .select({ count: sql<number>`count(*)` })
       .from(technicianSchema)
-      .where(and(
-        eq(technicianSchema.salonId, id),
-        eq(technicianSchema.isActive, true),
-      ));
-    const techniciansCount = Number(techCountResult[0]?.count ?? 0);
+      .where(eq(technicianSchema.salonId, id));
 
     // Get unique client count
-    const clientCountResult = await db
-      .select({ count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})` })
-      .from(clientPreferencesSchema)
-      .where(eq(clientPreferencesSchema.salonId, id));
-    const clientsCount = Number(clientCountResult[0]?.count ?? 0);
+    const [clientCount] = await db
+      .select({ count: sql<number>`count(distinct ${appointmentSchema.clientPhone})` })
+      .from(appointmentSchema)
+      .where(eq(appointmentSchema.salonId, id));
 
     // Get appointments last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const apptCountResult = await db
+    const [apptCount] = await db
       .select({ count: sql<number>`count(*)` })
       .from(appointmentSchema)
-      .where(and(
-        eq(appointmentSchema.salonId, id),
-        gte(appointmentSchema.createdAt, thirtyDaysAgo),
-      ));
-    const appointmentsLast30Days = Number(apptCountResult[0]?.count ?? 0);
+      .where(eq(appointmentSchema.salonId, id));
 
-    // Get owner info from Clerk
-    let owner: { id: string; email: string; name: string | null } | null = null;
-    if (salon.ownerClerkUserId) {
-      try {
-        const clerk = await clerkClient();
-        const user = await clerk.users.getUser(salon.ownerClerkUserId);
-        owner = {
-          id: user.id,
-          email: user.emailAddresses[0]?.emailAddress ?? '',
-          name: user.firstName ? `${user.firstName} ${user.lastName ?? ''}`.trim() : null,
-        };
-      } catch {
-        // User might not exist
-      }
-    }
+    const [apptLast30d] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(appointmentSchema)
+      .where(eq(appointmentSchema.salonId, id))
+      .where(gte(appointmentSchema.createdAt, thirtyDaysAgo));
 
     return Response.json({
-      data: {
+      salon: {
         id: salon.id,
         name: salon.name,
         slug: salon.slug,
-        plan: salon.plan as OrgPlan,
-        status: salon.status as OrgStatus,
+        plan: (salon.plan || 'single_salon') as SalonPlan,
+        status: (salon.status || 'active') as SalonStatus,
         maxLocations: salon.maxLocations ?? 1,
-        maxTechnicians: salon.maxTechnicians ?? 10,
         isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        ownerEmail: salon.ownerEmail,
+        ownerClerkUserId: salon.ownerClerkUserId,
         internalNotes: salon.internalNotes,
         createdAt: salon.createdAt.toISOString(),
-        owner,
-        locations: [
-          // For now, single location per salon
-          { id: salon.id, name: salon.name },
-        ],
-        techniciansCount,
-        clientsCount,
-        appointmentsLast30Days,
+        updatedAt: salon.updatedAt.toISOString(),
+      },
+      metrics: {
+        locationsCount: 1, // For now, assume 1 location per salon
+        techsCount: Number(techCount?.count ?? 0),
+        clientsCount: Number(clientCount?.count ?? 0),
+        appointmentsLast30d: Number(apptLast30d?.count ?? 0),
       },
     });
   } catch (error) {
-    console.error('Error getting organization:', error);
+    console.error('Error fetching salon:', error);
     return Response.json(
-      { error: 'Failed to get organization' },
+      { error: 'Failed to fetch salon' },
       { status: 500 },
     );
   }
@@ -175,12 +125,10 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  try {
-    const authResult = await verifySuperAdmin();
-    if (!authResult.authorized) {
-      return authResult.response;
-    }
+  const guard = await requireSuperAdmin();
+  if (guard) return guard;
 
+  try {
     const { id } = await params;
     const body = await request.json();
 
@@ -193,27 +141,30 @@ export async function PUT(
     }
 
     // Check salon exists
-    const existing = await db
+    const [existing] = await db
       .select()
       .from(salonSchema)
       .where(eq(salonSchema.id, id))
       .limit(1);
 
-    if (existing.length === 0) {
-      return Response.json({ error: 'Organization not found' }, { status: 404 });
+    if (!existing) {
+      return Response.json(
+        { error: 'Salon not found' },
+        { status: 404 },
+      );
     }
 
     const updates = validated.data;
 
-    // If changing slug, check it's not taken
-    if (updates.slug && updates.slug !== existing[0]!.slug) {
-      const slugExists = await db
+    // If slug is being changed, check for duplicates
+    if (updates.slug && updates.slug !== existing.slug) {
+      const [duplicateSlug] = await db
         .select()
         .from(salonSchema)
         .where(eq(salonSchema.slug, updates.slug))
         .limit(1);
 
-      if (slugExists.length > 0) {
+      if (duplicateSlug) {
         return Response.json(
           { error: 'A salon with this slug already exists' },
           { status: 409 },
@@ -221,109 +172,44 @@ export async function PUT(
       }
     }
 
-    // If changing owner, verify they exist
-    if (updates.ownerClerkUserId !== undefined && updates.ownerClerkUserId !== null) {
-      try {
-        const clerk = await clerkClient();
-        await clerk.users.getUser(updates.ownerClerkUserId);
-      } catch {
-        return Response.json(
-          { error: 'Owner user not found' },
-          { status: 404 },
-        );
-      }
+    // Business logic: if plan changes to multi_salon, ensure maxLocations >= 2
+    if (updates.plan === 'multi_salon' && (updates.maxLocations ?? existing.maxLocations ?? 1) < 2) {
+      updates.maxLocations = 2;
     }
 
-    // Apply plan logic: if upgrading to multi_salon, ensure maxLocations >= 2
-    if (updates.plan === 'multi_salon' || updates.plan === 'enterprise') {
-      const currentMaxLocations = updates.maxLocations ?? existing[0]!.maxLocations ?? 1;
-      if (currentMaxLocations < 2) {
-        updates.maxLocations = 2;
-      }
-    }
-
-    // If downgrading to single_salon, ensure maxLocations is at least 1
-    if (updates.plan === 'single_salon' || updates.plan === 'free') {
+    // Business logic: if plan changes to single_salon, ensure maxLocations is 1
+    if (updates.plan === 'single_salon') {
       updates.maxLocations = 1;
       updates.isMultiLocationEnabled = false;
     }
 
-    // Update the salon
+    // Update salon
     const [updated] = await db
       .update(salonSchema)
-      .set({
-        ...updates,
-        updatedAt: new Date(),
-      })
+      .set(updates)
       .where(eq(salonSchema.id, id))
       .returning();
 
-    // Get owner info for response
-    let owner: { id: string; email: string; name: string | null } | null = null;
-    if (updated!.ownerClerkUserId) {
-      try {
-        const clerk = await clerkClient();
-        const user = await clerk.users.getUser(updated!.ownerClerkUserId);
-        owner = {
-          id: user.id,
-          email: user.emailAddresses[0]?.emailAddress ?? '',
-          name: user.firstName ? `${user.firstName} ${user.lastName ?? ''}`.trim() : null,
-        };
-      } catch {
-        // User might not exist
-      }
-    }
-
-    // Get counts for response
-    const techCountResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(technicianSchema)
-      .where(and(
-        eq(technicianSchema.salonId, id),
-        eq(technicianSchema.isActive, true),
-      ));
-    const techniciansCount = Number(techCountResult[0]?.count ?? 0);
-
-    const clientCountResult = await db
-      .select({ count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})` })
-      .from(clientPreferencesSchema)
-      .where(eq(clientPreferencesSchema.salonId, id));
-    const clientsCount = Number(clientCountResult[0]?.count ?? 0);
-
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const apptCountResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(appointmentSchema)
-      .where(and(
-        eq(appointmentSchema.salonId, id),
-        gte(appointmentSchema.createdAt, thirtyDaysAgo),
-      ));
-    const appointmentsLast30Days = Number(apptCountResult[0]?.count ?? 0);
-
     return Response.json({
-      data: {
+      salon: {
         id: updated!.id,
         name: updated!.name,
         slug: updated!.slug,
-        plan: updated!.plan as OrgPlan,
-        status: updated!.status as OrgStatus,
+        plan: (updated!.plan || 'single_salon') as SalonPlan,
+        status: (updated!.status || 'active') as SalonStatus,
         maxLocations: updated!.maxLocations ?? 1,
-        maxTechnicians: updated!.maxTechnicians ?? 10,
         isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
+        ownerEmail: updated!.ownerEmail,
+        ownerClerkUserId: updated!.ownerClerkUserId,
         internalNotes: updated!.internalNotes,
         createdAt: updated!.createdAt.toISOString(),
-        owner,
-        locations: [{ id: updated!.id, name: updated!.name }],
-        techniciansCount,
-        clientsCount,
-        appointmentsLast30Days,
+        updatedAt: updated!.updatedAt.toISOString(),
       },
     });
   } catch (error) {
-    console.error('Error updating organization:', error);
+    console.error('Error updating salon:', error);
     return Response.json(
-      { error: 'Failed to update organization' },
+      { error: 'Failed to update salon' },
       { status: 500 },
     );
   }

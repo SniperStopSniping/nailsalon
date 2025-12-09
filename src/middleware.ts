@@ -19,6 +19,8 @@ const isProtectedRoute = createRouteMatcher([
   '/:locale/dashboard(.*)',
   '/onboarding(.*)',
   '/:locale/onboarding(.*)',
+  '/super-admin(.*)',
+  '/:locale/super-admin(.*)',
   // API routes are handled separately - no auth for booking flow
 ]);
 

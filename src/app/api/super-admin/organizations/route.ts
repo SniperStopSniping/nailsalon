@@ -1,22 +1,20 @@
-import { auth, clerkClient } from '@clerk/nextjs/server';
-import { and, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
+import { eq, ilike, or, sql, and, gte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { isSuperAdmin } from '@/libs/super-admin';
+import { requireSuperAdmin } from '@/libs/superAdmin';
 import {
-  appointmentSchema,
-  clientPreferencesSchema,
-  ORG_PLANS,
-  ORG_STATUSES,
-  type OrgPlan,
-  type OrgStatus,
   salonSchema,
   technicianSchema,
+  appointmentSchema,
+  clientSchema,
+  SALON_PLANS,
+  SALON_STATUSES,
+  type SalonPlan,
+  type SalonStatus,
 } from '@/models/Schema';
 
-// Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 // =============================================================================
@@ -24,63 +22,31 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 
 const listQuerySchema = z.object({
-  search: z.string().optional(),
-  status: z.enum(ORG_STATUSES).optional(),
-  plan: z.enum(ORG_PLANS).optional(),
+  q: z.string().optional(),
+  plan: z.enum(SALON_PLANS).optional(),
+  status: z.enum(SALON_STATUSES).optional(),
   page: z.coerce.number().min(1).optional().default(1),
-  limit: z.coerce.number().min(1).max(100).optional().default(20),
+  pageSize: z.coerce.number().min(1).max(100).optional().default(20),
 });
 
 const createSalonSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
-  ownerClerkUserId: z.string().optional(),
-  plan: z.enum(ORG_PLANS).optional().default('single_salon'),
-  maxLocations: z.number().min(1).optional().default(1),
-  maxTechnicians: z.number().min(1).optional().default(10),
+  slug: z.string().min(1, 'Slug is required'),
+  ownerEmail: z.string().email().optional().nullable(),
+  plan: z.enum(SALON_PLANS).optional().default('single_salon'),
+  maxLocations: z.coerce.number().min(1).optional().default(1),
   isMultiLocationEnabled: z.boolean().optional().default(false),
 });
-
-// =============================================================================
-// HELPER: Verify Super Admin
-// =============================================================================
-
-async function verifySuperAdmin(): Promise<{ authorized: false; response: Response } | { authorized: true; userEmail: string }> {
-  const { userId } = await auth();
-
-  if (!userId) {
-    return {
-      authorized: false,
-      response: Response.json({ error: 'Unauthorized' }, { status: 401 }),
-    };
-  }
-
-  // Get user email from Clerk
-  const clerk = await clerkClient();
-  const user = await clerk.users.getUser(userId);
-  const userEmail = user.emailAddresses[0]?.emailAddress ?? '';
-
-  if (!isSuperAdmin(userEmail)) {
-    return {
-      authorized: false,
-      response: Response.json({ error: 'Forbidden - Super Admin access required' }, { status: 403 }),
-    };
-  }
-
-  return { authorized: true, userEmail };
-}
 
 // =============================================================================
 // GET /api/super-admin/organizations - List all salons
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
-  try {
-    const authResult = await verifySuperAdmin();
-    if (!authResult.authorized) {
-      return authResult.response;
-    }
+  const guard = await requireSuperAdmin();
+  if (guard) return guard;
 
+  try {
     const { searchParams } = new URL(request.url);
     const queryParams = Object.fromEntries(searchParams.entries());
 
@@ -92,27 +58,27 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const { search, status, plan, page, limit } = validated.data;
+    const { q, plan, status, page, pageSize } = validated.data;
 
     // Build conditions
     const conditions = [];
 
-    if (status) {
-      conditions.push(eq(salonSchema.status, status));
+    if (q && q.trim()) {
+      conditions.push(
+        or(
+          ilike(salonSchema.name, `%${q}%`),
+          ilike(salonSchema.slug, `%${q}%`),
+          ilike(salonSchema.ownerEmail, `%${q}%`),
+        ),
+      );
     }
 
     if (plan) {
       conditions.push(eq(salonSchema.plan, plan));
     }
 
-    if (search) {
-      conditions.push(
-        or(
-          ilike(salonSchema.name, `%${search}%`),
-          ilike(salonSchema.slug, `%${search}%`),
-          ilike(salonSchema.email, `%${search}%`),
-        ),
-      );
+    if (status) {
+      conditions.push(eq(salonSchema.status, status));
     }
 
     // Get total count
@@ -120,46 +86,42 @@ export async function GET(request: Request): Promise<Response> {
       .select({ count: sql<number>`count(*)` })
       .from(salonSchema)
       .where(conditions.length > 0 ? and(...conditions) : undefined);
-    const totalCount = Number(countResult[0]?.count ?? 0);
+    const total = Number(countResult[0]?.count ?? 0);
 
     // Get salons with pagination
-    const offset = (page - 1) * limit;
+    const offset = (page - 1) * pageSize;
     const salons = await db
       .select()
       .from(salonSchema)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(salonSchema.createdAt))
-      .limit(limit)
+      .orderBy(salonSchema.createdAt)
+      .limit(pageSize)
       .offset(offset);
 
     // Get counts for each salon
-    const salonIds = salons.map(s => s.id);
+    const salonIds = salons.map((s) => s.id);
 
     // Get technician counts
     const techCounts = salonIds.length > 0
       ? await db
-        .select({
-          salonId: technicianSchema.salonId,
-          count: sql<number>`count(*)`,
-        })
-        .from(technicianSchema)
-        .where(and(
-          sql`${technicianSchema.salonId} IN ${salonIds}`,
-          eq(technicianSchema.isActive, true),
-        ))
-        .groupBy(technicianSchema.salonId)
+          .select({
+            salonId: technicianSchema.salonId,
+            count: sql<number>`count(*)`,
+          })
+          .from(technicianSchema)
+          .where(eq(technicianSchema.isActive, true))
+          .groupBy(technicianSchema.salonId)
       : [];
 
-    // Get unique client counts (from clientPreferences which tracks clients per salon)
+    // Get unique client counts per salon (from appointments)
     const clientCounts = salonIds.length > 0
       ? await db
-        .select({
-          salonId: clientPreferencesSchema.salonId,
-          count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})`,
-        })
-        .from(clientPreferencesSchema)
-        .where(sql`${clientPreferencesSchema.salonId} IN ${salonIds}`)
-        .groupBy(clientPreferencesSchema.salonId)
+          .select({
+            salonId: appointmentSchema.salonId,
+            count: sql<number>`count(distinct ${appointmentSchema.clientPhone})`,
+          })
+          .from(appointmentSchema)
+          .groupBy(appointmentSchema.salonId)
       : [];
 
     // Get appointments last 30 days
@@ -168,71 +130,48 @@ export async function GET(request: Request): Promise<Response> {
 
     const apptCounts = salonIds.length > 0
       ? await db
-        .select({
-          salonId: appointmentSchema.salonId,
-          count: sql<number>`count(*)`,
-        })
-        .from(appointmentSchema)
-        .where(and(
-          sql`${appointmentSchema.salonId} IN ${salonIds}`,
-          gte(appointmentSchema.createdAt, thirtyDaysAgo),
-        ))
-        .groupBy(appointmentSchema.salonId)
+          .select({
+            salonId: appointmentSchema.salonId,
+            count: sql<number>`count(*)`,
+          })
+          .from(appointmentSchema)
+          .where(gte(appointmentSchema.createdAt, thirtyDaysAgo))
+          .groupBy(appointmentSchema.salonId)
       : [];
 
-    // Build count maps
-    const techCountMap = new Map(techCounts.map(t => [t.salonId, Number(t.count)]));
-    const clientCountMap = new Map(clientCounts.map(c => [c.salonId, Number(c.count)]));
-    const apptCountMap = new Map(apptCounts.map(a => [a.salonId, Number(a.count)]));
-
-    // Get owner emails from Clerk
-    const ownerIds = [...new Set(salons.map(s => s.ownerClerkUserId).filter(Boolean))] as string[];
-    const ownerEmailMap = new Map<string, string>();
-
-    if (ownerIds.length > 0) {
-      const clerk = await clerkClient();
-      for (const ownerId of ownerIds) {
-        try {
-          const user = await clerk.users.getUser(ownerId);
-          const email = user.emailAddresses[0]?.emailAddress;
-          if (email) {
-            ownerEmailMap.set(ownerId, email);
-          }
-        } catch {
-          // User might not exist anymore
-        }
-      }
-    }
+    // Build lookup maps
+    const techCountMap = new Map(techCounts.map((t) => [t.salonId, Number(t.count)]));
+    const clientCountMap = new Map(clientCounts.map((c) => [c.salonId, Number(c.count)]));
+    const apptCountMap = new Map(apptCounts.map((a) => [a.salonId, Number(a.count)]));
 
     // Format response
-    const data = salons.map(salon => ({
+    const items = salons.map((salon) => ({
       id: salon.id,
       name: salon.name,
       slug: salon.slug,
-      plan: salon.plan as OrgPlan,
-      status: salon.status as OrgStatus,
+      ownerEmail: salon.ownerEmail,
+      plan: (salon.plan || 'single_salon') as SalonPlan,
       maxLocations: salon.maxLocations ?? 1,
-      maxTechnicians: salon.maxTechnicians ?? 10,
       isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+      status: (salon.status || 'active') as SalonStatus,
       createdAt: salon.createdAt.toISOString(),
-      ownerEmail: salon.ownerClerkUserId ? ownerEmailMap.get(salon.ownerClerkUserId) ?? null : null,
-      ownerClerkUserId: salon.ownerClerkUserId,
-      locationsCount: 1, // For now, single location per salon until multi-location is implemented
-      techniciansCount: techCountMap.get(salon.id) ?? 0,
+      locationsCount: 1, // For now, assume 1 location per salon
+      techsCount: techCountMap.get(salon.id) ?? 0,
       clientsCount: clientCountMap.get(salon.id) ?? 0,
-      appointmentsLast30Days: apptCountMap.get(salon.id) ?? 0,
+      appointmentsLast30d: apptCountMap.get(salon.id) ?? 0,
     }));
 
     return Response.json({
-      data,
+      items,
       page,
-      totalPages: Math.ceil(totalCount / limit),
-      totalCount,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
     });
   } catch (error) {
-    console.error('Error listing organizations:', error);
+    console.error('Error listing salons:', error);
     return Response.json(
-      { error: 'Failed to list organizations' },
+      { error: 'Failed to list salons' },
       { status: 500 },
     );
   }
@@ -243,12 +182,10 @@ export async function GET(request: Request): Promise<Response> {
 // =============================================================================
 
 export async function POST(request: Request): Promise<Response> {
-  try {
-    const authResult = await verifySuperAdmin();
-    if (!authResult.authorized) {
-      return authResult.response;
-    }
+  const guard = await requireSuperAdmin();
+  if (guard) return guard;
 
+  try {
     const body = await request.json();
     const validated = createSalonSchema.safeParse(body);
 
@@ -259,9 +196,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { name, slug, ownerClerkUserId, plan, maxLocations, maxTechnicians, isMultiLocationEnabled } = validated.data;
+    const { name, slug, ownerEmail, plan, maxLocations, isMultiLocationEnabled } = validated.data;
 
-    // Check if slug already exists
+    // Check for duplicate slug
     const existingSlug = await db
       .select()
       .from(salonSchema)
@@ -275,22 +212,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Verify owner exists if provided
-    let ownerEmail: string | null = null;
-    if (ownerClerkUserId) {
-      try {
-        const clerk = await clerkClient();
-        const user = await clerk.users.getUser(ownerClerkUserId);
-        ownerEmail = user.emailAddresses[0]?.emailAddress ?? null;
-      } catch {
-        return Response.json(
-          { error: 'Owner user not found' },
-          { status: 404 },
-        );
-      }
-    }
-
-    // Create the salon
+    // Create salon
     const salonId = `salon_${nanoid()}`;
     const [newSalon] = await db
       .insert(salonSchema)
@@ -298,10 +220,9 @@ export async function POST(request: Request): Promise<Response> {
         id: salonId,
         name,
         slug,
-        ownerClerkUserId: ownerClerkUserId ?? null,
+        ownerEmail: ownerEmail ?? null,
         plan,
         maxLocations,
-        maxTechnicians,
         isMultiLocationEnabled,
         status: 'active',
         isActive: true,
@@ -309,28 +230,22 @@ export async function POST(request: Request): Promise<Response> {
       .returning();
 
     return Response.json({
-      data: {
+      salon: {
         id: newSalon!.id,
         name: newSalon!.name,
         slug: newSalon!.slug,
-        plan: newSalon!.plan as OrgPlan,
-        status: newSalon!.status as OrgStatus,
+        ownerEmail: newSalon!.ownerEmail,
+        plan: newSalon!.plan as SalonPlan,
         maxLocations: newSalon!.maxLocations ?? 1,
-        maxTechnicians: newSalon!.maxTechnicians ?? 10,
         isMultiLocationEnabled: newSalon!.isMultiLocationEnabled ?? false,
+        status: newSalon!.status as SalonStatus,
         createdAt: newSalon!.createdAt.toISOString(),
-        ownerEmail,
-        ownerClerkUserId: newSalon!.ownerClerkUserId,
-        locationsCount: 1,
-        techniciansCount: 0,
-        clientsCount: 0,
-        appointmentsLast30Days: 0,
       },
-    }, { status: 201 });
+    });
   } catch (error) {
-    console.error('Error creating organization:', error);
+    console.error('Error creating salon:', error);
     return Response.json(
-      { error: 'Failed to create organization' },
+      { error: 'Failed to create salon' },
       { status: 500 },
     );
   }
