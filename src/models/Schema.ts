@@ -140,6 +140,10 @@ export const salonSchema = pgTable(
     // Internal (super admin only, nullable)
     internalNotes: text('internal_notes'),
 
+    // Soft delete (super admin)
+    deletedAt: timestamp('deleted_at', { mode: 'date' }),
+    deletedBy: text('deleted_by'),
+
     // Metadata
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
@@ -151,6 +155,7 @@ export const salonSchema = pgTable(
   (table) => ({
     slugIdx: uniqueIndex('salon_slug_idx').on(table.slug),
     customDomainIdx: uniqueIndex('salon_custom_domain_idx').on(table.customDomain),
+    deletedAtIdx: index('salon_deleted_at_idx').on(table.deletedAt),
   }),
 );
 
@@ -719,6 +724,90 @@ export const salonPageAppearanceSchema = pgTable(
   }),
 );
 
+// -----------------------------------------------------------------------------
+// SalonAuditLog - Track super admin actions on salons
+// -----------------------------------------------------------------------------
+export const salonAuditLogSchema = pgTable(
+  'salon_audit_log',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    // Action performed
+    action: text('action').notNull(), // 'created' | 'updated' | 'deleted' | 'restored' | 'owner_changed' | 'plan_changed' | 'status_changed' | 'data_reset'
+
+    // Who performed the action
+    performedBy: text('performed_by').notNull(), // Clerk user ID
+    performedByEmail: text('performed_by_email'),
+
+    // Additional metadata (JSON)
+    metadata: jsonb('metadata').$type<{
+      previousValue?: unknown;
+      newValue?: unknown;
+      field?: string;
+      details?: string;
+    }>(),
+
+    // Timestamp
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    salonIdx: index('audit_log_salon_idx').on(table.salonId),
+    actionIdx: index('audit_log_action_idx').on(table.action),
+    createdIdx: index('audit_log_created_idx').on(table.createdAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// SalonLocation - Multi-location support for salons
+// -----------------------------------------------------------------------------
+export const salonLocationSchema = pgTable(
+  'salon_location',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    // Location details
+    name: text('name').notNull(),
+    address: text('address'),
+    city: text('city'),
+    state: text('state'),
+    zipCode: text('zip_code'),
+    phone: text('phone'),
+    email: text('email'),
+
+    // Operating hours (same format as salon)
+    businessHours: jsonb('business_hours').$type<{
+      monday: { open: string; close: string } | null;
+      tuesday: { open: string; close: string } | null;
+      wednesday: { open: string; close: string } | null;
+      thursday: { open: string; close: string } | null;
+      friday: { open: string; close: string } | null;
+      saturday: { open: string; close: string } | null;
+      sunday: { open: string; close: string } | null;
+    }>(),
+
+    // Status
+    isPrimary: boolean('is_primary').default(false),
+    isActive: boolean('is_active').default(true),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    salonIdx: index('location_salon_idx').on(table.salonId),
+    primaryIdx: index('location_primary_idx').on(table.salonId, table.isPrimary),
+  }),
+);
+
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
@@ -776,6 +865,12 @@ export type NewTechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$infer
 
 export type SalonPageAppearance = typeof salonPageAppearanceSchema.$inferSelect;
 export type NewSalonPageAppearance = typeof salonPageAppearanceSchema.$inferInsert;
+
+export type SalonAuditLog = typeof salonAuditLogSchema.$inferSelect;
+export type NewSalonAuditLog = typeof salonAuditLogSchema.$inferInsert;
+
+export type SalonLocation = typeof salonLocationSchema.$inferSelect;
+export type NewSalonLocation = typeof salonLocationSchema.$inferInsert;
 
 // =============================================================================
 // CONST EXPORTS
@@ -886,3 +981,18 @@ export type SalonPlan = (typeof SALON_PLANS)[number];
 
 export const SALON_STATUSES = ['active', 'suspended', 'trial', 'cancelled'] as const;
 export type SalonStatus = (typeof SALON_STATUSES)[number];
+
+export const AUDIT_ACTIONS = [
+  'created',
+  'updated',
+  'deleted',
+  'restored',
+  'owner_changed',
+  'plan_changed',
+  'status_changed',
+  'data_reset',
+  'location_added',
+  'location_updated',
+  'location_deleted',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];

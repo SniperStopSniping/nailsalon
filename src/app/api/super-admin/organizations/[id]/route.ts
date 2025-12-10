@@ -1,12 +1,23 @@
-import { eq, sql, gte } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin } from '@/libs/superAdmin';
+import { requireSuperAdmin, getSuperAdminInfo, logAuditAction } from '@/libs/superAdmin';
 import {
   salonSchema,
   technicianSchema,
   appointmentSchema,
+  appointmentServicesSchema,
+  appointmentPhotoSchema,
+  serviceSchema,
+  technicianServicesSchema,
+  technicianTimeOffSchema,
+  technicianBlockedSlotSchema,
+  referralSchema,
+  rewardSchema,
+  clientPreferencesSchema,
+  salonPageAppearanceSchema,
+  salonLocationSchema,
   SALON_PLANS,
   SALON_STATUSES,
   type SalonPlan,
@@ -36,7 +47,7 @@ const updateSalonSchema = z.object({
 // =============================================================================
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
@@ -59,11 +70,16 @@ export async function GET(
       );
     }
 
-    // Get technician count
+    // Get technician count (active only)
     const [techCount] = await db
       .select({ count: sql<number>`count(*)` })
       .from(technicianSchema)
-      .where(eq(technicianSchema.salonId, id));
+      .where(
+        and(
+          eq(technicianSchema.salonId, id),
+          eq(technicianSchema.isActive, true)
+        )
+      );
 
     // Get unique client count
     const [clientCount] = await db
@@ -75,16 +91,15 @@ export async function GET(
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [apptCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(appointmentSchema)
-      .where(eq(appointmentSchema.salonId, id));
-
     const [apptLast30d] = await db
       .select({ count: sql<number>`count(*)` })
       .from(appointmentSchema)
-      .where(eq(appointmentSchema.salonId, id))
-      .where(gte(appointmentSchema.createdAt, thirtyDaysAgo));
+      .where(
+        and(
+          eq(appointmentSchema.salonId, id),
+          gte(appointmentSchema.createdAt, thirtyDaysAgo)
+        )
+      );
 
     return Response.json({
       salon: {
@@ -172,15 +187,18 @@ export async function PUT(
       }
     }
 
-    // Business logic: if plan changes to multi_salon, ensure maxLocations >= 2
-    if (updates.plan === 'multi_salon' && (updates.maxLocations ?? existing.maxLocations ?? 1) < 2) {
-      updates.maxLocations = 2;
-    }
+    // Determine the effective plan after update (use update value if provided, else existing)
+    const effectivePlan = updates.plan ?? existing.plan ?? 'single_salon';
 
-    // Business logic: if plan changes to single_salon, ensure maxLocations is 1
-    if (updates.plan === 'single_salon') {
+    // Business logic: single_salon and free plans must have maxLocations=1
+    if (effectivePlan === 'single_salon' || effectivePlan === 'free') {
       updates.maxLocations = 1;
       updates.isMultiLocationEnabled = false;
+    }
+
+    // Business logic: multi_salon plan requires maxLocations >= 2
+    if (effectivePlan === 'multi_salon' && (updates.maxLocations ?? existing.maxLocations ?? 1) < 2) {
+      updates.maxLocations = 2;
     }
 
     // Update salon
@@ -189,6 +207,11 @@ export async function PUT(
       .set(updates)
       .where(eq(salonSchema.id, id))
       .returning();
+
+    // Log the update
+    await logAuditAction(id, 'updated', {
+      details: `Updated fields: ${Object.keys(updates).join(', ')}`,
+    });
 
     return Response.json({
       salon: {
@@ -210,6 +233,174 @@ export async function PUT(
     console.error('Error updating salon:', error);
     return Response.json(
       { error: 'Failed to update salon' },
+      { status: 500 },
+    );
+  }
+}
+
+// =============================================================================
+// DELETE /api/super-admin/organizations/[id] - Delete salon (soft or hard)
+// =============================================================================
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const guard = await requireSuperAdmin();
+  if (guard) return guard;
+
+  try {
+    const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const hardDelete = searchParams.get('hard') === 'true';
+
+    // Check salon exists
+    const [existing] = await db
+      .select()
+      .from(salonSchema)
+      .where(eq(salonSchema.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return Response.json(
+        { error: 'Salon not found' },
+        { status: 404 },
+      );
+    }
+
+    const adminInfo = await getSuperAdminInfo();
+
+    if (hardDelete) {
+      // HARD DELETE: Permanently remove all data
+      // Order matters due to foreign key constraints
+      
+      // 1. Delete appointment-related data
+      const appointments = await db
+        .select({ id: appointmentSchema.id })
+        .from(appointmentSchema)
+        .where(eq(appointmentSchema.salonId, id));
+      
+      const appointmentIds = appointments.map(a => a.id);
+      
+      if (appointmentIds.length > 0) {
+        // Delete appointment services
+        for (const apptId of appointmentIds) {
+          await db
+            .delete(appointmentServicesSchema)
+            .where(eq(appointmentServicesSchema.appointmentId, apptId));
+        }
+        
+        // Delete appointment photos
+        await db
+          .delete(appointmentPhotoSchema)
+          .where(eq(appointmentPhotoSchema.salonId, id));
+        
+        // Delete appointments
+        await db
+          .delete(appointmentSchema)
+          .where(eq(appointmentSchema.salonId, id));
+      }
+      
+      // 2. Delete rewards
+      await db
+        .delete(rewardSchema)
+        .where(eq(rewardSchema.salonId, id));
+      
+      // 3. Delete referrals
+      await db
+        .delete(referralSchema)
+        .where(eq(referralSchema.salonId, id));
+      
+      // 4. Delete client preferences
+      await db
+        .delete(clientPreferencesSchema)
+        .where(eq(clientPreferencesSchema.salonId, id));
+      
+      // 5. Delete technician-related data
+      const technicians = await db
+        .select({ id: technicianSchema.id })
+        .from(technicianSchema)
+        .where(eq(technicianSchema.salonId, id));
+      
+      const technicianIds = technicians.map(t => t.id);
+      
+      if (technicianIds.length > 0) {
+        for (const techId of technicianIds) {
+          await db
+            .delete(technicianServicesSchema)
+            .where(eq(technicianServicesSchema.technicianId, techId));
+          
+          await db
+            .delete(technicianTimeOffSchema)
+            .where(eq(technicianTimeOffSchema.technicianId, techId));
+          
+          await db
+            .delete(technicianBlockedSlotSchema)
+            .where(eq(technicianBlockedSlotSchema.technicianId, techId));
+        }
+        
+        // Delete technicians
+        await db
+          .delete(technicianSchema)
+          .where(eq(technicianSchema.salonId, id));
+      }
+      
+      // 6. Delete services
+      await db
+        .delete(serviceSchema)
+        .where(eq(serviceSchema.salonId, id));
+      
+      // 7. Delete locations
+      await db
+        .delete(salonLocationSchema)
+        .where(eq(salonLocationSchema.salonId, id));
+      
+      // 8. Delete page appearances
+      await db
+        .delete(salonPageAppearanceSchema)
+        .where(eq(salonPageAppearanceSchema.salonId, id));
+      
+      // 9. Finally delete the salon (audit logs will cascade)
+      await db
+        .delete(salonSchema)
+        .where(eq(salonSchema.id, id));
+      
+      return Response.json({
+        success: true,
+        message: 'Salon permanently deleted',
+        deletedId: id,
+      });
+    } else {
+      // SOFT DELETE: Mark as deleted but keep data
+      const [updated] = await db
+        .update(salonSchema)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: adminInfo?.userId || 'unknown',
+          status: 'cancelled',
+        })
+        .where(eq(salonSchema.id, id))
+        .returning();
+      
+      // Log the action
+      await logAuditAction(id, 'deleted', {
+        details: 'Soft deleted (data preserved)',
+      });
+      
+      return Response.json({
+        success: true,
+        message: 'Salon soft deleted',
+        salon: {
+          id: updated!.id,
+          name: updated!.name,
+          deletedAt: updated!.deletedAt?.toISOString(),
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting salon:', error);
+    return Response.json(
+      { error: 'Failed to delete salon' },
       { status: 500 },
     );
   }

@@ -1,1 +1,1 @@
-export { default } from '../../../(auth)/super-admin/page';
+export { default, dynamic, metadata } from '@/app/(auth)/super-admin/page';

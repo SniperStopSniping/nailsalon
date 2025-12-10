@@ -8,7 +8,7 @@ import {
   salonSchema,
   technicianSchema,
   appointmentSchema,
-  clientSchema,
+  clientPreferencesSchema,
   SALON_PLANS,
   SALON_STATUSES,
   type SalonPlan,
@@ -31,7 +31,7 @@ const listQuerySchema = z.object({
 
 const createSalonSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().min(1, 'Slug is required'),
+  slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
   ownerEmail: z.string().email().optional().nullable(),
   plan: z.enum(SALON_PLANS).optional().default('single_salon'),
   maxLocations: z.coerce.number().min(1).optional().default(1),
@@ -101,7 +101,7 @@ export async function GET(request: Request): Promise<Response> {
     // Get counts for each salon
     const salonIds = salons.map((s) => s.id);
 
-    // Get technician counts
+    // Get technician counts (active only, filtered by salonIds)
     const techCounts = salonIds.length > 0
       ? await db
           .select({
@@ -109,22 +109,28 @@ export async function GET(request: Request): Promise<Response> {
             count: sql<number>`count(*)`,
           })
           .from(technicianSchema)
-          .where(eq(technicianSchema.isActive, true))
+          .where(
+            and(
+              sql`${technicianSchema.salonId} IN ${salonIds}`,
+              eq(technicianSchema.isActive, true),
+            ),
+          )
           .groupBy(technicianSchema.salonId)
       : [];
 
-    // Get unique client counts per salon (from appointments)
+    // Get unique client counts per salon (from clientPreferences which tracks registered clients)
     const clientCounts = salonIds.length > 0
       ? await db
           .select({
-            salonId: appointmentSchema.salonId,
-            count: sql<number>`count(distinct ${appointmentSchema.clientPhone})`,
+            salonId: clientPreferencesSchema.salonId,
+            count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})`,
           })
-          .from(appointmentSchema)
-          .groupBy(appointmentSchema.salonId)
+          .from(clientPreferencesSchema)
+          .where(sql`${clientPreferencesSchema.salonId} IN ${salonIds}`)
+          .groupBy(clientPreferencesSchema.salonId)
       : [];
 
-    // Get appointments last 30 days
+    // Get appointments last 30 days (filtered by salonIds)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -135,7 +141,12 @@ export async function GET(request: Request): Promise<Response> {
             count: sql<number>`count(*)`,
           })
           .from(appointmentSchema)
-          .where(gte(appointmentSchema.createdAt, thirtyDaysAgo))
+          .where(
+            and(
+              sql`${appointmentSchema.salonId} IN ${salonIds}`,
+              gte(appointmentSchema.createdAt, thirtyDaysAgo),
+            ),
+          )
           .groupBy(appointmentSchema.salonId)
       : [];
 

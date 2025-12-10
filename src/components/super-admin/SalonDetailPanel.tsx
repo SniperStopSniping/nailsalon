@@ -1,9 +1,33 @@
 'use client';
 
-import { X, Building2, Users, Calendar, UserCheck } from 'lucide-react';
+import {
+  X,
+  Building2,
+  Users,
+  Calendar,
+  UserCheck,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Download,
+  RefreshCw,
+  Trash2,
+  MapPin,
+  History,
+  AlertTriangle,
+  UserCog,
+  Play,
+  Pause,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
+
+import { UserSearchModal } from './UserSearchModal';
+import { ResetDataModal } from './ResetDataModal';
+import { DeleteSalonModal } from './DeleteSalonModal';
+import { AuditLogTable } from './AuditLogTable';
+import { LocationForm } from './LocationForm';
 
 // =============================================================================
 // Types
@@ -20,6 +44,7 @@ interface SalonDetail {
   ownerEmail: string | null;
   ownerClerkUserId: string | null;
   internalNotes: string | null;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,13 +59,14 @@ interface SalonMetrics {
 interface SalonDetailPanelProps {
   salonId: string;
   onClose: () => void;
+  onDeleted?: () => void;
 }
 
 // =============================================================================
 // Component
 // =============================================================================
 
-export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
+export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPanelProps) {
   const [salon, setSalon] = useState<SalonDetail | null>(null);
   const [metrics, setMetrics] = useState<SalonMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +80,24 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
   const [maxLocations, setMaxLocations] = useState(1);
   const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(false);
   const [internalNotes, setInternalNotes] = useState('');
+
+  // Collapsed sections
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    overview: true,
+    plan: true,
+    status: true,
+    ownership: false,
+    locations: false,
+    dataManagement: false,
+    activityLog: false,
+    dangerZone: false,
+  });
+
+  // Modal states
+  const [showUserSearch, setShowUserSearch] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showLocationForm, setShowLocationForm] = useState(false);
 
   // Fetch salon details
   const fetchSalon = useCallback(async () => {
@@ -113,7 +157,6 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
 
       const data = await response.json();
       setSalon(data.salon);
-      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -132,6 +175,111 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
     }
   };
 
+  // Handle owner change
+  const handleOwnerChange = async (user: { id: string; email: string | null }) => {
+    if (!user.email) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}/change-owner`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clerkUserId: user.id,
+          email: user.email,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to change owner');
+      }
+
+      await fetchSalon();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle restore
+  const handleRestore = async () => {
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}/restore`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to restore salon');
+      }
+
+      await fetchSalon();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle impersonate
+  const handleImpersonate = async () => {
+    try {
+      const response = await fetch('/api/super-admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to start impersonation');
+      }
+
+      const data = await response.json();
+      window.open(data.redirectUrl, '_blank');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    }
+  };
+
+  // Handle export
+  const handleExport = async (format: 'json' | 'csv') => {
+    try {
+      const response = await fetch(
+        `/api/super-admin/organizations/${salonId}/export?format=${format}`
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to export data');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${salon?.slug || 'salon'}-export.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    }
+  };
+
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const isDeleted = !!salon?.deletedAt;
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       {/* Backdrop */}
@@ -141,18 +289,35 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
       />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-white shadow-xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-white shadow-xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Salon Details</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="p-2 -m-2 text-gray-400 hover:text-gray-600"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Salon Details</h2>
+            {salon && (
+              <p className="text-sm text-gray-500">{salon.slug}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {salon && !isDeleted && (
+              <button
+                type="button"
+                onClick={handleImpersonate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Impersonate
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close panel"
+              className="p-2 -m-2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -164,19 +329,46 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
           ) : error && !salon ? (
             <div className="p-6 text-center text-red-600">{error}</div>
           ) : salon && metrics ? (
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-4">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
                   {error}
                 </div>
               )}
 
-              {/* Overview Section */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
-                  Overview
-                </h3>
+              {/* Deleted Banner */}
+              {isDeleted && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
+                      <div>
+                        <div className="font-medium text-red-900">Salon Deleted</div>
+                        <div className="text-sm text-red-700">
+                          Deleted on {new Date(salon.deletedAt!).toLocaleDateString()}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRestore}
+                      disabled={saving}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-red-700 text-sm font-medium rounded-lg border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Restore
+                    </button>
+                  </div>
+                </div>
+              )}
 
+              {/* Overview Section */}
+              <CollapsibleSection
+                title="Overview"
+                icon={<Building2 className="w-4 h-4" />}
+                expanded={expandedSections.overview ?? true}
+                onToggle={() => toggleSection('overview')}
+              >
                 {/* Name */}
                 <div className="mb-4">
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
@@ -189,26 +381,6 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
-                </div>
-
-                {/* Slug (read-only) */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Slug
-                  </label>
-                  <div className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
-                    {salon.slug}
-                  </div>
-                </div>
-
-                {/* Owner */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Owner Email
-                  </label>
-                  <div className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
-                    {salon.ownerEmail || '—'}
-                  </div>
                 </div>
 
                 {/* Created */}
@@ -248,14 +420,15 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
                     <div className="text-xs text-gray-500">Appts (30d)</div>
                   </div>
                 </div>
-              </div>
+              </CollapsibleSection>
 
               {/* Plan & Limits Section */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
-                  Plan & Limits
-                </h3>
-
+              <CollapsibleSection
+                title="Plan & Limits"
+                icon={<Building2 className="w-4 h-4" />}
+                expanded={expandedSections.plan ?? true}
+                onToggle={() => toggleSection('plan')}
+              >
                 {/* Plan */}
                 <div className="mb-4">
                   <label htmlFor="plan" className="block text-sm font-medium text-gray-700 mb-1">
@@ -299,7 +472,7 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={isMultiLocationEnabled}
+                    aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
                     onClick={() => setIsMultiLocationEnabled(!isMultiLocationEnabled)}
                     disabled={plan === 'single_salon' || plan === 'free'}
                     aria-label="Toggle multi-location features"
@@ -314,14 +487,15 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
                     />
                   </button>
                 </div>
-              </div>
+              </CollapsibleSection>
 
-              {/* Status & Notes Section */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
-                  Status & Notes
-                </h3>
-
+              {/* Status Section */}
+              <CollapsibleSection
+                title="Status & Notes"
+                icon={status === 'suspended' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                expanded={expandedSections.status ?? true}
+                onToggle={() => toggleSection('status')}
+              >
                 {/* Status */}
                 <div className="mb-4">
                   <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
@@ -349,12 +523,147 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
                     id="internalNotes"
                     value={internalNotes}
                     onChange={(e) => setInternalNotes(e.target.value)}
-                    rows={4}
+                    rows={3}
                     placeholder="Private notes only visible to super admins..."
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                   />
                 </div>
-              </div>
+              </CollapsibleSection>
+
+              {/* Ownership Section */}
+              <CollapsibleSection
+                title="Ownership"
+                icon={<UserCog className="w-4 h-4" />}
+                expanded={expandedSections.ownership ?? false}
+                onToggle={() => toggleSection('ownership')}
+              >
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Owner Email
+                    </label>
+                    <div className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
+                      {salon.ownerEmail || '—'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowUserSearch(true)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <UserCog className="w-4 h-4" />
+                    Change Owner
+                  </button>
+                </div>
+              </CollapsibleSection>
+
+              {/* Locations Section */}
+              <CollapsibleSection
+                title="Locations"
+                icon={<MapPin className="w-4 h-4" />}
+                expanded={expandedSections.locations ?? false}
+                onToggle={() => toggleSection('locations')}
+                badge={`${metrics.locationsCount}/${maxLocations}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowLocationForm(true)}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Manage Locations
+                </button>
+              </CollapsibleSection>
+
+              {/* Data Management Section */}
+              <CollapsibleSection
+                title="Data Management"
+                icon={<Download className="w-4 h-4" />}
+                expanded={expandedSections.dataManagement ?? false}
+                onToggle={() => toggleSection('dataManagement')}
+              >
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExport('json')}
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export JSON
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExport('csv')}
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export CSV
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetModal(true)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium rounded-lg hover:bg-amber-100 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Reset Data
+                  </button>
+                </div>
+              </CollapsibleSection>
+
+              {/* Activity Log Section */}
+              <CollapsibleSection
+                title="Activity Log"
+                icon={<History className="w-4 h-4" />}
+                expanded={expandedSections.activityLog ?? false}
+                onToggle={() => toggleSection('activityLog')}
+              >
+                <AuditLogTable salonId={salonId} limit={5} />
+              </CollapsibleSection>
+
+              {/* Danger Zone */}
+              <CollapsibleSection
+                title="Danger Zone"
+                icon={<AlertTriangle className="w-4 h-4" />}
+                expanded={expandedSections.dangerZone ?? false}
+                onToggle={() => toggleSection('dangerZone')}
+                variant="danger"
+              >
+                <div className="space-y-3">
+                  {!isDeleted && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteModal(true)}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-red-200 bg-red-50 text-red-700 text-sm font-medium rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Salon
+                    </button>
+                  )}
+                  {isDeleted && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleRestore}
+                        disabled={saving}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-green-200 bg-green-50 text-green-700 text-sm font-medium rounded-lg hover:bg-green-100 disabled:opacity-50 transition-colors"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        Restore Salon
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteModal(true)}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-red-300 bg-red-100 text-red-800 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Permanently
+                      </button>
+                    </>
+                  )}
+                </div>
+              </CollapsibleSection>
             </div>
           ) : null}
         </div>
@@ -384,6 +693,100 @@ export function SalonDetailPanel({ salonId, onClose }: SalonDetailPanelProps) {
           </div>
         )}
       </div>
+
+      {/* Modals */}
+      <UserSearchModal
+        isOpen={showUserSearch}
+        onClose={() => setShowUserSearch(false)}
+        onSelect={handleOwnerChange}
+        currentOwnerEmail={salon?.ownerEmail}
+      />
+
+      <ResetDataModal
+        isOpen={showResetModal}
+        onClose={() => setShowResetModal(false)}
+        salonId={salonId}
+        salonName={salon?.name || ''}
+        onSuccess={fetchSalon}
+      />
+
+      <DeleteSalonModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        salonId={salonId}
+        salonName={salon?.name || ''}
+        salonSlug={salon?.slug || ''}
+        isDeleted={isDeleted}
+        onSuccess={() => {
+          onDeleted?.();
+          onClose();
+        }}
+      />
+
+      {showLocationForm && (
+        <LocationForm
+          salonId={salonId}
+          maxLocations={maxLocations}
+          onClose={() => {
+            setShowLocationForm(false);
+            fetchSalon();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Collapsible Section Component
+// =============================================================================
+
+interface CollapsibleSectionProps {
+  title: string;
+  icon: React.ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  badge?: string;
+  variant?: 'default' | 'danger';
+}
+
+function CollapsibleSection({
+  title,
+  icon,
+  expanded,
+  onToggle,
+  children,
+  badge,
+  variant = 'default',
+}: CollapsibleSectionProps) {
+  const borderColor = variant === 'danger' ? 'border-red-200' : 'border-gray-200';
+  const headerBg = variant === 'danger' ? 'bg-red-50' : 'bg-gray-50';
+  const iconColor = variant === 'danger' ? 'text-red-500' : 'text-gray-500';
+
+  return (
+    <div className={`border ${borderColor} rounded-lg overflow-hidden`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full flex items-center justify-between px-4 py-3 ${headerBg} hover:bg-opacity-80 transition-colors`}
+      >
+        <div className="flex items-center gap-2">
+          <span className={iconColor}>{icon}</span>
+          <span className="text-sm font-medium text-gray-900">{title}</span>
+          {badge && (
+            <span className="px-2 py-0.5 text-xs font-medium text-gray-500 bg-gray-200 rounded">
+              {badge}
+            </span>
+          )}
+        </div>
+        {expanded ? (
+          <ChevronDown className="w-4 h-4 text-gray-400" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        )}
+      </button>
+      {expanded && <div className="px-4 py-4 bg-white">{children}</div>}
     </div>
   );
 }
