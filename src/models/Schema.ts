@@ -133,6 +133,12 @@ export const salonSchema = pgTable(
     // Status (Super Admin controlled)
     status: text('status').default('active'),
 
+    // Feature toggles (Super Admin controlled)
+    onlineBookingEnabled: boolean('online_booking_enabled').default(true),
+    smsRemindersEnabled: boolean('sms_reminders_enabled').default(true),
+    rewardsEnabled: boolean('rewards_enabled').default(true),
+    profilePageEnabled: boolean('profile_page_enabled').default(true),
+
     // Owner tracking (nullable for existing rows)
     ownerEmail: text('owner_email'),
     ownerClerkUserId: text('owner_clerk_user_id'),

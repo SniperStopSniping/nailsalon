@@ -8,17 +8,19 @@
  * - Cancellation confirmations
  *
  * Falls back to console logging in dev mode if Twilio is not configured.
+ * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
 import twilio from 'twilio';
 
 import { Env } from '@/libs/Env';
+import { isSmsEnabled } from '@/libs/salonStatus';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface BookingConfirmationParams {
+export type BookingConfirmationParams = {
   phone: string;
   clientName?: string;
   appointmentId: string;
@@ -27,9 +29,9 @@ export interface BookingConfirmationParams {
   technicianName: string;
   startTime: string;
   totalPrice: number;
-}
+};
 
-export interface TechNotificationParams {
+export type TechNotificationParams = {
   technicianId: string;
   technicianName: string;
   appointmentId: string;
@@ -38,23 +40,23 @@ export interface TechNotificationParams {
   services: string[];
   startTime: string;
   totalDurationMinutes: number;
-}
+};
 
-export interface ReminderParams {
+export type ReminderParams = {
   phone: string;
   clientName?: string;
   appointmentId: string;
   salonName: string;
   startTime: string;
   hoursUntil: number;
-}
+};
 
-export interface ReferralInviteParams {
+export type ReferralInviteParams = {
   refereePhone: string;
   referrerName: string;
   salonName: string;
   referralId: string;
-}
+};
 
 // =============================================================================
 // TWILIO CLIENT
@@ -104,8 +106,15 @@ async function sendSMS(to: string, body: string): Promise<boolean> {
  * Send booking confirmation SMS to the client
  */
 export async function sendBookingConfirmationToClient(
+  salonId: string,
   params: BookingConfirmationParams,
 ): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { phone, clientName, salonName, services, technicianName, startTime, totalPrice } = params;
 
   // Format date for display
@@ -140,8 +149,15 @@ We can't wait to see you! ✨`;
  * Send notification SMS to the technician about a new booking
  */
 export async function sendBookingNotificationToTech(
+  salonId: string,
   params: TechNotificationParams,
 ): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { technicianName, clientName, clientPhone, services, startTime, totalDurationMinutes } = params;
 
   // Format date for display
@@ -178,8 +194,15 @@ ${technicianName}, you have a new appointment:
  * Send appointment reminder SMS to the client
  */
 export async function sendAppointmentReminder(
+  salonId: string,
   params: ReminderParams,
 ): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { phone, clientName, salonName, startTime, hoursUntil } = params;
 
   const date = new Date(startTime);
@@ -205,12 +228,21 @@ Need to reschedule? Reply or call us!`;
 /**
  * Send cancellation confirmation to client
  */
-export async function sendCancellationConfirmation(params: {
-  phone: string;
-  clientName?: string;
-  appointmentId: string;
-  salonName: string;
-}): Promise<void> {
+export async function sendCancellationConfirmation(
+  salonId: string,
+  params: {
+    phone: string;
+    clientName?: string;
+    appointmentId: string;
+    salonName: string;
+  },
+): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { phone, clientName, salonName } = params;
 
   const message = `Hi ${clientName || 'there'},
@@ -226,15 +258,24 @@ Book anytime at our website.`;
 /**
  * Send reschedule confirmation SMS to the client
  */
-export async function sendRescheduleConfirmation(params: {
-  phone: string;
-  clientName?: string;
-  salonName: string;
-  oldStartTime: string;
-  newStartTime: string;
-  services: string[];
-  technicianName: string;
-}): Promise<void> {
+export async function sendRescheduleConfirmation(
+  salonId: string,
+  params: {
+    phone: string;
+    clientName?: string;
+    salonName: string;
+    oldStartTime: string;
+    newStartTime: string;
+    services: string[];
+    technicianName: string;
+  },
+): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { phone, clientName, salonName, oldStartTime, newStartTime, services, technicianName } = params;
 
   // Format old date/time
@@ -281,14 +322,23 @@ See you soon! ✨`;
 /**
  * Send cancellation/reschedule notification to the technician
  */
-export async function sendCancellationNotificationToTech(params: {
-  technicianName: string;
-  technicianPhone?: string;
-  clientName: string;
-  startTime: string;
-  services: string[];
-  cancelReason: 'cancelled' | 'rescheduled';
-}): Promise<void> {
+export async function sendCancellationNotificationToTech(
+  salonId: string,
+  params: {
+    technicianName: string;
+    technicianPhone?: string;
+    clientName: string;
+    startTime: string;
+    services: string[];
+    cancelReason: 'cancelled' | 'rescheduled';
+  },
+): Promise<void> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
   const { technicianName, technicianPhone, clientName, startTime, services, cancelReason } = params;
 
   // Format date for display
@@ -327,12 +377,19 @@ ${technicianName}, an appointment has been ${actionText}:
  * Send referral invite SMS to a friend
  */
 export async function sendReferralInvite(
+  salonId: string,
   params: ReferralInviteParams,
 ): Promise<boolean> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return false;
+  }
+
   const { refereePhone, referrerName, salonName, referralId } = params;
 
   // Build the claim URL
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
     || 'http://localhost:3000';
   const claimUrl = `${baseUrl}/referral/${referralId}`;

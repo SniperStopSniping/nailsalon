@@ -18,6 +18,7 @@ import {
   UserCog,
   Play,
   Pause,
+  ToggleRight,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -41,6 +42,12 @@ interface SalonDetail {
   status: SalonStatus;
   maxLocations: number;
   isMultiLocationEnabled: boolean;
+  // Feature toggles
+  onlineBookingEnabled: boolean;
+  smsRemindersEnabled: boolean;
+  rewardsEnabled: boolean;
+  profilePageEnabled: boolean;
+  // Owner & metadata
   ownerEmail: string | null;
   ownerClerkUserId: string | null;
   internalNotes: string | null;
@@ -81,6 +88,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(false);
   const [internalNotes, setInternalNotes] = useState('');
 
+  // Feature toggle state
+  const [onlineBookingEnabled, setOnlineBookingEnabled] = useState(true);
+  const [smsRemindersEnabled, setSmsRemindersEnabled] = useState(true);
+  const [rewardsEnabled, setRewardsEnabled] = useState(true);
+  const [profilePageEnabled, setProfilePageEnabled] = useState(true);
+
   // Save button states
   const [isDirty, setIsDirty] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
@@ -89,6 +102,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     overview: true,
     plan: true,
+    features: true,
     status: true,
     ownership: false,
     locations: false,
@@ -125,6 +139,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setMaxLocations(data.salon.maxLocations);
       setIsMultiLocationEnabled(data.salon.isMultiLocationEnabled);
       setInternalNotes(data.salon.internalNotes || '');
+
+      // Populate feature toggles
+      setOnlineBookingEnabled(data.salon.onlineBookingEnabled ?? true);
+      setSmsRemindersEnabled(data.salon.smsRemindersEnabled ?? true);
+      setRewardsEnabled(data.salon.rewardsEnabled ?? true);
+      setProfilePageEnabled(data.salon.profilePageEnabled ?? true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -152,6 +172,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
           maxLocations,
           isMultiLocationEnabled,
           internalNotes: internalNotes || null,
+          // Feature toggles
+          onlineBookingEnabled,
+          smsRemindersEnabled,
+          rewardsEnabled,
+          profilePageEnabled,
         }),
       });
 
@@ -490,7 +515,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
+                    aria-checked={isMultiLocationEnabled}
                     onClick={() => { setIsMultiLocationEnabled(!isMultiLocationEnabled); markDirty(); }}
                     disabled={plan === 'single_salon' || plan === 'free'}
                     aria-label="Toggle multi-location features"
@@ -504,6 +529,112 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       }`}
                     />
                   </button>
+                </div>
+              </CollapsibleSection>
+
+              {/* Features Section */}
+              <CollapsibleSection
+                title="Features"
+                icon={<ToggleRight className="w-4 h-4" />}
+                expanded={expandedSections.features ?? true}
+                onToggle={() => toggleSection('features')}
+              >
+                <div className="space-y-4">
+                  {/* Online Booking Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Online Booking</div>
+                      <div className="text-xs text-gray-500">Allow clients to book online</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={onlineBookingEnabled}
+                      onClick={() => { setOnlineBookingEnabled(!onlineBookingEnabled); markDirty(); }}
+                      aria-label="Toggle online booking"
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        onlineBookingEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          onlineBookingEnabled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* SMS Reminders Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">SMS Reminders</div>
+                      <div className="text-xs text-gray-500">Send SMS confirmations & reminders</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={smsRemindersEnabled}
+                      onClick={() => { setSmsRemindersEnabled(!smsRemindersEnabled); markDirty(); }}
+                      aria-label="Toggle SMS reminders"
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        smsRemindersEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          smsRemindersEnabled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Rewards Program Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Rewards Program</div>
+                      <div className="text-xs text-gray-500">Let this salon use the rewards system</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={rewardsEnabled}
+                      onClick={() => { setRewardsEnabled(!rewardsEnabled); markDirty(); }}
+                      aria-label="Toggle rewards program"
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        rewardsEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          rewardsEnabled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Public Profile Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Public Profile</div>
+                      <div className="text-xs text-gray-500">Show public profile / mini-site for this salon</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={profilePageEnabled}
+                      onClick={() => { setProfilePageEnabled(!profilePageEnabled); markDirty(); }}
+                      aria-label="Toggle public profile"
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        profilePageEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          profilePageEnabled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </CollapsibleSection>
 

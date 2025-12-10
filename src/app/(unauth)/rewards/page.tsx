@@ -1,5 +1,8 @@
+import { redirect } from 'next/navigation';
+
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { getPageAppearance } from '@/libs/pageAppearance';
+import { checkFeatureEnabled } from '@/libs/salonStatus';
 
 import RewardsContent from './RewardsContent';
 
@@ -13,6 +16,12 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * the content with ThemeProvider if theme mode is enabled.
  */
 export default async function RewardsPage() {
+  // Check if rewards are enabled for this salon
+  const featureCheck = await checkFeatureEnabled(DEMO_SALON_ID, 'rewards');
+  if (featureCheck.redirectPath) {
+    redirect(featureCheck.redirectPath);
+  }
+
   const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'rewards');
 
   return (

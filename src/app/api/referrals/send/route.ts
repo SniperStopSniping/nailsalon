@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
+import { createFeatureDisabledResponse, isRewardsEnabled } from '@/libs/salonStatus';
 import { sendReferralInvite } from '@/libs/SMS';
 import { appointmentSchema, clientSchema, referralSchema } from '@/models/Schema';
 
@@ -23,7 +24,7 @@ type SendReferralRequest = z.infer<typeof sendReferralSchema>;
 // RESPONSE TYPES
 // =============================================================================
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     referralId: string;
     smsSent: boolean;
@@ -31,15 +32,15 @@ interface SuccessResponse {
   meta: {
     timestamp: string;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // POST /api/referrals/send - Send a referral to a friend
@@ -55,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
       // Create a user-friendly error message based on which field failed
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request data';
-      
+
       if (fieldErrors.referrerPhone) {
         userMessage = 'Your phone number is invalid. Please try again or contact support.';
       } else if (fieldErrors.refereePhone) {
@@ -105,6 +106,11 @@ export async function POST(request: Request): Promise<Response> {
         } satisfies ErrorResponse,
         { status: 404 },
       );
+    }
+
+    // 3.5. Check if rewards/referrals are enabled for this salon
+    if (!await isRewardsEnabled(salon.id)) {
+      return createFeatureDisabledResponse('rewards');
     }
 
     // 4. Check if this referral already exists
@@ -195,8 +201,8 @@ export async function POST(request: Request): Promise<Response> {
       status: 'sent', // Use 'sent' to match schema definition
     });
 
-    // 7. Send the SMS with claim link
-    const smsSent = await sendReferralInvite({
+    // 7. Send the SMS with claim link (gated by smsRemindersEnabled toggle)
+    const smsSent = await sendReferralInvite(salon.id, {
       refereePhone: data.refereePhone,
       referrerName: data.referrerName,
       salonName: salon.name,
@@ -229,4 +235,3 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
-

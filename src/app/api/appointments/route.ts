@@ -1,9 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-// Force dynamic rendering for this API route
-export const dynamic = 'force-dynamic';
-
 import { db } from '@/libs/DB';
 import {
   getActiveAppointmentsForClient,
@@ -22,17 +19,20 @@ import {
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
 import {
+  type Appointment,
   appointmentSchema,
+  type AppointmentService,
   appointmentServicesSchema,
   referralSchema,
-  rewardSchema,
-  technicianSchema,
-  type Appointment,
-  type AppointmentService,
   type Reward,
+  rewardSchema,
   type Service,
+  technicianSchema,
   type WeeklySchedule,
 } from '@/models/Schema';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 // =============================================================================
 // CONSTANTS
@@ -130,7 +130,7 @@ type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
 // RESPONSE TYPES
 // =============================================================================
 
-interface AppointmentResponse {
+type AppointmentResponse = {
   appointment: Appointment;
   services: Array<{
     service: Service;
@@ -147,22 +147,22 @@ interface AppointmentResponse {
     name: string;
     slug: string;
   };
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: AppointmentResponse;
   meta: {
     timestamp: string;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // POST /api/appointments - Create a new appointment
@@ -354,8 +354,8 @@ export async function POST(request: Request): Promise<Response> {
       // Check if any booked service matches the eligible service
       const eligibleServiceName = reward.eligibleServiceName?.toLowerCase() || 'gel manicure';
       const matchingService = services.find(
-        s => s.name.toLowerCase().includes(eligibleServiceName) ||
-             eligibleServiceName.includes(s.name.toLowerCase()),
+        s => s.name.toLowerCase().includes(eligibleServiceName)
+          || eligibleServiceName.includes(s.name.toLowerCase()),
       );
 
       if (matchingService) {
@@ -598,8 +598,8 @@ export async function POST(request: Request): Promise<Response> {
         'rescheduled',
       );
 
-      // Send reschedule confirmation SMS to client
-      await sendRescheduleConfirmation({
+      // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
+      await sendRescheduleConfirmation(salon.id, {
         phone: data.clientPhone,
         clientName,
         salonName: salon.name,
@@ -613,7 +613,7 @@ export async function POST(request: Request): Promise<Response> {
       if (originalAppointment.technicianId) {
         const originalTech = await getTechnicianById(originalAppointment.technicianId, salon.id);
         if (originalTech) {
-          await sendCancellationNotificationToTech({
+          await sendCancellationNotificationToTech(salon.id, {
             technicianName: originalTech.name,
             // Note: technicianPhone not currently stored in schema, will log instead of SMS
             technicianPhone: undefined,
@@ -672,8 +672,8 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 10. Send SMS notifications (stub functions)
-    await sendBookingConfirmationToClient({
+    // 10. Send SMS notifications (gated by smsRemindersEnabled toggle)
+    await sendBookingConfirmationToClient(salon.id, {
       phone: data.clientPhone,
       clientName,
       appointmentId: appointment.id,
@@ -685,7 +685,7 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (technician) {
-      await sendBookingNotificationToTech({
+      await sendBookingNotificationToTech(salon.id, {
         technicianId: technician.id,
         technicianName: technician.name,
         appointmentId: appointment.id,
@@ -853,4 +853,3 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 }
-

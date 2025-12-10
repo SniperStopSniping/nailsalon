@@ -1,10 +1,10 @@
-import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
+import { Suspense } from 'react';
 
-import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { getPageAppearance } from '@/libs/pageAppearance';
 import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
-import { checkSalonStatus } from '@/libs/salonStatus';
+import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -46,6 +46,12 @@ export default async function BookConfirmPage({
     redirect(statusCheck.redirectPath);
   }
 
+  // Check if online booking is enabled
+  const featureCheck = await checkFeatureEnabled(salon.id, 'onlineBooking');
+  if (featureCheck.redirectPath) {
+    redirect(featureCheck.redirectPath);
+  }
+
   // Fetch the selected services
   const dbServices = await getServicesByIds(serviceIdList, salon.id);
 
@@ -73,7 +79,7 @@ export default async function BookConfirmPage({
 
   return (
     <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-confirm">
-      <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-t-transparent border-amber-500" /></div>}>
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           services={services}
           technician={technician}

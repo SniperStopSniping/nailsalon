@@ -26,13 +26,13 @@ const updateAppointmentSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // PATCH /api/appointments/[id] - Update appointment status
@@ -115,14 +115,14 @@ export async function PATCH(
       throw new Error('Failed to update appointment');
     }
 
-    // 6. If status changed to 'cancelled', send SMS notifications
+    // 6. If status changed to 'cancelled', send SMS notifications (gated by smsRemindersEnabled toggle)
     if (data.status === 'cancelled' && data.cancelReason !== 'rescheduled') {
       // Get salon info for SMS
       const salon = await getSalonById(existingAppointment.salonId);
       const salonName = salon?.name || 'the salon';
 
       // Send cancellation SMS to client
-      await sendCancellationConfirmation({
+      await sendCancellationConfirmation(existingAppointment.salonId, {
         phone: existingAppointment.clientPhone,
         clientName: existingAppointment.clientName || undefined,
         appointmentId,
@@ -140,7 +140,7 @@ export async function PATCH(
             .innerJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
             .where(eq(appointmentServicesSchema.appointmentId, appointmentId));
 
-          await sendCancellationNotificationToTech({
+          await sendCancellationNotificationToTech(existingAppointment.salonId, {
             technicianName: technician.name,
             // Note: technicianPhone not currently stored in schema, will log instead of SMS
             technicianPhone: undefined,
@@ -268,4 +268,3 @@ export async function GET(
     );
   }
 }
-

@@ -40,6 +40,11 @@ const updateSalonSchema = z.object({
   ownerEmail: z.string().email().optional().nullable(),
   ownerClerkUserId: z.string().optional().nullable(),
   internalNotes: z.string().optional().nullable(),
+  // Feature toggles
+  onlineBookingEnabled: z.boolean().optional(),
+  smsRemindersEnabled: z.boolean().optional(),
+  rewardsEnabled: z.boolean().optional(),
+  profilePageEnabled: z.boolean().optional(),
 });
 
 // =============================================================================
@@ -110,9 +115,16 @@ export async function GET(
         status: (salon.status || 'active') as SalonStatus,
         maxLocations: salon.maxLocations ?? 1,
         isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        // Feature toggles
+        onlineBookingEnabled: salon.onlineBookingEnabled ?? true,
+        smsRemindersEnabled: salon.smsRemindersEnabled ?? true,
+        rewardsEnabled: salon.rewardsEnabled ?? true,
+        profilePageEnabled: salon.profilePageEnabled ?? true,
+        // Owner & metadata
         ownerEmail: salon.ownerEmail,
         ownerClerkUserId: salon.ownerClerkUserId,
         internalNotes: salon.internalNotes,
+        deletedAt: salon.deletedAt?.toISOString() ?? null,
         createdAt: salon.createdAt.toISOString(),
         updatedAt: salon.updatedAt.toISOString(),
       },
@@ -222,9 +234,16 @@ export async function PUT(
         status: (updated!.status || 'active') as SalonStatus,
         maxLocations: updated!.maxLocations ?? 1,
         isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
+        // Feature toggles
+        onlineBookingEnabled: updated!.onlineBookingEnabled ?? true,
+        smsRemindersEnabled: updated!.smsRemindersEnabled ?? true,
+        rewardsEnabled: updated!.rewardsEnabled ?? true,
+        profilePageEnabled: updated!.profilePageEnabled ?? true,
+        // Owner & metadata
         ownerEmail: updated!.ownerEmail,
         ownerClerkUserId: updated!.ownerClerkUserId,
         internalNotes: updated!.internalNotes,
+        deletedAt: updated!.deletedAt?.toISOString() ?? null,
         createdAt: updated!.createdAt.toISOString(),
         updatedAt: updated!.updatedAt.toISOString(),
       },
