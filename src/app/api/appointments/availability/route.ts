@@ -5,6 +5,7 @@ import { db } from '@/libs/DB';
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
+import { guardSalonApiRoute } from '@/libs/salonStatus';
 import { appointmentSchema, technicianSchema, technicianTimeOffSchema, type WeeklySchedule } from '@/models/Schema';
 
 // =============================================================================
@@ -82,6 +83,12 @@ export async function GET(request: Request): Promise<Response> {
         { error: { code: 'SALON_NOT_FOUND', message: 'Salon not found' } },
         { status: 404 },
       );
+    }
+
+    // Check salon status - block availability checks for suspended/cancelled salons
+    const statusGuard = await guardSalonApiRoute(salon.id);
+    if (statusGuard) {
+      return statusGuard;
     }
 
     // Parse the date to get day of week

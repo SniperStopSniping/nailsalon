@@ -8,8 +8,8 @@ import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
-// Cookie name for impersonation
-export const IMPERSONATE_COOKIE = 'sa_impersonate';
+// Cookie name for impersonation (not exported - Next.js routes only allow specific exports)
+const IMPERSONATE_COOKIE = 'sa_impersonate';
 
 // =============================================================================
 // REQUEST VALIDATION

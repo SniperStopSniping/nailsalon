@@ -28,6 +28,7 @@ import { ReviewsModal } from '@/components/admin/ReviewsModal';
 import { RewardsModal } from '@/components/admin/RewardsModal';
 import { SkeletonWidgets } from '@/components/admin/SkeletonWidgets';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
+import { SuspendedBanner, CancelledBanner, TrialBanner } from '@/components/admin/SuspendedBanner';
 import { useSalon } from '@/providers/SalonProvider';
 
 // =============================================================================
@@ -118,7 +119,7 @@ function IOSHeader({
 
 export default function AdminDashboardPage() {
   const { user, isLoaded } = useUser();
-  const { salonName } = useSalon();
+  const { salonName, status } = useSalon();
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>({
@@ -346,6 +347,21 @@ export default function AdminDashboardPage() {
         transition: 'opacity 300ms ease-out, transform 300ms ease-out',
       }}
     >
+      {/* Status Banners - Show for suspended/cancelled/trial accounts */}
+      {status === 'suspended' && (
+        <SuspendedBanner 
+          message="Your salon is suspended. New bookings are disabled and changes cannot be made."
+        />
+      )}
+      {status === 'cancelled' && (
+        <CancelledBanner 
+          message="Your salon account has been cancelled. Please contact support to restore access."
+        />
+      )}
+      {status === 'trial' && (
+        <TrialBanner daysRemaining={14} />
+      )}
+
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
         {/* Header */}

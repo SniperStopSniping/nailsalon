@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { getSalonBySlug, getServicesBySalonId } from '@/libs/queries';
+import { checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookServiceClient } from './BookServiceClient';
 
@@ -25,14 +27,13 @@ export default async function BookServicePage() {
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
   if (!salon) {
-    // Fallback to empty services if salon not found (shouldn't happen in production)
-    return (
-      <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-service">
-        <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-t-transparent border-amber-500" /></div>}>
-          <BookServiceClient services={[]} />
-        </Suspense>
-      </PageThemeWrapper>
-    );
+    redirect('/not-found');
+  }
+
+  // Check salon status - redirect if suspended/cancelled
+  const statusCheck = await checkSalonStatus(salon.id);
+  if (statusCheck.redirectPath) {
+    redirect(statusCheck.redirectPath);
   }
 
   // Fetch services for this salon

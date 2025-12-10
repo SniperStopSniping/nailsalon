@@ -3,11 +3,13 @@ import '@/styles/global.css';
 import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, unstable_setRequestLocale } from 'next-intl/server';
+import { redirect } from 'next/navigation';
 
 import { getSalonBySlug } from '@/libs/queries';
 import { SalonProvider } from '@/providers/SalonProvider';
 import { ThemeProvider } from '@/theme';
 import { AllLocales } from '@/utils/AppConfig';
+import type { SalonStatus } from '@/models/Schema';
 
 export const metadata: Metadata = {
   icons: [
@@ -54,6 +56,19 @@ export default async function RootLayout(props: {
   // In production, this would come from subdomain parsing
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
+  // If no salon found, redirect to not-found
+  if (!salon) {
+    redirect('/not-found');
+  }
+
+  // Check salon status for context
+  const salonStatus = (salon.status || 'active') as SalonStatus;
+  
+  // Note: We don't redirect at the root layout level because:
+  // 1. Admin/owner routes need to access suspended salons (with banners)
+  // 2. Super Admin routes must bypass status checks entirely
+  // 3. Individual pages (booking, etc.) handle their own redirects for granular control
+
   // The `suppressHydrationWarning` in <html> is used to prevent hydration errors caused by `next-themes`.
   // Solution provided by the package itself: https://github.com/pacocoursey/next-themes?tab=readme-ov-file#with-app
 
@@ -70,6 +85,7 @@ export default async function RootLayout(props: {
             salonName={salon?.name}
             salonSlug={salon?.slug}
             themeKey={salon?.themeKey ?? undefined}
+            status={salonStatus}
           >
             <NextIntlClientProvider
               locale={props.params.locale}

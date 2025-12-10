@@ -14,6 +14,7 @@ import {
   getTechnicianById,
   updateAppointmentStatus,
 } from '@/libs/queries';
+import { guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   sendBookingConfirmationToClient,
   sendBookingNotificationToTech,
@@ -200,6 +201,12 @@ export async function POST(request: Request): Promise<Response> {
         } satisfies ErrorResponse,
         { status: 404 },
       );
+    }
+
+    // 2b. Check salon status - block bookings for suspended/cancelled salons
+    const statusGuard = await guardSalonApiRoute(salon.id);
+    if (statusGuard) {
+      return statusGuard;
     }
 
     // 3. Validate services belong to salon

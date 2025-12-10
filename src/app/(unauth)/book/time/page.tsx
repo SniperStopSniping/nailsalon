@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookTimeClient } from './BookTimeClient';
 
@@ -31,11 +33,13 @@ export default async function BookTimePage({
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
   if (!salon) {
-    return (
-      <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-datetime">
-        <BookTimeClient services={[]} technician={null} />
-      </PageThemeWrapper>
-    );
+    redirect('/not-found');
+  }
+
+  // Check salon status - redirect if suspended/cancelled
+  const statusCheck = await checkSalonStatus(salon.id);
+  if (statusCheck.redirectPath) {
+    redirect(statusCheck.redirectPath);
   }
 
   // Fetch the selected services

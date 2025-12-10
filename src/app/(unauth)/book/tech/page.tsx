@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { getSalonBySlug, getServicesByIds, getTechniciansBySalonId } from '@/libs/queries';
+import { checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookTechClient } from './BookTechClient';
 
@@ -30,11 +32,13 @@ export default async function BookTechPage({
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
   if (!salon) {
-    return (
-      <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-technician">
-        <BookTechClient services={[]} technicians={[]} />
-      </PageThemeWrapper>
-    );
+    redirect('/not-found');
+  }
+
+  // Check salon status - redirect if suspended/cancelled
+  const statusCheck = await checkSalonStatus(salon.id);
+  if (statusCheck.redirectPath) {
+    redirect(statusCheck.redirectPath);
   }
 
   // Fetch selected services

@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -35,19 +37,13 @@ export default async function BookConfirmPage({
   const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
 
   if (!salon) {
-    return (
-      <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-confirm">
-        <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-t-transparent border-amber-500" /></div>}>
-          <BookConfirmClient
-            services={[]}
-            technician={null}
-            salonSlug={DEFAULT_SALON_SLUG}
-            dateStr={dateStr}
-            timeStr={timeStr}
-          />
-        </Suspense>
-      </PageThemeWrapper>
-    );
+    redirect('/not-found');
+  }
+
+  // Check salon status - redirect if suspended/cancelled
+  const statusCheck = await checkSalonStatus(salon.id);
+  if (statusCheck.redirectPath) {
+    redirect(statusCheck.redirectPath);
   }
 
   // Fetch the selected services
