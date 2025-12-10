@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 
 const updateSalonSchema = z.object({
   name: z.string().min(1).optional(),
-  slug: z.string().min(1).optional(),
+  slug: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only').optional(),
   plan: z.enum(SALON_PLANS).optional(),
   status: z.enum(SALON_STATUSES).optional(),
   maxLocations: z.coerce.number().min(1).optional(),
@@ -81,11 +81,11 @@ export async function GET(
         )
       );
 
-    // Get unique client count
+    // Get unique client count (from clientPreferences which tracks registered clients)
     const [clientCount] = await db
-      .select({ count: sql<number>`count(distinct ${appointmentSchema.clientPhone})` })
-      .from(appointmentSchema)
-      .where(eq(appointmentSchema.salonId, id));
+      .select({ count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})` })
+      .from(clientPreferencesSchema)
+      .where(eq(clientPreferencesSchema.salonId, id));
 
     // Get appointments last 30 days
     const thirtyDaysAgo = new Date();
