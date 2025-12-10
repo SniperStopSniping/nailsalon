@@ -81,6 +81,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(false);
   const [internalNotes, setInternalNotes] = useState('');
 
+  // Save button states
+  const [isDirty, setIsDirty] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
   // Collapsed sections
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     overview: true,
@@ -135,6 +139,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    setJustSaved(false);
 
     try {
       const response = await fetch(`/api/super-admin/organizations/${salonId}`, {
@@ -157,6 +162,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
 
       const data = await response.json();
       setSalon(data.salon);
+      
+      // Mark form as clean and show "Saved" feedback
+      setIsDirty(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -167,12 +177,20 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Handle plan change
   const handlePlanChange = (newPlan: SalonPlan) => {
     setPlan(newPlan);
+    setIsDirty(true);
+    setJustSaved(false);
     if (newPlan === 'single_salon' || newPlan === 'free') {
       setMaxLocations(1);
       setIsMultiLocationEnabled(false);
     } else if (newPlan === 'multi_salon' && maxLocations < 2) {
       setMaxLocations(2);
     }
+  };
+
+  // Helper to mark form as dirty
+  const markDirty = () => {
+    setIsDirty(true);
+    setJustSaved(false);
   };
 
   // Handle owner change
@@ -378,7 +396,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     type="text"
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { setName(e.target.value); markDirty(); }}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
@@ -456,7 +474,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     type="number"
                     id="maxLocations"
                     value={maxLocations}
-                    onChange={(e) => setMaxLocations(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => { setMaxLocations(Math.max(1, parseInt(e.target.value) || 1)); markDirty(); }}
                     min={1}
                     disabled={plan === 'single_salon' || plan === 'free'}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
@@ -473,7 +491,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     type="button"
                     role="switch"
                     aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
-                    onClick={() => setIsMultiLocationEnabled(!isMultiLocationEnabled)}
+                    onClick={() => { setIsMultiLocationEnabled(!isMultiLocationEnabled); markDirty(); }}
                     disabled={plan === 'single_salon' || plan === 'free'}
                     aria-label="Toggle multi-location features"
                     className={`relative w-11 h-6 rounded-full transition-colors ${
@@ -504,7 +522,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                   <select
                     id="status"
                     value={status}
-                    onChange={(e) => setStatus(e.target.value as SalonStatus)}
+                    onChange={(e) => { setStatus(e.target.value as SalonStatus); markDirty(); }}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
                   >
                     <option value="active">Active</option>
@@ -522,7 +540,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                   <textarea
                     id="internalNotes"
                     value={internalNotes}
-                    onChange={(e) => setInternalNotes(e.target.value)}
+                    onChange={(e) => { setInternalNotes(e.target.value); markDirty(); }}
                     rows={3}
                     placeholder="Private notes only visible to super admins..."
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
@@ -674,21 +692,24 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
             <button
               type="button"
               onClick={onClose}
-              disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
             >
-              Cancel
+              Close
             </button>
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !name}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={!isDirty || saving || !name}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                justSaved
+                  ? 'bg-green-600 text-white'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {saving && (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               )}
-              Save Changes
+              {saving ? 'Saving…' : justSaved ? 'Saved' : 'Save changes'}
             </button>
           </div>
         )}
