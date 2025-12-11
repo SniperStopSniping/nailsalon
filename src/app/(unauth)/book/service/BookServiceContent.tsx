@@ -1,9 +1,14 @@
 'use client';
 
-import { Gift, Handshake, User } from 'lucide-react';
+import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { AnimatedCheckmark, ShakeWrapper } from '@/components/animated';
+import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
+import { ANIMATION } from '@/libs/animations';
+import { triggerHaptic } from '@/libs/haptics';
 
 type AuthState = 'loggedOut' | 'verify' | 'loggedIn';
 type Category = 'hands' | 'feet' | 'combo';
@@ -95,55 +100,6 @@ const CATEGORY_LABELS: { id: Category; label: string }[] = [
   { id: 'combo', label: 'Combo' },
 ];
 
-const triggerHaptic = () => {
-  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-    navigator.vibrate(10);
-  }
-};
-
-const FloatingDock = () => {
-  const router = useRouter();
-
-  return (
-    <div
-      role="navigation"
-      aria-label="Bottom Navigation"
-      className="bg-[var(--n5-bg-card)]/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-white/50 px-8 shadow-[var(--n5-shadow-dock)] backdrop-blur-xl"
-    >
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push('/invite');
-        }}
-        aria-label="Go to Invite"
-        className="p-2 text-[var(--n5-ink-muted)] transition-colors"
-      >
-        <Handshake strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push('/rewards');
-        }}
-        aria-label="Go to Rewards"
-        className="p-2 text-[var(--n5-ink-muted)] transition-colors"
-      >
-        <Gift strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push('/profile');
-        }}
-        aria-label="Go to Profile"
-        className="p-2 text-[var(--n5-ink-muted)] transition-colors"
-      >
-        <User strokeWidth={2} className="size-6" />
-      </button>
-    </div>
-  );
-};
-
 export default function BookServiceContent() {
   const router = useRouter();
   const [authState, setAuthState] = useState<AuthState>('loggedOut');
@@ -154,6 +110,8 @@ export default function BookServiceContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isShaking, setIsShaking] = useState(false);
+  const [continueButtonEnabled, setContinueButtonEnabled] = useState(false);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
   const filteredServices = SERVICES.filter((service) => {
@@ -165,13 +123,34 @@ export default function BookServiceContent() {
     return service.category === selectedCategory;
   });
 
-  const toggleService = (id: string) => {
-    setSelectedServiceIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
-    );
-  };
+  const toggleService = useCallback((id: string) => {
+    setSelectedServiceIds((prev) => {
+      const isCurrentlySelected = prev.includes(id);
+      // Trigger appropriate haptic
+      triggerHaptic(isCurrentlySelected ? 'deselect' : 'select');
+      return isCurrentlySelected ? prev.filter(x => x !== id) : [...prev, id];
+    });
+  }, []);
+
+  const handleCategoryChange = useCallback((categoryId: Category) => {
+    if (categoryId !== selectedCategory) {
+      triggerHaptic('select');
+      setSelectedCategory(categoryId);
+    }
+  }, [selectedCategory]);
 
   const selectedCount = selectedServiceIds.length;
+
+  // Track when continue button becomes enabled for pulse animation
+  useEffect(() => {
+    const wasEnabled = continueButtonEnabled;
+    const isNowEnabled = selectedCount > 0;
+    if (!wasEnabled && isNowEnabled) {
+      setContinueButtonEnabled(true);
+    } else if (wasEnabled && !isNowEnabled) {
+      setContinueButtonEnabled(false);
+    }
+  }, [selectedCount, continueButtonEnabled]);
 
   const handleSendCode = async () => {
     if (!phone.trim() || phone.length < 10 || isLoading) {
@@ -192,14 +171,17 @@ export default function BookServiceContent() {
 
       if (!response.ok) {
         setError(data.error || 'Failed to send code');
+        triggerHaptic('error');
         setIsLoading(false);
         return;
       }
 
       setIsLoading(false);
       setAuthState('verify');
+      triggerHaptic('confirm');
     } catch {
       setError('Network error. Please try again.');
+      triggerHaptic('error');
       setIsLoading(false);
     }
   };
@@ -223,14 +205,17 @@ export default function BookServiceContent() {
 
       if (!response.ok) {
         setError(data.error || 'Invalid code');
+        triggerHaptic('error');
         setIsLoading(false);
         return;
       }
 
       setIsLoading(false);
       setAuthState('loggedIn');
+      triggerHaptic('success');
     } catch {
       setError('Network error. Please try again.');
+      triggerHaptic('error');
       setIsLoading(false);
     }
   };
@@ -242,7 +227,7 @@ export default function BookServiceContent() {
       const timer = setTimeout(() => handleSendCode(), 150);
       return () => clearTimeout(timer);
     }
-    return;
+    return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone, authState]);
 
@@ -252,7 +237,7 @@ export default function BookServiceContent() {
       const timer = setTimeout(() => handleVerifyCode(), 150);
       return () => clearTimeout(timer);
     }
-    return;
+    return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, authState]);
 
@@ -263,23 +248,28 @@ export default function BookServiceContent() {
     }
   }, [authState]);
 
-  const handleChooseTech = () => {
+  const handleChooseTech = useCallback(() => {
     if (!selectedServiceIds.length) {
+      // No selection - trigger error haptic and shake
+      triggerHaptic('error');
+      setIsShaking(true);
       return;
     }
+    // Valid selection - trigger confirm haptic and navigate
+    triggerHaptic('confirm');
     const query = selectedServiceIds.join(',');
     router.push(`/book/tech?serviceIds=${query}`);
-  };
+  }, [selectedServiceIds, router]);
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4 bg-[var(--n5-bg-page)]"
+      className="flex min-h-screen justify-center bg-[var(--n5-bg-page)] py-4"
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Top search */}
         <div className="pt-2">
           <div
-            className="flex items-center px-4 py-2.5 shadow-[var(--n5-shadow-sm)] bg-[var(--n5-bg-card)]"
+            className="flex items-center bg-[var(--n5-bg-card)] px-4 py-2.5 shadow-[var(--n5-shadow-sm)]"
             style={{ borderRadius: 'var(--n5-radius-pill)' }}
           >
             <span className="mr-2 text-lg text-[var(--n5-ink-muted)]">⌕</span>
@@ -288,7 +278,7 @@ export default function BookServiceContent() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search BIAB, Gel-X, etc."
-              className="flex-1 bg-transparent text-sm font-body text-[var(--n5-ink-main)] outline-none placeholder:text-[var(--n5-ink-muted)]"
+              className="font-body flex-1 bg-transparent text-sm text-[var(--n5-ink-main)] outline-none placeholder:text-[var(--n5-ink-muted)]"
             />
             {searchQuery && (
               <button
@@ -317,15 +307,16 @@ export default function BookServiceContent() {
         </div>
 
         {/* Category tabs - centered */}
-        <div className="flex items-center justify-center gap-8 text-sm font-semibold font-body">
+        <div className="font-body flex items-center justify-center gap-8 text-sm font-semibold">
           {CATEGORY_LABELS.map((cat) => {
             const active = cat.id === selectedCategory;
             return (
               <button
                 key={cat.id}
                 type="button"
-                onClick={() => setSelectedCategory(cat.id)}
+                onClick={() => handleCategoryChange(cat.id)}
                 className="relative px-1 pb-2"
+                aria-label={`Filter by ${cat.label}`}
               >
                 <span
                   className={
@@ -335,9 +326,11 @@ export default function BookServiceContent() {
                   {cat.label}
                 </span>
                 {active && (
-                  <span
+                  <motion.span
+                    layoutId="category-underline"
                     className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--n5-accent)]"
                     style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                    transition={{ type: 'spring', ...ANIMATION.spring }}
                   />
                 )}
               </button>
@@ -350,17 +343,34 @@ export default function BookServiceContent() {
           {filteredServices.map((service) => {
             const isSelected = selectedServiceIds.includes(service.id);
             return (
-              <button
+              <motion.button
                 key={service.id}
                 type="button"
                 onClick={() => toggleService(service.id)}
-                className={`relative overflow-hidden text-left shadow-[var(--n5-shadow-sm)] transition-all duration-150 ${
-                  isSelected ? 'ring-2 ring-offset-1 bg-[var(--n5-bg-selected)] ring-[var(--n5-accent)]' : 'bg-[var(--n5-bg-surface)]'
-                }`}
+                className="relative overflow-hidden text-left shadow-[var(--n5-shadow-sm)]"
                 style={{
                   borderRadius: 'var(--n5-radius-md)',
+                  background: isSelected
+                    ? 'var(--n5-bg-selected)'
+                    : 'var(--n5-bg-surface)',
                 }}
+                whileTap={{ scale: ANIMATION.scale.tap }}
+                transition={{ type: 'spring', ...ANIMATION.spring }}
               >
+                {/* Gold glow overlay for selected state */}
+                <motion.div
+                  className="pointer-events-none absolute inset-0 z-10"
+                  initial={false}
+                  animate={{
+                    opacity: isSelected ? 1 : 0,
+                    boxShadow: isSelected
+                      ? 'inset 0 0 0 2px var(--n5-accent), 0 0 0 1px var(--n5-accent)'
+                      : 'inset 0 0 0 0px transparent',
+                  }}
+                  transition={{ duration: ANIMATION.glowFade / 1000 }}
+                  style={{ borderRadius: 'var(--n5-radius-md)' }}
+                />
+
                 {/* Image area - 2:3 aspect ratio, ~120px height */}
                 <div
                   className="relative h-[120px] overflow-hidden bg-[var(--n5-bg-selected)]"
@@ -376,62 +386,79 @@ export default function BookServiceContent() {
 
                 {/* Content */}
                 <div className="px-2.5 pb-2.5 pt-2">
-                  <div className="text-[12px] font-semibold font-body leading-tight text-[var(--n5-ink-main)]">
+                  <div className="font-body text-[12px] font-semibold leading-tight text-[var(--n5-ink-main)]">
                     {service.name}
                   </div>
-                  <div className="mt-1 text-sm font-body text-[var(--n5-ink-muted)]">
+                  <div className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
                     {service.duration}
                     {' '}
                     min
                   </div>
-                  <div className="mt-1 text-[12px] font-semibold font-body text-[var(--n5-ink-main)]">
+                  <div className="font-body mt-1 text-[12px] font-semibold text-[var(--n5-ink-main)]">
                     $
                     {service.price}
                   </div>
                 </div>
 
-                {/* Check mark badge */}
-                {isSelected && (
-                  <div
-                    className="absolute right-2 top-2 flex size-6 items-center justify-center text-xs font-bold text-[var(--n5-ink-inverse)] shadow-md transition-all duration-150 bg-[var(--n5-accent-hover)]"
-                    style={{ borderRadius: 'var(--n5-radius-pill)' }}
-                  >
-                    ✓
-                  </div>
-                )}
-              </button>
+                {/* Animated check mark badge */}
+                <div className="absolute right-2 top-2">
+                  <AnimatedCheckmark
+                    isVisible={isSelected}
+                    size={24}
+                    className="shadow-md"
+                  />
+                </div>
+              </motion.button>
             );
           })}
         </div>
 
         {/* Choose technician bar */}
         {selectedCount > 0 && (
-          <div
-            className="mt-1 flex w-full items-center justify-between px-4 py-3.5 shadow-[var(--n5-shadow-sm)] bg-[var(--n5-bg-card)]"
+          <motion.div
+            initial={{ opacity: 0, y: ANIMATION.slideY }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: ANIMATION.slideY }}
+            transition={{ type: 'spring', ...ANIMATION.spring }}
+            className="mt-1 flex w-full items-center justify-between bg-[var(--n5-bg-card)] px-4 py-3.5 shadow-[var(--n5-shadow-sm)]"
             style={{ borderRadius: 'var(--n5-radius-md)' }}
           >
-            <div className="text-sm font-semibold font-body text-[var(--n5-ink-main)]">
+            <div className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
               {selectedCount === 1 ? '1 service selected' : `${selectedCount} services selected`}
             </div>
-            <button
-              type="button"
-              onClick={handleChooseTech}
-              className="px-5 py-2 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
-              style={{ borderRadius: 'var(--n5-radius-pill)' }}
-            >
-              Choose technician
-            </button>
-          </div>
+            <ShakeWrapper isShaking={isShaking} onShakeComplete={() => setIsShaking(false)}>
+              <motion.button
+                type="button"
+                onClick={handleChooseTech}
+                className="font-body bg-[var(--n5-button-primary-bg)] px-5 py-2 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90"
+                style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                whileTap={{ scale: 0.98 }}
+                // Pulse animation when first enabled
+                animate={continueButtonEnabled ? {
+                  boxShadow: [
+                    '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
+                    '0 0 0 4px rgba(var(--n5-accent-rgb, 214, 162, 73), 0.3)',
+                    '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
+                  ],
+                } : {}}
+                transition={{
+                  boxShadow: { duration: 1, repeat: 1 },
+                }}
+              >
+                Choose technician
+              </motion.button>
+            </ShakeWrapper>
+          </motion.div>
         )}
 
         {/* Auth footer */}
         <div
-          className="mt-2 border border-[var(--n5-border)] bg-[var(--n5-bg-card)]/95 px-4 py-3.5 shadow-[var(--n5-shadow-sm)]"
+          className="bg-[var(--n5-bg-card)]/95 mt-2 border border-[var(--n5-border)] px-4 py-3.5 shadow-[var(--n5-shadow-sm)]"
           style={{ borderRadius: 'var(--n5-radius-md)' }}
         >
           {authState === 'loggedOut' && (
             <div className="space-y-2.5">
-              <p className="text-lg font-semibold font-body">
+              <p className="font-body text-lg font-semibold">
                 <span
                   className="inline-block animate-shimmer bg-clip-text text-transparent"
                   style={{
@@ -444,12 +471,12 @@ export default function BookServiceContent() {
                   Login / sign up for a free manicure*
                 </span>
               </p>
-              <p className="-mt-1 text-sm font-body text-[var(--n5-ink-muted)]">
+              <p className="font-body -mt-1 text-sm text-[var(--n5-ink-muted)]">
                 Enter your number to sign up or log in
               </p>
               <div className="flex items-center gap-2">
                 <div
-                  className="flex items-center px-2.5 py-1.5 text-xs font-body bg-[var(--n5-bg-surface)] text-[var(--n5-ink-muted)]"
+                  className="font-body flex items-center bg-[var(--n5-bg-surface)] px-2.5 py-1.5 text-xs text-[var(--n5-ink-muted)]"
                   style={{ borderRadius: 'var(--n5-radius-pill)' }}
                 >
                   <span className="mr-1">+1</span>
@@ -463,23 +490,24 @@ export default function BookServiceContent() {
                     setError(null);
                   }}
                   placeholder="Phone number"
-                  className="flex-1 px-3 py-2 text-sm font-body bg-[var(--n5-bg-surface)] text-[var(--n5-ink-main)] outline-none"
+                  className="font-body flex-1 bg-[var(--n5-bg-surface)] px-3 py-2 text-sm text-[var(--n5-ink-main)] outline-none"
                   style={{ borderRadius: 'var(--n5-radius-pill)' }}
                 />
-                <button
+                <motion.button
                   type="button"
                   onClick={handleSendCode}
                   disabled={!phone.trim() || phone.length < 10 || isLoading}
-                  className="px-4 py-2 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="font-body bg-[var(--n5-button-primary-bg)] px-4 py-2 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                  whileTap={{ scale: 0.98 }}
                 >
                   {isLoading ? '...' : '→'}
-                </button>
+                </motion.button>
               </div>
               {error && (
-                <p className="text-xs font-body text-[var(--n5-error)]">{error}</p>
+                <p className="font-body text-xs text-[var(--n5-error)]">{error}</p>
               )}
-              <p className="text-xs font-body text-[var(--n5-ink-muted)]">
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
                 *New clients only. Conditions apply.
               </p>
             </div>
@@ -487,7 +515,7 @@ export default function BookServiceContent() {
 
           {authState === 'verify' && (
             <div className="space-y-2.5">
-              <p className="text-[11px] font-semibold font-body text-[var(--n5-ink-main)]">
+              <p className="font-body text-[11px] font-semibold text-[var(--n5-ink-main)]">
                 {`Enter the 6-digit code we sent to +1 ${phone}`}
               </p>
               <div className="flex w-full max-w-full items-center gap-2">
@@ -501,21 +529,22 @@ export default function BookServiceContent() {
                     setError(null);
                   }}
                   placeholder="-  -  -   -  -  -"
-                  className="flex-1 px-3 py-2 text-center text-base tracking-[0.25em] font-body bg-[var(--n5-bg-surface)] text-[var(--n5-ink-main)] outline-none"
+                  className="font-body flex-1 bg-[var(--n5-bg-surface)] px-3 py-2 text-center text-base tracking-[0.25em] text-[var(--n5-ink-main)] outline-none"
                   style={{ borderRadius: 'var(--n5-radius-pill)' }}
                 />
-                <button
+                <motion.button
                   type="button"
                   onClick={handleVerifyCode}
                   disabled={code.trim().length < 6 || isLoading}
-                  className="px-4 py-2 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="font-body bg-[var(--n5-button-primary-bg)] px-4 py-2 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                  whileTap={{ scale: 0.98 }}
                 >
                   {isLoading ? '...' : 'Verify'}
-                </button>
+                </motion.button>
               </div>
               {error && (
-                <p className="text-xs font-body text-[var(--n5-error)]">{error}</p>
+                <p className="font-body text-xs text-[var(--n5-error)]">{error}</p>
               )}
               <button
                 type="button"
@@ -524,7 +553,7 @@ export default function BookServiceContent() {
                   setCode('');
                   setError(null);
                 }}
-                className="text-[11px] font-body text-[var(--n5-ink-muted)] underline"
+                className="font-body text-[11px] text-[var(--n5-ink-muted)] underline"
               >
                 Edit phone number
               </button>
@@ -534,7 +563,7 @@ export default function BookServiceContent() {
         </div>
       </div>
 
-      {authState === 'loggedIn' && <FloatingDock />}
+      {authState === 'loggedIn' && <BookingFloatingDock />}
     </div>
   );
 }

@@ -5,7 +5,7 @@
  *
  * iOS-style notification center modal.
  * Features:
- * - Grouped notifications by type
+ * - Activity feed from recent appointments
  * - Swipe to dismiss gesture
  * - Time-based grouping (Today, Yesterday, Earlier)
  * - Empty state
@@ -19,9 +19,13 @@ import {
   Gift,
   X,
   Bell,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { LucideIcon } from 'lucide-react';
+
+import { useSalon } from '@/providers/SalonProvider';
 
 import { ModalHeader, BackButton } from './AppModal';
 
@@ -30,7 +34,7 @@ interface NotificationsModalProps {
 }
 
 // Notification types
-type NotificationType = 'booking' | 'review' | 'alert' | 'reward';
+type NotificationType = 'booking' | 'review' | 'alert' | 'reward' | 'completed' | 'cancelled' | 'no_show';
 
 interface Notification {
   id: string;
@@ -42,50 +46,6 @@ interface Notification {
   actionUrl?: string;
 }
 
-// Mock notifications data
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: '1',
-    type: 'booking',
-    title: 'New Booking',
-    message: 'Sarah M. booked a Gel Manicure for tomorrow at 2:00 PM',
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 min ago
-    read: false,
-  },
-  {
-    id: '2',
-    type: 'review',
-    title: 'New Review',
-    message: 'Jessica L. left a 5-star review: "Best nail salon!"',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    read: false,
-  },
-  {
-    id: '3',
-    type: 'booking',
-    title: 'Appointment Cancelled',
-    message: 'Amanda K. cancelled her appointment for today',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-    read: true,
-  },
-  {
-    id: '4',
-    type: 'reward',
-    title: 'Reward Earned',
-    message: 'Michelle R. earned a referral reward',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    read: true,
-  },
-  {
-    id: '5',
-    type: 'alert',
-    title: 'Low Availability',
-    message: 'Only 2 open slots remaining for tomorrow',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 days ago
-    read: true,
-  },
-];
-
 // Get icon and color for notification type
 function getNotificationStyle(type: NotificationType): { icon: LucideIcon; color: string; bgColor: string } {
   switch (type) {
@@ -94,9 +54,16 @@ function getNotificationStyle(type: NotificationType): { icon: LucideIcon; color
     case 'review':
       return { icon: Star, color: 'text-yellow-600', bgColor: 'bg-yellow-100' };
     case 'alert':
+    case 'no_show':
       return { icon: AlertCircle, color: 'text-red-600', bgColor: 'bg-red-100' };
     case 'reward':
       return { icon: Gift, color: 'text-green-600', bgColor: 'bg-green-100' };
+    case 'completed':
+      return { icon: CheckCircle2, color: 'text-green-600', bgColor: 'bg-green-100' };
+    case 'cancelled':
+      return { icon: XCircle, color: 'text-orange-600', bgColor: 'bg-orange-100' };
+    default:
+      return { icon: Bell, color: 'text-gray-600', bgColor: 'bg-gray-100' };
   }
 }
 
@@ -245,14 +212,148 @@ function EmptyState() {
         All Caught Up
       </h3>
       <p className="text-[15px] text-[#8E8E93] text-center">
-        No new notifications right now
+        No recent activity to show
       </p>
     </div>
   );
 }
 
+/**
+ * Loading Skeleton
+ */
+function LoadingSkeleton() {
+  return (
+    <div className="animate-pulse space-y-3 px-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="bg-white rounded-[16px] p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-gray-200" />
+            <div className="flex-1">
+              <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
+              <div className="h-3 bg-gray-100 rounded w-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Convert appointment to notification
+function appointmentToNotification(appointment: {
+  id: string;
+  status: string;
+  clientName: string | null;
+  startTime: string;
+  createdAt: string;
+  services?: { name: string }[];
+}): Notification {
+  const serviceName = appointment.services?.[0]?.name || 'Appointment';
+  const clientName = appointment.clientName || 'Guest';
+  const appointmentTime = new Date(appointment.startTime).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const appointmentDate = new Date(appointment.startTime).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+
+  switch (appointment.status) {
+    case 'completed':
+      return {
+        id: appointment.id,
+        type: 'completed',
+        title: 'Appointment Completed',
+        message: `${clientName}'s ${serviceName} was completed`,
+        timestamp: new Date(appointment.startTime),
+        read: true,
+      };
+    case 'cancelled':
+      return {
+        id: appointment.id,
+        type: 'cancelled',
+        title: 'Appointment Cancelled',
+        message: `${clientName} cancelled ${serviceName} for ${appointmentDate}`,
+        timestamp: new Date(appointment.createdAt),
+        read: true,
+      };
+    case 'no_show':
+      return {
+        id: appointment.id,
+        type: 'no_show',
+        title: 'No Show',
+        message: `${clientName} didn't show up for ${serviceName}`,
+        timestamp: new Date(appointment.startTime),
+        read: false,
+      };
+    case 'confirmed':
+    case 'pending':
+    default:
+      return {
+        id: appointment.id,
+        type: 'booking',
+        title: 'New Booking',
+        message: `${clientName} booked ${serviceName} for ${appointmentDate} at ${appointmentTime}`,
+        timestamp: new Date(appointment.createdAt),
+        read: new Date(appointment.createdAt) < new Date(Date.now() - 1000 * 60 * 60), // Read if older than 1 hour
+      };
+  }
+}
+
 export function NotificationsModal({ onClose }: NotificationsModalProps) {
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
+  const { salonSlug } = useSalon();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  // Fetch recent appointments as activity
+  const fetchActivity = useCallback(async () => {
+    // Skip if already loaded (prevent re-fetch on re-open)
+    if (hasLoaded) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch recent appointments (last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const dateStr = sevenDaysAgo.toISOString().split('T')[0];
+      
+      const response = await fetch(
+        `/api/appointments?salonSlug=${salonSlug}&startDate=${dateStr}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to load activity');
+      }
+      
+      const result = await response.json();
+      const appointments = result.data?.appointments || [];
+      
+      // Convert appointments to notifications
+      const activityNotifications: Notification[] = appointments
+        .slice(0, 20) // Limit to 20 most recent
+        .map(appointmentToNotification)
+        .sort((a: Notification, b: Notification) => b.timestamp.getTime() - a.timestamp.getTime());
+      
+      setNotifications(activityNotifications);
+      setHasLoaded(true);
+    } catch (err) {
+      console.error('Failed to fetch activity:', err);
+      setError('Failed to load activity');
+    } finally {
+      setLoading(false);
+    }
+  }, [salonSlug, hasLoaded]);
+
+  useEffect(() => {
+    fetchActivity();
+  }, [fetchActivity]);
 
   const handleDismiss = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
@@ -274,8 +375,8 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title="Notifications"
-          subtitle={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+          title="Activity"
+          subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'Recent Activity'}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={
             notifications.length > 0 ? (
@@ -293,7 +394,20 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pb-10 px-4">
-        {notifications.length === 0 ? (
+        {loading ? (
+          <LoadingSkeleton />
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 px-8">
+            <p className="text-sm text-red-600 mb-2">{error}</p>
+            <button
+              type="button"
+              onClick={() => { setHasLoaded(false); fetchActivity(); }}
+              className="text-sm text-[#007AFF] font-medium"
+            >
+              Try again
+            </button>
+          </div>
+        ) : notifications.length === 0 ? (
           <EmptyState />
         ) : (
           <>
@@ -332,9 +446,8 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
   );
 }
 
-// Export badge count helper
+// Export badge count helper - now returns 0 as we fetch real data
 export function getUnreadNotificationCount(): number {
-  // In production, this would fetch from API or state
-  return MOCK_NOTIFICATIONS.filter((n) => !n.read).length;
+  // In production, this would be managed by a notification service
+  return 0;
 }
-

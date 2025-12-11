@@ -17,3 +17,5 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_page_appearance_unique" ON "salon_page_appearance" USING btree ("salon_id","page_name");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "salon_page_appearance_salon_idx" ON "salon_page_appearance" USING btree ("salon_id");
+
+

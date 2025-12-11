@@ -1,11 +1,12 @@
 import 'server-only';
 
-import { eq, and, inArray, gte, lt, gt, ne } from 'drizzle-orm';
+import { eq, and, inArray, gte, lt, gt, ne, desc, asc, or, ilike, sql } from 'drizzle-orm';
 
 import {
   appointmentSchema,
   clientSchema,
   salonSchema,
+  salonClientSchema,
   serviceSchema,
   technicianSchema,
   technicianServicesSchema,
@@ -13,6 +14,7 @@ import {
   type CancelReason,
   type Client,
   type Salon,
+  type SalonClient,
   type Service,
   type Technician,
 } from '@/models/Schema';
@@ -48,6 +50,32 @@ export async function getSalonById(id: string): Promise<Salon | null> {
     .select()
     .from(salonSchema)
     .where(and(eq(salonSchema.id, id), eq(salonSchema.isActive, true)))
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Get a salon by slug AND owner user ID (for admin auth verification)
+ * Ensures the requesting user actually owns the salon they're trying to access.
+ * @param slug - The salon's URL-friendly slug
+ * @param ownerUserId - The Clerk user ID of the salon owner
+ * @returns The salon or null if not found or not owned by user
+ */
+export async function getSalonBySlugAndOwnerUserId(
+  slug: string,
+  ownerUserId: string,
+): Promise<Salon | null> {
+  const results = await db
+    .select()
+    .from(salonSchema)
+    .where(
+      and(
+        eq(salonSchema.slug, slug),
+        eq(salonSchema.ownerClerkUserId, ownerUserId),
+        eq(salonSchema.isActive, true),
+      ),
+    )
     .limit(1);
 
   return results[0] ?? null;
@@ -459,6 +487,424 @@ export async function getActiveAppointmentsForClient(
         eq(appointmentSchema.salonId, salonId),
         inArray(appointmentSchema.status, ['pending', 'confirmed']),
         gte(appointmentSchema.startTime, now),
+      ),
+    );
+}
+
+// =============================================================================
+// SALON CLIENT QUERIES - Salon-scoped client profiles
+// =============================================================================
+
+/**
+ * Normalize phone number to 10 digits
+ * Strips country code and non-digit characters
+ */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  // If 11 digits starting with 1, strip the leading 1
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+/**
+ * Upsert a salon client - create if doesn't exist, update if exists
+ * Called automatically when a client books or logs in
+ * 
+ * Conflict resolution strategy:
+ * - If globalClientId is provided: use (salonId, clientId) as conflict target
+ *   This links the salon profile to the authenticated global client
+ * - Otherwise: use (salonId, phone) as conflict target
+ *   This handles guest bookings or phone-only identification
+ * 
+ * @param salonId - The salon's unique ID
+ * @param phone - The client's phone number (will be normalized to 10 digits)
+ * @param fullName - Optional name
+ * @param email - Optional email
+ * @param globalClientId - Optional link to global client table
+ * @returns The upserted salon client
+ */
+export async function upsertSalonClient(
+  salonId: string,
+  phone: string,
+  fullName?: string,
+  email?: string,
+  globalClientId?: string,
+): Promise<SalonClient> {
+  const normalizedPhone = normalizePhone(phone);
+  const salonClientId = `sc_${crypto.randomUUID()}`;
+
+  // If we have a globalClientId, prefer matching by (salonId, clientId)
+  // This ensures authenticated users get their profile linked correctly
+  if (globalClientId) {
+    // First, check if a salon client already exists for this global client
+    const existingByClientId = await db
+      .select()
+      .from(salonClientSchema)
+      .where(
+        and(
+          eq(salonClientSchema.salonId, salonId),
+          eq(salonClientSchema.clientId, globalClientId),
+        ),
+      )
+      .limit(1);
+
+    if (existingByClientId.length > 0) {
+      // Update existing record linked to this global client
+      const [updated] = await db
+        .update(salonClientSchema)
+        .set({
+          ...(fullName && { fullName }),
+          ...(email && { email }),
+          // Update phone if it changed (e.g., user updated their number)
+          phone: normalizedPhone,
+          updatedAt: new Date(),
+        })
+        .where(eq(salonClientSchema.id, existingByClientId[0]!.id))
+        .returning();
+      return updated!;
+    }
+
+    // Check if there's an existing record by phone that we should link
+    const existingByPhone = await db
+      .select()
+      .from(salonClientSchema)
+      .where(
+        and(
+          eq(salonClientSchema.salonId, salonId),
+          eq(salonClientSchema.phone, normalizedPhone),
+        ),
+      )
+      .limit(1);
+
+    if (existingByPhone.length > 0) {
+      // Link existing phone-based record to global client
+      const [updated] = await db
+        .update(salonClientSchema)
+        .set({
+          clientId: globalClientId,
+          ...(fullName && { fullName }),
+          ...(email && { email }),
+          updatedAt: new Date(),
+        })
+        .where(eq(salonClientSchema.id, existingByPhone[0]!.id))
+        .returning();
+      return updated!;
+    }
+
+    // Create new record with global client link
+    const [newClient] = await db
+      .insert(salonClientSchema)
+      .values({
+        id: salonClientId,
+        salonId,
+        phone: normalizedPhone,
+        fullName,
+        email,
+        clientId: globalClientId,
+      })
+      .returning();
+    return newClient!;
+  }
+
+  // No globalClientId - use phone-based conflict resolution
+  const [salonClient] = await db
+    .insert(salonClientSchema)
+    .values({
+      id: salonClientId,
+      salonId,
+      phone: normalizedPhone,
+      fullName,
+      email,
+      clientId: null,
+    })
+    .onConflictDoUpdate({
+      target: [salonClientSchema.salonId, salonClientSchema.phone],
+      set: {
+        ...(fullName && { fullName }),
+        ...(email && { email }),
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return salonClient!;
+}
+
+/**
+ * Get a salon client by phone number
+ * @param salonId - The salon's unique ID
+ * @param phone - The client's phone number
+ * @returns The salon client or null if not found
+ */
+export async function getSalonClientByPhone(
+  salonId: string,
+  phone: string,
+): Promise<SalonClient | null> {
+  const normalizedPhone = normalizePhone(phone);
+
+  const results = await db
+    .select()
+    .from(salonClientSchema)
+    .where(
+      and(
+        eq(salonClientSchema.salonId, salonId),
+        eq(salonClientSchema.phone, normalizedPhone),
+      ),
+    )
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Get a salon client by ID
+ * @param salonId - The salon's unique ID (for multi-tenant safety)
+ * @param salonClientId - The salon client's unique ID
+ * @returns The salon client or null if not found
+ */
+export async function getSalonClientById(
+  salonId: string,
+  salonClientId: string,
+): Promise<SalonClient | null> {
+  const results = await db
+    .select()
+    .from(salonClientSchema)
+    .where(
+      and(
+        eq(salonClientSchema.id, salonClientId),
+        eq(salonClientSchema.salonId, salonId),
+      ),
+    )
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * List options for salon clients
+ */
+export type ListSalonClientsOptions = {
+  search?: string;
+  sortBy?: 'recent' | 'visits' | 'spent' | 'name';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+};
+
+/**
+ * Salon client with preferred technician info
+ */
+export type SalonClientWithTech = SalonClient & {
+  preferredTechnician?: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+  } | null;
+};
+
+/**
+ * Get all salon clients for a salon with optional search and sorting
+ * @param salonId - The salon's unique ID
+ * @param options - Search, sort, and pagination options
+ * @returns Array of salon clients with total count
+ */
+export async function getSalonClients(
+  salonId: string,
+  options: ListSalonClientsOptions = {},
+): Promise<{ clients: SalonClientWithTech[]; total: number }> {
+  const {
+    search,
+    sortBy = 'recent',
+    sortOrder = 'desc',
+    page = 1,
+    limit = 50,
+  } = options;
+
+  // Build where conditions
+  const conditions = [eq(salonClientSchema.salonId, salonId)];
+
+  // Add search filter
+  if (search) {
+    const searchPattern = `%${search}%`;
+    conditions.push(
+      or(
+        ilike(salonClientSchema.fullName, searchPattern),
+        ilike(salonClientSchema.phone, searchPattern),
+        ilike(salonClientSchema.email, searchPattern),
+      ) ?? sql`1=0`,
+    );
+  }
+
+  // Get total count
+  const countResult = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(salonClientSchema)
+    .where(and(...conditions));
+  const total = countResult[0]?.count ?? 0;
+
+  // Build order by
+  let orderBy;
+  const orderDir = sortOrder === 'asc' ? asc : desc;
+  switch (sortBy) {
+    case 'visits':
+      orderBy = orderDir(salonClientSchema.totalVisits);
+      break;
+    case 'spent':
+      orderBy = orderDir(salonClientSchema.totalSpent);
+      break;
+    case 'name':
+      orderBy = orderDir(salonClientSchema.fullName);
+      break;
+    case 'recent':
+    default:
+      orderBy = desc(salonClientSchema.lastVisitAt);
+      break;
+  }
+
+  // Get paginated results
+  const offset = (page - 1) * limit;
+  const clients = await db
+    .select()
+    .from(salonClientSchema)
+    .where(and(...conditions))
+    .orderBy(orderBy)
+    .limit(limit)
+    .offset(offset);
+
+  // Fetch preferred technicians for clients that have one
+  const techIds = clients
+    .map((c) => c.preferredTechnicianId)
+    .filter((id): id is string => id !== null);
+
+  let techMap = new Map<string, { id: string; name: string; avatarUrl: string | null }>();
+  if (techIds.length > 0) {
+    const technicians = await db
+      .select({
+        id: technicianSchema.id,
+        name: technicianSchema.name,
+        avatarUrl: technicianSchema.avatarUrl,
+      })
+      .from(technicianSchema)
+      .where(inArray(technicianSchema.id, techIds));
+
+    techMap = new Map(technicians.map((t) => [t.id, t]));
+  }
+
+  // Combine clients with technician info
+  const clientsWithTech: SalonClientWithTech[] = clients.map((client) => ({
+    ...client,
+    preferredTechnician: client.preferredTechnicianId
+      ? techMap.get(client.preferredTechnicianId) ?? null
+      : null,
+  }));
+
+  return { clients: clientsWithTech, total };
+}
+
+/**
+ * Update a salon client's profile
+ * @param salonId - The salon's unique ID (for multi-tenant safety)
+ * @param salonClientId - The salon client's unique ID
+ * @param updates - Fields to update
+ * @returns The updated salon client or null if not found
+ */
+export async function updateSalonClient(
+  salonId: string,
+  salonClientId: string,
+  updates: Partial<Pick<SalonClient, 'fullName' | 'email' | 'preferredTechnicianId' | 'notes'>>,
+): Promise<SalonClient | null> {
+  const [updated] = await db
+    .update(salonClientSchema)
+    .set({
+      ...updates,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(salonClientSchema.id, salonClientId),
+        eq(salonClientSchema.salonId, salonId),
+      ),
+    )
+    .returning();
+
+  return updated ?? null;
+}
+
+/**
+ * Update salon client stats based on their appointment history
+ * Call this after appointment completion, cancellation, or no-show
+ * 
+ * This function is IDEMPOTENT - it recalculates all stats from scratch
+ * based on the current appointment data, so calling it multiple times
+ * is safe and will always produce correct results.
+ * 
+ * Stats are SALON-SCOPED - only appointments from this salon are counted.
+ * 
+ * @param salonId - The salon's unique ID
+ * @param phone - The client's phone number (any format)
+ */
+export async function updateSalonClientStats(
+  salonId: string,
+  phone: string,
+): Promise<void> {
+  const normalizedPhone = normalizePhone(phone);
+
+  // Get the salon client (scoped to this salon)
+  const salonClient = await getSalonClientByPhone(salonId, normalizedPhone);
+  if (!salonClient) {
+    // No salon client record exists - nothing to update
+    // This can happen if booking was created before the salon_client feature
+    return;
+  }
+
+  // Build comprehensive phone variants for matching appointments
+  // Appointments may store phone in various formats
+  const phoneVariants = [
+    normalizedPhone,                    // "4165551234"
+    `+1${normalizedPhone}`,             // "+14165551234"
+    `1${normalizedPhone}`,              // "14165551234"
+    phone,                               // original format passed in
+    phone.replace(/\D/g, ''),           // digits only from original
+  ];
+  // Deduplicate
+  const uniquePhoneVariants = [...new Set(phoneVariants)];
+
+  // Calculate stats from appointments - SCOPED TO THIS SALON ONLY
+  // Using FILTER clause for conditional aggregation (Postgres 9.4+)
+  const stats = await db
+    .select({
+      totalVisits: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
+      totalSpent: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}) FILTER (WHERE ${appointmentSchema.status} = 'completed'), 0)::int`,
+      noShowCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'no_show')::int`,
+      lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (WHERE ${appointmentSchema.status} = 'completed')`,
+    })
+    .from(appointmentSchema)
+    .where(
+      and(
+        eq(appointmentSchema.salonId, salonId),
+        inArray(appointmentSchema.clientPhone, uniquePhoneVariants),
+      ),
+    );
+
+  const clientStats = stats[0];
+  
+  // Update the salon client with computed stats
+  // Double-check salonId in WHERE clause for multi-tenant safety
+  await db
+    .update(salonClientSchema)
+    .set({
+      totalVisits: clientStats?.totalVisits ?? 0,
+      totalSpent: clientStats?.totalSpent ?? 0,
+      noShowCount: clientStats?.noShowCount ?? 0,
+      lastVisitAt: clientStats?.lastVisitAt ?? null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(salonClientSchema.id, salonClient.id),
+        eq(salonClientSchema.salonId, salonId),
       ),
     );
 }

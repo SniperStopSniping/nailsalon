@@ -9,6 +9,7 @@
  * - Price and duration display
  * - Category tabs (Hands, Feet, Combo)
  * - Service details on tap
+ * - Fetches real data from /api/salon/services
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,6 +21,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+
+import { useSalon } from '@/providers/SalonProvider';
 
 import { ModalHeader, BackButton } from './AppModal';
 
@@ -297,42 +300,57 @@ function LoadingSkeleton() {
 }
 
 export function ServicesModal({ onClose }: ServicesModalProps) {
+  const { salonSlug } = useSalon();
   const [services, setServices] = useState<ServiceData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedService, setSelectedService] = useState<ServiceData | null>(null);
 
-  // Fetch services data
+  // Fetch services data from real API
   const fetchServices = useCallback(async () => {
     try {
       setLoading(true);
-      // Services are typically loaded via the booking flow
-      // For now, we'll create mock data based on common nail salon services
-      // In production, this would fetch from /api/services
+      setError(null);
       
-      // Simulate API call with realistic data
-      await new Promise(resolve => setTimeout(resolve, 300));
+      const response = await fetch(`/api/salon/services?salonSlug=${salonSlug}`);
       
-      const mockServices: ServiceData[] = [
-        { id: '1', name: 'Classic Manicure', description: 'Traditional manicure with nail shaping, cuticle care, and polish', price: 3500, durationMinutes: 30, category: 'hands', imageUrl: null, isActive: true },
-        { id: '2', name: 'Gel Manicure', description: 'Long-lasting gel polish manicure with LED curing', price: 4500, durationMinutes: 45, category: 'hands', imageUrl: null, isActive: true },
-        { id: '3', name: 'BIAB Manicure', description: 'Builder in a bottle for natural nail strengthening', price: 5500, durationMinutes: 60, category: 'hands', imageUrl: null, isActive: true },
-        { id: '4', name: 'Nail Art (per nail)', description: 'Custom nail art designs', price: 500, durationMinutes: 10, category: 'hands', imageUrl: null, isActive: true },
-        { id: '5', name: 'Classic Pedicure', description: 'Relaxing pedicure with foot soak and massage', price: 4500, durationMinutes: 45, category: 'feet', imageUrl: null, isActive: true },
-        { id: '6', name: 'Gel Pedicure', description: 'Pedicure with long-lasting gel polish', price: 5500, durationMinutes: 60, category: 'feet', imageUrl: null, isActive: true },
-        { id: '7', name: 'Spa Pedicure', description: 'Luxury pedicure with extended massage and paraffin treatment', price: 7500, durationMinutes: 75, category: 'feet', imageUrl: null, isActive: true },
-        { id: '8', name: 'Mani-Pedi Combo', description: 'Classic manicure and pedicure package', price: 7000, durationMinutes: 75, category: 'combo', imageUrl: null, isActive: true },
-        { id: '9', name: 'Gel Mani-Pedi', description: 'Gel manicure and pedicure package', price: 9000, durationMinutes: 90, category: 'combo', imageUrl: null, isActive: true },
-        { id: '10', name: 'Removal Only', description: 'Gel or acrylic removal', price: 1500, durationMinutes: 20, category: 'hands', imageUrl: null, isActive: true },
-      ];
+      if (!response.ok) {
+        throw new Error('Failed to load services');
+      }
       
-      setServices(mockServices);
-    } catch (error) {
-      console.error('Failed to fetch services:', error);
+      const result = await response.json();
+      const fetchedServices = result.data?.services || [];
+      
+      // Transform API data to component format
+      const transformedServices: ServiceData[] = fetchedServices.map((service: {
+        id: string;
+        name: string;
+        description: string | null;
+        price: number;
+        durationMinutes: number;
+        category: string;
+        imageUrl: string | null;
+        isActive: boolean;
+      }) => ({
+        id: service.id,
+        name: service.name,
+        description: service.description,
+        price: service.price,
+        durationMinutes: service.durationMinutes,
+        category: service.category,
+        imageUrl: service.imageUrl,
+        isActive: service.isActive,
+      }));
+      
+      setServices(transformedServices);
+    } catch (err) {
+      console.error('Failed to fetch services:', err);
+      setError('Failed to load services');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [salonSlug]);
 
   useEffect(() => {
     fetchServices();
@@ -369,6 +387,17 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {loading ? (
           <LoadingSkeleton />
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 px-8">
+            <p className="text-sm text-red-600 mb-2">{error}</p>
+            <button
+              type="button"
+              onClick={fetchServices}
+              className="text-sm text-[#007AFF] font-medium"
+            >
+              Try again
+            </button>
+          </div>
         ) : filteredServices.length === 0 ? (
           <EmptyState category={activeCategory} />
         ) : (

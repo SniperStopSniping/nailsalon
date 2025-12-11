@@ -11,6 +11,7 @@ import {
 } from 'framer-motion';
 import {
   Calendar,
+  Check,
   ChevronRight,
   CreditCard,
   Fingerprint,
@@ -18,7 +19,9 @@ import {
   Home,
   Image as ImageIcon,
   LogOut,
+  Mail,
   MapPin,
+  Pencil,
   RefreshCw,
   Share2,
   Sparkles,
@@ -170,20 +173,26 @@ const StatItem = ({
  */
 const MemberCard = ({
   userName,
+  userEmail,
   profileImage,
   userStats,
   activePoints,
   onImageClick,
   profileImageInputRef,
   onProfileImageChange,
+  onEditProfile,
+  hasProfileReward,
 }: {
   userName: string;
+  userEmail: string | null;
   profileImage: string | null;
   userStats: { totalVisits: number; tier: string; savedAmount: number };
   activePoints: number;
   onImageClick: () => void;
   profileImageInputRef: React.RefObject<HTMLInputElement | null>;
   onProfileImageChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onEditProfile: () => void;
+  hasProfileReward: boolean;
 }) => {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -369,10 +378,38 @@ const MemberCard = ({
                 className="absolute bottom-0 right-0 z-10 size-4 rounded-full border-2 border-white shadow-sm bg-[var(--n5-success)]"
               />
             </div>
-            <div>
-              <h2 className="font-heading text-2xl font-semibold leading-none tracking-tight">
-                {userName}
-              </h2>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="font-heading text-2xl font-semibold leading-none tracking-tight">
+                  {userName}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    onEditProfile();
+                  }}
+                  className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-bg-surface)]/60 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
+                  aria-label="Edit profile"
+                >
+                  <Pencil className="size-3" />
+                </button>
+                {hasProfileReward && (
+                  <span
+                    className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-[var(--n5-accent)]/10 text-[var(--n5-accent)] font-body"
+                    style={{ borderRadius: n5.radiusPill }}
+                  >
+                    $5 reward
+                  </span>
+                )}
+              </div>
+              {userEmail && (
+                <p
+                  className="mt-0.5 text-[11px] font-medium text-[var(--n5-ink-muted)] font-body truncate max-w-[180px]"
+                >
+                  {userEmail}
+                </p>
+              )}
               <p
                 className="mt-1 text-[11px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)] font-body"
               >
@@ -752,7 +789,302 @@ const FloatingDock = ({ onBookNow, onHome }: { onBookNow: () => void; onHome: ()
 );
 
 /**
- * 6. SKELETON LOADER (For Refresh State)
+ * 6. PROFILE COMPLETE BANNER
+ * Shown when user hasn't completed their profile (missing name or email)
+ */
+const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: 0.15 }}
+    className="relative mt-4 w-full overflow-hidden"
+    style={{
+      borderRadius: n5.radiusCard,
+      background: `linear-gradient(135deg, var(--n5-accent-soft) 0%, color-mix(in srgb, var(--n5-accent) 30%, white) 100%)`,
+      boxShadow: n5.shadowSm,
+    }}
+  >
+    {/* Decorative shimmer */}
+    <div className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[shimmer_3s_infinite]" />
+
+    <div className="relative p-5">
+      <div className="flex items-start gap-4">
+        <div
+          className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white/80 shadow-sm"
+        >
+          <Gift className="size-6 text-[var(--n5-accent)]" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
+            Unlock $5 Off
+          </h3>
+          <p className="mt-1 text-[13px] leading-snug text-[var(--n5-ink-muted)] font-body">
+            Add your name & email to get $5 off your next visit.
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          triggerHaptic();
+          onComplete();
+        }}
+        className="mt-4 flex w-full items-center justify-center gap-2 py-3 text-[13px] font-bold text-white transition-all active:scale-[0.98] bg-[var(--n5-accent)] font-body"
+        style={{
+          borderRadius: n5.radiusMd,
+          boxShadow: n5.shadowSm,
+        }}
+      >
+        <Sparkles className="size-4" />
+        Complete Profile
+      </button>
+    </div>
+  </motion.div>
+);
+
+/**
+ * 7. PROFILE EDIT SHEET
+ * Bottom sheet modal for editing name and email
+ */
+const ProfileEditSheet = ({
+  isOpen,
+  onClose,
+  initialName,
+  initialEmail,
+  onSave,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  initialName: string;
+  initialEmail: string;
+  onSave: (name: string, email: string) => Promise<void>;
+  isLoading: boolean;
+}) => {
+  const [name, setName] = useState(initialName === 'Guest' ? '' : initialName);
+  const [email, setEmail] = useState(initialEmail);
+  const [nameError, setNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Reset form when sheet opens
+  useEffect(() => {
+    if (isOpen) {
+      setName(initialName === 'Guest' ? '' : initialName);
+      setEmail(initialEmail);
+      setNameError('');
+      setEmailError('');
+      setTimeout(() => sheetRef.current?.focus(), 50);
+    }
+  }, [isOpen, initialName, initialEmail]);
+
+  // Escape key handler
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (!isLoading && e.key === 'Escape') {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleEsc);
+    }
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose, isLoading]);
+
+  const validateEmail = (emailValue: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(emailValue);
+  };
+
+  const handleSubmit = async () => {
+    // Validate
+    let hasError = false;
+
+    if (!name.trim()) {
+      setNameError('Please enter your name');
+      hasError = true;
+    } else {
+      setNameError('');
+    }
+
+    if (!email.trim()) {
+      setEmailError('Please enter your email');
+      hasError = true;
+    } else if (!validateEmail(email)) {
+      setEmailError('Please enter a valid email');
+      hasError = true;
+    } else {
+      setEmailError('');
+    }
+
+    if (hasError) {
+      return;
+    }
+
+    await onSave(name.trim(), email.trim());
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={!isLoading ? onClose : undefined}
+            className="fixed inset-0 z-[60] backdrop-blur-sm"
+            style={{ backgroundColor: `color-mix(in srgb, var(--n5-ink-main) 40%, transparent)` }}
+            aria-hidden="true"
+          />
+
+          {/* Sheet */}
+          <motion.div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-profile-title"
+            tabIndex={-1}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-x-0 bottom-0 z-[70] overflow-hidden bg-[var(--n5-bg-card)] p-6 pb-10 outline-none"
+            style={{
+              borderRadius: `${n5.radiusCard} ${n5.radiusCard} 0 0`,
+              boxShadow: n5.shadowLg,
+            }}
+          >
+            {/* Handle */}
+            <div className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-[var(--n5-border-muted)]" />
+
+            {/* Header */}
+            <div className="mb-6 text-center">
+              <div
+                className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full border border-[var(--n5-border)] shadow-sm"
+                style={{
+                  background: `linear-gradient(to top right, var(--n5-bg-page), white)`,
+                }}
+              >
+                <User className="size-7 text-[var(--n5-accent)]" />
+              </div>
+              <h2 id="edit-profile-title" className="font-heading text-xl tracking-tight text-[var(--n5-ink-main)]">
+                Complete Your Profile
+              </h2>
+              <p className="mt-1 text-[13px] text-[var(--n5-ink-muted)] font-body">
+                Add your details to unlock $5 off
+              </p>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4">
+              {/* Name Input */}
+              <div>
+                <label
+                  htmlFor="profile-name"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)] font-body"
+                >
+                  Name
+                </label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[var(--n5-ink-muted)]" />
+                  <input
+                    id="profile-name"
+                    type="text"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="Your name"
+                    className={cn(
+                      'w-full rounded-xl border bg-[var(--n5-bg-surface)] py-3.5 pl-11 pr-4 text-[15px] text-[var(--n5-ink-main)] placeholder:text-[var(--n5-ink-muted)]/50 outline-none transition-all font-body',
+                      nameError
+                        ? 'border-[var(--n5-error)] focus:border-[var(--n5-error)]'
+                        : 'border-[var(--n5-border)] focus:border-[var(--n5-accent)]',
+                    )}
+                    disabled={isLoading}
+                  />
+                </div>
+                {nameError && (
+                  <p className="mt-1 text-xs text-[var(--n5-error)] font-body">{nameError}</p>
+                )}
+              </div>
+
+              {/* Email Input */}
+              <div>
+                <label
+                  htmlFor="profile-email"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)] font-body"
+                >
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[var(--n5-ink-muted)]" />
+                  <input
+                    id="profile-email"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className={cn(
+                      'w-full rounded-xl border bg-[var(--n5-bg-surface)] py-3.5 pl-11 pr-4 text-[15px] text-[var(--n5-ink-main)] placeholder:text-[var(--n5-ink-muted)]/50 outline-none transition-all font-body',
+                      emailError
+                        ? 'border-[var(--n5-error)] focus:border-[var(--n5-error)]'
+                        : 'border-[var(--n5-border)] focus:border-[var(--n5-accent)]',
+                    )}
+                    disabled={isLoading}
+                  />
+                </div>
+                {emailError && (
+                  <p className="mt-1 text-xs text-[var(--n5-error)] font-body">{emailError}</p>
+                )}
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="mt-6 flex w-full items-center justify-center gap-2 py-4 text-[14px] font-bold text-white transition-all active:scale-[0.98] disabled:opacity-60 bg-[var(--n5-accent)] font-body"
+                style={{
+                  borderRadius: n5.radiusMd,
+                  boxShadow: n5.shadowSm,
+                }}
+              >
+                {isLoading
+                  ? (
+                      <>
+                        <div className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Saving...
+                      </>
+                    )
+                  : (
+                      <>
+                        <Check className="size-4" />
+                        Save & Claim $5
+                      </>
+                    )}
+              </button>
+            </form>
+
+            {/* Cancel Button */}
+            {!isLoading && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-3 w-full py-3 text-[13px] font-semibold text-[var(--n5-ink-muted)] transition-colors font-body"
+              >
+                Cancel
+              </button>
+            )}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/**
+ * 8. SKELETON LOADER (For Refresh State)
  */
 const ProfileSkeleton = () => (
   <motion.div
@@ -790,9 +1122,18 @@ export default function ProfileContent() {
 
   // User data
   const [userName, setUserName] = useState('Guest');
+  const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Profile completion state
+  const [showEditSheet, setShowEditSheet] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [hasProfileReward, setHasProfileReward] = useState(false);
+
+  // Derived: profile is complete if we have both name (not Guest) and email
+  const isProfileComplete = userName !== 'Guest' && userName.trim() !== '' && clientEmail.trim() !== '';
 
   // Appointment data
   const [nextAppointment, setNextAppointment] = useState<AppointmentData | null>(null);
@@ -814,7 +1155,7 @@ export default function ProfileContent() {
     savedAmount: 340,
   };
 
-  // Load client name and phone from cookie
+  // Load client name, email, and phone from cookie
   useEffect(() => {
     const clientNameCookie = document.cookie
       .split('; ')
@@ -823,6 +1164,16 @@ export default function ProfileContent() {
       const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
       if (name) {
         setUserName(name);
+      }
+    }
+
+    const clientEmailCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('client_email='));
+    if (clientEmailCookie) {
+      const email = decodeURIComponent(clientEmailCookie.split('=')[1] || '');
+      if (email) {
+        setClientEmail(email);
       }
     }
 
@@ -962,6 +1313,64 @@ export default function ProfileContent() {
     { label: 'Payment Methods', icon: CreditCard, onClick: () => handleNavigate('/payment-methods') },
   ];
 
+  // Handle profile save
+  const handleSaveProfile = useCallback(async (name: string, email: string) => {
+    if (!clientPhone || !salonSlug) {
+      return;
+    }
+
+    setIsSavingProfile(true);
+
+    try {
+      const response = await fetch('/api/client/complete-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: clientPhone,
+          firstName: name,
+          email,
+          salonSlug,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+
+        // Update local state
+        setUserName(name);
+        setClientEmail(email);
+
+        // Close sheet
+        setShowEditSheet(false);
+
+        // Show confetti if reward was granted
+        if (data.data?.rewardGranted) {
+          setHasProfileReward(true);
+          setShowConfetti(true);
+
+          // Refresh points to include new reward
+          const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+          const rewardsResponse = await fetch(
+            `/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`,
+          );
+          if (rewardsResponse.ok) {
+            const rewardsData = await rewardsResponse.json();
+            setActivePoints(rewardsData.meta?.activePoints || 0);
+          }
+        }
+
+        triggerHaptic();
+      } else {
+        const errorData = await response.json();
+        console.error('Failed to save profile:', errorData);
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }, [clientPhone, salonSlug]);
+
   return (
     <div
       className="min-h-screen bg-[var(--n5-bg-page)]"
@@ -1016,13 +1425,22 @@ export default function ProfileContent() {
                 >
                   <MemberCard
                     userName={userName}
+                    userEmail={clientEmail || null}
                     profileImage={profileImage}
                     userStats={userStats}
                     activePoints={activePoints}
                     onImageClick={handleProfileImageClick}
                     profileImageInputRef={profileImageInputRef}
                     onProfileImageChange={handleProfileImageChange}
+                    onEditProfile={() => setShowEditSheet(true)}
+                    hasProfileReward={hasProfileReward}
                   />
+
+                  {/* Profile Completion Banner - shown when profile is incomplete */}
+                  {!isProfileComplete && clientPhone && (
+                    <ProfileCompleteBanner onComplete={() => setShowEditSheet(true)} />
+                  )}
+
                   <AppointmentTicket
                     appointment={nextAppointment}
                     services={nextAppointmentServices}
@@ -1077,10 +1495,20 @@ export default function ProfileContent() {
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
-        title="You just gifted your friend a FREE manicure!"
-        message="They'll receive a text with your referral. When they book, you both win!"
-        emoji="🎊"
+        title="$5 Reward Unlocked!"
+        message="Thanks for completing your profile. Your $5 reward is ready to use on your next visit!"
+        emoji="🎉"
         autoDismissMs={4000}
+      />
+
+      {/* Profile Edit Sheet */}
+      <ProfileEditSheet
+        isOpen={showEditSheet}
+        onClose={() => setShowEditSheet(false)}
+        initialName={userName}
+        initialEmail={clientEmail}
+        onSave={handleSaveProfile}
+        isLoading={isSavingProfile}
       />
     </div>
   );

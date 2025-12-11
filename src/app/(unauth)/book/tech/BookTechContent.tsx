@@ -1,9 +1,14 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { AnimatedCheckmark, ShakeWrapper } from '@/components/animated';
+import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
+import { ANIMATION } from '@/libs/animations';
+import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
 
 export type TechnicianData = {
@@ -22,10 +27,10 @@ export type ServiceSummary = {
   duration: number;
 };
 
-interface BookTechContentProps {
+type BookTechContentProps = {
   technicians: TechnicianData[];
   services: ServiceSummary[];
-}
+};
 
 export function BookTechContent({ technicians, services }: BookTechContentProps) {
   const router = useRouter();
@@ -36,6 +41,7 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -44,19 +50,38 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
   const serviceNames = services.map(s => s.name).join(' + ');
   const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     router.back();
-  };
+  }, [router]);
 
-  const handleContinue = () => {
-    if (!selectedTech) return;
+  const handleSelectTech = useCallback((techId: string) => {
+    // Only trigger haptic if selection is changing
+    if (selectedTech !== techId) {
+      triggerHaptic('select');
+    }
+    setSelectedTech(techId);
+  }, [selectedTech]);
+
+  const handleContinue = useCallback(() => {
+    if (!selectedTech) {
+      // No selection - trigger error haptic and shake
+      triggerHaptic('error');
+      setIsShaking(true);
+      return;
+    }
+    // Valid selection - trigger confirm haptic and navigate
+    triggerHaptic('confirm');
     const params = new URLSearchParams();
     params.set('serviceIds', serviceIds.join(','));
     params.set('techId', selectedTech);
-    if (clientPhone) params.set('clientPhone', clientPhone);
-    if (originalAppointmentId) params.set('originalAppointmentId', originalAppointmentId);
+    if (clientPhone) {
+      params.set('clientPhone', clientPhone);
+    }
+    if (originalAppointmentId) {
+      params.set('originalAppointmentId', originalAppointmentId);
+    }
     router.push(`/book/time?${params.toString()}`);
-  };
+  }, [selectedTech, serviceIds, clientPhone, originalAppointmentId, router]);
 
   return (
     <div
@@ -75,18 +100,19 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <button
+          <motion.button
             type="button"
             onClick={handleBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60"
+            whileTap={{ scale: 0.95 }}
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
+          </motion.button>
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight font-heading text-[var(--n5-accent)]"
+            className="font-heading absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight text-[var(--n5-accent)]"
           >
             {salonName}
           </div>
@@ -101,108 +127,134 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
             transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
           }}
         >
-          <h1 className="mb-1 text-2xl font-bold font-heading text-[var(--n5-ink-main)]">Choose Your Artist</h1>
-          <p className="text-sm font-body text-[var(--n5-ink-muted)]">{serviceNames || 'Select a technician'}</p>
+          <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">Choose Your Artist</h1>
+          <p className="font-body text-sm text-[var(--n5-ink-muted)]">{serviceNames || 'Select a technician'}</p>
         </div>
 
         {/* Technicians Grid */}
         <div className="space-y-3">
           {/* Any Artist Option */}
-          <button
+          <motion.button
             type="button"
-            onClick={() => setSelectedTech('any')}
-            className={`w-full overflow-hidden p-4 shadow-[var(--n5-shadow-md)] backdrop-blur-sm transition-all duration-200 bg-[var(--n5-bg-card)]/80 ${
-              selectedTech === 'any' ? 'border-2 border-[var(--n5-accent)]' : 'border-2 border-[var(--n5-border)]'
-            }`}
+            onClick={() => handleSelectTech('any')}
+            className="bg-[var(--n5-bg-card)]/80 w-full overflow-hidden p-4 shadow-[var(--n5-shadow-md)] backdrop-blur-sm"
             style={{
               borderRadius: 'var(--n5-radius-card)',
               opacity: mounted ? 1 : 0,
               transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms, border-color 200ms',
+              transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
             }}
+            whileTap={{ scale: ANIMATION.scale.tap }}
+            animate={{
+              borderWidth: 2,
+              borderColor: selectedTech === 'any' ? 'var(--n5-accent)' : 'var(--n5-border)',
+              boxShadow: selectedTech === 'any'
+                ? '0 4px 20px rgba(214, 162, 73, 0.15)'
+                : '0 4px 20px rgba(0,0,0,0.08)',
+            }}
+            transition={{ duration: ANIMATION.glowFade / 1000 }}
           >
             <div className="flex items-center gap-4">
-              <div
-                className="flex size-16 items-center justify-center text-2xl bg-[var(--n5-bg-surface)]"
+              <motion.div
+                className="flex size-16 items-center justify-center bg-[var(--n5-bg-surface)] text-2xl"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                animate={{
+                  scale: selectedTech === 'any' ? 1.05 : 1,
+                  boxShadow: selectedTech === 'any'
+                    ? '0 4px 12px rgba(0,0,0,0.1)'
+                    : '0 0 0 rgba(0,0,0,0)',
+                }}
+                transition={{ type: 'spring', ...ANIMATION.spring }}
               >
                 🎲
-              </div>
+              </motion.div>
               <div className="flex-1 text-left">
-                <h3 className="text-base font-bold font-body text-[var(--n5-ink-main)]">Any Available Artist</h3>
-                <p className="text-sm font-body text-[var(--n5-ink-muted)]">First available appointment</p>
+                <h3 className="font-body text-base font-bold text-[var(--n5-ink-main)]">Any Available Artist</h3>
+                <p className="font-body text-sm text-[var(--n5-ink-muted)]">First available appointment</p>
               </div>
-              {selectedTech === 'any' && (
-                <div
-                  className="flex size-6 items-center justify-center bg-[var(--n5-accent)]"
-                  style={{ borderRadius: 'var(--n5-radius-pill)' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-              )}
+              <AnimatedCheckmark
+                isVisible={selectedTech === 'any'}
+                size={24}
+                backgroundColor="var(--n5-accent)"
+              />
             </div>
-          </button>
+          </motion.button>
 
           {/* Individual Technicians */}
-          {technicians.map((tech, index) => (
-            <button
-              key={tech.id}
-              type="button"
-              onClick={() => setSelectedTech(tech.id)}
-              className={`w-full overflow-hidden p-4 shadow-[var(--n5-shadow-md)] backdrop-blur-sm transition-all duration-200 bg-[var(--n5-bg-card)]/80 ${
-                selectedTech === tech.id ? 'border-2 border-[var(--n5-accent)]' : 'border-2 border-[var(--n5-border)]'
-              }`}
-              style={{
-                borderRadius: 'var(--n5-radius-card)',
-                opacity: mounted ? 1 : 0,
-                transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-                transition: `opacity 300ms ease-out ${150 + index * 50}ms, transform 300ms ease-out ${150 + index * 50}ms, border-color 200ms`,
-              }}
-            >
-              <div className="flex items-center gap-4">
-                <div
-                  className="relative size-16 overflow-hidden"
-                  style={{ borderRadius: 'var(--n5-radius-pill)' }}
-                >
-                  <Image
-                    src={tech.imageUrl}
-                    alt={tech.name}
-                    fill
-                    className="object-cover"
+          {technicians.map((tech, index) => {
+            const isSelected = selectedTech === tech.id;
+            return (
+              <motion.button
+                key={tech.id}
+                type="button"
+                onClick={() => handleSelectTech(tech.id)}
+                className="bg-[var(--n5-bg-card)]/80 w-full overflow-hidden p-4 shadow-[var(--n5-shadow-md)] backdrop-blur-sm"
+                style={{
+                  borderRadius: 'var(--n5-radius-card)',
+                  opacity: mounted ? 1 : 0,
+                  transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                  transition: `opacity 300ms ease-out ${150 + index * 50}ms, transform 300ms ease-out ${150 + index * 50}ms`,
+                }}
+                whileTap={{ scale: ANIMATION.scale.tap }}
+                animate={{
+                  borderWidth: 2,
+                  borderColor: isSelected ? 'var(--n5-accent)' : 'var(--n5-border)',
+                  boxShadow: isSelected
+                    ? '0 4px 20px rgba(214, 162, 73, 0.15)'
+                    : '0 4px 20px rgba(0,0,0,0.08)',
+                }}
+                transition={{ duration: ANIMATION.glowFade / 1000 }}
+              >
+                <div className="flex items-center gap-4">
+                  {/* Profile photo with lift effect */}
+                  <motion.div
+                    className="relative size-16 overflow-hidden"
+                    style={{ borderRadius: 'var(--n5-radius-pill)' }}
+                    animate={{
+                      scale: isSelected ? 1.05 : 1,
+                      boxShadow: isSelected
+                        ? '0 4px 12px rgba(0,0,0,0.15)'
+                        : '0 0 0 rgba(0,0,0,0)',
+                    }}
+                    transition={{ type: 'spring', ...ANIMATION.spring }}
+                  >
+                    <Image
+                      src={tech.imageUrl}
+                      alt={tech.name}
+                      fill
+                      className="object-cover"
+                    />
+                  </motion.div>
+                  <div className="flex-1 text-left">
+                    <h3 className="font-body text-base font-bold text-[var(--n5-ink-main)]">{tech.name}</h3>
+                    <p className="font-body text-sm text-[var(--n5-ink-muted)]">
+                      {tech.specialties.slice(0, 2).join(' · ') || 'All services'}
+                    </p>
+                    <div className="mt-1 flex items-center gap-1">
+                      <span className="text-[var(--n5-warning)]">★</span>
+                      <span className="font-body text-sm font-medium text-[var(--n5-ink-main)]">{tech.rating.toFixed(1)}</span>
+                      <span className="font-body text-sm text-[var(--n5-ink-muted)]">
+                        (
+                        {tech.reviewCount}
+                        )
+                      </span>
+                    </div>
+                  </div>
+                  <AnimatedCheckmark
+                    isVisible={isSelected}
+                    size={24}
+                    backgroundColor="var(--n5-accent)"
                   />
                 </div>
-                <div className="flex-1 text-left">
-                  <h3 className="text-base font-bold font-body text-[var(--n5-ink-main)]">{tech.name}</h3>
-                  <p className="text-sm font-body text-[var(--n5-ink-muted)]">
-                    {tech.specialties.slice(0, 2).join(' · ') || 'All services'}
-                  </p>
-                  <div className="mt-1 flex items-center gap-1">
-                    <span className="text-[var(--n5-warning)]">★</span>
-                    <span className="text-sm font-medium font-body text-[var(--n5-ink-main)]">{tech.rating.toFixed(1)}</span>
-                    <span className="text-sm font-body text-[var(--n5-ink-muted)]">({tech.reviewCount})</span>
-                  </div>
-                </div>
-                {selectedTech === tech.id && (
-                  <div
-                    className="flex size-6 items-center justify-center bg-[var(--n5-accent)]"
-                    style={{ borderRadius: 'var(--n5-radius-pill)' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M3 7L6 10L11 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-            </button>
-          ))}
+              </motion.button>
+            );
+          })}
         </div>
 
         {/* Price Summary */}
         {services.length > 0 && (
           <div
-            className="mt-6 p-4 bg-[var(--n5-bg-card)]/60"
+            className="bg-[var(--n5-bg-card)]/60 mt-6 p-4"
             style={{
               borderRadius: 'var(--n5-radius-md)',
               opacity: mounted ? 1 : 0,
@@ -210,9 +262,10 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
             }}
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm font-body text-[var(--n5-ink-muted)]">Estimated Total</span>
-              <span className="text-lg font-bold font-body text-[var(--n5-accent)]">
-                ${totalPrice.toFixed(0)}
+              <span className="font-body text-sm text-[var(--n5-ink-muted)]">Estimated Total</span>
+              <span className="font-body text-lg font-bold text-[var(--n5-accent)]">
+                $
+                {totalPrice.toFixed(0)}
               </span>
             </div>
           </div>
@@ -220,26 +273,37 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
       </div>
 
       {/* Fixed Bottom CTA */}
-      <div className="fixed inset-x-0 bottom-0 bg-[var(--n5-bg-card)]/80 px-4 pb-8 pt-4 backdrop-blur-md">
+      <div className="bg-[var(--n5-bg-card)]/80 fixed inset-x-0 bottom-0 px-4 pb-8 pt-4 backdrop-blur-md">
         <div className="mx-auto max-w-[430px]">
-          <button
-            type="button"
-            onClick={handleContinue}
-            disabled={!selectedTech}
-            className={`w-full py-4 text-base font-bold font-body transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
-              selectedTech ? 'text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)]' : 'bg-[var(--n5-border)] text-[var(--n5-ink-muted)]'
-            }`}
-            style={{
-              borderRadius: 'var(--n5-radius-md)',
-              background: selectedTech
-                ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
-                : undefined,
-            }}
-          >
-            Continue to Select Time
-          </button>
+          <ShakeWrapper isShaking={isShaking} onShakeComplete={() => setIsShaking(false)}>
+            <motion.button
+              type="button"
+              onClick={handleContinue}
+              disabled={!selectedTech}
+              className={`font-body w-full py-4 text-base font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                selectedTech ? 'text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)]' : 'bg-[var(--n5-border)] text-[var(--n5-ink-muted)]'
+              }`}
+              style={{
+                borderRadius: 'var(--n5-radius-md)',
+                background: selectedTech
+                  ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
+                  : undefined,
+              }}
+              whileTap={selectedTech ? { scale: 0.98 } : undefined}
+              // Spring animation when button becomes enabled
+              animate={selectedTech ? {
+                y: [4, 0],
+                opacity: [0.8, 1],
+              } : {}}
+              transition={{ type: 'spring', ...ANIMATION.spring }}
+            >
+              Continue to Select Time
+            </motion.button>
+          </ShakeWrapper>
         </div>
       </div>
+
+      <BookingFloatingDock />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   getServicesByIds,
   getTechnicianById,
   updateAppointmentStatus,
+  upsertSalonClient,
 } from '@/libs/queries';
 import { guardSalonApiRoute } from '@/libs/salonStatus';
 import {
@@ -563,6 +564,15 @@ export async function POST(request: Request): Promise<Response> {
 
     if (!appointment) {
       throw new Error('Failed to create appointment');
+    }
+
+    // 8b. Upsert salon client (create if new, update name if provided)
+    // This creates a salon-scoped client profile for the customer
+    try {
+      await upsertSalonClient(salon.id, data.clientPhone, clientName);
+    } catch (err) {
+      // Log but don't fail the booking if client upsert fails
+      console.error('Failed to upsert salon client:', err);
     }
 
     // 9. Insert appointment services (with price/duration snapshot)

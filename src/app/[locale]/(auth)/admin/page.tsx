@@ -117,9 +117,12 @@ function IOSHeader({
 // Main Page Component
 // =============================================================================
 
+// Use shared type from admin types
+import type { AnalyticsResponse } from '@/types/admin';
+
 export default function AdminDashboardPage() {
   const { user, isLoaded } = useUser();
-  const { salonName, status } = useSalon();
+  const { salonName, salonSlug, status } = useSalon();
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>({
@@ -129,7 +132,9 @@ export default function AdminDashboardPage() {
     staff: [],
     badges: { referrals: 0, reviews: 0, marketing: 0, alerts: 0 },
   });
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -143,30 +148,29 @@ export default function AdminDashboardPage() {
   // Notification count (in production, this would come from API)
   const notificationCount = data.badges.alerts + data.badges.reviews;
 
-  // Fetch dashboard data
+  // Fetch dashboard data from analytics API
   const fetchData = useCallback(async () => {
     try {
-      const response = await fetch('/api/appointments?date=today');
-      if (response.ok) {
-        const result = await response.json();
-        const appointments = result.data?.appointments || [];
+      setError(null);
+      
+      // Fetch from analytics API
+      const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${salonSlug}&period=monthly`);
+      
+      if (!analyticsResponse.ok) {
+        throw new Error('Failed to load analytics');
+      }
+      
+      if (analyticsResponse.ok) {
+        const analyticsResult = await analyticsResponse.json();
+        const analytics = analyticsResult.data;
 
-        const completed = appointments.filter((a: { status: string }) => a.status === 'completed');
-        const noShows = appointments.filter((a: { status: string }) => a.status === 'no_show');
-        const upcoming = appointments.filter(
-          (a: { status: string }) =>
-            a.status === 'confirmed' || a.status === 'pending' || a.status === 'in_progress'
-        );
-
-        const totalRevenue = completed.reduce(
-          (sum: number, a: { totalPrice: number }) => sum + (a.totalPrice || 0),
-          0
-        );
-
-        // Generate mock availability slots
+        // Generate availability slots from upcoming appointments
         const slots: ('booked' | 'open')[] = [];
         for (let i = 0; i < 16; i++) {
-          slots.push(Math.random() > 0.4 ? 'booked' : 'open');
+          // More realistic: mark slots as booked based on upcoming count
+          const bookedRatio = analytics?.appointments?.upcoming ? 
+            Math.min(analytics.appointments.upcoming / 8, 1) : 0.4;
+          slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
         }
 
         const openCount = slots.filter((s) => s === 'open').length;
@@ -187,43 +191,52 @@ export default function AdminDashboardPage() {
           }
         }
 
+        // Map staff data from API
+        const staffStatus = (analytics?.staff || []).slice(0, 3).map((tech: { name: string; appointmentCount: number }) => ({
+          name: tech.name.split(' ')[0] || tech.name,
+          status: tech.appointmentCount > 0 ? 'busy' : 'free' as 'busy' | 'free' | 'break',
+          detail: tech.appointmentCount > 0 ? `${tech.appointmentCount} appts` : undefined,
+        }));
+
         setData({
           revenue: {
-            today: totalRevenue,
-            completed: completed.length,
-            trend: 18,
+            today: analytics?.revenue?.total ?? 0,
+            completed: analytics?.revenue?.completed ?? 0,
+            trend: analytics?.revenue?.trend ?? 0,
           },
           appointments: {
-            total: appointments.length,
-            completed: completed.length,
-            noShows: noShows.length,
-            upcoming: upcoming.length,
+            total: analytics?.appointments?.total ?? 0,
+            completed: analytics?.appointments?.completed ?? 0,
+            noShows: analytics?.appointments?.noShows ?? 0,
+            upcoming: analytics?.appointments?.upcoming ?? 0,
           },
           openSpots: {
             count: openCount,
             nextTime,
             slots,
           },
-          staff: [
-            { name: 'Sarah', status: 'busy', detail: 'Done 2:45' },
-            { name: 'Emma', status: 'free' },
-            { name: 'Kim', status: 'break', detail: 'Back 3:00' },
+          staff: staffStatus.length > 0 ? staffStatus : [
+            { name: 'No staff', status: 'free' as const },
           ],
           badges: {
-            referrals: 3,
-            reviews: 2,
-            marketing: 5,
-            alerts: 1,
+            referrals: 0,
+            reviews: 0,
+            marketing: 0,
+            alerts: analytics?.appointments?.noShows ?? 0,
           },
         });
+        
+        // Store analytics for widgets
+        setAnalyticsData(analytics);
         setLastUpdated(new Date());
       }
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+      setError('Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [salonSlug]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
@@ -317,26 +330,36 @@ export default function AdminDashboardPage() {
     reviews: data.badges.reviews,
   };
 
-  // Staff data for analytics
-  const staffData = [
-    { id: 1, name: 'Sarah J.', role: 'Senior Stylist', revenue: '$2,400', avatarColor: 'bg-blue-100 text-blue-600' },
-    { id: 2, name: 'Michael B.', role: 'Colorist', revenue: '$1,850', avatarColor: 'bg-purple-100 text-purple-600' },
-    { id: 3, name: 'Emily R.', role: 'Nail Tech', revenue: '$1,200', avatarColor: 'bg-pink-100 text-pink-600' },
+  // Staff data for analytics - use real data from API
+  const avatarColors = [
+    'bg-blue-100 text-blue-600',
+    'bg-purple-100 text-purple-600',
+    'bg-pink-100 text-pink-600',
+    'bg-green-100 text-green-600',
+    'bg-orange-100 text-orange-600',
   ];
+  
+  const staffData = analyticsData?.staff?.slice(0, 5).map((tech, index) => ({
+    id: index + 1,
+    name: tech.name,
+    role: tech.role || 'Technician',
+    revenue: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(tech.revenue / 100),
+    avatarColor: avatarColors[index % avatarColors.length]!,
+  })) || [];
 
-  // Utilization data
-  const utilization = [
-    { name: 'Sar', percent: 92, color: '#fa709a' },
-    { name: 'Mik', percent: 65, color: '#43e97b' },
-    { name: 'Em', percent: 45, color: '#66a6ff' },
-  ];
+  // Utilization data - use real data from API
+  const utilization = analyticsData?.staff?.slice(0, 3).map((tech) => ({
+    name: tech.name.substring(0, 3),
+    percent: tech.utilization,
+    color: tech.color,
+  })) || [];
 
-  // Service mix data
-  const services = [
-    { label: 'BIAB Gel', percent: 45, color: '#F97316' },
-    { label: 'Pedicure', percent: 30, color: '#3B82F6' },
-    { label: 'Removal', percent: 15, color: '#9CA3AF' },
-  ];
+  // Service mix data - use real data from API
+  const services = analyticsData?.services?.slice(0, 4).map((svc) => ({
+    label: svc.label,
+    percent: svc.percent,
+    color: svc.color,
+  })) || [];
 
   return (
     <div
@@ -372,6 +395,13 @@ export default function AdminDashboardPage() {
           notificationCount={notificationCount}
           onNotificationTap={() => setShowNotifications(true)}
         />
+
+        {/* Error Banner */}
+        {error && (
+          <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
 
         {/* Swipeable Pages Container */}
         <div className="h-[calc(100vh-140px)]">

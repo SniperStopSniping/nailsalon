@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getAppointmentById } from '@/libs/queries';
+import { getAppointmentById, updateSalonClientStats } from '@/libs/queries';
 import { appointmentSchema, appointmentPhotoSchema, PAYMENT_STATUSES } from '@/models/Schema';
 
 // =============================================================================
@@ -142,6 +142,11 @@ export async function PATCH(
         updatedAt: now,
       })
       .where(eq(appointmentSchema.id, appointmentId));
+
+    // 5b. Update salon client stats (runs in background, don't await)
+    updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((err) => {
+      console.error('Failed to update salon client stats:', err);
+    });
 
     // 6. Return success response
     const response: SuccessResponse = {

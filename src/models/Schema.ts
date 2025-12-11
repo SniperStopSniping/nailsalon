@@ -464,6 +464,8 @@ export const clientSchema = pgTable(
     id: text('id').primaryKey(),
     phone: text('phone').notNull().unique(),
     firstName: text('first_name'),
+    email: text('email'),
+    profileCompletionRewardGranted: boolean('profile_completion_reward_granted').default(false),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -472,6 +474,68 @@ export const clientSchema = pgTable(
   },
   (table) => ({
     phoneIdx: uniqueIndex('client_phone_idx').on(table.phone),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// SalonClient - Salon-scoped client profiles (multi-tenant)
+// Links a global client to a specific salon with salon-specific data
+// -----------------------------------------------------------------------------
+export const salonClientSchema = pgTable(
+  'salon_client',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Link to global client (for auth/identity)
+    clientId: text('client_id').references(() => clientSchema.id),
+
+    // Identity (can override global client data per salon)
+    phone: text('phone').notNull(), // normalized 10-digit
+    fullName: text('full_name'),
+    email: text('email'),
+
+    // Preferences
+    preferredTechnicianId: text('preferred_technician_id').references(
+      () => technicianSchema.id,
+    ),
+    notes: text('notes'), // internal staff notes
+
+    // Computed stats (updated after each booking)
+    lastVisitAt: timestamp('last_visit_at', { mode: 'date' }),
+    totalVisits: integer('total_visits').default(0),
+    totalSpent: integer('total_spent').default(0), // in cents
+    noShowCount: integer('no_show_count').default(0),
+    loyaltyPoints: integer('loyalty_points').default(0),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    // Unique constraint: one profile per client per salon
+    uniqueSalonClient: uniqueIndex('salon_client_salon_client_idx').on(
+      table.salonId,
+      table.clientId,
+    ),
+    // Unique constraint: one profile per phone per salon
+    uniqueSalonPhone: uniqueIndex('salon_client_salon_phone_idx').on(
+      table.salonId,
+      table.phone,
+    ),
+    // Search indexes
+    salonIdx: index('salon_client_salon_idx').on(table.salonId),
+    phoneIdx: index('salon_client_phone_idx').on(table.phone),
+    emailIdx: index('salon_client_email_idx').on(table.salonId, table.email),
+    lastVisitIdx: index('salon_client_last_visit_idx').on(
+      table.salonId,
+      table.lastVisitAt,
+    ),
   }),
 );
 
@@ -824,6 +888,9 @@ export const salonLocationSchema = pgTable(
 
 export type Client = typeof clientSchema.$inferSelect;
 export type NewClient = typeof clientSchema.$inferInsert;
+
+export type SalonClient = typeof salonClientSchema.$inferSelect;
+export type NewSalonClient = typeof salonClientSchema.$inferInsert;
 
 export type Salon = typeof salonSchema.$inferSelect;
 export type NewSalon = typeof salonSchema.$inferInsert;

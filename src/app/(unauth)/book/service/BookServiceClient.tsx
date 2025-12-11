@@ -9,6 +9,7 @@ import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { useBookingAuth } from '@/hooks/useBookingAuth';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepLabel } from '@/libs/bookingFlow';
+import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -72,9 +73,11 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
   });
 
   const toggleService = (id: string) => {
-    setSelectedServiceIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
-    );
+    setSelectedServiceIds(prev => {
+      const wasSelected = prev.includes(id);
+      triggerHaptic(wasSelected ? 'deselect' : 'select');
+      return wasSelected ? prev.filter(x => x !== id) : [...prev, id];
+    });
   };
 
   const selectedCount = selectedServiceIds.length;
@@ -119,6 +122,8 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
     if (!selectedServiceIds.length) {
       return;
     }
+
+    triggerHaptic('confirm');
 
     if (isLoggedIn && phone) {
       goToNextStep(selectedServiceIds, phone);
@@ -274,7 +279,12 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
               <button
                 key={cat.id}
                 type="button"
-                onClick={() => setSelectedCategory(cat.id)}
+                onClick={() => {
+                  if (cat.id !== selectedCategory) {
+                    setSelectedCategory(cat.id);
+                    triggerHaptic('select');
+                  }
+                }}
                 className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200"
                 style={{
                   backgroundColor: active ? themeVars.accent : 'white',

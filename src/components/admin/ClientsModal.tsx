@@ -9,12 +9,14 @@
  * - Alphabetical section headers
  * - Recent visits display
  * - Tap to view client details
- * - Pull from real client data
+ * - Pull from salon_client table (salon-scoped)
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Phone, Calendar, ChevronRight, User } from 'lucide-react';
+import { Search, Phone, Calendar, ChevronRight, User, Mail, AlertCircle, Star } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+
+import { useSalon } from '@/providers/SalonProvider';
 
 import { ModalHeader, BackButton } from './AppModal';
 
@@ -22,10 +24,19 @@ import { ModalHeader, BackButton } from './AppModal';
 interface ClientData {
   id: string;
   phone: string;
-  firstName: string | null;
-  lastVisit?: string;
-  totalVisits?: number;
-  totalSpent?: number;
+  fullName: string | null;
+  email: string | null;
+  lastVisitAt: string | null;
+  totalVisits: number;
+  totalSpent: number;
+  noShowCount: number;
+  loyaltyPoints: number;
+  preferredTechnician: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+  } | null;
+  notes: string | null;
 }
 
 interface ClientsModalProps {
@@ -58,7 +69,7 @@ function groupClientsByLetter(clients: ClientData[]): Map<string, ClientData[]> 
   const groups = new Map<string, ClientData[]>();
   
   for (const client of clients) {
-    const name = client.firstName || 'Unknown';
+    const name = client.fullName || 'Unknown';
     const letter = name.charAt(0).toUpperCase();
     const existing = groups.get(letter) || [];
     existing.push(client);
@@ -107,7 +118,7 @@ function ClientRow({
   isLast: boolean;
   onClick: () => void;
 }) {
-  const name = client.firstName || 'Unknown';
+  const name = client.fullName || 'Unknown';
   const initials = name.substring(0, 2).toUpperCase();
   
   return (
@@ -125,7 +136,14 @@ function ClientRow({
       {/* Content */}
       <div className={`flex-1 flex items-center justify-between pr-4 py-3 ${!isLast ? 'border-b border-gray-100' : ''}`}>
         <div>
-          <div className="text-[16px] font-medium text-[#1C1C1E]">{name}</div>
+          <div className="text-[16px] font-medium text-[#1C1C1E] flex items-center gap-1.5">
+            {name}
+            {client.noShowCount > 0 && (
+              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-medium">
+                {client.noShowCount} no-show{client.noShowCount > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
           <div className="text-[13px] text-[#8E8E93] flex items-center gap-1 mt-0.5">
             <Phone className="w-3 h-3" />
             {formatPhone(client.phone)}
@@ -133,18 +151,14 @@ function ClientRow({
         </div>
         
         <div className="flex items-center gap-2">
-          {client.totalVisits !== undefined && (
-            <div className="text-right mr-2">
-              <div className="text-[13px] text-[#8E8E93]">
-                {client.totalVisits} visits
-              </div>
-              {client.totalSpent !== undefined && (
-                <div className="text-[12px] text-[#34C759] font-medium">
-                  {formatCurrency(client.totalSpent)}
-                </div>
-              )}
+          <div className="text-right mr-2">
+            <div className="text-[13px] text-[#8E8E93]">
+              {client.totalVisits} visit{client.totalVisits !== 1 ? 's' : ''}
             </div>
-          )}
+            <div className="text-[12px] text-[#34C759] font-medium">
+              {formatCurrency(client.totalSpent)}
+            </div>
+          </div>
           <ChevronRight className="w-4 h-4 text-[#C7C7CC]" />
         </div>
       </div>
@@ -195,7 +209,7 @@ function ClientDetail({
   client: ClientData; 
   onBack: () => void;
 }) {
-  const name = client.firstName || 'Unknown';
+  const name = client.fullName || 'Unknown';
   const initials = name.substring(0, 2).toUpperCase();
   
   return (
@@ -204,14 +218,14 @@ function ClientDetail({
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="absolute inset-0 bg-[#F2F2F7]"
+      className="absolute inset-0 bg-[#F2F2F7] overflow-y-auto"
     >
       <ModalHeader
         title={name}
         leftAction={<BackButton onClick={onBack} label="Clients" />}
       />
       
-      <div className="p-4">
+      <div className="p-4 pb-10">
         {/* Profile Card */}
         <div className="bg-white rounded-[22px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)] mb-4">
           <div className="flex flex-col items-center">
@@ -219,40 +233,100 @@ function ClientDetail({
               {initials}
             </div>
             <h2 className="text-[22px] font-semibold text-[#1C1C1E]">{name}</h2>
-            <p className="text-[15px] text-[#8E8E93] mt-1">{formatPhone(client.phone)}</p>
+            <div className="flex items-center gap-1 text-[15px] text-[#8E8E93] mt-1">
+              <Phone className="w-3.5 h-3.5" />
+              {formatPhone(client.phone)}
+            </div>
+            {client.email && (
+              <div className="flex items-center gap-1 text-[15px] text-[#8E8E93] mt-0.5">
+                <Mail className="w-3.5 h-3.5" />
+                {client.email}
+              </div>
+            )}
           </div>
         </div>
         
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            <div className="text-[13px] text-[#8E8E93] uppercase font-medium">Total Visits</div>
-            <div className="text-[28px] font-bold text-[#1C1C1E] mt-1">
-              {client.totalVisits || 0}
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium">Total Visits</div>
+            <div className="text-[24px] font-bold text-[#1C1C1E] mt-1">
+              {client.totalVisits}
             </div>
           </div>
           <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            <div className="text-[13px] text-[#8E8E93] uppercase font-medium">Total Spent</div>
-            <div className="text-[28px] font-bold text-[#34C759] mt-1">
-              {formatCurrency(client.totalSpent || 0)}
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium">Total Spent</div>
+            <div className="text-[24px] font-bold text-[#34C759] mt-1">
+              {formatCurrency(client.totalSpent)}
+            </div>
+          </div>
+          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium flex items-center gap-1">
+              <Star className="w-3 h-3" />
+              Loyalty Points
+            </div>
+            <div className="text-[24px] font-bold text-[#FF9500] mt-1">
+              {client.loyaltyPoints.toLocaleString()}
+            </div>
+          </div>
+          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              No-Shows
+            </div>
+            <div className={`text-[24px] font-bold mt-1 ${client.noShowCount > 0 ? 'text-[#FF3B30]' : 'text-[#1C1C1E]'}`}>
+              {client.noShowCount}
             </div>
           </div>
         </div>
+
+        {/* Preferred Technician */}
+        {client.preferredTechnician && (
+          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] mb-4">
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium mb-2">Preferred Tech</div>
+            <div className="flex items-center gap-3">
+              {client.preferredTechnician.avatarUrl ? (
+                <img 
+                  src={client.preferredTechnician.avatarUrl} 
+                  alt={client.preferredTechnician.name}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-[#007AFF] flex items-center justify-center text-white text-sm font-medium">
+                  {client.preferredTechnician.name.substring(0, 2).toUpperCase()}
+                </div>
+              )}
+              <span className="text-[17px] text-[#1C1C1E] font-medium">
+                {client.preferredTechnician.name}
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* Last Visit */}
-        {client.lastVisit && (
-          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            <div className="flex items-center gap-2 text-[13px] text-[#8E8E93] uppercase font-medium mb-2">
-              <Calendar className="w-4 h-4" />
+        {client.lastVisitAt && (
+          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] mb-4">
+            <div className="flex items-center gap-2 text-[12px] text-[#8E8E93] uppercase font-medium mb-2">
+              <Calendar className="w-3.5 h-3.5" />
               Last Visit
             </div>
             <div className="text-[17px] text-[#1C1C1E]">
-              {new Date(client.lastVisit).toLocaleDateString('en-US', {
+              {new Date(client.lastVisitAt).toLocaleDateString('en-US', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric',
                 year: 'numeric',
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
+        {client.notes && (
+          <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+            <div className="text-[12px] text-[#8E8E93] uppercase font-medium mb-2">Notes</div>
+            <div className="text-[15px] text-[#1C1C1E] whitespace-pre-wrap">
+              {client.notes}
             </div>
           </div>
         )}
@@ -281,73 +355,58 @@ function LoadingSkeleton() {
 }
 
 export function ClientsModal({ onClose }: ClientsModalProps) {
+  const { salonSlug } = useSalon();
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientData | null>(null);
+  const [totalClients, setTotalClients] = useState(0);
 
-  // Fetch clients data
-  const fetchClients = useCallback(async () => {
+  // Fetch clients data from new salon-scoped API
+  const fetchClients = useCallback(async (search?: string) => {
     try {
       setLoading(true);
-      // Fetch from appointments to get unique clients with their stats
-      const response = await fetch('/api/appointments?date=all&status=completed,confirmed,pending,in_progress');
+      const params = new URLSearchParams({
+        salonSlug,
+        sortBy: 'recent',
+        limit: '100',
+      });
+      if (search) {
+        params.set('search', search);
+      }
+      
+      const response = await fetch(`/api/admin/clients?${params}`);
       if (response.ok) {
         const result = await response.json();
-        const appointments = result.data?.appointments || [];
-        
-        // Aggregate client data from appointments
-        const clientMap = new Map<string, ClientData>();
-        
-        for (const appt of appointments) {
-          const phone = appt.clientPhone;
-          const existing = clientMap.get(phone);
-          
-          if (existing) {
-            existing.totalVisits = (existing.totalVisits || 0) + 1;
-            existing.totalSpent = (existing.totalSpent || 0) + (appt.totalPrice || 0);
-            if (!existing.lastVisit || new Date(appt.startTime) > new Date(existing.lastVisit)) {
-              existing.lastVisit = appt.startTime;
-            }
-            if (appt.clientName && !existing.firstName) {
-              existing.firstName = appt.clientName;
-            }
-          } else {
-            clientMap.set(phone, {
-              id: phone,
-              phone,
-              firstName: appt.clientName || null,
-              lastVisit: appt.startTime,
-              totalVisits: 1,
-              totalSpent: appt.totalPrice || 0,
-            });
-          }
-        }
-        
-        setClients(Array.from(clientMap.values()));
+        const fetchedClients = result.data?.clients || [];
+        setClients(fetchedClients);
+        setTotalClients(result.data?.pagination?.total || fetchedClients.length);
       }
     } catch (error) {
       console.error('Failed to fetch clients:', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [salonSlug]);
 
   useEffect(() => {
     fetchClients();
   }, [fetchClients]);
 
-  // Filter clients by search query
-  const filteredClients = clients.filter((client) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const name = (client.firstName || '').toLowerCase();
-    const phone = client.phone.replace(/\D/g, '');
-    return name.includes(query) || phone.includes(query.replace(/\D/g, ''));
-  });
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery) {
+        fetchClients(searchQuery);
+      } else {
+        fetchClients();
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchClients]);
 
-  // Group filtered clients
-  const groupedClients = groupClientsByLetter(filteredClients);
+  // Group clients by first letter (already filtered by API)
+  const groupedClients = groupClientsByLetter(clients);
 
   return (
     <div className="min-h-full w-full bg-[#F2F2F7] text-black font-sans flex flex-col relative">
@@ -355,7 +414,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
           title="Clients"
-          subtitle={`${clients.length} total`}
+          subtitle={`${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
         <SearchBar value={searchQuery} onChange={setSearchQuery} />
@@ -365,7 +424,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {loading ? (
           <LoadingSkeleton />
-        ) : filteredClients.length === 0 ? (
+        ) : clients.length === 0 ? (
           <EmptyState searchQuery={searchQuery} />
         ) : (
           Array.from(groupedClients.entries()).map(([letter, letterClients]) => (

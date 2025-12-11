@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getAppointmentById } from '@/libs/queries';
+import { getAppointmentById, updateSalonClientStats } from '@/libs/queries';
 import { appointmentSchema, CANCEL_REASONS, rewardSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -130,6 +130,14 @@ export async function PATCH(
           })
           .where(eq(rewardSchema.id, reward.id));
       }
+    }
+
+    // 5b. Update salon client stats if this was a no-show
+    // (Background, don't await - no-shows affect stats)
+    if (validated.data.cancelReason === 'no_show') {
+      updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((err) => {
+        console.error('Failed to update salon client stats:', err);
+      });
     }
 
     // 6. Return success response

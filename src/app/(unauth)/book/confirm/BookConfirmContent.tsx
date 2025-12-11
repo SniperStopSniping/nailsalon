@@ -1,9 +1,13 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { AnimatedCheckmark, ShakeWrapper } from '@/components/animated';
+import { ANIMATION } from '@/libs/animations';
+import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
 
 export type ServiceSummary = {
@@ -74,6 +78,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isShaking, setIsShaking] = useState(false);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -89,9 +94,9 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
     if (savedName) setName(decodeURIComponent(savedName));
   }, [clientPhone]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     router.back();
-  };
+  }, [router]);
 
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '');
@@ -108,15 +113,21 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
   const handleConfirm = useCallback(async () => {
     if (!phone || !name) {
       setError('Please enter your name and phone number');
+      triggerHaptic('error');
+      setIsShaking(true);
       return;
     }
 
     const normalizedPhone = phone.replace(/\D/g, '');
     if (normalizedPhone.length !== 10) {
       setError('Please enter a valid 10-digit phone number');
+      triggerHaptic('error');
+      setIsShaking(true);
       return;
     }
 
+    // Trigger confirm haptic when starting the booking
+    triggerHaptic('confirm');
     setIsConfirming(true);
     setError(null);
 
@@ -147,6 +158,8 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
         throw new Error(data.error?.message || 'Failed to book appointment');
       }
 
+      // Success! Trigger success haptic
+      triggerHaptic('success');
       setIsConfirmed(true);
       setShowConfetti(true);
 
@@ -156,6 +169,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
     } catch (err) {
       console.error('Booking error:', err);
       setError(err instanceof Error ? err.message : 'Failed to book appointment');
+      triggerHaptic('error');
     } finally {
       setIsConfirming(false);
     }
@@ -181,6 +195,8 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
     const hour12 = hours % 12 || 12;
     return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   })() : '';
+
+  const isReadyToConfirm = phone && name;
 
   return (
     <div
@@ -232,16 +248,17 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <button
+          <motion.button
             type="button"
             onClick={handleBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-[var(--n5-bg-card)]/60 active:scale-95"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-[var(--n5-bg-card)]/60"
+            whileTap={{ scale: 0.95 }}
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
+          </motion.button>
           <div
             className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight font-heading text-[var(--n5-accent)]"
           >
@@ -258,16 +275,35 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
           }}
         >
-          <h1 className="mb-1 text-2xl font-bold font-heading text-[var(--n5-ink-main)]">
-            {isConfirmed ? 'Booking Confirmed! 🎉' : 'Confirm Your Booking'}
-          </h1>
+          <motion.h1
+            className="mb-1 text-2xl font-bold font-heading text-[var(--n5-ink-main)]"
+            animate={isConfirmed ? { scale: [1, 1.05, 1] } : {}}
+            transition={{ duration: 0.3 }}
+          >
+            {isConfirmed ? 'Booking Confirmed!' : 'Confirm Your Booking'}
+          </motion.h1>
           <p className="text-sm font-body text-[var(--n5-ink-muted)]">
             {isConfirmed ? 'See you soon!' : 'Review your appointment details'}
           </p>
+          {/* Success checkmark */}
+          {isConfirmed && (
+            <motion.div
+              className="mx-auto mt-4"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', ...ANIMATION.checkmarkSpring, delay: 0.2 }}
+            >
+              <AnimatedCheckmark
+                isVisible={isConfirmed}
+                size={64}
+                backgroundColor="var(--n5-accent)"
+              />
+            </motion.div>
+          )}
         </div>
 
         {/* Booking Summary Card */}
-        <div
+        <motion.div
           className="mb-6 overflow-hidden p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
           style={{
             borderRadius: 'var(--n5-radius-card)',
@@ -275,6 +311,12 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
             transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
           }}
+          // Slide up animation on success
+          animate={isConfirmed ? {
+            y: [-ANIMATION.slideY, 0],
+            boxShadow: '0 8px 30px rgba(214, 162, 73, 0.2)',
+          } : {}}
+          transition={{ type: 'spring', ...ANIMATION.spring }}
         >
           {/* Service Info */}
           <div className="mb-4 flex items-start gap-4">
@@ -333,55 +375,63 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
               <p className="font-medium font-body text-[var(--n5-ink-main)]">{displayDate} at {displayTime}</p>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Contact Info */}
         {!isConfirmed && (
-          <div
-            className="mb-6 overflow-hidden p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
-            style={{
-              borderRadius: 'var(--n5-radius-card)',
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
-            }}
-          >
-            <h3 className="mb-4 text-base font-bold font-body text-[var(--n5-ink-main)]">Your Information</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                  className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
-                  style={{
-                    borderRadius: 'var(--n5-radius-md)',
-                  }}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Phone Number</label>
-                <input
-                  ref={phoneInputRef}
-                  type="tel"
-                  value={phone}
-                  onChange={handlePhoneChange}
-                  placeholder="(555) 123-4567"
-                  className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
-                  style={{
-                    borderRadius: 'var(--n5-radius-md)',
-                  }}
-                />
+          <ShakeWrapper isShaking={isShaking} onShakeComplete={() => setIsShaking(false)}>
+            <div
+              className="mb-6 overflow-hidden p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
+              style={{
+                borderRadius: 'var(--n5-radius-card)',
+                opacity: mounted ? 1 : 0,
+                transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
+              }}
+            >
+              <h3 className="mb-4 text-base font-bold font-body text-[var(--n5-ink-main)]">Your Information</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Name</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
+                    style={{
+                      borderRadius: 'var(--n5-radius-md)',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Phone Number</label>
+                  <input
+                    ref={phoneInputRef}
+                    type="tel"
+                    value={phone}
+                    onChange={handlePhoneChange}
+                    placeholder="(555) 123-4567"
+                    className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
+                    style={{
+                      borderRadius: 'var(--n5-radius-md)',
+                    }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          </ShakeWrapper>
         )}
 
         {error && (
-          <p className="mb-4 text-center text-sm font-body text-[var(--n5-error)]">{error}</p>
+          <motion.p
+            className="mb-4 text-center text-sm font-body text-[var(--n5-error)]"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            {error}
+          </motion.p>
         )}
       </div>
 
@@ -389,22 +439,29 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
       {!isConfirmed && (
         <div className="fixed inset-x-0 bottom-0 bg-[var(--n5-bg-card)]/80 px-4 pb-8 pt-4 backdrop-blur-md">
           <div className="mx-auto max-w-[430px]">
-            <button
+            <motion.button
               type="button"
               onClick={handleConfirm}
-              disabled={isConfirming || !phone || !name}
-              className={`w-full py-4 text-base font-bold font-body transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
-                phone && name ? 'text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)]' : 'bg-[var(--n5-border)] text-[var(--n5-ink-muted)]'
+              disabled={isConfirming || !isReadyToConfirm}
+              className={`w-full py-4 text-base font-bold font-body transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                isReadyToConfirm ? 'text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)]' : 'bg-[var(--n5-border)] text-[var(--n5-ink-muted)]'
               }`}
               style={{
                 borderRadius: 'var(--n5-radius-md)',
-                background: phone && name
+                background: isReadyToConfirm
                   ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
                   : undefined,
               }}
+              whileTap={isReadyToConfirm && !isConfirming ? { scale: 0.98 } : undefined}
+              // Spring animation when button becomes enabled
+              animate={isReadyToConfirm ? {
+                y: [4, 0],
+                opacity: [0.8, 1],
+              } : {}}
+              transition={{ type: 'spring', ...ANIMATION.spring }}
             >
               {isConfirming ? 'Confirming...' : 'Confirm Booking'}
-            </button>
+            </motion.button>
           </div>
         </div>
       )}

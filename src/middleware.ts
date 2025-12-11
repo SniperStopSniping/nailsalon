@@ -33,7 +33,17 @@ export default function middleware(
     return clerkMiddleware()(request, event);
   }
 
-  // Skip middleware entirely for other API routes
+  // Admin API routes need Clerk auth - run clerkMiddleware to set up auth context
+  // but don't block - the route handlers will check auth themselves
+  if (request.nextUrl.pathname.startsWith('/api/admin') || 
+      request.nextUrl.pathname.startsWith('/api/salon/services')) {
+    return clerkMiddleware(async () => {
+      // Just set up auth context, don't protect - route handlers check ownership
+      return NextResponse.next();
+    })(request, event);
+  }
+
+  // Skip middleware entirely for other API routes (booking flow, etc.)
   if (request.nextUrl.pathname.startsWith('/api')) {
     return NextResponse.next();
   }

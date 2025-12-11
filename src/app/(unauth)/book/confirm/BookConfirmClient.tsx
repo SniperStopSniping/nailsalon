@@ -19,9 +19,10 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { BookingStep } from '@/libs/bookingFlow';
+import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
-import type { BookingStep } from '@/libs/bookingFlow';
 
 // --- Types ---
 
@@ -48,12 +49,6 @@ interface BookConfirmClientProps {
 }
 
 // --- Helpers ---
-
-const triggerHaptic = () => {
-  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-    navigator.vibrate(10);
-  }
-};
 
 const triggerLuxuryConfetti = () => {
   if (typeof window !== 'undefined') {
@@ -355,7 +350,7 @@ const ExistingAppointmentState = ({
         transition={{ delay: 0.3 }}
         type="button"
         onClick={() => {
-          triggerHaptic();
+          triggerHaptic('select');
           onViewProfile();
         }}
         className="mb-3 w-full py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
@@ -374,7 +369,7 @@ const ExistingAppointmentState = ({
         transition={{ delay: 0.4 }}
         type="button"
         onClick={() => {
-          triggerHaptic();
+          triggerHaptic('select');
           onViewProfile();
         }}
         className="w-full border py-3 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-accent)]"
@@ -425,7 +420,7 @@ const ErrorState = ({
       <button
         type="button"
         onClick={() => {
-          triggerHaptic();
+          triggerHaptic('select');
           onGoBack();
         }}
         className="w-full py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
@@ -542,7 +537,7 @@ const SuccessContent = ({
           <button
             type="button"
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic('confirm');
               onPayNow();
             }}
             className="flex w-full items-center justify-center gap-2 py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
@@ -563,7 +558,7 @@ const SuccessContent = ({
           <button
             type="button"
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic('select');
               onViewRewards();
             }}
             className="flex w-full items-center justify-center gap-2 border py-3 font-bold transition-all active:scale-[0.98] font-body bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)]"
@@ -580,7 +575,7 @@ const SuccessContent = ({
           <button
             type="button"
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic('select');
               onViewAppointment();
             }}
             className="flex w-full items-center justify-center gap-2 border py-3 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-accent)]"
@@ -597,7 +592,7 @@ const SuccessContent = ({
           <button
             type="button"
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic('select');
               onGoToProfile();
             }}
             className="w-full py-3 text-center font-medium text-[var(--n5-ink-muted)] transition-colors font-body hover:text-[var(--n5-accent)]"
@@ -645,7 +640,7 @@ const SuccessContent = ({
         <button
           type="button"
           onClick={() => {
-            triggerHaptic();
+            triggerHaptic('select');
             router.push('/book');
           }}
           className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -656,7 +651,7 @@ const SuccessContent = ({
         <button
           type="button"
           onClick={() => {
-            triggerHaptic();
+            triggerHaptic('select');
             onViewRewards();
           }}
           className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -668,7 +663,7 @@ const SuccessContent = ({
           <button
             type="button"
             onClick={() => {
-              triggerHaptic();
+              triggerHaptic('select');
               onGoToProfile();
             }}
             className="text-[var(--n5-accent)]"
@@ -868,7 +863,7 @@ export function BookConfirmClient({
 
       // Trigger confetti
       setTimeout(() => {
-        triggerHaptic();
+        triggerHaptic('success');
         triggerLuxuryConfetti();
       }, 300);
     } catch (error) {

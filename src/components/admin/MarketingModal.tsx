@@ -7,8 +7,8 @@
  * Features:
  * - Campaign templates
  * - SMS sending interface
- * - Campaign history
- * - Placeholder for future expansion
+ * - Real client count from API
+ * - Campaign history (Coming Soon)
  */
 
 import { motion } from 'framer-motion';
@@ -22,7 +22,9 @@ import {
   Calendar,
   ChevronRight,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+
+import { useSalon } from '@/providers/SalonProvider';
 
 import { ModalHeader, BackButton } from './AppModal';
 
@@ -292,8 +294,36 @@ function ComingSoonOverlay({ onClose }: { onClose: () => void }) {
 }
 
 export function MarketingModal({ onClose }: MarketingModalProps) {
+  const { salonSlug } = useSalon();
   const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
   const [showComingSoon, setShowComingSoon] = useState(false);
+  const [totalClients, setTotalClients] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  // Fetch client count from API
+  const fetchClientCount = useCallback(async () => {
+    // Skip if already loaded
+    if (hasLoaded) return;
+    
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/admin/clients?salonSlug=${salonSlug}&limit=1`);
+      if (response.ok) {
+        const result = await response.json();
+        setTotalClients(result.data?.pagination?.total || 0);
+        setHasLoaded(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch client count:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [salonSlug, hasLoaded]);
+
+  useEffect(() => {
+    fetchClientCount();
+  }, [fetchClientCount]);
 
   const handleTemplateClick = (template: CampaignTemplate) => {
     setSelectedTemplate(template);
@@ -324,14 +354,18 @@ export function MarketingModal({ onClose }: MarketingModalProps) {
               <MessageSquare className="w-4 h-4" />
               Sent This Month
             </div>
-            <div className="text-[28px] font-bold text-[#1C1C1E] mt-1">85</div>
+            <div className="text-[28px] font-bold text-[#1C1C1E] mt-1">
+              <span className="text-[#8E8E93] text-[14px] font-normal">Coming Soon</span>
+            </div>
           </div>
           <div className="bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
             <div className="flex items-center gap-2 text-[13px] text-[#8E8E93] uppercase font-medium">
               <Users className="w-4 h-4" />
               Total Clients
             </div>
-            <div className="text-[28px] font-bold text-[#007AFF] mt-1">48</div>
+            <div className="text-[28px] font-bold text-[#007AFF] mt-1">
+              {loading ? '...' : totalClients}
+            </div>
           </div>
         </div>
 
