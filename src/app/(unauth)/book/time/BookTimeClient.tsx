@@ -4,6 +4,10 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
+import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -20,10 +24,11 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
-interface BookTimeClientProps {
+type BookTimeClientProps = {
   services: ServiceSummary[];
   technician: TechnicianSummary;
-}
+  bookingFlow: BookingStep[];
+};
 
 const generateTimeSlots = () => {
   const slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[] = [];
@@ -88,7 +93,9 @@ const filterPastTimeSlots = (
   slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[],
   date: Date | null,
 ) => {
-  if (!date) return slots;
+  if (!date) {
+    return slots;
+  }
 
   const torontoNow = getTorontoNow();
   const torontoToday = getTorontoToday();
@@ -98,7 +105,9 @@ const filterPastTimeSlots = (
   selectedDateMidnight.setHours(0, 0, 0, 0);
   const isToday = selectedDateMidnight.toDateString() === torontoToday.toDateString();
 
-  if (!isToday) return slots;
+  if (!isToday) {
+    return slots;
+  }
 
   // Calculate minimum allowed booking time (now + 30 min buffer)
   const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
@@ -112,7 +121,7 @@ const filterPastTimeSlots = (
   });
 };
 
-export function BookTimeClient({ services, technician }: BookTimeClientProps) {
+export function BookTimeClient({ services, technician, bookingFlow }: BookTimeClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -122,6 +131,12 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
   const techId = searchParams.get('techId') || '';
   const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+
+  // Check if this is the first step in the booking flow (for dock/login visibility)
+  const isFirstStep = getFirstStep(bookingFlow) === 'time';
+
+  // Use shared auth hook
+  const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
 
   // Use services passed from server
   const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
@@ -149,14 +164,14 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
       const startTime = performance.now();
 
       const easeInOutCubic = (t: number): number => {
-        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
       };
 
       const step = (currentTime: number) => {
         const elapsed = currentTime - startTime;
         const progress = Math.min(elapsed / duration, 1);
         const easeProgress = easeInOutCubic(progress);
-        
+
         window.scrollTo(0, startY + difference * easeProgress);
 
         if (progress < 1) {
@@ -174,7 +189,9 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     setLoadingSlots(true);
     try {
@@ -302,18 +319,20 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
       setSelectedDate(date);
       // Wait for slots to load
       setTimeout(async () => {
-        if (!morningSlotsRef.current) return;
-        
+        if (!morningSlotsRef.current) {
+          return;
+        }
+
         // Calculate position to show morning card at bottom of viewport
         const rect = morningSlotsRef.current.getBoundingClientRect();
         const targetY = window.scrollY + rect.bottom - window.innerHeight;
-        
+
         // First scroll - slow and smooth to morning card (800ms)
         await smoothScrollTo(Math.max(0, targetY), 800);
-        
+
         // Pause for 150ms
         await new Promise(resolve => setTimeout(resolve, 150));
-        
+
         // Second scroll - continue to bottom (1200ms)
         const bottomY = document.documentElement.scrollHeight - window.innerHeight;
         await smoothScrollTo(bottomY, 1200);
@@ -325,8 +344,22 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
     if (!selectedDate || isSlotBooked(time)) {
       return;
     }
+
+    // Gate on login when this is the first step
+    if (isFirstStep && !isLoggedIn) {
+      // Don't proceed - user needs to log in first via the bottom bar
+      return;
+    }
+
     const dateStr = selectedDate.toISOString().split('T')[0];
-    let url = `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(clientPhone)}`;
+    const nextStep = getNextStep('time', bookingFlow);
+    if (!nextStep) {
+      return;
+    }
+
+    // Use the phone from auth hook (may be updated after login)
+    const phoneToUse = phone || clientPhone;
+    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(phoneToUse)}`;
 
     // Pass through originalAppointmentId for reschedule flow
     if (originalAppointmentId) {
@@ -337,7 +370,19 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
   };
 
   const handleBack = () => {
-    router.back();
+    const prevStep = getPrevStep('time', bookingFlow);
+    if (prevStep) {
+      let url = `/${locale}/book/${prevStep}?serviceIds=${serviceIds.join(',')}&clientPhone=${encodeURIComponent(clientPhone)}`;
+      if (techId) {
+        url += `&techId=${encodeURIComponent(techId)}`;
+      }
+      if (originalAppointmentId) {
+        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+      }
+      router.push(url);
+    } else {
+      router.back();
+    }
   };
 
   const formatSelectedDate = (date: Date) => {
@@ -367,19 +412,22 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <button
-            type="button"
-            onClick={handleBack}
-            aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
-          >
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {/* Back button - only show when NOT the first step */}
+          {!isFirstStep && (
+            <button
+              type="button"
+              onClick={handleBack}
+              aria-label="Go back"
+              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            >
+              <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
 
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight"
+            className={`text-lg font-semibold tracking-tight ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
             style={{ color: themeVars.accent }}
           >
             {salonName}
@@ -394,25 +442,30 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             transition: 'opacity 300ms ease-out 50ms',
           }}
         >
-          {['Service', 'Artist', 'Time', 'Confirm'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 ${i === 2 ? 'opacity-100' : 'opacity-40'}`}>
-                <div
-                  className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                  style={{
-                    backgroundColor: i < 2 ? themeVars.accent : i === 2 ? themeVars.primary : '#d4d4d4',
-                    color: i < 2 ? 'white' : i === 2 ? '#171717' : '#525252',
-                  }}
-                >
-                  {i < 2 ? '✓' : i + 1}
+          {bookingFlow.map((step, i) => {
+            const currentIdx = getStepIndex('time', bookingFlow);
+            const isCurrentStep = step === 'time';
+            const isPastStep = i + 1 < currentIdx;
+            return (
+              <div key={step} className="flex items-center gap-2">
+                <div className={`flex items-center gap-1.5 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
+                  <div
+                    className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
+                    style={{
+                      backgroundColor: isPastStep ? themeVars.accent : isCurrentStep ? themeVars.primary : '#d4d4d4',
+                      color: isPastStep ? 'white' : isCurrentStep ? '#171717' : '#525252',
+                    }}
+                  >
+                    {isPastStep ? '✓' : i + 1}
+                  </div>
+                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                    {getStepLabel(step)}
+                  </span>
                 </div>
-                <span className={`text-xs font-medium ${i === 2 ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                  {step}
-                </span>
+                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
               </div>
-              {i < 3 && <div className="h-px w-4 bg-neutral-300" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Booking Summary Card */}
@@ -783,7 +836,21 @@ export function BookTimeClient({ services, technician }: BookTimeClientProps) {
             Free cancellation up to 24 hours before
           </p>
         </div>
+
+        {/* Spacer for floating dock when logged in */}
+        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
+
+        {/* Auth Footer - shown only on first step when not logged in */}
+        {isFirstStep && !isCheckingSession && !isLoggedIn && (
+          <BookingPhoneLogin
+            initialPhone={clientPhone || undefined}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )}
       </div>
+
+      {/* Floating Dock - shown only when logged in and this is the first step */}
+      {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
     </div>
   );
 }

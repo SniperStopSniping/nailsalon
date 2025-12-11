@@ -584,7 +584,7 @@ const AppointmentTicket = ({
  */
 const QuickActions = ({ onNavigate }: { onNavigate: (path: string) => void }) => {
   const actions = [
-    { label: 'Book', icon: Calendar, path: '/book/service' },
+    { label: 'Book', icon: Calendar, path: '/book' },
     { label: 'Rewards', icon: Gift, hasUpdate: true, path: '/rewards' },
     { label: 'Gallery', icon: ImageIcon, path: '/gallery' },
     { label: 'Style ID', icon: Fingerprint, path: '/preferences' },
@@ -948,7 +948,7 @@ export default function ProfileContent() {
   const handleLogout = useCallback(async () => {
     triggerHaptic();
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/book/service');
+    router.push('/book');
   }, [router]);
 
   const experienceItems: SettingsItem[] = [
@@ -1029,7 +1029,7 @@ export default function ProfileContent() {
                     technician={nextAppointmentTech}
                     loading={appointmentLoading}
                     onManageBooking={handleManageBooking}
-                    onBookNow={() => handleNavigate('/book/service')}
+                    onBookNow={() => handleNavigate('/book')}
                   />
                   <QuickActions onNavigate={handleNavigate} />
 
@@ -1069,8 +1069,8 @@ export default function ProfileContent() {
       </main>
 
       <FloatingDock
-        onBookNow={() => handleNavigate('/book/service')}
-        onHome={() => handleNavigate('/book/service')}
+        onBookNow={() => handleNavigate('/book')}
+        onHome={() => handleNavigate('/book')}
       />
 
       {/* Confetti Popup */}

@@ -4,6 +4,11 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+import { BlockingLoginModal } from '@/components/BlockingLoginModal';
+import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
+import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -23,12 +28,13 @@ export type ServiceSummary = {
   duration: number;
 };
 
-interface BookTechClientProps {
+type BookTechClientProps = {
   technicians: TechnicianData[];
   services: ServiceSummary[];
-}
+  bookingFlow: BookingStep[];
+};
 
-export function BookTechClient({ technicians, services }: BookTechClientProps) {
+export function BookTechClient({ technicians, services, bookingFlow }: BookTechClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -36,8 +42,17 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
   const locale = (params?.locale as string) || 'en';
   const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
   const clientPhone = searchParams.get('clientPhone') || '';
+
+  // Check if this is the first step in the booking flow (for dock/login visibility)
+  const isFirstStep = getFirstStep(bookingFlow) === 'tech';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+
+  // Use shared auth hook
+  const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
+
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
+  const [pendingTechId, setPendingTechId] = useState<string | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -48,22 +63,70 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
   const serviceNames = services.map(s => s.name).join(' + ');
   const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
 
+  const goToNextStep = (techId: string, clientPhoneToUse: string) => {
+    const nextStep = getNextStep('tech', bookingFlow);
+    if (!nextStep) {
+      return;
+    }
+
+    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhoneToUse)}`;
+
+    // Pass through originalAppointmentId for reschedule flow
+    if (originalAppointmentId) {
+      url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+    }
+
+    router.push(url);
+  };
+
   const handleSelectTech = (techId: string) => {
+    // Always allow selection
     setSelectedTech(techId);
+
+    // Gate navigation on login when this is the first step
+    if (isFirstStep && !isLoggedIn) {
+      setPendingTechId(techId);
+      setIsLoginModalOpen(true);
+      return;
+    }
+
+    // Use the phone from auth hook (may be updated after login)
+    const phoneToUse = phone || clientPhone;
     setTimeout(() => {
-      let url = `/${locale}/book/time?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhone)}`;
-
-      // Pass through originalAppointmentId for reschedule flow
-      if (originalAppointmentId) {
-        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-      }
-
-      router.push(url);
+      goToNextStep(techId, phoneToUse);
     }, 300);
   };
 
+  // Handle login success from the blocking modal
+  const handleModalLoginSuccess = (verifiedPhone: string) => {
+    handleLoginSuccess(verifiedPhone);
+    setIsLoginModalOpen(false);
+
+    if (pendingTechId) {
+      setSelectedTech(pendingTechId);
+      setTimeout(() => {
+        goToNextStep(pendingTechId, verifiedPhone);
+      }, 300);
+      setPendingTechId(null);
+    }
+  };
+
+  const handleCloseLoginModal = () => {
+    setIsLoginModalOpen(false);
+    setPendingTechId(null);
+  };
+
   const handleBack = () => {
-    router.back();
+    const prevStep = getPrevStep('tech', bookingFlow);
+    if (prevStep) {
+      let url = `/${locale}/book/${prevStep}?serviceIds=${serviceIds.join(',')}&clientPhone=${encodeURIComponent(clientPhone)}`;
+      if (originalAppointmentId) {
+        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+      }
+      router.push(url);
+    } else {
+      router.back();
+    }
   };
 
   return (
@@ -83,19 +146,22 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <button
-            type="button"
-            onClick={handleBack}
-            aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
-          >
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {/* Back button - only show when NOT the first step */}
+          {!isFirstStep && (
+            <button
+              type="button"
+              onClick={handleBack}
+              aria-label="Go back"
+              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            >
+              <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
 
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight"
+            className={`text-lg font-semibold tracking-tight ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
             style={{ color: themeVars.accent }}
           >
             {salonName}
@@ -110,25 +176,30 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
             transition: 'opacity 300ms ease-out 50ms',
           }}
         >
-          {['Service', 'Artist', 'Time', 'Confirm'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 ${i === 1 ? 'opacity-100' : 'opacity-40'}`}>
-                <div
-                  className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                  style={{
-                    backgroundColor: i < 1 ? themeVars.accent : i === 1 ? themeVars.primary : '#d4d4d4',
-                    color: i < 1 ? 'white' : i === 1 ? '#171717' : '#525252',
-                  }}
-                >
-                  {i < 1 ? '✓' : i + 1}
+          {bookingFlow.map((step, i) => {
+            const currentIdx = getStepIndex('tech', bookingFlow);
+            const isCurrentStep = step === 'tech';
+            const isPastStep = i + 1 < currentIdx;
+            return (
+              <div key={step} className="flex items-center gap-2">
+                <div className={`flex items-center gap-1.5 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
+                  <div
+                    className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
+                    style={{
+                      backgroundColor: isPastStep ? themeVars.accent : isCurrentStep ? themeVars.primary : '#d4d4d4',
+                      color: isPastStep ? 'white' : isCurrentStep ? '#171717' : '#525252',
+                    }}
+                  >
+                    {isPastStep ? '✓' : i + 1}
+                  </div>
+                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                    {getStepLabel(step)}
+                  </span>
                 </div>
-                <span className={`text-xs font-medium ${i === 1 ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                  {step}
-                </span>
+                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
               </div>
-              {i < 3 && <div className="h-px w-4 bg-neutral-300" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Service Summary */}
@@ -316,8 +387,28 @@ export function BookTechClient({ technicians, services }: BookTechClientProps) {
             All our artists are highly trained professionals
           </p>
         </div>
+
+        {/* Spacer for floating dock when logged in */}
+        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
+
+        {/* Auth Footer - shown only on first step when not logged in */}
+        {isFirstStep && !isCheckingSession && !isLoggedIn && (
+          <BookingPhoneLogin
+            initialPhone={clientPhone || undefined}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )}
       </div>
+
+      {/* Floating Dock - shown only when logged in and this is the first step */}
+      {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
+
+      {/* Blocking Login Modal */}
+      <BlockingLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={handleCloseLoginModal}
+        onLoginSuccess={handleModalLoginSuccess}
+      />
     </div>
   );
 }
-

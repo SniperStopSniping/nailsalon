@@ -1,18 +1,17 @@
 'use client';
 
-import { Gift, Handshake, User } from 'lucide-react';
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
-import { FormInput } from '@/components/FormInput';
-import { MainCard } from '@/components/MainCard';
-import { PrimaryButton } from '@/components/PrimaryButton';
+import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
+import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepLabel } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
-type AuthState = 'loggedOut' | 'verify' | 'loggedIn';
 type Category = 'hands' | 'feet' | 'combo';
 
 export type ServiceData = {
@@ -25,9 +24,10 @@ export type ServiceData = {
   imageUrl: string;
 };
 
-interface BookServiceClientProps {
+type BookServiceClientProps = {
   services: ServiceData[];
-}
+  bookingFlow: BookingStep[];
+};
 
 const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
   { id: 'hands', label: 'Hands', icon: '💅' },
@@ -35,114 +35,34 @@ const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
   { id: 'combo', label: 'Combo', icon: '✨' },
 ];
 
-const triggerHaptic = () => {
-  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-    navigator.vibrate(10);
-  }
-};
-
-type FloatingDockProps = {
-  locale: string;
-};
-
-const FloatingDock = ({ locale }: FloatingDockProps) => {
-  const router = useRouter();
-
-  return (
-    <div
-      role="navigation"
-      aria-label="Bottom Navigation"
-      className="bg-white/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-white/50 px-8 shadow-[0_8px_32px_rgba(0,0,0,0.12)] backdrop-blur-xl"
-    >
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push(`/${locale}/invite`);
-        }}
-        aria-label="Go to Invite"
-        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
-      >
-        <Handshake strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push(`/${locale}/rewards`);
-        }}
-        aria-label="Go to Rewards"
-        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
-      >
-        <Gift strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        onClick={() => {
-          triggerHaptic();
-          router.push(`/${locale}/profile`);
-        }}
-        aria-label="Go to Profile"
-        className="p-2 text-neutral-400 transition-colors hover:text-neutral-600"
-      >
-        <User strokeWidth={2} className="size-6" />
-      </button>
-    </div>
-  );
-};
-
-export function BookServiceClient({ services }: BookServiceClientProps) {
+export function BookServiceClient({ services, bookingFlow }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const { salonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
+  // Check if this is the first step in the booking flow (for dock/login visibility)
+  const isFirstStep = getFirstStep(bookingFlow) === 'service';
+
   // Get reschedule params from URL (passed from change-appointment page)
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const urlClientPhone = searchParams.get('clientPhone') || '';
-  const [authState, setAuthState] = useState<AuthState>('loggedOut');
+
+  // Use shared auth hook
+  const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(urlClientPhone || undefined);
+
   const [selectedCategory, setSelectedCategory] = useState<Category>('hands');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingServiceIds, setPendingServiceIds] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const codeInputRef = useRef<HTMLInputElement>(null);
 
-  // Check for existing session on mount
+  // Set mounted on client
   useEffect(() => {
     setMounted(true);
-
-    // If we have a phone from the URL (reschedule flow), use it directly
-    if (urlClientPhone) {
-      setAuthState('loggedIn');
-      setPhone(urlClientPhone);
-      setIsCheckingSession(false);
-      return;
-    }
-
-    const validateSession = async () => {
-      try {
-        const response = await fetch('/api/auth/validate-session');
-        const data = await response.json();
-
-        if (data.valid && data.phone) {
-          setAuthState('loggedIn');
-          setPhone(data.phone);
-        }
-      } catch {
-        // Session validation failed, stay logged out
-        console.log('Session validation failed, user needs to log in');
-      } finally {
-        setIsCheckingSession(false);
-      }
-    };
-
-    validateSession();
-  }, [urlClientPhone]);
+  }, []);
 
   const filteredServices = services.filter((service) => {
     if (searchQuery) {
@@ -161,100 +81,18 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
   const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
 
-  const handleSendCode = async () => {
-    if (!phone.trim() || phone.length < 10 || isLoading) {
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Failed to send code');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(false);
-      setAuthState('verify');
-    } catch {
-      setError('Network error. Please try again.');
-      setIsLoading(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    if (code.trim().length < 6 || isLoading) {
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Invalid code');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(false);
-      setAuthState('loggedIn');
-    } catch {
-      setError('Network error. Please try again.');
-      setIsLoading(false);
-    }
-  };
-
-  // Auto-send code when phone number is complete (10 digits)
-  useEffect(() => {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length === 10 && authState === 'loggedOut' && !isLoading) {
-      const timer = setTimeout(() => handleSendCode(), 150);
-      return () => clearTimeout(timer);
-    }
-    return;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, authState]);
-
-  // Auto-verify when code is complete (6 digits)
-  useEffect(() => {
-    if (code.length === 6 && authState === 'verify' && !isLoading) {
-      const timer = setTimeout(() => handleVerifyCode(), 150);
-      return () => clearTimeout(timer);
-    }
-    return;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, authState]);
-
-  useEffect(() => {
-    if (authState === 'verify' && codeInputRef.current) {
-      codeInputRef.current.focus();
-    }
-  }, [authState]);
-
-  const goToTechSelection = (serviceIds: string[], clientPhone: string) => {
+  const goToNextStep = (serviceIds: string[], clientPhone: string) => {
     const query = serviceIds.join(',');
     // Strip +1 prefix if present to get just 10-digit number for the API
     const normalizedPhone = clientPhone.replace(/^\+1/, '');
-    let url = `/${locale}/book/tech?serviceIds=${query}&clientPhone=${encodeURIComponent(normalizedPhone)}`;
+
+    // Get the next step from the booking flow
+    const nextStep = getNextStep('service', bookingFlow);
+    if (!nextStep) {
+      return;
+    }
+
+    let url = `/${locale}/book/${nextStep}?serviceIds=${query}&clientPhone=${encodeURIComponent(normalizedPhone)}`;
 
     // Pass through originalAppointmentId for reschedule flow
     if (originalAppointmentId) {
@@ -264,26 +102,45 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
     router.push(url);
   };
 
-  const handleChooseTech = () => {
+  const handleBack = () => {
+    const prevStep = getPrevStep('service', bookingFlow);
+    if (prevStep) {
+      let url = `/${locale}/book/${prevStep}?clientPhone=${encodeURIComponent(phone)}`;
+      if (originalAppointmentId) {
+        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+      }
+      router.push(url);
+    } else {
+      router.back();
+    }
+  };
+
+  const handleContinue = () => {
     if (!selectedServiceIds.length) {
       return;
     }
 
-    if (authState === 'loggedIn' && phone) {
-      goToTechSelection(selectedServiceIds, phone);
+    if (isLoggedIn && phone) {
+      goToNextStep(selectedServiceIds, phone);
       return;
     }
 
+    // Not logged in - open modal for login
     setPendingServiceIds(selectedServiceIds);
     setIsLoginModalOpen(true);
   };
 
-  const handleLoginSuccess = (verifiedPhone: string) => {
-    setAuthState('loggedIn');
-    setPhone(verifiedPhone);
+  // Handle login success from the bottom login bar
+  const handleBottomLoginSuccess = (verifiedPhone: string) => {
+    handleLoginSuccess(verifiedPhone);
+  };
+
+  // Handle login success from the blocking modal
+  const handleModalLoginSuccess = (verifiedPhone: string) => {
+    handleLoginSuccess(verifiedPhone);
     setIsLoginModalOpen(false);
     if (pendingServiceIds.length > 0) {
-      goToTechSelection(pendingServiceIds, verifiedPhone);
+      goToNextStep(pendingServiceIds, verifiedPhone);
       setPendingServiceIds([]);
     }
   };
@@ -303,14 +160,31 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
         {/* Header */}
         <div
-          className="pb-2 pt-6 text-center"
+          className="relative flex items-center pb-2 pt-6"
           style={{
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <div className="text-lg font-semibold tracking-tight" style={{ color: themeVars.accent }}>
+          {/* Back button - only show when NOT the first step */}
+          {!isFirstStep && (
+            <button
+              type="button"
+              onClick={handleBack}
+              aria-label="Go back"
+              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            >
+              <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+
+          <div
+            className={`text-lg font-semibold tracking-tight ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
+            style={{ color: themeVars.accent }}
+          >
             {salonName}
           </div>
         </div>
@@ -323,25 +197,28 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
             transition: 'opacity 300ms ease-out 50ms',
           }}
         >
-          {['Service', 'Artist', 'Time', 'Confirm'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 ${i === 0 ? 'opacity-100' : 'opacity-40'}`}>
-                <div
-                  className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                  style={{
-                    backgroundColor: i === 0 ? themeVars.primary : undefined,
-                    color: i === 0 ? '#171717' : '#525252',
-                  }}
-                >
-                  {i + 1}
+          {bookingFlow.map((step, i) => {
+            const isCurrentStep = step === 'service';
+            return (
+              <div key={step} className="flex items-center gap-2">
+                <div className={`flex items-center gap-1.5 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
+                  <div
+                    className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
+                    style={{
+                      backgroundColor: isCurrentStep ? themeVars.primary : undefined,
+                      color: isCurrentStep ? '#171717' : '#525252',
+                    }}
+                  >
+                    {i + 1}
+                  </div>
+                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                    {getStepLabel(step)}
+                  </span>
                 </div>
-                <span className={`text-xs font-medium ${i === 0 ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                  {step}
-                </span>
+                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
               </div>
-              {i < 3 && <div className="h-px w-4 bg-neutral-300" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Search Bar */}
@@ -496,125 +373,26 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
         {selectedCount > 0 && <div className="h-24" />}
 
         {/* Spacer for floating dock when logged in */}
-        {!isCheckingSession && authState === 'loggedIn' && <div className="h-16" />}
+        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
 
-        {/* Auth Footer - hidden when logged in */}
-        {(isCheckingSession || authState !== 'loggedIn') && (
-          <MainCard className="mt-4">
-            {isCheckingSession && (
-              <div className="flex items-center justify-center py-4">
-                <div className="size-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
-                <span className="ml-2 text-sm text-neutral-500">Checking session...</span>
-              </div>
-            )}
-
-            {!isCheckingSession && authState === 'loggedOut' && (
-              <div className="space-y-3">
-                <p className="text-lg font-bold text-neutral-800">
-                  <span
-                    className="bg-clip-text text-transparent"
-                    style={{
-                      backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
-                    }}
-                  >
-                    New here? Get a free manicure! 💅
-                  </span>
-                </p>
-                <p className="-mt-1 text-sm text-neutral-500">
-                  Enter your number to sign up or log in
-                </p>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
-                    +1
-                  </div>
-                  <FormInput
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '');
-                      setPhone(digits.slice(0, 10));
-                      setError(null);
-                    }}
-                    placeholder="Phone number"
-                    className="!px-4 !py-2.5 !text-base"
-                  />
-                  <PrimaryButton
-                    onClick={handleSendCode}
-                    disabled={!phone.trim() || phone.length < 10 || isLoading}
-                    size="sm"
-                    fullWidth={false}
-                  >
-                    {isLoading ? '...' : '→'}
-                  </PrimaryButton>
-                </div>
-                {error && (
-                  <p className="text-xs text-red-500">{error}</p>
-                )}
-                <p className="text-xs text-neutral-400">
-                  *New clients only. Conditions apply.
-                </p>
-              </div>
-            )}
-
-            {!isCheckingSession && authState === 'verify' && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-neutral-700">
-                  Enter the 6-digit code we sent to +1
-                  {' '}
-                  {phone}
-                </p>
-                <div className="flex items-center gap-2">
-                  <FormInput
-                    ref={codeInputRef}
-                    type="tel"
-                    inputMode="numeric"
-                    value={code}
-                    onChange={(e) => {
-                      setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
-                      setError(null);
-                    }}
-                    placeholder="• • • • • •"
-                    className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
-                  />
-                  <PrimaryButton
-                    onClick={handleVerifyCode}
-                    disabled={code.trim().length < 6 || isLoading}
-                    size="sm"
-                    fullWidth={false}
-                  >
-                    {isLoading ? '...' : 'Verify'}
-                  </PrimaryButton>
-                </div>
-                {error && (
-                  <p className="text-xs text-red-500">{error}</p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthState('loggedOut');
-                    setCode('');
-                    setError(null);
-                  }}
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: themeVars.accent }}
-                >
-                  ← Change phone number
-                </button>
-              </div>
-            )}
-          </MainCard>
+        {/* Auth Footer - shown only on first step when not logged in */}
+        {isFirstStep && !isCheckingSession && !isLoggedIn && (
+          <BookingPhoneLogin
+            initialPhone={urlClientPhone || undefined}
+            onLoginSuccess={handleBottomLoginSuccess}
+          />
         )}
 
-        {/* Floating Dock - shown when logged in */}
-        {!isCheckingSession && authState === 'loggedIn' && (
-          <FloatingDock locale={locale} />
+        {/* Floating Dock - shown when logged in and this is the first step */}
+        {!isCheckingSession && isLoggedIn && isFirstStep && (
+          <BookingFloatingDock />
         )}
 
         {/* Blocking Login Modal */}
         <BlockingLoginModal
           isOpen={isLoginModalOpen}
           onClose={handleCloseLoginModal}
-          onLoginSuccess={handleLoginSuccess}
+          onLoginSuccess={handleModalLoginSuccess}
         />
       </div>
 
@@ -653,7 +431,7 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
             </div>
             <button
               type="button"
-              onClick={handleChooseTech}
+              onClick={handleContinue}
               className="flex items-center gap-2 rounded-full px-6 py-3 text-base font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
               style={{
                 background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
@@ -672,4 +450,3 @@ export function BookServiceClient({ services }: BookServiceClientProps) {
     </div>
   );
 }
-

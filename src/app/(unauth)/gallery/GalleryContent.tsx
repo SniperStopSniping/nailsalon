@@ -606,7 +606,7 @@ export default function GalleryContent() {
 
               {/* Empty State */}
               {photos.length === 0 && (
-                <EmptyState onBook={() => router.push('/book/service')} />
+                <EmptyState onBook={() => router.push('/book')} />
               )}
 
               {/* Footer */}

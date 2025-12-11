@@ -897,7 +897,7 @@ export default function PaymentMethodsContent() {
       </main>
 
       <FloatingDock
-        onHome={() => handleNavigate('/book/service')}
+        onHome={() => handleNavigate('/book')}
         onProfile={() => handleNavigate('/profile')}
       />
 

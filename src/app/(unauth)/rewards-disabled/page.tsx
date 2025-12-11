@@ -53,7 +53,7 @@ export default function RewardsDisabledPage() {
         {/* Actions */}
         <div className="space-y-3">
           <Link
-            href="/book/service"
+            href="/book"
             className="block w-full rounded-lg bg-indigo-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-indigo-700"
           >
             Book an Appointment

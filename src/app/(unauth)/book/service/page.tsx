@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { getSalonBySlug, getServicesBySalonId } from '@/libs/queries';
 import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
@@ -57,10 +58,13 @@ export default async function BookServicePage() {
     imageUrl: service.imageUrl || '/assets/images/biab-short.webp', // Fallback image
   }));
 
+  // Get the booking flow for this salon
+  const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
+
   return (
     <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-service">
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-        <BookServiceClient services={services} />
+        <BookServiceClient services={services} bookingFlow={bookingFlow} />
       </Suspense>
     </PageThemeWrapper>
   );

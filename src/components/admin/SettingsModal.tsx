@@ -13,43 +13,47 @@
  */
 
 import { motion } from 'framer-motion';
-import { useState, type ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
-  ChevronRight,
-  Wifi,
-  Moon,
   Bell,
+  ChevronRight,
+  Moon,
+  Search,
   Shield,
   User,
-  Search,
+  Wifi,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
-import { ModalHeader, BackButton } from './AppModal';
+import type { BookingStep } from '@/libs/bookingFlow';
+import { useSalon } from '@/providers/SalonProvider';
+
+import { BackButton, ModalHeader } from './AppModal';
+import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
 
 /**
  * Section Container
  */
-interface SectionProps {
+type SectionProps = {
   title?: string;
   footer?: string;
   children: ReactNode;
-}
+};
 
 function Section({ title, footer, children }: SectionProps) {
   return (
     <div className="mb-6">
       {title && (
-        <div className="px-4 mb-2 text-[13px] text-gray-500 uppercase tracking-wide">
+        <div className="mb-2 px-4 text-[13px] uppercase tracking-wide text-gray-500">
           {title}
         </div>
       )}
-      <div className="bg-white rounded-[10px] border border-gray-200/50 shadow-sm mx-4 overflow-visible">
+      <div className="mx-4 overflow-visible rounded-[10px] border border-gray-200/50 bg-white shadow-sm">
         {children}
       </div>
       {footer && (
-        <div className="px-8 mt-2 text-[12px] text-gray-500 leading-snug">
+        <div className="mt-2 px-8 text-[12px] leading-snug text-gray-500">
           {footer}
         </div>
       )}
@@ -60,7 +64,7 @@ function Section({ title, footer, children }: SectionProps) {
 /**
  * Settings Row
  */
-interface RowProps {
+type RowProps = {
   icon?: LucideIcon;
   iconColor?: string;
   label: string;
@@ -70,7 +74,7 @@ interface RowProps {
   defaultOn?: boolean;
   onToggle?: (value: boolean) => void;
   onClick?: () => void;
-}
+};
 
 function Row({
   icon: Icon,
@@ -93,30 +97,30 @@ function Row({
 
   return (
     <div
-      className="flex items-center pl-4 min-h-[48px] active:bg-gray-50 transition-colors cursor-pointer"
+      className="flex min-h-[48px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
       onClick={type === 'link' ? onClick : undefined}
     >
       {/* Icon */}
       {Icon && (
         <div
-          className={`w-7 h-7 rounded-[6px] flex items-center justify-center mr-3 text-white shadow-sm ${iconColor}`}
+          className={`mr-3 flex size-7 items-center justify-center rounded-[6px] text-white shadow-sm ${iconColor}`}
         >
-          <Icon className="w-4 h-4" />
+          <Icon className="size-4" />
         </div>
       )}
 
       {/* Content */}
       <div
-        className={`flex-1 flex items-center justify-between pr-4 py-3 ${
+        className={`flex flex-1 items-center justify-between py-3 pr-4 ${
           !isLast ? 'border-b border-gray-100' : ''
         }`}
       >
-        <span className="text-[16px] text-black tracking-tight">{label}</span>
+        <span className="text-[16px] tracking-tight text-black">{label}</span>
 
         <div className="flex items-center gap-2">
           {value && <span className="text-[16px] text-[#8E8E93]">{value}</span>}
 
-          {type === 'link' && <ChevronRight className="w-4 h-4 text-[#C7C7CC]" />}
+          {type === 'link' && <ChevronRight className="size-4 text-[#C7C7CC]" />}
 
           {type === 'toggle' && (
             <button
@@ -124,14 +128,14 @@ function Row({
               onClick={handleToggle}
               aria-label={`Toggle ${label}`}
               className={`
-                w-[51px] h-[31px] rounded-full p-0.5 transition-colors duration-300 relative
+                relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
                 ${isOn ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}
               `}
             >
               <motion.div
                 animate={{ x: isOn ? 20 : 0 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                className="w-[27px] h-[27px] bg-white rounded-full shadow-md"
+                className="size-[27px] rounded-full bg-white shadow-md"
               />
             </button>
           )}
@@ -144,12 +148,12 @@ function Row({
 /**
  * Profile Card
  */
-interface ProfileCardProps {
+type ProfileCardProps = {
   name: string;
   subtitle?: string;
   initials?: string;
   onClick?: () => void;
-}
+};
 
 function ProfileCard({
   name,
@@ -157,15 +161,15 @@ function ProfileCard({
   initials,
   onClick,
 }: ProfileCardProps) {
-  const displayInitials = initials || name.split(' ').map((n) => n[0]).join('').toUpperCase();
+  const displayInitials = initials || name.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
     <div
-      className="flex items-center gap-3 px-4 mb-8 cursor-pointer active:opacity-70 transition-opacity"
+      className="mb-8 flex cursor-pointer items-center gap-3 px-4 transition-opacity active:opacity-70"
       onClick={onClick}
     >
-      <div className="w-[60px] h-[60px] rounded-full overflow-hidden border border-white/50 shadow-sm">
-        <div className="w-full h-full bg-gradient-to-br from-gray-200 to-gray-400 flex items-center justify-center text-xl font-bold text-white">
+      <div className="size-[60px] overflow-hidden rounded-full border border-white/50 shadow-sm">
+        <div className="flex size-full items-center justify-center bg-gradient-to-br from-gray-200 to-gray-400 text-xl font-bold text-white">
           {displayInitials}
         </div>
       </div>
@@ -173,7 +177,7 @@ function ProfileCard({
         <div className="text-[20px] font-normal text-[#1C1C1E]">{name}</div>
         <div className="text-[13px] text-gray-500">{subtitle}</div>
       </div>
-      <ChevronRight className="text-[#C7C7CC] w-5 h-5" />
+      <ChevronRight className="size-5 text-[#C7C7CC]" />
     </div>
   );
 }
@@ -184,27 +188,82 @@ function ProfileCard({
 function SearchBar() {
   return (
     <div className="px-4 pb-4">
-      <div className="h-9 bg-[#767680]/12 rounded-[10px] flex items-center px-2 text-[#8E8E93]">
-        <Search className="w-4 h-4 mr-2" />
+      <div className="bg-[#767680]/12 flex h-9 items-center rounded-[10px] px-2 text-[#8E8E93]">
+        <Search className="mr-2 size-4" />
         <span className="text-[16px]">Search</span>
       </div>
     </div>
   );
 }
 
-interface SettingsModalProps {
+type SettingsModalProps = {
   onClose: () => void;
   userName?: string;
   userInitials?: string;
-}
+};
 
 export function SettingsModal({
   onClose,
   userName = 'Justin Hodgeman',
   userInitials,
 }: SettingsModalProps) {
+  const { salonSlug } = useSalon();
+
+  // Booking flow state
+  const [bookingFlowEnabled, setBookingFlowEnabled] = useState(false);
+  const [bookingFlow, setBookingFlow] = useState<BookingStep[] | null>(null);
+  const [bookingFlowLoading, setBookingFlowLoading] = useState(true);
+
+  // Fetch booking flow settings
+  const fetchBookingFlow = useCallback(async () => {
+    if (!salonSlug) {
+      return;
+    }
+
+    try {
+      setBookingFlowLoading(true);
+      const response = await fetch(`/api/admin/settings/booking-flow?salonSlug=${salonSlug}`);
+      if (response.ok) {
+        const data = await response.json();
+        setBookingFlowEnabled(data.data.bookingFlowCustomizationEnabled);
+        setBookingFlow(data.data.bookingFlow);
+      }
+    } catch (error) {
+      console.error('Failed to fetch booking flow settings:', error);
+    } finally {
+      setBookingFlowLoading(false);
+    }
+  }, [salonSlug]);
+
+  useEffect(() => {
+    fetchBookingFlow();
+  }, [fetchBookingFlow]);
+
+  // Handle booking flow save (called by BookingFlowEditor's auto-save)
+  const handleBookingFlowSave = async (flow: BookingStep[]) => {
+    if (!salonSlug) {
+      return;
+    }
+
+    const response = await fetch('/api/admin/settings/booking-flow', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug,
+        bookingFlow: flow,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to save booking flow');
+    }
+
+    const data = await response.json();
+    setBookingFlow(data.data.bookingFlow);
+  };
+
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] text-black font-sans flex flex-col">
+    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
@@ -222,7 +281,7 @@ export function SettingsModal({
       </div>
 
       {/* Scrollable Content */}
-      <div className="pb-10 overflow-y-auto">
+      <div className="overflow-y-auto pb-10">
         {/* Profile Card */}
         <ProfileCard name={userName} initials={userInitials} />
 
@@ -254,10 +313,27 @@ export function SettingsModal({
 
         {/* Section 4: Page Themes */}
         <Section title="Appearance">
-          <PageThemesSettings className="bg-white rounded-[10px] overflow-visible" />
+          <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
         </Section>
 
-        {/* Section 5: About */}
+        {/* Section 5: Booking Flow */}
+        <Section title="Booking Flow" footer="Customize the order of steps in your online booking flow.">
+          {bookingFlowLoading
+            ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                </div>
+              )
+            : (
+                <BookingFlowEditor
+                  bookingFlowCustomizationEnabled={bookingFlowEnabled}
+                  bookingFlow={bookingFlow}
+                  onSave={handleBookingFlowSave}
+                />
+              )}
+        </Section>
+
+        {/* Section 6: About */}
         <Section title="About">
           <Row label="Version" value="1.0.0" type="link" />
           <Row label="Terms of Service" />
@@ -269,5 +345,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { Section, Row, ProfileCard, SearchBar };
-
+export { ProfileCard, Row, SearchBar, Section };

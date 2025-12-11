@@ -139,6 +139,10 @@ export const salonSchema = pgTable(
     rewardsEnabled: boolean('rewards_enabled').default(true),
     profilePageEnabled: boolean('profile_page_enabled').default(true),
 
+    // Booking flow customization (Super Admin controlled)
+    bookingFlowCustomizationEnabled: boolean('booking_flow_customization_enabled').default(false),
+    bookingFlow: jsonb('booking_flow').$type<string[] | null>().default(null),
+
     // Owner tracking (nullable for existing rows)
     ownerEmail: text('owner_email'),
     ownerClerkUserId: text('owner_clerk_user_id'),

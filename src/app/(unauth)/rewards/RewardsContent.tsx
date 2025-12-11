@@ -553,7 +553,7 @@ const FloatingDock = () => {
     >
       <button
         onClick={() => {
-          triggerHaptic(); router.push('/book/service');
+          triggerHaptic(); router.push('/book');
         }}
         aria-label="Go to Home"
         className="p-2 text-[var(--n5-ink-muted)] transition-colors"

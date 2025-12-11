@@ -47,6 +47,9 @@ interface SalonDetail {
   smsRemindersEnabled: boolean;
   rewardsEnabled: boolean;
   profilePageEnabled: boolean;
+  // Booking flow customization
+  bookingFlowCustomizationEnabled: boolean;
+  bookingFlow: string[] | null;
   // Owner & metadata
   ownerEmail: string | null;
   ownerClerkUserId: string | null;
@@ -93,6 +96,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [smsRemindersEnabled, setSmsRemindersEnabled] = useState(true);
   const [rewardsEnabled, setRewardsEnabled] = useState(true);
   const [profilePageEnabled, setProfilePageEnabled] = useState(true);
+  const [bookingFlowCustomizationEnabled, setBookingFlowCustomizationEnabled] = useState(false);
 
   // Save button states
   const [isDirty, setIsDirty] = useState(false);
@@ -145,6 +149,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setSmsRemindersEnabled(data.salon.smsRemindersEnabled ?? true);
       setRewardsEnabled(data.salon.rewardsEnabled ?? true);
       setProfilePageEnabled(data.salon.profilePageEnabled ?? true);
+      setBookingFlowCustomizationEnabled(data.salon.bookingFlowCustomizationEnabled ?? false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -177,6 +182,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
           smsRemindersEnabled,
           rewardsEnabled,
           profilePageEnabled,
+          bookingFlowCustomizationEnabled,
         }),
       });
 
@@ -515,7 +521,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={isMultiLocationEnabled}
+                    aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
                     onClick={() => { setIsMultiLocationEnabled(!isMultiLocationEnabled); markDirty(); }}
                     disabled={plan === 'single_salon' || plan === 'free'}
                     aria-label="Toggle multi-location features"
@@ -549,7 +555,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={onlineBookingEnabled}
+                      aria-checked={onlineBookingEnabled ? 'true' : 'false'}
                       onClick={() => { setOnlineBookingEnabled(!onlineBookingEnabled); markDirty(); }}
                       aria-label="Toggle online booking"
                       className={`relative w-11 h-6 rounded-full transition-colors ${
@@ -573,7 +579,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={smsRemindersEnabled}
+                      aria-checked={smsRemindersEnabled ? 'true' : 'false'}
                       onClick={() => { setSmsRemindersEnabled(!smsRemindersEnabled); markDirty(); }}
                       aria-label="Toggle SMS reminders"
                       className={`relative w-11 h-6 rounded-full transition-colors ${
@@ -597,7 +603,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={rewardsEnabled}
+                      aria-checked={rewardsEnabled ? 'true' : 'false'}
                       onClick={() => { setRewardsEnabled(!rewardsEnabled); markDirty(); }}
                       aria-label="Toggle rewards program"
                       className={`relative w-11 h-6 rounded-full transition-colors ${
@@ -621,7 +627,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={profilePageEnabled}
+                      aria-checked={profilePageEnabled ? 'true' : 'false'}
                       onClick={() => { setProfilePageEnabled(!profilePageEnabled); markDirty(); }}
                       aria-label="Toggle public profile"
                       className={`relative w-11 h-6 rounded-full transition-colors ${
@@ -631,6 +637,30 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       <div
                         className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                           profilePageEnabled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Booking Flow Customization Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Booking Flow Customization</div>
+                      <div className="text-xs text-gray-500">Allow drag-and-drop control of booking steps</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={bookingFlowCustomizationEnabled ? 'true' : 'false'}
+                      onClick={() => { setBookingFlowCustomizationEnabled(!bookingFlowCustomizationEnabled); markDirty(); }}
+                      aria-label="Toggle booking flow customization"
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        bookingFlowCustomizationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          bookingFlowCustomizationEnabled ? 'translate-x-5' : ''
                         }`}
                       />
                     </button>

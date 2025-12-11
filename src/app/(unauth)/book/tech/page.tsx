@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { type BookingStep, getNextStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { getPageAppearance } from '@/libs/pageAppearance';
 import { getSalonBySlug, getServicesByIds, getTechniciansBySalonId } from '@/libs/queries';
 import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
@@ -47,6 +48,19 @@ export default async function BookTechPage({
     redirect(featureCheck.redirectPath);
   }
 
+  // Get the booking flow for this salon
+  const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
+
+  // If tech step is not in the flow, redirect to the next step
+  if (!bookingFlow.includes('tech')) {
+    const nextStep = getNextStep('service', bookingFlow) ?? 'time';
+    const params = new URLSearchParams();
+    if (searchParams.serviceIds) {
+      params.set('serviceIds', searchParams.serviceIds);
+    }
+    redirect(`/book/${nextStep}?${params.toString()}`);
+  }
+
   // Fetch selected services
   const dbServices = await getServicesByIds(serviceIdList, salon.id);
 
@@ -74,7 +88,7 @@ export default async function BookTechPage({
   return (
     <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-technician">
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-        <BookTechClient services={services} technicians={technicians} />
+        <BookTechClient services={services} technicians={technicians} bookingFlow={bookingFlow} />
       </Suspense>
     </PageThemeWrapper>
   );

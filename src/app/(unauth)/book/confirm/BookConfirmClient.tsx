@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
+import type { BookingStep } from '@/libs/bookingFlow';
 
 // --- Types ---
 
@@ -43,6 +44,7 @@ interface BookConfirmClientProps {
   salonSlug: string;
   dateStr: string;
   timeStr: string;
+  bookingFlow: BookingStep[];
 }
 
 // --- Helpers ---
@@ -644,7 +646,7 @@ const SuccessContent = ({
           type="button"
           onClick={() => {
             triggerHaptic();
-            router.push('/book/service');
+            router.push('/book');
           }}
           className="p-2 text-[var(--n5-ink-muted)] transition-colors"
           aria-label="Go to Home"
@@ -791,6 +793,9 @@ export function BookConfirmClient({
   salonSlug,
   dateStr,
   timeStr,
+  // bookingFlow is passed for consistency but not used in confirm step
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  bookingFlow: _bookingFlow,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();

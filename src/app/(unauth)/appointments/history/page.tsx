@@ -327,7 +327,7 @@ export default function AppointmentHistoryPage() {
               <p className="mt-1 text-sm font-body text-[var(--n5-ink-muted)]">Book your first appointment to start your nail journey</p>
               <button
                 type="button"
-                onClick={() => router.push('/book/service')}
+                onClick={() => router.push('/book')}
                 className="mt-4 px-6 py-3 text-base font-bold font-body text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)', background: `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))` }}
               >

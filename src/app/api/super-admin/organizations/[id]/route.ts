@@ -30,6 +30,9 @@ export const dynamic = 'force-dynamic';
 // REQUEST VALIDATION
 // =============================================================================
 
+// Valid booking steps
+const BOOKING_STEPS = ['service', 'tech', 'time', 'confirm'] as const;
+
 const updateSalonSchema = z.object({
   name: z.string().min(1).optional(),
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only').optional(),
@@ -45,6 +48,9 @@ const updateSalonSchema = z.object({
   smsRemindersEnabled: z.boolean().optional(),
   rewardsEnabled: z.boolean().optional(),
   profilePageEnabled: z.boolean().optional(),
+  // Booking flow customization
+  bookingFlowCustomizationEnabled: z.boolean().optional(),
+  bookingFlow: z.array(z.enum(BOOKING_STEPS)).optional().nullable(),
 });
 
 // =============================================================================
@@ -120,6 +126,9 @@ export async function GET(
         smsRemindersEnabled: salon.smsRemindersEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         profilePageEnabled: salon.profilePageEnabled ?? true,
+        // Booking flow customization
+        bookingFlowCustomizationEnabled: salon.bookingFlowCustomizationEnabled ?? false,
+        bookingFlow: salon.bookingFlow ?? null,
         // Owner & metadata
         ownerEmail: salon.ownerEmail,
         ownerClerkUserId: salon.ownerClerkUserId,
@@ -239,6 +248,9 @@ export async function PUT(
         smsRemindersEnabled: updated!.smsRemindersEnabled ?? true,
         rewardsEnabled: updated!.rewardsEnabled ?? true,
         profilePageEnabled: updated!.profilePageEnabled ?? true,
+        // Booking flow customization
+        bookingFlowCustomizationEnabled: updated!.bookingFlowCustomizationEnabled ?? false,
+        bookingFlow: updated!.bookingFlow ?? null,
         // Owner & metadata
         ownerEmail: updated!.ownerEmail,
         ownerClerkUserId: updated!.ownerClerkUserId,

@@ -786,8 +786,8 @@ export default function MembershipContent() {
       </main>
 
       <FloatingDock
-        onBookNow={() => handleNavigate('/book/service')}
-        onHome={() => handleNavigate('/book/service')}
+        onBookNow={() => handleNavigate('/book')}
+        onHome={() => handleNavigate('/book')}
         onProfile={() => handleNavigate('/profile')}
       />
     </div>
