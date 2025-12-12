@@ -19,3 +19,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS "salon_page_appearance_unique" ON "salon_page_
 CREATE INDEX IF NOT EXISTS "salon_page_appearance_salon_idx" ON "salon_page_appearance" USING btree ("salon_id");
 
 
+

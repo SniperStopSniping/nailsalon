@@ -26,6 +26,7 @@ interface TechnicianDetail {
   hiredAt: string | null;
   terminatedAt: string | null;
   onboardingStatus: string | null;
+  userId: string | null;
 }
 
 interface SettingsTabProps {
@@ -64,6 +65,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   const [commissionRate, setCommissionRate] = useState(String(Math.round(technician.commissionRate * 100)));
   const [acceptingNewClients, setAcceptingNewClients] = useState(technician.acceptingNewClients);
   const [notes, setNotes] = useState(technician.notes ?? '');
+  const [userId, setUserId] = useState(technician.userId ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showDisableModal, setShowDisableModal] = useState(false);
@@ -87,6 +89,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
           commissionRate: parseFloat(commissionRate) / 100,
           acceptingNewClients,
           notes: notes.trim() || null,
+          userId: userId.trim() || null,
         }),
       });
 
@@ -100,6 +103,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
         commissionRate: parseFloat(commissionRate) / 100,
         acceptingNewClients,
         notes: notes.trim() || null,
+        userId: userId.trim() || null,
       });
 
       setSaved(true);
@@ -292,6 +296,33 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
             />
           </button>
+        </div>
+      </div>
+
+      {/* Clerk Account Link */}
+      <div>
+        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+          Tech Dashboard Login
+        </h3>
+        <div className="bg-white rounded-[12px] p-4">
+          <label className="text-[13px] text-[#8E8E93] mb-1 block">Clerk User ID</label>
+          <input
+            type="text"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            placeholder="user_2abc123..."
+            className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-[#F2F2F7] rounded-lg px-3 py-2"
+          />
+          <p className="text-[12px] text-[#8E8E93] mt-2">
+            Paste the tech&apos;s Clerk User ID here to let them access the Tech Dashboard.
+            Find it in your Clerk dashboard under Users → click user → copy User ID.
+          </p>
+          {userId && (
+            <div className="mt-2 flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-[#34C759]" />
+              <span className="text-[12px] text-[#34C759] font-medium">Account linked</span>
+            </div>
+          )}
         </div>
       </div>
 

@@ -759,7 +759,11 @@ export async function POST(request: Request): Promise<Response> {
 // Query params:
 //   - date: 'today' or YYYY-MM-DD
 //   - status: comma-separated list of statuses to filter by
-//   - salonSlug: optional salon filter
+//   - salonSlug: salon filter (required for multi-tenant)
+//   - technicianId: filter appointments for a specific technician
+//   - startDate: start of date range (ISO string)
+//   - endDate: end of date range (ISO string)
+//   - limit: max number of results
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
@@ -767,14 +771,30 @@ export async function GET(request: Request): Promise<Response> {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
     const statusParam = searchParams.get('status');
-    // Note: salonSlug filter can be added here for multi-salon support
-    // const salonSlug = searchParams.get('salonSlug');
+    const salonSlug = searchParams.get('salonSlug');
+    const technicianId = searchParams.get('technicianId');
+    const startDateParam = searchParams.get('startDate');
+    const endDateParam = searchParams.get('endDate');
+    const limitParam = searchParams.get('limit');
+
+    // Resolve salon if provided
+    let salonId: string | null = null;
+    if (salonSlug) {
+      const salon = await getSalonBySlug(salonSlug);
+      if (salon) {
+        salonId = salon.id;
+      }
+    }
 
     // Build date range for query
     let startOfDay: Date;
     let endOfDay: Date;
 
-    if (dateParam === 'today') {
+    if (startDateParam && endDateParam) {
+      // Use provided date range
+      startOfDay = new Date(startDateParam);
+      endOfDay = new Date(endDateParam);
+    } else if (dateParam === 'today') {
       startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       endOfDay = new Date();
@@ -795,18 +815,39 @@ export async function GET(request: Request): Promise<Response> {
     // Parse status filter
     const statuses = statusParam ? statusParam.split(',').map(s => s.trim()) : ['confirmed', 'in_progress'];
 
+    // Build where conditions
+    const conditions = [
+      sql`${appointmentSchema.startTime} >= ${startOfDay}`,
+      sql`${appointmentSchema.startTime} <= ${endOfDay}`,
+      inArray(appointmentSchema.status, statuses),
+    ];
+
+    // Add salon filter if provided
+    if (salonId) {
+      conditions.push(eq(appointmentSchema.salonId, salonId));
+    }
+
+    // Add technician filter if provided
+    if (technicianId) {
+      conditions.push(eq(appointmentSchema.technicianId, technicianId));
+    }
+
     // Build query
-    const appointments = await db
+    let query = db
       .select()
       .from(appointmentSchema)
-      .where(
-        and(
-          sql`${appointmentSchema.startTime} >= ${startOfDay}`,
-          sql`${appointmentSchema.startTime} <= ${endOfDay}`,
-          inArray(appointmentSchema.status, statuses),
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(appointmentSchema.startTime);
+
+    // Apply limit if provided
+    if (limitParam) {
+      const limit = parseInt(limitParam, 10);
+      if (!isNaN(limit) && limit > 0) {
+        query = query.limit(limit) as typeof query;
+      }
+    }
+
+    const appointments = await query;
 
     // Fetch services and photos for each appointment
     const appointmentsWithDetails = await Promise.all(

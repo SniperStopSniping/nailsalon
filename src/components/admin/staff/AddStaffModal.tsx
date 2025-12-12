@@ -246,6 +246,20 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
         }
       }
 
+      // If we have a phone number, send SMS invite so tech can log in
+      if (technicianId && phone.trim()) {
+        try {
+          await fetch(`/api/admin/technicians/${technicianId}/invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ salonSlug }),
+          });
+          // Don't fail if SMS fails - tech was already created
+        } catch (inviteErr) {
+          console.error('Error sending staff invite SMS:', inviteErr);
+        }
+      }
+
       onSuccess();
       resetForm();
       onClose();

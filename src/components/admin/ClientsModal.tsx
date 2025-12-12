@@ -218,7 +218,7 @@ function ClientDetail({
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="absolute inset-0 bg-[#F2F2F7] overflow-y-auto"
+      className="fixed inset-0 top-12 bg-[#F2F2F7] overflow-y-auto z-50 rounded-t-[20px]"
     >
       <ModalHeader
         title={name}

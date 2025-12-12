@@ -1,16 +1,25 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
 // =============================================================================
 // Types
 // =============================================================================
+
+interface TechnicianInfo {
+  id: string;
+  name: string;
+}
+
+interface SalonInfo {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 interface AppointmentData {
   id: string;
@@ -31,6 +40,18 @@ interface AppointmentData {
 }
 
 type TabId = 'today' | 'upcoming' | 'past' | 'schedule';
+
+// =============================================================================
+// Cookie Helper
+// =============================================================================
+
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+  return null;
+}
 
 // =============================================================================
 // Tab Button Component
@@ -262,10 +283,8 @@ function AppointmentCard({
 // =============================================================================
 
 export default function StaffDashboardPage() {
-  const { user, isLoaded } = useUser();
   const router = useRouter();
   const params = useParams();
-  const { salonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
   const [activeTab, setActiveTab] = useState<TabId>('today');
@@ -273,27 +292,96 @@ export default function StaffDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [technician, setTechnician] = useState<TechnicianInfo | null>(null);
+  const [salon, setSalon] = useState<SalonInfo | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Fetch appointments based on tab
+  // Check for staff session cookie and fetch technician info
+  useEffect(() => {
+    async function checkAuth() {
+      // Check for staff session cookie
+      const staffSession = getCookie('staff_session');
+      const staffSalon = getCookie('staff_salon');
+      
+      if (!staffSession || !staffSalon) {
+        setAuthChecked(true);
+        setIsAuthenticated(false);
+        return;
+      }
+
+      // Fetch technician info from API
+      try {
+        const response = await fetch('/api/staff/me');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data?.technician) {
+            setTechnician(data.data.technician);
+            setSalon(data.data.salon);
+            setIsAuthenticated(true);
+          } else {
+            setIsAuthenticated(false);
+          }
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch technician info:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setAuthChecked(true);
+      }
+    }
+    checkAuth();
+  }, []);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (authChecked && !isAuthenticated) {
+      router.push(`/${locale}/staff-login`);
+    }
+  }, [authChecked, isAuthenticated, router, locale]);
+
+  // Fetch appointments based on tab - filtered by technician
   const fetchAppointments = useCallback(async () => {
+    if (!technician || !salon) {
+      setAppointments([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      let url = '/api/appointments?';
+      const baseParams = new URLSearchParams();
+      baseParams.set('salonSlug', salon.slug);
+      baseParams.set('technicianId', technician.id);
       
       if (activeTab === 'today') {
-        url += 'date=today&status=confirmed,in_progress';
+        baseParams.set('date', 'today');
+        baseParams.set('status', 'confirmed,in_progress');
       } else if (activeTab === 'upcoming') {
         // Get next 7 days
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const nextWeek = new Date(today);
         nextWeek.setDate(nextWeek.getDate() + 7);
-        url += `status=confirmed,pending&startDate=${today.toISOString()}&endDate=${nextWeek.toISOString()}`;
+        baseParams.set('status', 'confirmed,pending');
+        baseParams.set('startDate', today.toISOString());
+        baseParams.set('endDate', nextWeek.toISOString());
       } else if (activeTab === 'past') {
-        url += 'status=completed&limit=20';
+        // Get past 30 days for completed
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
+        baseParams.set('status', 'completed');
+        baseParams.set('startDate', thirtyDaysAgo.toISOString());
+        baseParams.set('endDate', today.toISOString());
+        baseParams.set('limit', '20');
       }
 
-      const response = await fetch(url);
+      const response = await fetch(`/api/appointments?${baseParams}`);
       if (response.ok) {
         const data = await response.json();
         setAppointments(data.data?.appointments || []);
@@ -303,17 +391,17 @@ export default function StaffDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, salon, technician]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (isLoaded && user) {
+    if (isAuthenticated && technician && salon) {
       fetchAppointments();
     }
-  }, [isLoaded, user, fetchAppointments]);
+  }, [isAuthenticated, technician, salon, fetchAppointments]);
 
   // Handle start appointment
   const handleStart = async (appointmentId: string) => {
@@ -377,7 +465,18 @@ export default function StaffDashboardPage() {
     router.push(`/${locale}/staff/appointments?appointmentId=${appointment.id}`);
   };
 
-  if (!isLoaded) {
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/staff/logout', { method: 'POST' });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    router.push(`/${locale}/staff-login`);
+  };
+
+  // Show loading while checking auth
+  if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
         <div
@@ -388,16 +487,31 @@ export default function StaffDashboardPage() {
     );
   }
 
-  if (!user) {
+  // Redirecting to login...
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
+        <div
+          className="size-8 animate-spin rounded-full border-4 border-t-transparent"
+          style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+        />
+      </div>
+    );
+  }
+
+  // Show message if user is not linked to a technician
+  if (!technician) {
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center p-4"
         style={{ backgroundColor: themeVars.background }}
       >
         <h1 className="mb-4 text-2xl font-bold" style={{ color: themeVars.titleText }}>
-          Staff Access Required
+          No Technician Profile Found
         </h1>
-        <p className="text-neutral-600">Please sign in to access the staff dashboard.</p>
+        <p className="text-neutral-600 text-center max-w-md">
+          Your account is not linked to a technician profile. Please contact your salon administrator to set up your profile.
+        </p>
       </div>
     );
   }
@@ -427,18 +541,27 @@ export default function StaffDashboardPage() {
                 className="text-2xl font-bold"
                 style={{ color: themeVars.titleText }}
               >
-                Tech Dashboard
+                Hi, {technician.name.split(' ')[0]} 👋
               </h1>
-              <p className="text-sm text-neutral-600">{salonName}</p>
+              <p className="text-sm text-neutral-600">{salon?.name}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/staff/schedule`)}
-              className="rounded-full px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
-              style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
-            >
-              ⏰ Schedule
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/staff/schedule`)}
+                className="rounded-full px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
+                style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+              >
+                ⏰ Schedule
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-full px-3 py-2 text-sm font-medium border border-neutral-300 text-neutral-600 transition-all hover:bg-neutral-100"
+              >
+                Log out
+              </button>
+            </div>
           </div>
         </div>
 
@@ -571,4 +694,3 @@ export default function StaffDashboardPage() {
     </div>
   );
 }
-

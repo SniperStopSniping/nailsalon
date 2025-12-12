@@ -58,6 +58,13 @@ export type ReferralInviteParams = {
   referralId: string;
 };
 
+export type StaffInviteParams = {
+  phone: string;
+  techName: string;
+  salonName: string;
+  salonSlug: string;
+};
+
 // =============================================================================
 // TWILIO CLIENT
 // =============================================================================
@@ -402,4 +409,42 @@ ${claimUrl}
 Book within 14 days to get your free manicure! 💅✨`;
 
   return sendSMS(refereePhone, message);
+}
+
+/**
+ * Send staff invite SMS to a new technician
+ * Invites them to log in to the staff dashboard
+ */
+export async function sendStaffInvite(
+  salonId: string,
+  params: StaffInviteParams,
+): Promise<boolean> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return false;
+  }
+
+  const { phone, techName, salonName, salonSlug } = params;
+
+  // Build the login URL with phone and salon prefilled
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+    || 'http://localhost:3000';
+  
+  // URL-encode the phone number
+  const encodedPhone = encodeURIComponent(phone);
+  // Use /en/ locale prefix for staff login URL
+  const loginUrl = `${baseUrl}/en/staff-login?salon=${salonSlug}&phone=${encodedPhone}`;
+
+  const message = `👋 Hi ${techName}!
+
+You've been added as staff at ${salonName}.
+
+Tap to log in and access your dashboard:
+${loginUrl}
+
+💅 See your appointments, clients & more!`;
+
+  return sendSMS(phone, message);
 }

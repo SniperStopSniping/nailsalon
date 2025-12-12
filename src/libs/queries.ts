@@ -264,6 +264,68 @@ export async function getTechniciansForService(
 }
 
 /**
+ * Get a technician by their Clerk user ID
+ * Used to link logged-in users to their technician profile
+ * @param userId - The Clerk user ID
+ * @param salonId - The salon's unique ID (required for multi-tenant scoping)
+ * @returns The technician or null if not found
+ */
+export async function getTechnicianByUserId(
+  userId: string,
+  salonId: string,
+): Promise<Technician | null> {
+  const results = await db
+    .select()
+    .from(technicianSchema)
+    .where(
+      and(
+        eq(technicianSchema.userId, userId),
+        eq(technicianSchema.salonId, salonId),
+        eq(technicianSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Get a technician by their phone number
+ * Used for phone-based staff login
+ * @param phone - The technician's phone number (will be normalized)
+ * @param salonId - The salon's unique ID (required for multi-tenant scoping)
+ * @returns The technician or null if not found
+ */
+export async function getTechnicianByPhone(
+  phone: string,
+  salonId: string,
+): Promise<Technician | null> {
+  // Normalize phone to 10 digits
+  const normalizedPhone = normalizePhone(phone);
+  
+  // Build phone variants to handle different stored formats
+  const phoneVariants = [
+    normalizedPhone,                    // "4165551234"
+    `+1${normalizedPhone}`,             // "+14165551234"
+    `1${normalizedPhone}`,              // "14165551234"
+  ];
+
+  const results = await db
+    .select()
+    .from(technicianSchema)
+    .where(
+      and(
+        inArray(technicianSchema.phone, phoneVariants),
+        eq(technicianSchema.salonId, salonId),
+        eq(technicianSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
  * Get a single technician by ID, scoped to a salon
  * @param technicianId - The technician's unique ID
  * @param salonId - The salon's unique ID (required for multi-tenant scoping)
@@ -842,6 +904,8 @@ export async function updateSalonClient(
  * 
  * Stats are SALON-SCOPED - only appointments from this salon are counted.
  * 
+ * Loyalty points rule: 1 point per $1 spent (100 cents = 1 point)
+ * 
  * @param salonId - The salon's unique ID
  * @param phone - The client's phone number (any format)
  */
@@ -890,6 +954,10 @@ export async function updateSalonClientStats(
 
   const clientStats = stats[0];
   
+  // Calculate loyalty points: 1 point per $1 spent (totalSpent is in cents)
+  // Example: $125.00 spent = 12500 cents = 125 points
+  const loyaltyPoints = Math.floor((clientStats?.totalSpent ?? 0) / 100);
+  
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety
   await db
@@ -899,6 +967,7 @@ export async function updateSalonClientStats(
       totalSpent: clientStats?.totalSpent ?? 0,
       noShowCount: clientStats?.noShowCount ?? 0,
       lastVisitAt: clientStats?.lastVisitAt ?? null,
+      loyaltyPoints,
       updatedAt: new Date(),
     })
     .where(

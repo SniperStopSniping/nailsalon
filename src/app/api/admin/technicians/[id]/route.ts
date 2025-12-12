@@ -47,6 +47,8 @@ const updateTechnicianSchema = z.object({
   displayOrder: z.number().int().min(0).optional(),
   onboardingStatus: z.enum(ONBOARDING_STATUSES).optional(),
   isActive: z.boolean().optional(),
+  // Link to Clerk user account for Tech Dashboard login
+  userId: z.string().nullable().optional(),
   weeklySchedule: z.object({
     sunday: z.object({ start: z.string(), end: z.string() }).nullable().optional(),
     monday: z.object({ start: z.string(), end: z.string() }).nullable().optional(),
@@ -505,6 +507,7 @@ export async function PUT(
     if (updates.displayOrder !== undefined) updateData.displayOrder = updates.displayOrder;
     if (updates.onboardingStatus !== undefined) updateData.onboardingStatus = updates.onboardingStatus;
     if (updates.weeklySchedule !== undefined) updateData.weeklySchedule = updates.weeklySchedule;
+    if (updates.userId !== undefined) updateData.userId = updates.userId;
 
     // Handle isActive changes (soft delete/restore)
     if (updates.isActive !== undefined) {
