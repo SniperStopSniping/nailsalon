@@ -12,7 +12,7 @@
 
 import { Bell, LogOut } from 'lucide-react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 
 import { SwipeablePages, PageIndicator } from '@/components/admin/SwipeablePages';
 import { AnalyticsWidgets } from '@/components/admin/AnalyticsWidgets';
@@ -143,7 +143,8 @@ function IOSHeader({
 // Use shared type from admin types
 import type { AnalyticsResponse } from '@/types/admin';
 
-export default function AdminDashboardPage() {
+// Main component that uses useSearchParams (must be wrapped in Suspense)
+function AdminDashboardContent() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -629,5 +630,37 @@ export default function AdminDashboardPage() {
         <NotificationsModal onClose={() => setShowNotifications(false)} />
       </AppModal>
     </div>
+  );
+}
+
+// Loading fallback for Suspense
+function AdminDashboardLoading() {
+  return (
+    <div className="min-h-screen bg-[#F2F2F7]">
+      <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
+        {/* Skeleton Header */}
+        <div className="flex items-center justify-between px-5 py-3">
+          <div>
+            <div className="h-8 w-32 bg-gray-200 rounded-lg animate-pulse" />
+            <div className="h-4 w-24 bg-gray-100 rounded mt-1 animate-pulse" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
+            <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
+          </div>
+        </div>
+        {/* Skeleton Content */}
+        <SkeletonWidgets />
+      </div>
+    </div>
+  );
+}
+
+// Page Export - wrap in Suspense for useSearchParams
+export default function AdminDashboardPage() {
+  return (
+    <Suspense fallback={<AdminDashboardLoading />}>
+      <AdminDashboardContent />
+    </Suspense>
   );
 }
