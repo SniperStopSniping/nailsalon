@@ -119,7 +119,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 value={name}
                 onChange={(e) => handleNameChange(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder="e.g., Glow Nails"
               />
             </div>
@@ -135,7 +135,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder="e.g., glow-nails"
               />
               <p className="mt-1 text-xs text-gray-500">
@@ -153,7 +153,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 id="ownerEmail"
                 value={ownerEmail}
                 onChange={(e) => setOwnerEmail(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder="owner@example.com"
               />
             </div>
@@ -197,7 +197,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 onChange={(e) => setMaxLocations(Math.max(1, parseInt(e.target.value) || 1))}
                 min={1}
                 disabled={plan === 'single_salon' || plan === 'free'}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
               />
             </div>
 

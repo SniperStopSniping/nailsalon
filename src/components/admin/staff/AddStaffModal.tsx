@@ -393,7 +393,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Enter name"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
                 />
               </div>
               <div className="p-4 border-b border-gray-100">
@@ -403,7 +403,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter email"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
                 />
               </div>
               <div className="p-4">
@@ -413,7 +413,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="Enter phone"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
                 />
               </div>
             </div>
@@ -531,7 +531,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 onChange={(e) => setBio(e.target.value)}
                 placeholder="Short bio or description..."
                 rows={3}
-                className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none"
+                className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none bg-white"
               />
             </div>
 

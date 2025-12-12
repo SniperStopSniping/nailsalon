@@ -1,10 +1,12 @@
 'use client';
 
-import { Plus, Search, ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
+import { Plus, Search, ChevronLeft, ChevronRight, Building2, UserPlus, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 
 import { CreateSalonModal } from './CreateSalonModal';
 import { SalonDetailPanel } from './SalonDetailPanel';
+import { InvitesModal } from './InvitesModal';
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
 
 // =============================================================================
@@ -16,6 +18,11 @@ interface SalonItem {
   name: string;
   slug: string;
   ownerEmail: string | null;
+  ownerPhoneE164: string | null;
+  ownerAdminId: string | null;
+  ownerName: string | null;
+  ownerInviteStatus: 'none' | 'pending' | 'expired' | 'used';
+  pendingOwnerPhone: string | null;
   plan: SalonPlan;
   maxLocations: number;
   isMultiLocationEnabled: boolean;
@@ -69,11 +76,27 @@ const STATUS_COLORS: Record<SalonStatus, string> = {
   cancelled: 'bg-gray-100 text-gray-500',
 };
 
+// Format phone for display
+function formatPhoneDisplay(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+}
+
 // =============================================================================
 // Component
 // =============================================================================
 
 export function SuperAdminDashboard() {
+  const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+
   const [salons, setSalons] = useState<SalonItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +114,51 @@ export function SuperAdminDashboard() {
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showInvitesModal, setShowInvitesModal] = useState(false);
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(null);
+
+  // Owner management
+  const [removingOwnerId, setRemovingOwnerId] = useState<string | null>(null);
+
+  // Handle remove/demote owner
+  const handleRemoveOwner = async (salonId: string, action: 'demote' | 'remove') => {
+    const confirmMsg = action === 'remove'
+      ? 'Remove this owner completely? They will lose access to the salon.'
+      : 'Demote this owner to admin? They will keep access but not be listed as owner.';
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    setRemovingOwnerId(salonId);
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}/owner`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update owner');
+      }
+
+      // Refresh the list
+      fetchSalons();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update owner');
+    } finally {
+      setRemovingOwnerId(null);
+    }
+  };
+
+  // Logout handler
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore
+    }
+    router.push(`/${locale}/admin-login`);
+  };
 
   // Track if this is the initial mount
   const isInitialMount = useRef(true);
@@ -168,14 +235,32 @@ export function SuperAdminDashboard() {
                 <p className="text-sm text-gray-500">Platform owner controls</p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Salon
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInvitesModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                <UserPlus className="w-4 h-4" />
+                Invites
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Salon
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Log out"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -189,10 +274,10 @@ export function SuperAdminDashboard() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search salons, slugs, or owner emails..."
+                placeholder="Search salons, slugs, or owner phones..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
 
@@ -204,7 +289,7 @@ export function SuperAdminDashboard() {
                 setPage(1);
               }}
               aria-label="Filter by plan"
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             >
               {PLAN_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -221,7 +306,7 @@ export function SuperAdminDashboard() {
                 setPage(1);
               }}
               aria-label="Filter by status"
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -301,9 +386,52 @@ export function SuperAdminDashboard() {
                         </div>
                       </td>
                       <td className="px-4 py-4">
-                        <span className="text-sm text-gray-600">
-                          {salon.ownerEmail || '—'}
-                        </span>
+                        {salon.ownerPhoneE164 ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <span className="text-sm text-gray-900">
+                                {formatPhoneDisplay(salon.ownerPhoneE164)}
+                              </span>
+                              {salon.ownerName && (
+                                <div className="text-xs text-gray-500">{salon.ownerName}</div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveOwner(salon.id, 'demote')}
+                                disabled={removingOwnerId === salon.id}
+                                className="text-xs text-amber-600 hover:text-amber-800 disabled:opacity-50"
+                                title="Demote to admin"
+                              >
+                                Demote
+                              </button>
+                              <span className="text-gray-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveOwner(salon.id, 'remove')}
+                                disabled={removingOwnerId === salon.id}
+                                className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                                title="Remove access"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ) : salon.pendingOwnerPhone ? (
+                          <div>
+                            <span className="text-sm text-amber-600">
+                              {formatPhoneDisplay(salon.pendingOwnerPhone)}
+                            </span>
+                            <div className="text-xs text-amber-500">Pending invite</div>
+                          </div>
+                        ) : salon.ownerEmail ? (
+                          <span className="text-sm text-gray-400" title="Legacy (Clerk)">
+                            {salon.ownerEmail}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">No owner</span>
+                        )}
                       </td>
                       <td className="px-4 py-4">
                         <span
@@ -394,6 +522,10 @@ export function SuperAdminDashboard() {
           salonId={selectedSalonId}
           onClose={handleDetailClose}
         />
+      )}
+
+      {showInvitesModal && (
+        <InvitesModal onClose={() => setShowInvitesModal(false)} />
       )}
     </div>
   );

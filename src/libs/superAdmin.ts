@@ -1,70 +1,67 @@
-import { auth, clerkClient } from '@clerk/nextjs/server';
+/**
+ * Super Admin Helper Functions
+ *
+ * Provides authorization checks and audit logging for super admin operations.
+ * Uses the new phone-based admin auth system.
+ */
 
 import { db } from '@/libs/DB';
 import { salonAuditLogSchema, type AuditAction } from '@/models/Schema';
+import {
+  getAdminSession,
+  requireSuperAdmin as requireSuperAdminFromAuth,
+  type AdminGuardResult,
+} from '@/libs/adminAuth';
 
 /**
- * Returns true if the current authenticated user is in SUPER_ADMIN_EMAILS.
+ * Returns true if the current user is a super admin.
+ * Uses the new phone-based admin auth system.
  */
 export async function isSuperAdmin(): Promise<boolean> {
-  const { userId } = await auth();
-
-  if (!userId) return false;
-
-  const raw = process.env.SUPER_ADMIN_EMAILS || '';
-  if (!raw) return false;
-
-  const allowed = raw
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (allowed.length === 0) return false;
-
-  // Load user from Clerk to get email
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-
-  const primaryEmail =
-    user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)
-      ?.emailAddress || user.emailAddresses[0]?.emailAddress;
-
-  if (!primaryEmail) return false;
-
-  const isAllowed = allowed.includes(primaryEmail.toLowerCase());
-  return isAllowed;
+  const admin = await getAdminSession();
+  return admin?.isSuperAdmin ?? false;
 }
 
 /**
  * Use at the top of API routes. If not super admin, return 403 Response.
  * If super admin, returns null so you can continue.
+ *
+ * @deprecated Use requireSuperAdmin() from adminAuth.ts which returns discriminated union
  */
 export async function requireSuperAdmin(): Promise<Response | null> {
-  const ok = await isSuperAdmin();
-  if (!ok) {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  const guard = await requireSuperAdminFromAuth();
+  if (!guard.ok) {
+    return guard.response;
   }
   return null;
 }
 
 /**
- * Get the current super admin user info (userId and email)
+ * New version that returns discriminated union
  */
-export async function getSuperAdminInfo(): Promise<{ userId: string; email: string } | null> {
-  const { userId } = await auth();
-  if (!userId) return null;
+export async function requireSuperAdminGuard(): Promise<AdminGuardResult> {
+  return requireSuperAdminFromAuth();
+}
 
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
+/**
+ * Get the current super admin user info
+ */
+export async function getSuperAdminInfo(): Promise<{
+  userId: string;
+  phone: string;
+  name: string | null;
+} | null> {
+  const admin = await getAdminSession();
 
-  const primaryEmail =
-    user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)
-      ?.emailAddress || user.emailAddresses[0]?.emailAddress;
+  if (!admin || !admin.isSuperAdmin) {
+    return null;
+  }
 
-  return { userId, email: primaryEmail || '' };
+  return {
+    userId: admin.id,
+    phone: admin.phoneE164,
+    name: admin.name,
+  };
 }
 
 /**
@@ -88,7 +85,7 @@ export async function logAuditAction(
     salonId,
     action,
     performedBy: adminInfo.userId,
-    performedByEmail: adminInfo.email,
+    performedByEmail: adminInfo.phone, // Using phone instead of email now
     metadata: metadata || null,
   });
 }

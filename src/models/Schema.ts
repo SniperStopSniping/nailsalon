@@ -883,6 +883,103 @@ export const salonLocationSchema = pgTable(
 );
 
 // =============================================================================
+// ADMIN AUTH SCHEMAS
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// AdminUser - Admin/Super Admin identity (phone-based)
+// -----------------------------------------------------------------------------
+export const adminUserSchema = pgTable(
+  'admin_user',
+  {
+    id: text('id').primaryKey(),
+    phoneE164: text('phone_e164').notNull().unique(), // "+14374289008"
+    name: text('name'),
+    email: text('email'),
+    emailVerifiedAt: timestamp('email_verified_at', { mode: 'date' }),
+    isSuperAdmin: boolean('is_super_admin').default(false).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    phoneIdx: uniqueIndex('admin_user_phone_idx').on(table.phoneE164),
+    emailIdx: uniqueIndex('admin_user_email_idx').on(table.email),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AdminSession - Server-side sessions for admin auth
+// -----------------------------------------------------------------------------
+export const adminSessionSchema = pgTable(
+  'admin_session',
+  {
+    id: text('id').primaryKey(), // UUID, stored in cookie
+    adminId: text('admin_id')
+      .notNull()
+      .references(() => adminUserSchema.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(), // 1 year from creation
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }), // Optional: for cleanup
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    adminIdx: index('admin_session_admin_idx').on(table.adminId),
+    expiresIdx: index('admin_session_expires_idx').on(table.expiresAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AdminInvite - Invites for admin access (invite-only system)
+// -----------------------------------------------------------------------------
+export const adminInviteSchema = pgTable(
+  'admin_invite',
+  {
+    id: text('id').primaryKey(),
+    phoneE164: text('phone_e164').notNull(), // "+14374289008"
+    salonId: text('salon_id').references(() => salonSchema.id), // null for super admin
+    role: text('role').notNull(), // 'ADMIN' | 'SUPER_ADMIN'
+    membershipRole: text('membership_role'), // 'admin' | 'owner' - role to assign when claimed
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(), // 7 days from creation
+    usedAt: timestamp('used_at', { mode: 'date' }), // null until claimed
+    createdBy: text('created_by').references(() => adminUserSchema.id), // adminId who created
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    phoneIdx: index('admin_invite_phone_idx').on(table.phoneE164),
+    expiresIdx: index('admin_invite_expires_idx').on(table.expiresAt),
+    phoneUsedIdx: index('admin_invite_phone_used_idx').on(
+      table.phoneE164,
+      table.usedAt,
+    ),
+    // CHECK constraint added via migration SQL:
+    // CHECK ((role = 'SUPER_ADMIN' AND salon_id IS NULL) OR (role = 'ADMIN' AND salon_id IS NOT NULL))
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AdminSalonMembership - Which admins can access which salons
+// -----------------------------------------------------------------------------
+export const adminSalonMembershipSchema = pgTable(
+  'admin_salon_membership',
+  {
+    adminId: text('admin_id')
+      .notNull()
+      .references(() => adminUserSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    role: text('role').default('admin').notNull(), // 'admin' | 'owner'
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.adminId, table.salonId] }),
+    salonIdx: index('admin_membership_salon_idx').on(table.salonId),
+  }),
+);
+
+// =============================================================================
 // TYPE EXPORTS
 // =============================================================================
 
@@ -948,6 +1045,18 @@ export type NewSalonAuditLog = typeof salonAuditLogSchema.$inferInsert;
 
 export type SalonLocation = typeof salonLocationSchema.$inferSelect;
 export type NewSalonLocation = typeof salonLocationSchema.$inferInsert;
+
+export type AdminUser = typeof adminUserSchema.$inferSelect;
+export type NewAdminUser = typeof adminUserSchema.$inferInsert;
+
+export type AdminSession = typeof adminSessionSchema.$inferSelect;
+export type NewAdminSession = typeof adminSessionSchema.$inferInsert;
+
+export type AdminInvite = typeof adminInviteSchema.$inferSelect;
+export type NewAdminInvite = typeof adminInviteSchema.$inferInsert;
+
+export type AdminSalonMembership = typeof adminSalonMembershipSchema.$inferSelect;
+export type NewAdminSalonMembership = typeof adminSalonMembershipSchema.$inferInsert;
 
 // =============================================================================
 // CONST EXPORTS
@@ -1073,3 +1182,10 @@ export const AUDIT_ACTIONS = [
   'location_deleted',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+// Admin Auth Constants
+export const ADMIN_INVITE_ROLES = ['ADMIN', 'SUPER_ADMIN'] as const;
+export type AdminInviteRole = (typeof ADMIN_INVITE_ROLES)[number];
+
+export const ADMIN_MEMBERSHIP_ROLES = ['admin', 'owner'] as const;
+export type AdminMembershipRole = (typeof ADMIN_MEMBERSHIP_ROLES)[number];

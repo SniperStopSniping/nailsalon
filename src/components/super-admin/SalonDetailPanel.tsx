@@ -50,13 +50,33 @@ interface SalonDetail {
   // Booking flow customization
   bookingFlowCustomizationEnabled: boolean;
   bookingFlow: string[] | null;
-  // Owner & metadata
+  // Owner & metadata (legacy)
   ownerEmail: string | null;
   ownerClerkUserId: string | null;
   internalNotes: string | null;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface OwnerInfo {
+  adminId: string;
+  phoneE164: string;
+  name: string | null;
+}
+
+interface PendingInvite {
+  phoneE164: string;
+  expiresAt: string;
+  isExpired: boolean;
+}
+
+interface AdminInfo {
+  adminId: string;
+  role: string;
+  phoneE164: string;
+  name: string | null;
+  email: string | null;
 }
 
 interface SalonMetrics {
@@ -76,12 +96,210 @@ interface SalonDetailPanelProps {
 // Component
 // =============================================================================
 
+// Format phone for display
+function formatPhoneDisplay(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+}
+
+// =============================================================================
+// Admin Row Component with Actions
+// =============================================================================
+
+interface AdminRowProps {
+  admin: AdminInfo;
+  salonId: string;
+  totalAdmins: number;
+  onRefresh: () => void;
+}
+
+function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRemove = async () => {
+    if (!window.confirm(`Remove ${admin.name || 'this admin'} from the salon? They will lose access.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/super-admin/organizations/${salonId}/admins/${admin.adminId}`,
+        { method: 'DELETE' }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to remove admin');
+      }
+
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove admin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePromote = async () => {
+    if (!window.confirm(`Make ${admin.name || 'this admin'} the owner? The current owner will be demoted to admin.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/super-admin/organizations/${salonId}/admins/${admin.adminId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'promote' }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to promote admin');
+      }
+
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to promote admin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDemote = async () => {
+    if (!window.confirm(`Demote ${admin.name || 'this admin'} to regular admin?`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/super-admin/organizations/${salonId}/admins/${admin.adminId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'demote' }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to demote admin');
+      }
+
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to demote admin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isOwner = admin.role === 'owner';
+  const canRemove = totalAdmins > 1; // Can't remove the last admin
+
+  return (
+    <div className="p-3 bg-gray-50 rounded-lg text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          {/* Name and Role */}
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-gray-900 truncate">
+              {admin.name || 'Unnamed'}
+            </span>
+            <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded ${
+              isOwner 
+                ? 'bg-green-100 text-green-700' 
+                : 'bg-gray-200 text-gray-600'
+            }`}>
+              {admin.role}
+            </span>
+          </div>
+          {/* Email */}
+          <div className="text-gray-500 truncate">
+            {admin.email || '—'}
+          </div>
+          {/* Phone */}
+          <div className="text-gray-400 text-xs">
+            {formatPhoneDisplay(admin.phoneE164)}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={handleDemote}
+              disabled={loading}
+              className="text-xs px-2 py-1 text-amber-700 bg-amber-100 rounded hover:bg-amber-200 disabled:opacity-50"
+              title="Demote to admin"
+            >
+              Demote
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handlePromote}
+              disabled={loading}
+              className="text-xs px-2 py-1 text-green-700 bg-green-100 rounded hover:bg-green-200 disabled:opacity-50"
+              title="Make owner"
+            >
+              Make Owner
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={loading || !canRemove}
+            className="text-xs px-2 py-1 text-red-700 bg-red-100 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canRemove ? 'Remove from salon' : 'Cannot remove last admin'}
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mt-2 text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPanelProps) {
   const [salon, setSalon] = useState<SalonDetail | null>(null);
   const [metrics, setMetrics] = useState<SalonMetrics | null>(null);
+  const [owner, setOwner] = useState<OwnerInfo | null>(null);
+  const [pendingOwnerInvite, setPendingOwnerInvite] = useState<PendingInvite | null>(null);
+  const [admins, setAdmins] = useState<AdminInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Invite owner form state
+  const [invitePhone, setInvitePhone] = useState('');
+  const [invitingOwner, setInvitingOwner] = useState(false);
 
   // Form state
   const [name, setName] = useState('');
@@ -135,6 +353,9 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       const data = await response.json();
       setSalon(data.salon);
       setMetrics(data.metrics);
+      setOwner(data.owner);
+      setPendingOwnerInvite(data.pendingOwnerInvite);
+      setAdmins(data.admins || []);
 
       // Populate form
       setName(data.salon.name);
@@ -224,7 +445,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setJustSaved(false);
   };
 
-  // Handle owner change
+  // Handle owner change (legacy Clerk)
   const handleOwnerChange = async (user: { id: string; email: string | null }) => {
     if (!user.email) return;
 
@@ -244,6 +465,70 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to change owner');
+      }
+
+      await fetchSalon();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Invite new owner via phone
+  const handleInviteOwner = async () => {
+    if (!invitePhone.trim()) return;
+
+    setInvitingOwner(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/super-admin/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: invitePhone,
+          role: 'ADMIN',
+          salonSlug: salon?.slug,
+          membershipRole: 'owner',
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to send invite');
+      }
+
+      setInvitePhone('');
+      await fetchSalon();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setInvitingOwner(false);
+    }
+  };
+
+  // Remove/demote owner
+  const handleRemoveOwner = async (action: 'demote' | 'remove') => {
+    const confirmMsg = action === 'remove'
+      ? 'Remove this owner completely? They will lose access to the salon.'
+      : 'Demote this owner to admin? They will keep access but not be listed as owner.';
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}/owner`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update owner');
       }
 
       await fetchSalon();
@@ -428,7 +713,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     id="name"
                     value={name}
                     onChange={(e) => { setName(e.target.value); markDirty(); }}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
 
@@ -508,7 +793,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     onChange={(e) => { setMaxLocations(Math.max(1, parseInt(e.target.value) || 1)); markDirty(); }}
                     min={1}
                     disabled={plan === 'single_salon' || plan === 'free'}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
                   />
                 </div>
 
@@ -704,35 +989,130 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     onChange={(e) => { setInternalNotes(e.target.value); markDirty(); }}
                     rows={3}
                     placeholder="Private notes only visible to super admins..."
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                   />
                 </div>
               </CollapsibleSection>
 
               {/* Ownership Section */}
               <CollapsibleSection
-                title="Ownership"
+                title="Ownership & Admins"
                 icon={<UserCog className="w-4 h-4" />}
                 expanded={expandedSections.ownership ?? false}
                 onToggle={() => toggleSection('ownership')}
               >
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* Current Owner */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Owner Email
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Current Owner
                     </label>
-                    <div className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
-                      {salon.ownerEmail || '—'}
-                    </div>
+                    {owner ? (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {owner.name || 'Unnamed'}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {formatPhoneDisplay(owner.phoneE164)}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOwner('demote')}
+                              disabled={saving}
+                              className="text-xs px-2 py-1 text-amber-700 bg-amber-100 rounded hover:bg-amber-200 disabled:opacity-50"
+                            >
+                              Demote
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOwner('remove')}
+                              disabled={saving}
+                              className="text-xs px-2 py-1 text-red-700 bg-red-100 rounded hover:bg-red-200 disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : pendingOwnerInvite ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="text-sm">
+                          <span className="font-medium text-amber-800">Pending invite:</span>{' '}
+                          <span className="text-amber-700">{formatPhoneDisplay(pendingOwnerInvite.phoneE164)}</span>
+                        </div>
+                        {pendingOwnerInvite.isExpired && (
+                          <div className="text-xs text-red-600 mt-1">Invite expired</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500">
+                        No owner assigned
+                      </div>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowUserSearch(true)}
-                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <UserCog className="w-4 h-4" />
-                    Change Owner
-                  </button>
+
+                  {/* Invite Owner */}
+                  {!owner && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Invite Owner by Phone
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="tel"
+                          value={invitePhone}
+                          onChange={(e) => setInvitePhone(e.target.value)}
+                          placeholder="(416) 555-1234"
+                          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleInviteOwner}
+                          disabled={invitingOwner || !invitePhone.trim()}
+                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {invitingOwner ? 'Sending...' : 'Invite'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        They&apos;ll receive an SMS to log in as owner
+                      </p>
+                    </div>
+                  )}
+
+                  {/* All Admins with Actions */}
+                  {admins.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        All Admins ({admins.length})
+                      </label>
+                      <div className="space-y-2">
+                        {admins.map((admin) => (
+                          <AdminRow
+                            key={admin.adminId}
+                            admin={admin}
+                            salonId={salonId}
+                            totalAdmins={admins.length}
+                            onRefresh={fetchSalon}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Legacy Owner Info */}
+                  {salon.ownerEmail && !owner && (
+                    <div className="pt-3 border-t border-gray-200">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Legacy Owner (Clerk)
+                      </label>
+                      <div className="text-sm text-gray-400">{salon.ownerEmail}</div>
+                    </div>
+                  )}
                 </div>
               </CollapsibleSection>
 

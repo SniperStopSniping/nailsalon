@@ -63,7 +63,7 @@ export async function POST(request: Request): Promise<Response> {
       salonSlug: salon.slug,
       salonName: salon.name,
       adminUserId: adminInfo?.userId,
-      adminEmail: adminInfo?.email,
+      adminPhone: adminInfo?.phone,
       startedAt: new Date().toISOString(),
     };
 
@@ -77,7 +77,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // Log the action
     await logAuditAction(salonId, 'updated', {
-      details: `Impersonation started by ${adminInfo?.email}`,
+      details: `Impersonation started by ${adminInfo?.phone}`,
     });
 
     return Response.json({
@@ -118,7 +118,7 @@ export async function DELETE(): Promise<Response> {
         if (data.salonId) {
           const adminInfo = await getSuperAdminInfo();
           await logAuditAction(data.salonId, 'updated', {
-            details: `Impersonation ended by ${adminInfo?.email}`,
+            details: `Impersonation ended by ${adminInfo?.phone}`,
           });
         }
       } catch {

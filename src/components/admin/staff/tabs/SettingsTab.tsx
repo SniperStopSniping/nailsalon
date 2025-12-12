@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Trash2, Check, UserCheck } from 'lucide-react';
+import { AlertTriangle, Trash2, Check, UserCheck, Send } from 'lucide-react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import type { StaffRole, SkillLevel } from '@/models/Schema';
@@ -27,6 +27,18 @@ interface TechnicianDetail {
   terminatedAt: string | null;
   onboardingStatus: string | null;
   userId: string | null;
+}
+
+// Format phone number for display
+function formatPhoneDisplay(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return phone;
 }
 
 interface SettingsTabProps {
@@ -73,6 +85,12 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   const [showReenableModal, setShowReenableModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [reenabling, setReenabling] = useState(false);
+  
+  // Resend invite state
+  const [resendingInvite, setResendingInvite] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false);
+  const [inviteCooldown, setInviteCooldown] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const handleSave = async () => {
     if (!salonSlug) return;
@@ -186,6 +204,40 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
       console.error('Error re-enabling staff:', err);
     } finally {
       setReenabling(false);
+    }
+  };
+
+  const handleResendInvite = async () => {
+    if (!salonSlug || !technician.phone || inviteCooldown) return;
+
+    setResendingInvite(true);
+    setInviteError(null);
+    try {
+      const response = await fetch(`/api/admin/technicians/${technician.id}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonSlug }),
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error?.message ?? 'Failed to send invite');
+      }
+
+      // Show success state
+      setInviteSent(true);
+      setInviteCooldown(true);
+
+      // Reset success message after 3 seconds
+      setTimeout(() => setInviteSent(false), 3000);
+      
+      // Cooldown for 10 seconds to prevent spam
+      setTimeout(() => setInviteCooldown(false), 10000);
+    } catch (err) {
+      console.error('Error resending invite:', err);
+      setInviteError(err instanceof Error ? err.message : 'Failed to send invite');
+    } finally {
+      setResendingInvite(false);
     }
   };
 
@@ -326,6 +378,64 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
         </div>
       </div>
 
+      {/* Account & Invitations */}
+      {technician.phone && (
+        <div>
+          <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+            Account & Invitations
+          </h3>
+          <div className="bg-white rounded-[12px] overflow-hidden">
+            <div className="p-4 border-b border-gray-100">
+              <span className="text-[13px] text-[#8E8E93]">Phone Number</span>
+              <div className="text-[17px] text-[#1C1C1E]">
+                {formatPhoneDisplay(technician.phone)}
+              </div>
+            </div>
+            <div className="p-4">
+              <p className="text-[13px] text-[#8E8E93] mb-3">
+                Send an SMS invite so this staff member can access their dashboard.
+              </p>
+              {inviteError && (
+                <p className="text-[13px] text-[#FF3B30] mb-3">{inviteError}</p>
+              )}
+              <button
+                type="button"
+                onClick={handleResendInvite}
+                disabled={resendingInvite || inviteCooldown}
+                className={`
+                  w-full py-3 rounded-xl text-[15px] font-medium
+                  flex items-center justify-center gap-2
+                  transition-colors
+                  ${inviteSent 
+                    ? 'bg-[#34C759] text-white' 
+                    : inviteCooldown
+                      ? 'bg-[#E5E5EA] text-[#8E8E93]'
+                      : 'bg-[#007AFF]/10 text-[#007AFF]'
+                  }
+                  disabled:opacity-50
+                `}
+              >
+                {inviteSent ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Invite Sent
+                  </>
+                ) : resendingInvite ? (
+                  'Sending...'
+                ) : inviteCooldown ? (
+                  'Please wait...'
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Invite SMS
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Notes */}
       <div>
         <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
@@ -337,7 +447,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Private notes about this staff member..."
             rows={4}
-            className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none"
+            className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none bg-white"
           />
         </div>
       </div>

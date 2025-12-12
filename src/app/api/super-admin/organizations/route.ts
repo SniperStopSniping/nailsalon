@@ -1,4 +1,4 @@
-import { eq, ilike, or, sql, and, gte } from 'drizzle-orm';
+import { eq, ilike, or, sql, and, gte, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -9,6 +9,9 @@ import {
   technicianSchema,
   appointmentSchema,
   clientPreferencesSchema,
+  adminSalonMembershipSchema,
+  adminUserSchema,
+  adminInviteSchema,
   SALON_PLANS,
   SALON_STATUSES,
   type SalonPlan,
@@ -155,22 +158,101 @@ export async function GET(request: Request): Promise<Response> {
     const clientCountMap = new Map(clientCounts.map((c) => [c.salonId, Number(c.count)]));
     const apptCountMap = new Map(apptCounts.map((a) => [a.salonId, Number(a.count)]));
 
+    // Get owner info for each salon (from admin_salon_membership where role='owner')
+    const ownerInfos = salonIds.length > 0
+      ? await db
+          .select({
+            salonId: adminSalonMembershipSchema.salonId,
+            adminId: adminSalonMembershipSchema.adminId,
+            phoneE164: adminUserSchema.phoneE164,
+            name: adminUserSchema.name,
+          })
+          .from(adminSalonMembershipSchema)
+          .innerJoin(adminUserSchema, eq(adminSalonMembershipSchema.adminId, adminUserSchema.id))
+          .where(
+            and(
+              sql`${adminSalonMembershipSchema.salonId} IN ${salonIds}`,
+              eq(adminSalonMembershipSchema.role, 'owner'),
+            ),
+          )
+      : [];
+    const ownerMap = new Map(ownerInfos.map((o) => [o.salonId, o]));
+
+    // Get latest invite status for each salon (for ADMIN role invites)
+    const now = new Date();
+    const latestInvites = salonIds.length > 0
+      ? await db
+          .select({
+            salonId: adminInviteSchema.salonId,
+            phoneE164: adminInviteSchema.phoneE164,
+            expiresAt: adminInviteSchema.expiresAt,
+            usedAt: adminInviteSchema.usedAt,
+            membershipRole: adminInviteSchema.membershipRole,
+            createdAt: adminInviteSchema.createdAt,
+          })
+          .from(adminInviteSchema)
+          .where(
+            and(
+              sql`${adminInviteSchema.salonId} IN ${salonIds}`,
+              eq(adminInviteSchema.role, 'ADMIN'),
+            ),
+          )
+          .orderBy(desc(adminInviteSchema.createdAt))
+      : [];
+    
+    // Group invites by salon and get the latest owner invite status
+    const inviteMap = new Map<string, { status: 'pending' | 'expired' | 'used'; phone: string }>();
+    for (const invite of latestInvites) {
+      if (!invite.salonId) continue;
+      // Only track owner invites for status
+      if (invite.membershipRole !== 'owner') continue;
+      if (inviteMap.has(invite.salonId)) continue; // Already have latest
+      
+      let status: 'pending' | 'expired' | 'used';
+      if (invite.usedAt) {
+        status = 'used';
+      } else if (invite.expiresAt < now) {
+        status = 'expired';
+      } else {
+        status = 'pending';
+      }
+      inviteMap.set(invite.salonId, { status, phone: invite.phoneE164 });
+    }
+
     // Format response
-    const items = salons.map((salon) => ({
-      id: salon.id,
-      name: salon.name,
-      slug: salon.slug,
-      ownerEmail: salon.ownerEmail,
-      plan: (salon.plan || 'single_salon') as SalonPlan,
-      maxLocations: salon.maxLocations ?? 1,
-      isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
-      status: (salon.status || 'active') as SalonStatus,
-      createdAt: salon.createdAt.toISOString(),
-      locationsCount: 1, // For now, assume 1 location per salon
-      techsCount: techCountMap.get(salon.id) ?? 0,
-      clientsCount: clientCountMap.get(salon.id) ?? 0,
-      appointmentsLast30d: apptCountMap.get(salon.id) ?? 0,
-    }));
+    const items = salons.map((salon) => {
+      const owner = ownerMap.get(salon.id);
+      const invite = inviteMap.get(salon.id);
+      
+      // Determine owner invite status
+      let ownerInviteStatus: 'none' | 'pending' | 'expired' | 'used' = 'none';
+      if (owner) {
+        ownerInviteStatus = 'used'; // Owner exists, invite was claimed
+      } else if (invite) {
+        ownerInviteStatus = invite.status;
+      }
+
+      return {
+        id: salon.id,
+        name: salon.name,
+        slug: salon.slug,
+        ownerEmail: salon.ownerEmail, // Legacy fallback
+        ownerPhoneE164: owner?.phoneE164 ?? null,
+        ownerAdminId: owner?.adminId ?? null,
+        ownerName: owner?.name ?? null,
+        ownerInviteStatus,
+        pendingOwnerPhone: invite?.status === 'pending' ? invite.phone : null,
+        plan: (salon.plan || 'single_salon') as SalonPlan,
+        maxLocations: salon.maxLocations ?? 1,
+        isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        status: (salon.status || 'active') as SalonStatus,
+        createdAt: salon.createdAt.toISOString(),
+        locationsCount: 1, // For now, assume 1 location per salon
+        techsCount: techCountMap.get(salon.id) ?? 0,
+        clientsCount: clientCountMap.get(salon.id) ?? 0,
+        appointmentsLast30d: apptCountMap.get(salon.id) ?? 0,
+      };
+    });
 
     return Response.json({
       items,

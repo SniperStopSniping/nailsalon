@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, sql, desc, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
@@ -18,6 +18,9 @@ import {
   clientPreferencesSchema,
   salonPageAppearanceSchema,
   salonLocationSchema,
+  adminSalonMembershipSchema,
+  adminUserSchema,
+  adminInviteSchema,
   SALON_PLANS,
   SALON_STATUSES,
   type SalonPlan,
@@ -112,6 +115,56 @@ export async function GET(
         )
       );
 
+    // Get owner info from admin_salon_membership
+    const [ownerInfo] = await db
+      .select({
+        adminId: adminSalonMembershipSchema.adminId,
+        phoneE164: adminUserSchema.phoneE164,
+        name: adminUserSchema.name,
+      })
+      .from(adminSalonMembershipSchema)
+      .innerJoin(adminUserSchema, eq(adminSalonMembershipSchema.adminId, adminUserSchema.id))
+      .where(
+        and(
+          eq(adminSalonMembershipSchema.salonId, id),
+          eq(adminSalonMembershipSchema.role, 'owner'),
+        ),
+      )
+      .limit(1);
+
+    // Get pending owner invite
+    const now = new Date();
+    const [pendingOwnerInvite] = await db
+      .select({
+        phoneE164: adminInviteSchema.phoneE164,
+        expiresAt: adminInviteSchema.expiresAt,
+        createdAt: adminInviteSchema.createdAt,
+      })
+      .from(adminInviteSchema)
+      .where(
+        and(
+          eq(adminInviteSchema.salonId, id),
+          eq(adminInviteSchema.role, 'ADMIN'),
+          eq(adminInviteSchema.membershipRole, 'owner'),
+          isNull(adminInviteSchema.usedAt),
+        ),
+      )
+      .orderBy(desc(adminInviteSchema.createdAt))
+      .limit(1);
+
+    // Get all admins for this salon
+    const admins = await db
+      .select({
+        adminId: adminSalonMembershipSchema.adminId,
+        role: adminSalonMembershipSchema.role,
+        phoneE164: adminUserSchema.phoneE164,
+        name: adminUserSchema.name,
+        email: adminUserSchema.email,
+      })
+      .from(adminSalonMembershipSchema)
+      .innerJoin(adminUserSchema, eq(adminSalonMembershipSchema.adminId, adminUserSchema.id))
+      .where(eq(adminSalonMembershipSchema.salonId, id));
+
     return Response.json({
       salon: {
         id: salon.id,
@@ -129,7 +182,7 @@ export async function GET(
         // Booking flow customization
         bookingFlowCustomizationEnabled: salon.bookingFlowCustomizationEnabled ?? false,
         bookingFlow: salon.bookingFlow ?? null,
-        // Owner & metadata
+        // Owner & metadata (legacy)
         ownerEmail: salon.ownerEmail,
         ownerClerkUserId: salon.ownerClerkUserId,
         internalNotes: salon.internalNotes,
@@ -137,6 +190,24 @@ export async function GET(
         createdAt: salon.createdAt.toISOString(),
         updatedAt: salon.updatedAt.toISOString(),
       },
+      // New owner info from admin system
+      owner: ownerInfo ? {
+        adminId: ownerInfo.adminId,
+        phoneE164: ownerInfo.phoneE164,
+        name: ownerInfo.name,
+      } : null,
+      pendingOwnerInvite: pendingOwnerInvite ? {
+        phoneE164: pendingOwnerInvite.phoneE164,
+        expiresAt: pendingOwnerInvite.expiresAt.toISOString(),
+        isExpired: pendingOwnerInvite.expiresAt < now,
+      } : null,
+      admins: admins.map(a => ({
+        adminId: a.adminId,
+        role: a.role,
+        phoneE164: a.phoneE164,
+        name: a.name,
+        email: a.email,
+      })),
       metrics: {
         locationsCount: 1, // For now, assume 1 location per salon
         techsCount: Number(techCount?.count ?? 0),

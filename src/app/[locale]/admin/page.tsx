@@ -10,8 +10,8 @@
  * - iOS spring physics and animations
  */
 
-import { useUser } from '@clerk/nextjs';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { SwipeablePages, PageIndicator } from '@/components/admin/SwipeablePages';
@@ -34,6 +34,19 @@ import { useSalon } from '@/providers/SalonProvider';
 // =============================================================================
 // Types
 // =============================================================================
+
+interface AdminUser {
+  id: string;
+  phone: string;
+  name: string | null;
+  isSuperAdmin: boolean;
+  salons: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    role: string;
+  }>;
+}
 
 interface DashboardData {
   revenue: {
@@ -75,12 +88,14 @@ function IOSHeader({
   avatar,
   notificationCount = 0,
   onNotificationTap,
+  onLogout,
 }: {
   title: string;
   subtitle: string;
   avatar: string;
   notificationCount?: number;
   onNotificationTap?: () => void;
+  onLogout?: () => void;
 }) {
   return (
     <div className="flex items-center justify-between px-5 py-3">
@@ -105,6 +120,14 @@ function IOSHeader({
             </span>
           )}
         </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="w-9 h-9 rounded-full bg-black/5 flex items-center justify-center active:bg-black/10 transition-colors"
+          title="Log out"
+        >
+          <LogOut size={18} className="text-[#8E8E93]" />
+        </button>
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#007AFF] to-[#5856D6] flex items-center justify-center text-white text-[15px] font-semibold">
           {avatar}
         </div>
@@ -121,8 +144,16 @@ function IOSHeader({
 import type { AnalyticsResponse } from '@/types/admin';
 
 export default function AdminDashboardPage() {
-  const { user, isLoaded } = useUser();
+  const router = useRouter();
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const locale = (params?.locale as string) || 'en';
   const { salonName, salonSlug, status } = useSalon();
+
+  // Admin auth state
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showSalonSelector, setShowSalonSelector] = useState(false);
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>({
@@ -147,6 +178,44 @@ export default function AdminDashboardPage() {
 
   // Notification count (in production, this would come from API)
   const notificationCount = data.badges.alerts + data.badges.reviews;
+
+  // Check admin auth on mount
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/admin/auth/me');
+        if (response.ok) {
+          const data = await response.json();
+          setAdminUser(data.user);
+          
+          // If admin has multiple salons and no salon selected, show selector
+          if (data.user.salons.length > 1 && !searchParams.get('salon')) {
+            setShowSalonSelector(true);
+          }
+        } else {
+          // Not authenticated - redirect to login
+          router.push(`/${locale}/admin-login`);
+          return;
+        }
+      } catch {
+        router.push(`/${locale}/admin-login`);
+        return;
+      } finally {
+        setAuthLoading(false);
+      }
+    }
+    checkAuth();
+  }, [router, locale, searchParams]);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore
+    }
+    router.push(`/${locale}/admin-login`);
+  };
 
   // Fetch dashboard data from analytics API
   const fetchData = useCallback(async () => {
@@ -248,13 +317,13 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (isLoaded && user) {
+    if (!authLoading && adminUser && !showSalonSelector) {
       fetchData();
       const interval = setInterval(fetchData, 30000);
       return () => clearInterval(interval);
     }
     return undefined;
-  }, [isLoaded, user, fetchData]);
+  }, [authLoading, adminUser, showSalonSelector, fetchData]);
 
   // Handle app tile tap - all tiles now open modals
   const handleAppTap = (appId: AppId) => {
@@ -285,7 +354,7 @@ export default function AdminDashboardPage() {
   };
 
   // Loading state - show skeleton instead of spinner
-  if (!isLoaded || loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-[#F2F2F7]">
         <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
@@ -307,8 +376,8 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // Auth required
-  if (!user) {
+  // Auth required (redirect happens in useEffect, this is fallback)
+  if (!adminUser) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F2F2F7] px-5">
         <h1 className="text-[24px] font-semibold text-[#1C1C1E] mb-2">
@@ -321,7 +390,44 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const userName = user.firstName || user.username || 'Admin';
+  // Salon selector for admins with multiple salons
+  if (showSalonSelector && adminUser.salons.length > 1) {
+    return (
+      <div className="min-h-screen bg-[#F2F2F7] flex flex-col items-center justify-center px-5">
+        <h1 className="text-[24px] font-semibold text-[#1C1C1E] mb-2">
+          Select a Salon
+        </h1>
+        <p className="text-[15px] text-[#8E8E93] mb-6">
+          Choose which salon to manage
+        </p>
+        <div className="w-full max-w-sm space-y-3">
+          {adminUser.salons.map((salon) => (
+            <button
+              key={salon.id}
+              type="button"
+              onClick={() => {
+                router.push(`/${locale}/admin?salon=${salon.slug}`);
+                setShowSalonSelector(false);
+              }}
+              className="w-full px-4 py-4 bg-white rounded-xl text-left shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="font-semibold text-[#1C1C1E]">{salon.name}</div>
+              <div className="text-sm text-[#8E8E93]">{salon.role}</div>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="mt-6 text-sm text-[#8E8E93] hover:text-[#1C1C1E]"
+        >
+          Log out
+        </button>
+      </div>
+    );
+  }
+
+  const userName = adminUser.name || 'Admin';
   const userInitial = userName.charAt(0).toUpperCase();
 
   // Map badges to app grid format
@@ -394,6 +500,7 @@ export default function AdminDashboardPage() {
           avatar={userInitial}
           notificationCount={notificationCount}
           onNotificationTap={() => setShowNotifications(true)}
+          onLogout={handleLogout}
         />
 
         {/* Error Banner */}
