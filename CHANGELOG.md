@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.1...v1.1.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* wrap admin page in Suspense for useSearchParams ([b70351b](https://github.com/SniperStopSniping/nailsalon/commit/b70351b6326fb5f3458b63a755c4664e3603e41e))
+
 ## [1.1.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.0...v1.1.1) (2025-12-06)
 
 
