@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.2...v1.2.0) (2025-12-13)
+
+
+### Features
+
+* **step-17:** Staff Phase 2 - Earnings, Time Off Requests, Notifications ([7c37435](https://github.com/SniperStopSniping/nailsalon/commit/7c3743590797b171b448ec80d0dca984b1957c73))
+
 ## [1.1.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.1...v1.1.2) (2025-12-12)
 
 
