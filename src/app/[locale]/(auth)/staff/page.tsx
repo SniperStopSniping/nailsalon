@@ -1,10 +1,31 @@
 'use client';
 
-import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-import { themeVars } from '@/theme';
+import { NotificationBell, StaffBottomNav } from '@/components/staff';
+import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
+
+import { StaffAppointmentCard, type AppointmentData } from './components/StaffAppointmentCard';
+import { ActionBar } from './components/ActionBar';
+import { PhotoModal } from './components/PhotoModal';
+import { BottomSheet } from './components/BottomSheet';
+import { SwipeableCard } from './components/SwipeableCard';
+import { FloatingActionBar } from './components/FloatingActionBar';
+
+// =============================================================================
+// Cappuccino Design Tokens
+// =============================================================================
+
+const cappuccino = {
+  title: '#6F4E37',
+  cardBg: '#FAF8F5',
+  cardBorder: '#E6DED6',
+  primary: '#4B2E1E',
+  secondary: '#EADBC8',
+  secondaryText: '#4B2E1E',
+  background: '#FFFBF7',
+};
 
 // =============================================================================
 // Types
@@ -21,25 +42,7 @@ interface SalonInfo {
   slug: string;
 }
 
-interface AppointmentData {
-  id: string;
-  clientName: string | null;
-  clientPhone: string;
-  startTime: string;
-  endTime: string;
-  status: string;
-  technicianId: string | null;
-  services: Array<{ name: string }>;
-  totalPrice: number;
-  photos: Array<{
-    id: string;
-    imageUrl: string;
-    thumbnailUrl: string | null;
-    photoType: string;
-  }>;
-}
-
-type TabId = 'today' | 'upcoming' | 'past' | 'schedule';
+type TabId = 'today' | 'upcoming' | 'past';
 
 // =============================================================================
 // Cookie Helper
@@ -54,7 +57,7 @@ function getCookie(name: string): string | null {
 }
 
 // =============================================================================
-// Tab Button Component
+// Tab Button Component (Cappuccino Style)
 // =============================================================================
 
 function TabButton({
@@ -78,10 +81,8 @@ function TabButton({
       onClick={() => onClick(id)}
       className="relative flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-3 text-center transition-all duration-200"
       style={{
-        background: isActive
-          ? `linear-gradient(to bottom, ${themeVars.primary}, ${themeVars.primaryDark})`
-          : 'transparent',
-        color: isActive ? '#1a1a1a' : '#666',
+        backgroundColor: isActive ? cappuccino.primary : 'transparent',
+        color: isActive ? '#FFFFFF' : cappuccino.secondaryText,
       }}
     >
       <span className="text-lg">{icon}</span>
@@ -89,7 +90,7 @@ function TabButton({
       {badge !== undefined && badge > 0 && (
         <span
           className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full text-xs font-bold text-white"
-          style={{ backgroundColor: themeVars.accent }}
+          style={{ backgroundColor: '#D97706' }}
         >
           {badge}
         </span>
@@ -99,187 +100,18 @@ function TabButton({
 }
 
 // =============================================================================
-// Appointment Card Component
+// Get Greeting Based on Time
 // =============================================================================
 
-function AppointmentCard({
-  appointment,
-  onViewClient,
-  onStart,
-  onUploadPhotos,
-  onComplete,
-  onCancel,
-  isStarting,
-}: {
-  appointment: AppointmentData;
-  onViewClient: (phone: string) => void;
-  onStart: (id: string) => void;
-  onUploadPhotos: (appointment: AppointmentData) => void;
-  onComplete: (id: string) => void;
-  onCancel: (id: string) => void;
-  isStarting: boolean;
-}) {
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
-
-  const formatPrice = (cents: number) => {
-    return `$${(cents / 100).toFixed(0)}`;
-  };
-
-  const hasAfterPhoto = appointment.photos.some((p) => p.photoType === 'after');
-  const hasBeforePhoto = appointment.photos.some((p) => p.photoType === 'before');
-  const isInProgress = appointment.status === 'in_progress';
-  const isConfirmed = appointment.status === 'confirmed';
-
-  return (
-    <div
-      className="overflow-hidden rounded-2xl bg-white shadow-lg"
-      style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-    >
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <button
-              type="button"
-              onClick={() => onViewClient(appointment.clientPhone)}
-              className="text-left transition-colors hover:opacity-70"
-            >
-              <div className="font-bold text-neutral-900">
-                {appointment.clientName || 'Client'}
-              </div>
-              <div className="text-xs text-neutral-500">
-                {appointment.clientPhone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}
-              </div>
-            </button>
-            <div className="mt-1 text-sm text-neutral-600">
-              {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
-            </div>
-            <div className="mt-1 text-sm font-medium" style={{ color: themeVars.accent }}>
-              {appointment.services.map((s) => s.name).join(', ')}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="font-bold" style={{ color: themeVars.primary }}>
-              {formatPrice(appointment.totalPrice)}
-            </div>
-            <div
-              className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-              style={{
-                background: isInProgress
-                  ? themeVars.primary
-                  : appointment.status === 'completed'
-                    ? '#22c55e'
-                    : themeVars.selectedBackground,
-                color: isInProgress || appointment.status === 'completed'
-                  ? 'white'
-                  : themeVars.titleText,
-              }}
-            >
-              {isInProgress ? 'In Progress' : appointment.status === 'completed' ? 'Completed' : 'Confirmed'}
-            </div>
-          </div>
-        </div>
-
-        {/* Photos preview */}
-        {appointment.photos.length > 0 && (
-          <div className="mt-3 flex items-center gap-2">
-            <div className="flex gap-1">
-              {appointment.photos.slice(0, 4).map((photo) => (
-                <div
-                  key={photo.id}
-                  className="relative size-12 overflow-hidden rounded-lg"
-                >
-                  <Image
-                    src={photo.thumbnailUrl || photo.imageUrl}
-                    alt={photo.photoType}
-                    fill
-                    className="object-cover"
-                  />
-                  <div
-                    className="absolute bottom-0 left-0 right-0 py-0.5 text-center text-[9px] font-medium text-white"
-                    style={{ backgroundColor: photo.photoType === 'before' ? themeVars.accent : '#22c55e' }}
-                  >
-                    {photo.photoType}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {appointment.photos.length > 4 && (
-              <span className="text-xs text-neutral-500">+{appointment.photos.length - 4} more</span>
-            )}
-          </div>
-        )}
-
-        {/* Photo status indicators */}
-        {(isConfirmed || isInProgress) && (
-          <div className="mt-3 flex gap-2 text-xs">
-            <span className={`rounded-full px-2 py-0.5 ${hasBeforePhoto ? 'bg-green-100 text-green-700' : 'bg-neutral-100 text-neutral-500'}`}>
-              {hasBeforePhoto ? '✓ Before' : '○ Before'}
-            </span>
-            <span className={`rounded-full px-2 py-0.5 ${hasAfterPhoto ? 'bg-green-100 text-green-700' : 'bg-neutral-100 text-neutral-500'}`}>
-              {hasAfterPhoto ? '✓ After' : '○ After (required)'}
-            </span>
-          </div>
-        )}
-
-        {/* Actions */}
-        {(isConfirmed || isInProgress) && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {isConfirmed && (
-              <button
-                type="button"
-                onClick={() => onStart(appointment.id)}
-                disabled={isStarting}
-                className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-                style={{ backgroundColor: themeVars.accent }}
-              >
-                {isStarting ? '...' : '▶ Start'}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onUploadPhotos(appointment)}
-              className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-all hover:opacity-90 active:scale-[0.98]"
-              style={{
-                backgroundColor: themeVars.selectedBackground,
-                color: themeVars.titleText,
-              }}
-            >
-              📸 Photos
-            </button>
-            {isInProgress && hasAfterPhoto && (
-              <button
-                type="button"
-                onClick={() => onComplete(appointment.id)}
-                className="flex-1 rounded-full px-4 py-2.5 text-sm font-bold text-neutral-900 transition-all hover:opacity-90 active:scale-[0.98]"
-                style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
-              >
-                ✓ Complete
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onCancel(appointment.id)}
-              className="rounded-full px-3 py-2.5 text-sm font-medium text-red-600 transition-all hover:bg-red-50 active:scale-[0.98]"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
 // =============================================================================
-// Main Staff Dashboard Page
+// Main Staff Dashboard Page (Cappuccino v2)
 // =============================================================================
 
 export default function StaffDashboardPage() {
@@ -287,30 +119,49 @@ export default function StaffDashboardPage() {
   const params = useParams();
   const locale = (params?.locale as string) || 'en';
 
+  // Auth state
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [technician, setTechnician] = useState<TechnicianInfo | null>(null);
+  const [salon, setSalon] = useState<SalonInfo | null>(null);
+
+  // UI state
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
-  const [startingId, setStartingId] = useState<string | null>(null);
-  const [technician, setTechnician] = useState<TechnicianInfo | null>(null);
-  const [salon, setSalon] = useState<SalonInfo | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Check for staff session cookie and fetch technician info
+  // Modal state
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentData | null>(null);
+  const [showActionBar, setShowActionBar] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
+
+  // Active appointment for FAB (last interacted)
+  const [activeAppointment, setActiveAppointment] = useState<AppointmentData | null>(null);
+
+  // Loading state for gesture actions
+  const [gestureLoadingId, setGestureLoadingId] = useState<string | null>(null);
+  
+  // Module capabilities - for future feature gating (earnings, etc.)
+  // Currently used for: none (all visible features are core)
+  // Future: earnings tab, analytics widgets
+  const { modules: _modules } = useStaffCapabilities();
+
+  // =============================================================================
+  // Auth Check
+  // =============================================================================
+
   useEffect(() => {
     async function checkAuth() {
-      // Check for staff session cookie
-      const staffSession = getCookie('staff_session');
       const staffSalon = getCookie('staff_salon');
-      
-      if (!staffSession || !staffSalon) {
+
+      if (!staffSalon) {
         setAuthChecked(true);
         setIsAuthenticated(false);
         return;
       }
 
-      // Fetch technician info from API
       try {
         const response = await fetch('/api/staff/me');
         if (response.ok) {
@@ -342,7 +193,10 @@ export default function StaffDashboardPage() {
     }
   }, [authChecked, isAuthenticated, router, locale]);
 
-  // Fetch appointments based on tab - filtered by technician
+  // =============================================================================
+  // Fetch Appointments
+  // =============================================================================
+
   const fetchAppointments = useCallback(async () => {
     if (!technician || !salon) {
       setAppointments([]);
@@ -355,12 +209,11 @@ export default function StaffDashboardPage() {
       const baseParams = new URLSearchParams();
       baseParams.set('salonSlug', salon.slug);
       baseParams.set('technicianId', technician.id);
-      
+
       if (activeTab === 'today') {
         baseParams.set('date', 'today');
         baseParams.set('status', 'confirmed,in_progress');
       } else if (activeTab === 'upcoming') {
-        // Get next 7 days
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const nextWeek = new Date(today);
@@ -369,7 +222,6 @@ export default function StaffDashboardPage() {
         baseParams.set('startDate', today.toISOString());
         baseParams.set('endDate', nextWeek.toISOString());
       } else if (activeTab === 'past') {
-        // Get past 30 days for completed
         const today = new Date();
         today.setHours(23, 59, 59, 999);
         const thirtyDaysAgo = new Date(today);
@@ -403,69 +255,105 @@ export default function StaffDashboardPage() {
     }
   }, [isAuthenticated, technician, salon, fetchAppointments]);
 
-  // Handle start appointment
-  const handleStart = async (appointmentId: string) => {
-    setStartingId(appointmentId);
-    try {
-      const response = await fetch(`/api/appointments/${appointmentId}/complete`, {
-        method: 'POST',
-      });
-      if (response.ok) {
-        await fetchAppointments();
-      }
-    } catch (error) {
-      console.error('Failed to start appointment:', error);
-    } finally {
-      setStartingId(null);
-    }
-  };
+  // =============================================================================
+  // Handlers
+  // =============================================================================
 
-  // Handle complete
-  const handleComplete = async (appointmentId: string) => {
-    try {
-      const response = await fetch(`/api/appointments/${appointmentId}/complete`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentStatus: 'paid' }),
-      });
-      if (response.ok) {
-        await fetchAppointments();
-      }
-    } catch (error) {
-      console.error('Failed to complete appointment:', error);
-    }
-  };
-
-  // Handle cancel
-  const handleCancel = async (appointmentId: string) => {
-    if (!confirm('Are you sure you want to cancel this appointment?')) return;
-    
-    try {
-      const response = await fetch(`/api/appointments/${appointmentId}/cancel`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancelReason: 'client_request' }),
-      });
-      if (response.ok) {
-        await fetchAppointments();
-      }
-    } catch (error) {
-      console.error('Failed to cancel appointment:', error);
-    }
-  };
-
-  // Navigate to client profile
   const handleViewClient = (phone: string) => {
     const normalizedPhone = phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
     router.push(`/${locale}/staff/client/${normalizedPhone}`);
   };
 
-  // Navigate to upload photos
-  const handleUploadPhotos = (appointment: AppointmentData) => {
-    router.push(`/${locale}/staff/appointments?appointmentId=${appointment.id}`);
+  const handleOpenActions = (appointment: AppointmentData) => {
+    setSelectedAppointment(appointment);
+    setActiveAppointment(appointment);
+    setShowActionBar(true);
   };
 
-  // Handle logout
+  const handleOpenPhotos = () => {
+    setShowActionBar(false);
+    setShowDrawer(false);
+    setShowPhotoModal(true);
+  };
+
+  const handleCloseActionBar = () => {
+    setShowActionBar(false);
+    setSelectedAppointment(null);
+    // Refresh data after closing (in case of transitions)
+    fetchAppointments();
+  };
+
+  const handleClosePhotoModal = () => {
+    setShowPhotoModal(false);
+    setSelectedAppointment(null);
+    // Refresh data after closing (photos may have been uploaded)
+    fetchAppointments();
+  };
+
+  // Drawer handlers
+  const handleOpenDrawer = (appointment: AppointmentData) => {
+    setSelectedAppointment(appointment);
+    setActiveAppointment(appointment);
+    setShowDrawer(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setShowDrawer(false);
+    setSelectedAppointment(null);
+    fetchAppointments();
+  };
+
+  // Gesture handlers with haptic feedback
+  const triggerHaptic = () => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(10);
+    }
+  };
+
+  const handleSwipeStart = async (appointment: AppointmentData) => {
+    const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
+    if (canvasState !== 'waiting') return;
+    if (gestureLoadingId) return;
+
+    setGestureLoadingId(appointment.id);
+    setActiveAppointment(appointment);
+
+    try {
+      const response = await fetch(`/api/appointments/${appointment.id}/transition`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: 'working' }),
+      });
+
+      if (response.ok) {
+        triggerHaptic();
+        router.refresh();
+        fetchAppointments();
+      }
+    } finally {
+      setGestureLoadingId(null);
+    }
+  };
+
+  const handleSwipePhotos = (appointment: AppointmentData) => {
+    setSelectedAppointment(appointment);
+    setActiveAppointment(appointment);
+    setShowPhotoModal(true);
+  };
+
+  // Helper to map legacy status
+  function mapLegacyStatus(status: string): string {
+    const mapping: Record<string, string> = {
+      pending: 'waiting',
+      confirmed: 'waiting',
+      in_progress: 'working',
+      completed: 'complete',
+      cancelled: 'cancelled',
+      no_show: 'no_show',
+    };
+    return mapping[status] || 'waiting';
+  }
+
   const handleLogout = async () => {
     try {
       await fetch('/api/staff/logout', { method: 'POST' });
@@ -475,55 +363,69 @@ export default function StaffDashboardPage() {
     router.push(`/${locale}/staff-login`);
   };
 
-  // Show loading while checking auth
+  // =============================================================================
+  // Loading States
+  // =============================================================================
+
   if (!authChecked) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
+      <div
+        className="flex min-h-screen items-center justify-center"
+        style={{ backgroundColor: cappuccino.background }}
+      >
         <div
           className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-          style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+          style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
         />
       </div>
     );
   }
 
-  // Redirecting to login...
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
+      <div
+        className="flex min-h-screen items-center justify-center"
+        style={{ backgroundColor: cappuccino.background }}
+      >
         <div
           className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-          style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+          style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
         />
       </div>
     );
   }
 
-  // Show message if user is not linked to a technician
   if (!technician) {
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center p-4"
-        style={{ backgroundColor: themeVars.background }}
+        style={{ backgroundColor: cappuccino.background }}
       >
-        <h1 className="mb-4 text-2xl font-bold" style={{ color: themeVars.titleText }}>
+        <h1
+          className="mb-4 text-2xl font-semibold"
+          style={{ color: cappuccino.title }}
+        >
           No Technician Profile Found
         </h1>
-        <p className="text-neutral-600 text-center max-w-md">
+        <p className="max-w-md text-center text-neutral-600">
           Your account is not linked to a technician profile. Please contact your salon administrator to set up your profile.
         </p>
       </div>
     );
   }
 
-  const todayCount = appointments.filter((a) => a.status === 'confirmed' || a.status === 'in_progress').length;
+  // =============================================================================
+  // Main Render
+  // =============================================================================
+
+  const todayCount = appointments.filter(
+    (a) => a.status === 'confirmed' || a.status === 'in_progress'
+  ).length;
 
   return (
     <div
       className="min-h-screen pb-24"
-      style={{
-        background: `linear-gradient(to bottom, ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
-      }}
+      style={{ backgroundColor: cappuccino.background }}
     >
       <div className="mx-auto max-w-2xl px-4">
         {/* Header */}
@@ -538,26 +440,31 @@ export default function StaffDashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1
-                className="text-2xl font-bold"
-                style={{ color: themeVars.titleText }}
+                className="text-2xl font-semibold"
+                style={{ color: cappuccino.title }}
               >
-                Hi, {technician.name.split(' ')[0]} 👋
+                {getGreeting()}, {technician.name.split(' ')[0]} ☕️
               </h1>
               <p className="text-sm text-neutral-600">{salon?.name}</p>
             </div>
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <button
                 type="button"
                 onClick={() => router.push(`/${locale}/staff/schedule`)}
-                className="rounded-full px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
-                style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                className="rounded-xl px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
+                style={{
+                  backgroundColor: cappuccino.secondary,
+                  color: cappuccino.secondaryText,
+                }}
               >
                 ⏰ Schedule
               </button>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="rounded-full px-3 py-2 text-sm font-medium border border-neutral-300 text-neutral-600 transition-all hover:bg-neutral-100"
+                className="rounded-xl px-3 py-2 text-sm font-medium text-neutral-600 transition-all hover:bg-neutral-100"
+                style={{ borderWidth: 1, borderColor: cappuccino.cardBorder }}
               >
                 Log out
               </button>
@@ -567,9 +474,10 @@ export default function StaffDashboardPage() {
 
         {/* Tab Navigation */}
         <div
-          className="mb-6 flex gap-1 rounded-2xl bg-white p-1 shadow-sm"
+          className="mb-6 flex gap-1 rounded-2xl p-1 shadow-sm"
           style={{
-            borderColor: themeVars.cardBorder,
+            backgroundColor: cappuccino.cardBg,
+            borderColor: cappuccino.cardBorder,
             borderWidth: 1,
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
@@ -612,85 +520,218 @@ export default function StaffDashboardPage() {
             <div className="flex items-center justify-center py-12">
               <div
                 className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-                style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
               />
             </div>
           ) : appointments.length === 0 ? (
             <div
-              className="rounded-2xl bg-white p-8 text-center shadow-lg"
-              style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+              className="rounded-2xl p-8 text-center shadow-sm"
+              style={{
+                backgroundColor: cappuccino.cardBg,
+                borderColor: cappuccino.cardBorder,
+                borderWidth: 1,
+              }}
             >
-              <div className="mb-2 text-4xl">
-                {activeTab === 'today' ? '☀️' : activeTab === 'upcoming' ? '📅' : '✨'}
-              </div>
-              <p className="text-lg text-neutral-600">
+              <div className="mb-2 text-4xl">☕️</div>
+              <p
+                className="text-lg font-medium"
+                style={{ color: cappuccino.title }}
+              >
+                All caught up
+              </p>
+              <p className="mt-1 text-sm text-neutral-500">
                 {activeTab === 'today'
-                  ? 'No appointments today'
+                  ? 'No appointments scheduled for today'
                   : activeTab === 'upcoming'
                     ? 'No upcoming appointments'
-                    : 'No past appointments'}
+                    : 'No past appointments to show'}
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {appointments.map((appointment, index) => (
-                <div
-                  key={appointment.id}
-                  style={{
-                    opacity: mounted ? 1 : 0,
-                    transform: mounted ? 'translateY(0)' : 'translateY(15px)',
-                    transition: `opacity 300ms ease-out ${250 + index * 50}ms, transform 300ms ease-out ${250 + index * 50}ms`,
-                  }}
-                >
-                  <AppointmentCard
-                    appointment={appointment}
-                    onViewClient={handleViewClient}
-                    onStart={handleStart}
-                    onUploadPhotos={handleUploadPhotos}
-                    onComplete={handleComplete}
-                    onCancel={handleCancel}
-                    isStarting={startingId === appointment.id}
-                  />
-                </div>
-              ))}
+            <div className="space-y-4 pb-32">
+              {appointments.map((appointment, index) => {
+                const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
+                const isTerminal = ['complete', 'cancelled', 'no_show'].includes(canvasState);
+                const isLoading = gestureLoadingId === appointment.id;
+
+                return (
+                  <div
+                    key={appointment.id}
+                    style={{
+                      opacity: mounted ? 1 : 0,
+                      transform: mounted ? 'translateY(0)' : 'translateY(15px)',
+                      transition: `opacity 300ms ease-out ${250 + index * 50}ms, transform 300ms ease-out ${250 + index * 50}ms`,
+                    }}
+                  >
+                    <SwipeableCard
+                      onSwipeRight={() => handleSwipeStart(appointment)}
+                      onSwipeLeft={() => handleSwipePhotos(appointment)}
+                      onLongPress={() => handleOpenDrawer(appointment)}
+                      onTap={() => handleOpenActions(appointment)}
+                      swipeRightDisabled={canvasState !== 'waiting' || isLoading}
+                      swipeLeftDisabled={isTerminal || isLoading}
+                      swipeRightLabel="Start"
+                      swipeLeftLabel="Photos"
+                      isLoading={isLoading}
+                    >
+                      <StaffAppointmentCard
+                        appointment={appointment}
+                        onViewClient={handleViewClient}
+                        onOpenActions={handleOpenActions}
+                      />
+                    </SwipeableCard>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
       {/* Bottom Navigation */}
-      <div
-        className="fixed bottom-0 left-0 right-0 border-t bg-white/95 px-4 py-3 backdrop-blur-sm"
-        style={{ borderColor: themeVars.cardBorder }}
+      <StaffBottomNav activeItem="home" />
+
+      {/* Floating Action Bar */}
+      {!showActionBar && !showPhotoModal && !showDrawer && (
+        <FloatingActionBar
+          appointment={activeAppointment}
+          onOpenPhotos={() => {
+            if (activeAppointment) {
+              setSelectedAppointment(activeAppointment);
+              setShowPhotoModal(true);
+            }
+          }}
+          onSuccess={fetchAppointments}
+        />
+      )}
+
+      {/* Action Bar Modal */}
+      {showActionBar && selectedAppointment && (
+        <ActionBar
+          appointment={selectedAppointment}
+          onOpenPhotos={handleOpenPhotos}
+          onClose={handleCloseActionBar}
+          requireBeforePhoto={false}
+          requireAfterPhoto={false}
+        />
+      )}
+
+      {/* Bottom Sheet Drawer */}
+      <BottomSheet
+        isOpen={showDrawer}
+        onClose={handleCloseDrawer}
+        initialSnap="half"
       >
-        <div className="mx-auto flex max-w-2xl items-center justify-around">
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff`)}
-            className="flex flex-col items-center gap-0.5 text-center"
-            style={{ color: themeVars.accent }}
-          >
-            <span className="text-xl">🏠</span>
-            <span className="text-xs font-medium">Home</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/appointments`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">📸</span>
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/schedule`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">⏰</span>
-            <span className="text-xs font-medium">Schedule</span>
-          </button>
-        </div>
-      </div>
+        {selectedAppointment && (
+          <div className="space-y-4">
+            {/* Client Info Header */}
+            <div className="text-center">
+              <h2
+                className="text-xl font-semibold"
+                style={{ color: cappuccino.title }}
+              >
+                {selectedAppointment.clientName || 'Client'}
+              </h2>
+              <p className="text-sm text-neutral-500">
+                {selectedAppointment.clientPhone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}
+              </p>
+            </div>
+
+            {/* Services */}
+            <div
+              className="rounded-xl p-4"
+              style={{ backgroundColor: cappuccino.secondary }}
+            >
+              <div className="text-sm font-medium text-neutral-600">Services</div>
+              <div
+                className="mt-1 font-semibold"
+                style={{ color: cappuccino.primary }}
+              >
+                {selectedAppointment.services.map((s) => s.name).join(', ')}
+              </div>
+            </div>
+
+            {/* Time & Price */}
+            <div className="flex gap-4">
+              <div
+                className="flex-1 rounded-xl p-4"
+                style={{ backgroundColor: cappuccino.cardBg, borderWidth: 1, borderColor: cappuccino.cardBorder }}
+              >
+                <div className="text-sm text-neutral-500">Time</div>
+                <div className="font-semibold" style={{ color: cappuccino.title }}>
+                  {new Date(selectedAppointment.startTime).toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                  })}
+                </div>
+              </div>
+              <div
+                className="flex-1 rounded-xl p-4"
+                style={{ backgroundColor: cappuccino.cardBg, borderWidth: 1, borderColor: cappuccino.cardBorder }}
+              >
+                <div className="text-sm text-neutral-500">Total</div>
+                <div className="font-semibold" style={{ color: cappuccino.title }}>
+                  ${(selectedAppointment.totalPrice / 100).toFixed(0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Photo Status */}
+            <div className="flex gap-2">
+              <div
+                className={`flex-1 rounded-xl p-3 text-center text-sm font-medium ${
+                  selectedAppointment.photos.some((p) => p.photoType === 'before')
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-neutral-100 text-neutral-500'
+                }`}
+              >
+                {selectedAppointment.photos.some((p) => p.photoType === 'before') ? '✓ Before' : '○ Before'}
+              </div>
+              <div
+                className={`flex-1 rounded-xl p-3 text-center text-sm font-medium ${
+                  selectedAppointment.photos.some((p) => p.photoType === 'after')
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-neutral-100 text-neutral-500'
+                }`}
+              >
+                {selectedAppointment.photos.some((p) => p.photoType === 'after') ? '✓ After' : '○ After'}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={handleOpenPhotos}
+                className="w-full rounded-xl py-3 text-sm font-semibold transition-all active:scale-[0.98]"
+                style={{ backgroundColor: cappuccino.secondary, color: cappuccino.secondaryText }}
+              >
+                📸 Add Photos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDrawer(false);
+                  handleOpenActions(selectedAppointment);
+                }}
+                className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all active:scale-[0.98]"
+                style={{ backgroundColor: cappuccino.primary }}
+              >
+                Manage Appointment
+              </button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* Photo Modal */}
+      {showPhotoModal && selectedAppointment && (
+        <PhotoModal
+          appointment={selectedAppointment}
+          onClose={handleClosePhotoModal}
+        />
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
+import { NotificationBell, StaffBottomNav } from '@/components/staff';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -382,24 +383,27 @@ function StaffAppointmentsContent() {
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/staff`)}
-              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-xl font-bold" style={{ color: themeVars.titleText }}>
-                Photo Upload
-              </h1>
-              <p className="text-sm text-neutral-600">
-                Today&apos;s Appointments ({appointments.length})
-              </p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => router.push(`/${locale}/staff`)}
+                className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-xl font-bold" style={{ color: themeVars.titleText }}>
+                  Photo Upload
+                </h1>
+                <p className="text-sm text-neutral-600">
+                  Today&apos;s Appointments ({appointments.length})
+                </p>
+              </div>
             </div>
+            <NotificationBell />
           </div>
         </div>
 
@@ -761,38 +765,7 @@ function StaffAppointmentsContent() {
       )}
 
       {/* Bottom Navigation */}
-      <div
-        className="fixed bottom-0 left-0 right-0 border-t bg-white/95 px-4 py-3 backdrop-blur-sm"
-        style={{ borderColor: themeVars.cardBorder }}
-      >
-        <div className="mx-auto flex max-w-2xl items-center justify-around">
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">🏠</span>
-            <span className="text-xs font-medium">Home</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/appointments`)}
-            className="flex flex-col items-center gap-0.5 text-center"
-            style={{ color: themeVars.accent }}
-          >
-            <span className="text-xl">📸</span>
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/schedule`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">⏰</span>
-            <span className="text-xs font-medium">Schedule</span>
-          </button>
-        </div>
-      </div>
+      <StaffBottomNav activeItem="photos" />
     </div>
   );
 }
