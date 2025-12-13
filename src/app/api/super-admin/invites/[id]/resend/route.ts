@@ -4,12 +4,12 @@
  * POST - Resend an existing invite (renews expiration if expired)
  */
 
-import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
+import { requireSuperAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { adminInviteSchema, salonSchema } from '@/models/Schema';
-import { requireSuperAdmin } from '@/libs/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (!guard.ok) return guard.response;
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   const { id: inviteId } = await params;
 
@@ -89,14 +91,14 @@ export async function POST(
       .where(eq(adminInviteSchema.id, inviteId));
 
     // Send SMS invite
-    const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
-      'http://localhost:3000';
+    const baseUrl
+      = process.env.NEXT_PUBLIC_APP_URL
+      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+      || 'http://localhost:3000';
 
     const loginUrl = `${baseUrl}/en/admin-login`;
-    const roleDisplay =
-      invite.role === 'SUPER_ADMIN'
+    const roleDisplay
+      = invite.role === 'SUPER_ADMIN'
         ? 'Super Admin'
         : invite.membershipRole === 'owner'
           ? 'Owner'
@@ -113,7 +115,7 @@ export async function POST(
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+            'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
           },
           body: new URLSearchParams({
             To: invite.phoneE164,

@@ -10,16 +10,21 @@
  * - Creates notification for the staff member on decision
  */
 
-import { eq, and } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { db } from '@/libs/DB';
 import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import {
-  createStaffNotification,
   buildTimeOffDecisionNotification,
+  createStaffNotification,
 } from '@/libs/notifications';
-import { timeOffRequestSchema, technicianSchema } from '@/models/Schema';
+import {
+  adminUserSchema,
+  appointmentSchema,
+  technicianSchema,
+  timeOffRequestSchema,
+} from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -36,12 +41,12 @@ const updateRequestSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // PATCH /api/admin/time-off-requests/[id]
@@ -104,7 +109,7 @@ export async function PATCH(
 
     // 4. EDIT 3: Enforce admin salon scope from session
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === existingRequest.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === existingRequest.salonId);
       if (!hasAccess) {
         return Response.json(
           { error: { code: 'FORBIDDEN', message: 'No access to this salon' } } satisfies ErrorResponse,
@@ -196,7 +201,7 @@ export async function PATCH(
 }
 
 // =============================================================================
-// GET /api/admin/time-off-requests/[id] - Get single request details
+// GET /api/admin/time-off-requests/[id] - Get single request details + conflicts
 // =============================================================================
 
 export async function GET(
@@ -215,7 +220,7 @@ export async function GET(
       );
     }
 
-    // 2. Fetch the request
+    // 2. Fetch the request with decidedByAdminId
     const [existingRequest] = await db
       .select({
         id: timeOffRequestSchema.id,
@@ -226,6 +231,7 @@ export async function GET(
         note: timeOffRequestSchema.note,
         status: timeOffRequestSchema.status,
         decidedAt: timeOffRequestSchema.decidedAt,
+        decidedByAdminId: timeOffRequestSchema.decidedByAdminId,
         createdAt: timeOffRequestSchema.createdAt,
       })
       .from(timeOffRequestSchema)
@@ -239,13 +245,13 @@ export async function GET(
       );
     }
 
-    // 3. Enforce admin salon scope
+    // 3. Enforce admin salon scope BEFORE any other queries
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === existingRequest.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === existingRequest.salonId);
       if (!hasAccess) {
         return Response.json(
-          { error: { code: 'FORBIDDEN', message: 'No access to this salon' } } satisfies ErrorResponse,
-          { status: 403 },
+          { error: { code: 'NOT_FOUND', message: 'Time off request not found' } } satisfies ErrorResponse,
+          { status: 404 }, // Return 404 to avoid leaking existence
         );
       }
     }
@@ -256,6 +262,39 @@ export async function GET(
       .from(technicianSchema)
       .where(eq(technicianSchema.id, existingRequest.technicianId))
       .limit(1);
+
+    // 5. Count conflicting appointments (timestamp-safe date range)
+    // Time-off dates are inclusive: startDate 00:00:00 to endDate+1 00:00:00
+    const rangeStart = new Date(existingRequest.startDate);
+    rangeStart.setHours(0, 0, 0, 0);
+
+    const rangeEnd = new Date(existingRequest.endDate);
+    rangeEnd.setDate(rangeEnd.getDate() + 1);
+    rangeEnd.setHours(0, 0, 0, 0);
+
+    const [conflictResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(appointmentSchema)
+      .where(
+        and(
+          eq(appointmentSchema.technicianId, existingRequest.technicianId),
+          eq(appointmentSchema.salonId, existingRequest.salonId),
+          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          gte(appointmentSchema.startTime, rangeStart),
+          lt(appointmentSchema.startTime, rangeEnd),
+        ),
+      );
+
+    // 6. Get decidedBy admin name if decision was made
+    let decidedByName: string | null = null;
+    if (existingRequest.decidedByAdminId) {
+      const [decidedByAdmin] = await db
+        .select({ name: adminUserSchema.name })
+        .from(adminUserSchema)
+        .where(eq(adminUserSchema.id, existingRequest.decidedByAdminId))
+        .limit(1);
+      decidedByName = decidedByAdmin?.name ?? 'Admin';
+    }
 
     return Response.json({
       data: {
@@ -269,7 +308,15 @@ export async function GET(
           note: existingRequest.note,
           status: existingRequest.status,
           decidedAt: existingRequest.decidedAt?.toISOString() ?? null,
+          decidedBy: decidedByName,
           createdAt: existingRequest.createdAt.toISOString(),
+        },
+        conflicts: {
+          appointmentCount: conflictResult?.count ?? 0,
+          range: {
+            from: existingRequest.startDate.toISOString().split('T')[0],
+            to: existingRequest.endDate.toISOString().split('T')[0],
+          },
         },
       },
     });

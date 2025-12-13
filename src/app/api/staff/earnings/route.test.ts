@@ -7,13 +7,13 @@
  * 3. Forbidden keys never appear in response
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 // =============================================================================
 // RESPONSE SHAPE TYPES (mirror of route.ts)
 // =============================================================================
 
-interface EarningsResponse {
+type EarningsResponse = {
   data: {
     range: {
       from: string;
@@ -33,7 +33,7 @@ interface EarningsResponse {
       appointmentCount: number;
     }>;
   };
-}
+};
 
 // =============================================================================
 // FORBIDDEN KEYS (must NEVER appear in staff JSON)
@@ -89,40 +89,54 @@ function containsForbiddenKeys(
  * Validate that a response matches the expected earnings shape.
  */
 function isValidEarningsResponse(response: unknown): response is EarningsResponse {
-  if (typeof response !== 'object' || response === null) return false;
+  if (typeof response !== 'object' || response === null) {
+    return false;
+  }
   const resp = response as Record<string, unknown>;
 
-  if (!resp.data || typeof resp.data !== 'object') return false;
+  if (!resp.data || typeof resp.data !== 'object') {
+    return false;
+  }
   const data = resp.data as Record<string, unknown>;
 
   // Check range
-  if (!data.range || typeof data.range !== 'object') return false;
+  if (!data.range || typeof data.range !== 'object') {
+    return false;
+  }
   const range = data.range as Record<string, unknown>;
-  if (typeof range.from !== 'string' || typeof range.to !== 'string') return false;
+  if (typeof range.from !== 'string' || typeof range.to !== 'string') {
+    return false;
+  }
 
   // Check totals
-  if (!data.totals || typeof data.totals !== 'object') return false;
+  if (!data.totals || typeof data.totals !== 'object') {
+    return false;
+  }
   const totals = data.totals as Record<string, unknown>;
   if (
-    typeof totals.grossSales !== 'number' ||
-    typeof totals.tips !== 'number' ||
-    typeof totals.earnings !== 'number' ||
-    typeof totals.appointmentCount !== 'number'
+    typeof totals.grossSales !== 'number'
+    || typeof totals.tips !== 'number'
+    || typeof totals.earnings !== 'number'
+    || typeof totals.appointmentCount !== 'number'
   ) {
     return false;
   }
 
   // Check daily array
-  if (!Array.isArray(data.daily)) return false;
+  if (!Array.isArray(data.daily)) {
+    return false;
+  }
   for (const day of data.daily) {
-    if (typeof day !== 'object' || day === null) return false;
+    if (typeof day !== 'object' || day === null) {
+      return false;
+    }
     const d = day as Record<string, unknown>;
     if (
-      typeof d.date !== 'string' ||
-      typeof d.grossSales !== 'number' ||
-      typeof d.tips !== 'number' ||
-      typeof d.earnings !== 'number' ||
-      typeof d.appointmentCount !== 'number'
+      typeof d.date !== 'string'
+      || typeof d.grossSales !== 'number'
+      || typeof d.tips !== 'number'
+      || typeof d.earnings !== 'number'
+      || typeof d.appointmentCount !== 'number'
     ) {
       return false;
     }
@@ -136,7 +150,9 @@ function isValidEarningsResponse(response: unknown): response is EarningsRespons
  * Mirrors the logic in route.ts.
  */
 function calculateExpectedEarnings(grossSales: number, commissionRate: number): number {
-  if (commissionRate <= 0) return 0;
+  if (commissionRate <= 0) {
+    return 0;
+  }
   return Math.round(grossSales * commissionRate);
 }
 
@@ -288,6 +304,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(mockResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(false);
     });
 
@@ -302,6 +319,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(badResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(true);
       expect(result.key).toBe('commissionRate');
     });
@@ -316,6 +334,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(badResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(true);
       expect(result.key).toBe('profit');
     });
@@ -330,6 +349,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(badResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(true);
       expect(result.key).toBe('margin');
     });
@@ -349,6 +369,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(badResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(true);
       expect(result.key).toBe('cost');
     });
@@ -364,6 +385,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(badResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(true);
       expect(result.key).toBe('payoutDetails');
     });
@@ -381,6 +403,7 @@ describe('Staff Earnings API', () => {
       };
 
       const result = containsForbiddenKeys(cleanResponse, FORBIDDEN_KEYS);
+
       expect(result.found).toBe(false);
     });
   });

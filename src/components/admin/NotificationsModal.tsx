@@ -11,32 +11,33 @@
  * - Empty state
  */
 
-import { motion, AnimatePresence, PanInfo } from 'framer-motion';
-import { 
-  Calendar, 
-  Star, 
+import type { PanInfo } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { LucideIcon } from 'lucide-react';
+import {
   AlertCircle,
-  Gift,
-  X,
   Bell,
+  Calendar,
   CheckCircle2,
+  Gift,
+  Star,
+  X,
   XCircle,
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 
-import { ModalHeader, BackButton } from './AppModal';
+import { BackButton, ModalHeader } from './AppModal';
 
-interface NotificationsModalProps {
+type NotificationsModalProps = {
   onClose: () => void;
-}
+};
 
 // Notification types
 type NotificationType = 'booking' | 'review' | 'alert' | 'reward' | 'completed' | 'cancelled' | 'no_show';
 
-interface Notification {
+type Notification = {
   id: string;
   type: NotificationType;
   title: string;
@@ -44,7 +45,7 @@ interface Notification {
   timestamp: Date;
   read: boolean;
   actionUrl?: string;
-}
+};
 
 // Get icon and color for notification type
 function getNotificationStyle(type: NotificationType): { icon: LucideIcon; color: string; bgColor: string } {
@@ -75,11 +76,21 @@ function formatRelativeTime(date: Date): string {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffMins < 1) {
+    return 'Just now';
+  }
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  if (diffDays === 1) {
+    return 'Yesterday';
+  }
+  if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  }
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -114,11 +125,11 @@ function groupNotifications(notifications: Notification[]): Map<string, Notifica
 /**
  * Notification Card Component
  */
-function NotificationCard({ 
-  notification, 
-  onDismiss 
-}: { 
-  notification: Notification; 
+function NotificationCard({
+  notification,
+  onDismiss,
+}: {
+  notification: Notification;
   onDismiss: (id: string) => void;
 }) {
   const { icon: Icon, color, bgColor } = getNotificationStyle(notification.type);
@@ -144,44 +155,44 @@ function NotificationCard({
       onDrag={(_, info) => setOffset(info.offset.x)}
       onDragEnd={handleDragEnd}
       className={`
-        bg-white rounded-[16px] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)] mb-3
+        mb-3 rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]
         ${!notification.read ? 'border-l-4 border-[#007AFF]' : ''}
         cursor-grab active:cursor-grabbing
       `}
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className={`w-10 h-10 rounded-full ${bgColor} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-5 h-5 ${color}`} />
+        <div className={`size-10 rounded-full ${bgColor} flex shrink-0 items-center justify-center`}>
+          <Icon className={`size-5 ${color}`} />
         </div>
-        
+
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3 className={`text-[15px] font-semibold text-[#1C1C1E] ${!notification.read ? '' : 'opacity-70'}`}>
               {notification.title}
             </h3>
-            <span className="text-[12px] text-[#8E8E93] flex-shrink-0">
+            <span className="shrink-0 text-[12px] text-[#8E8E93]">
               {formatRelativeTime(notification.timestamp)}
             </span>
           </div>
-          <p className={`text-[14px] text-[#8E8E93] mt-0.5 line-clamp-2 ${!notification.read ? 'text-[#3C3C43]' : ''}`}>
+          <p className={`mt-0.5 line-clamp-2 text-[14px] text-[#8E8E93] ${!notification.read ? 'text-[#3C3C43]' : ''}`}>
             {notification.message}
           </p>
         </div>
       </div>
-      
+
       {/* Swipe hint */}
       {Math.abs(offset) > 50 && (
-        <div 
-          className={`absolute inset-y-0 ${offset > 0 ? 'left-0' : 'right-0'} w-20 flex items-center justify-center`}
-          style={{ 
-            background: offset > 0 
-              ? 'linear-gradient(to right, #FF3B30, transparent)' 
+        <div
+          className={`absolute inset-y-0 ${offset > 0 ? 'left-0' : 'right-0'} flex w-20 items-center justify-center`}
+          style={{
+            background: offset > 0
+              ? 'linear-gradient(to right, #FF3B30, transparent)'
               : 'linear-gradient(to left, #FF3B30, transparent)',
           }}
         >
-          <X className="w-6 h-6 text-white" />
+          <X className="size-6 text-white" />
         </div>
       )}
     </motion.div>
@@ -193,7 +204,7 @@ function NotificationCard({
  */
 function SectionHeader({ title }: { title: string }) {
   return (
-    <div className="text-[13px] font-semibold text-[#8E8E93] uppercase tracking-wide mb-3 px-1">
+    <div className="mb-3 px-1 text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
       {title}
     </div>
   );
@@ -204,14 +215,14 @@ function SectionHeader({ title }: { title: string }) {
  */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-8">
-      <div className="w-20 h-20 rounded-full bg-[#F2F2F7] flex items-center justify-center mb-4">
-        <Bell className="w-10 h-10 text-[#8E8E93]" />
+    <div className="flex flex-col items-center justify-center px-8 py-20">
+      <div className="mb-4 flex size-20 items-center justify-center rounded-full bg-[#F2F2F7]">
+        <Bell className="size-10 text-[#8E8E93]" />
       </div>
-      <h3 className="text-[20px] font-semibold text-[#1C1C1E] mb-1">
+      <h3 className="mb-1 text-[20px] font-semibold text-[#1C1C1E]">
         All Caught Up
       </h3>
-      <p className="text-[15px] text-[#8E8E93] text-center">
+      <p className="text-center text-[15px] text-[#8E8E93]">
         No recent activity to show
       </p>
     </div>
@@ -224,13 +235,13 @@ function EmptyState() {
 function LoadingSkeleton() {
   return (
     <div className="animate-pulse space-y-3 px-4">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white rounded-[16px] p-4">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="rounded-[16px] bg-white p-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-full bg-gray-200" />
+            <div className="size-10 rounded-full bg-gray-200" />
             <div className="flex-1">
-              <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
-              <div className="h-3 bg-gray-100 rounded w-full" />
+              <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
+              <div className="h-3 w-full rounded bg-gray-100" />
             </div>
           </div>
         </div>
@@ -313,34 +324,36 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
   // Fetch recent appointments as activity
   const fetchActivity = useCallback(async () => {
     // Skip if already loaded (prevent re-fetch on re-open)
-    if (hasLoaded) return;
-    
+    if (hasLoaded) {
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch recent appointments (last 7 days)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       const dateStr = sevenDaysAgo.toISOString().split('T')[0];
-      
+
       const response = await fetch(
-        `/api/appointments?salonSlug=${salonSlug}&startDate=${dateStr}`
+        `/api/appointments?salonSlug=${salonSlug}&startDate=${dateStr}`,
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to load activity');
       }
-      
+
       const result = await response.json();
       const appointments = result.data?.appointments || [];
-      
+
       // Convert appointments to notifications
       const activityNotifications: Notification[] = appointments
         .slice(0, 20) // Limit to 20 most recent
         .map(appointmentToNotification)
         .sort((a: Notification, b: Notification) => b.timestamp.getTime() - a.timestamp.getTime());
-      
+
       setNotifications(activityNotifications);
       setHasLoaded(true);
     } catch (err) {
@@ -356,7 +369,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
   }, [fetchActivity]);
 
   const handleDismiss = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   const handleClearAll = () => {
@@ -364,14 +377,14 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
   };
 
   const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
   const groupedNotifications = groupNotifications(notifications);
 
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] text-black font-sans flex flex-col">
+    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
@@ -379,30 +392,34 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
           subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'Recent Activity'}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={
-            notifications.length > 0 ? (
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                className="text-[#007AFF] text-[15px] font-medium active:opacity-50 transition-opacity"
-              >
-                Mark Read
-              </button>
-            ) : null
+            notifications.length > 0
+              ? (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllRead}
+                    className="text-[15px] font-medium text-[#007AFF] transition-opacity active:opacity-50"
+                  >
+                    Mark Read
+                  </button>
+                )
+              : null
           }
         />
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto pb-10 px-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-10">
         {loading ? (
           <LoadingSkeleton />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-20 px-8">
-            <p className="text-sm text-red-600 mb-2">{error}</p>
+          <div className="flex flex-col items-center justify-center px-8 py-20">
+            <p className="mb-2 text-sm text-red-600">{error}</p>
             <button
               type="button"
-              onClick={() => { setHasLoaded(false); fetchActivity(); }}
-              className="text-sm text-[#007AFF] font-medium"
+              onClick={() => {
+                setHasLoaded(false); fetchActivity();
+              }}
+              className="text-sm font-medium text-[#007AFF]"
             >
               Try again
             </button>
@@ -413,11 +430,11 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
           <>
             {/* Clear All Button */}
             {notifications.length > 0 && (
-              <div className="flex justify-end mb-4">
+              <div className="mb-4 flex justify-end">
                 <button
                   type="button"
                   onClick={handleClearAll}
-                  className="text-[13px] text-[#FF3B30] font-medium active:opacity-50 transition-opacity"
+                  className="text-[13px] font-medium text-[#FF3B30] transition-opacity active:opacity-50"
                 >
                   Clear All
                 </button>
@@ -429,7 +446,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
               {Array.from(groupedNotifications.entries()).map(([group, groupNotifs]) => (
                 <div key={group} className="mb-6">
                   <SectionHeader title={group} />
-                  {groupNotifs.map((notification) => (
+                  {groupNotifs.map(notification => (
                     <NotificationCard
                       key={notification.id}
                       notification={notification}

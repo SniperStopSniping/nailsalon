@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
@@ -18,7 +18,7 @@ const reorderSchema = z.object({
     z.object({
       id: z.string().min(1),
       displayOrder: z.number().int().min(0),
-    })
+    }),
   ).min(1, 'At least one technician is required'),
 });
 
@@ -26,13 +26,13 @@ const reorderSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // PUT /api/admin/technicians/reorder - Reorder technicians

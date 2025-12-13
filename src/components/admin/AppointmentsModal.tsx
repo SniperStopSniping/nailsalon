@@ -13,18 +13,18 @@
  */
 
 import { motion } from 'framer-motion';
-import { Search, Plus, Calendar } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { Calendar, Plus, Search } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 
-import { ModalHeader, BackButton } from './AppModal';
+import { BackButton, ModalHeader } from './AppModal';
 
 // Generate hours from 8 AM to 8 PM
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
 // Appointment interface for display
-interface Appointment {
+type Appointment = {
   id: string;
   client: string;
   service: string;
@@ -35,7 +35,7 @@ interface Appointment {
   borderColor: string;
   avatar: string;
   status: string;
-}
+};
 
 // Color schemes for different appointment statuses
 const STATUS_COLORS: Record<string, { color: string; borderColor: string }> = {
@@ -47,9 +47,9 @@ const STATUS_COLORS: Record<string, { color: string; borderColor: string }> = {
   no_show: { color: 'bg-orange-50 text-orange-600', borderColor: 'border-orange-400' },
 };
 
-interface AppointmentsModalProps {
+type AppointmentsModalProps = {
   onClose: () => void;
-}
+};
 
 /**
  * Format hour to 12-hour format
@@ -87,13 +87,13 @@ function getCurrentTimePosition(): { top: number; time: string } {
 function formatTimeRange(startTime: string, endTime: string): string {
   const start = new Date(startTime);
   const end = new Date(endTime);
-  
+
   const formatTime = (d: Date) => d.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   });
-  
+
   return `${formatTime(start)} - ${formatTime(end)}`;
 }
 
@@ -120,7 +120,9 @@ function calculateDuration(startTime: string, endTime: string): number {
  * Get initials from name
  */
 function getInitials(name: string | null): string {
-  if (!name) return '??';
+  if (!name) {
+    return '??';
+  }
   return name
     .split(' ')
     .map(n => n[0])
@@ -134,9 +136,9 @@ function getInitials(name: string | null): string {
  */
 function LoadingSkeleton() {
   return (
-    <div className="animate-pulse p-4 space-y-4">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="h-20 bg-gray-100 rounded-lg" />
+    <div className="animate-pulse space-y-4 p-4">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="h-20 rounded-lg bg-gray-100" />
       ))}
     </div>
   );
@@ -147,14 +149,14 @@ function LoadingSkeleton() {
  */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-8">
-      <div className="w-16 h-16 rounded-full bg-[#F2F2F7] flex items-center justify-center mb-4">
-        <Calendar className="w-8 h-8 text-[#8E8E93]" />
+    <div className="flex flex-col items-center justify-center px-8 py-20">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
+        <Calendar className="size-8 text-[#8E8E93]" />
       </div>
-      <h3 className="text-[17px] font-semibold text-[#1C1C1E] mb-1">
+      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
         No Appointments Today
       </h3>
-      <p className="text-[15px] text-[#8E8E93] text-center">
+      <p className="text-center text-[15px] text-[#8E8E93]">
         You don&apos;t have any appointments scheduled for today
       </p>
     </div>
@@ -167,7 +169,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  
+
   const { top: currentTimeTop, time: currentTime } = getCurrentTimePosition();
   const dayName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
   const dayNumber = selectedDate.getDate();
@@ -179,7 +181,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
     const dayOfWeek = today.getDay();
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - dayOfWeek);
-    
+
     return Array.from({ length: 7 }, (_, i) => {
       const date = new Date(weekStart);
       date.setDate(weekStart.getDate() + i);
@@ -195,21 +197,21 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Format date as YYYY-MM-DD
       const dateStr = selectedDate.toISOString().split('T')[0];
-      
+
       const response = await fetch(
-        `/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed&salonSlug=${salonSlug}`
+        `/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed&salonSlug=${salonSlug}`,
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to load appointments');
       }
-      
+
       const result = await response.json();
       const rawAppointments = result.data?.appointments || [];
-      
+
       // Transform API data to component format
       const transformedAppointments: Appointment[] = rawAppointments.map((appt: {
         id: string;
@@ -220,8 +222,8 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         services?: { name: string }[];
       }) => {
         const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed;
-        const serviceNames = appt.services?.map((s) => s.name).join(', ') || 'Service';
-        
+        const serviceNames = appt.services?.map(s => s.name).join(', ') || 'Service';
+
         return {
           id: appt.id,
           client: appt.clientName || 'Guest',
@@ -235,12 +237,12 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
           status: appt.status,
         };
       });
-      
+
       // Filter to only show appointments within the visible time range (8 AM - 8 PM)
       const visibleAppointments = transformedAppointments.filter(
-        (appt) => appt.startRow >= 0 && appt.startRow < 12
+        appt => appt.startRow >= 0 && appt.startRow < 12,
       );
-      
+
       setAppointments(visibleAppointments);
     } catch (err) {
       console.error('Failed to fetch appointments:', err);
@@ -268,25 +270,25 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
   };
 
   return (
-    <div className="min-h-full w-full bg-white text-black font-sans flex flex-col">
+    <div className="flex min-h-full w-full flex-col bg-white font-sans text-black">
       {/* Header */}
       <ModalHeader
         title={dayName}
         subtitle={`${monthName} ${dayNumber}`}
         leftAction={<BackButton onClick={onClose} label="Back" />}
-        rightAction={
+        rightAction={(
           <button
             type="button"
             aria-label="Search appointments"
-            className="text-[#007AFF] active:opacity-50 transition-opacity"
+            className="text-[#007AFF] transition-opacity active:opacity-50"
           >
-            <Search className="w-5 h-5" />
+            <Search className="size-5" />
           </button>
-        }
+        )}
       />
 
       {/* Day Selector Row */}
-      <div className="flex justify-between px-4 pb-2 pt-1 bg-white border-b border-gray-100">
+      <div className="flex justify-between border-b border-gray-100 bg-white px-4 pb-2 pt-1">
         {weekDates.map((date, i) => (
           <button
             key={i}
@@ -294,32 +296,32 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
             onClick={() => handleDateSelect(date)}
             aria-label={`Select ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`}
             className={`
-              flex flex-col items-center justify-center w-9 h-12 rounded-full text-[13px] font-medium transition-colors
-              ${isSelected(date) 
-                ? 'bg-black text-white' 
-                : isToday(date) 
-                  ? 'bg-blue-100 text-blue-600' 
-                  : 'text-gray-400 hover:bg-gray-100'
-              }
+              flex h-12 w-9 flex-col items-center justify-center rounded-full text-[13px] font-medium transition-colors
+              ${isSelected(date)
+            ? 'bg-black text-white'
+            : isToday(date)
+              ? 'bg-blue-100 text-blue-600'
+              : 'text-gray-400 hover:bg-gray-100'
+          }
             `}
           >
-            <span className="text-[10px] mb-0.5">{days[i]}</span>
+            <span className="mb-0.5 text-[10px]">{days[i]}</span>
             <span className="text-[14px]">{date.getDate()}</span>
           </button>
         ))}
       </div>
 
       {/* Scrollable Timeline */}
-      <div className="flex-1 overflow-y-auto relative bg-white">
+      <div className="relative flex-1 overflow-y-auto bg-white">
         {loading ? (
           <LoadingSkeleton />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-20 px-8">
-            <p className="text-sm text-red-600 mb-2">{error}</p>
+          <div className="flex flex-col items-center justify-center px-8 py-20">
+            <p className="mb-2 text-sm text-red-600">{error}</p>
             <button
               type="button"
               onClick={fetchAppointments}
-              className="text-sm text-[#007AFF] font-medium"
+              className="text-sm font-medium text-[#007AFF]"
             >
               Try again
             </button>
@@ -331,11 +333,11 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
             {/* Current Time Line (Red) - only show for today */}
             {isToday(selectedDate) && currentTimeTop > 0 && currentTimeTop < 13 * 96 && (
               <div
-                className="absolute left-14 w-[calc(100%-56px)] z-20 pointer-events-none"
+                className="pointer-events-none absolute left-14 z-20 w-[calc(100%-56px)]"
                 style={{ top: currentTimeTop }}
               >
-                <div className="h-[2px] bg-red-500 w-full relative">
-                  <div className="absolute -left-1.5 -top-1 w-2 h-2 rounded-full bg-red-500" />
+                <div className="relative h-[2px] w-full bg-red-500">
+                  <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
                   <span className="absolute -left-12 -top-1.5 text-[10px] font-bold text-red-500">
                     {currentTime}
                   </span>
@@ -345,22 +347,22 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
 
             {/* Time Grid */}
             <div className="pb-20 pt-4">
-              {HOURS.map((hour) => (
-                <div key={hour} className="flex h-24 relative">
+              {HOURS.map(hour => (
+                <div key={hour} className="relative flex h-24">
                   {/* Time Column */}
-                  <div className="w-14 text-right pr-3 text-[11px] font-medium text-gray-400 -mt-1.5">
+                  <div className="-mt-1.5 w-14 pr-3 text-right text-[11px] font-medium text-gray-400">
                     {formatHour(hour)}
                   </div>
                   {/* Row Lines */}
-                  <div className="flex-1 border-t border-gray-100 relative">
+                  <div className="relative flex-1 border-t border-gray-100">
                     {/* Half-hour dotted line */}
-                    <div className="absolute top-12 left-0 w-full border-t border-dashed border-gray-50" />
+                    <div className="absolute left-0 top-12 w-full border-t border-dashed border-gray-50" />
                   </div>
                 </div>
               ))}
 
               {/* Floating Appointment Cards */}
-              {appointments.map((appt) => (
+              {appointments.map(appt => (
                 <motion.div
                   key={appt.id}
                   initial={{ opacity: 0, scale: 0.95 }}
@@ -374,19 +376,19 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
                     height: `${Math.max(appt.duration * 96 - 4, 40)}px`,
                   }}
                   className={`
-                    rounded-[6px] border-l-[3px] p-3 shadow-sm flex flex-col justify-center 
-                    cursor-pointer active:brightness-95 transition-all overflow-hidden
+                    flex cursor-pointer flex-col justify-center overflow-hidden rounded-[6px] border-l-[3px] 
+                    p-3 shadow-sm transition-all active:brightness-95
                     ${appt.color} ${appt.borderColor}
                   `}
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex items-start justify-between">
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold leading-tight truncate">
+                      <div className="truncate text-[13px] font-semibold leading-tight">
                         {appt.service}
                       </div>
-                      <div className="text-[11px] opacity-80 mt-0.5 truncate">{appt.client}</div>
+                      <div className="mt-0.5 truncate text-[11px] opacity-80">{appt.client}</div>
                     </div>
-                    <div className="text-[10px] font-semibold opacity-70 ml-2 flex-shrink-0">
+                    <div className="ml-2 shrink-0 text-[10px] font-semibold opacity-70">
                       {appt.time.split('-')[0]}
                     </div>
                   </div>
@@ -401,9 +403,9 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       <button
         type="button"
         aria-label="Add new appointment"
-        className="fixed bottom-8 right-6 w-14 h-14 bg-[#007AFF] rounded-full text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] flex items-center justify-center active:scale-90 transition-transform z-50"
+        className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
       >
-        <Plus className="w-8 h-8" />
+        <Plus className="size-8" />
       </button>
     </div>
   );

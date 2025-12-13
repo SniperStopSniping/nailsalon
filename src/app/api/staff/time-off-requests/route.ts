@@ -9,13 +9,13 @@
  * - Staff can only create/view their own requests
  */
 
-import { eq, and, desc } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { requireStaffSession } from '@/libs/staffAuth';
-import { timeOffRequestSchema, technicianSchema } from '@/models/Schema';
+import { technicianSchema, timeOffRequestSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -34,13 +34,13 @@ const createRequestSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/staff/time-off-requests
@@ -79,7 +79,7 @@ export async function GET(): Promise<Response> {
 
     return Response.json({
       data: {
-        requests: requests.map((r) => ({
+        requests: requests.map(r => ({
           id: r.id,
           startDate: r.startDate.toISOString().split('T')[0],
           endDate: r.endDate.toISOString().split('T')[0],
@@ -138,8 +138,8 @@ export async function POST(request: Request): Promise<Response> {
     const { startDate, endDate, note } = validated.data;
 
     // 3. Validate date range
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
 
     if (end < start) {
       return Response.json(

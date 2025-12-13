@@ -5,13 +5,13 @@
  * Uses the new phone-based admin auth system.
  */
 
-import { db } from '@/libs/DB';
-import { salonAuditLogSchema, type AuditAction } from '@/models/Schema';
 import {
+  type AdminGuardResult,
   getAdminSession,
   requireSuperAdmin as requireSuperAdminFromAuth,
-  type AdminGuardResult,
 } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
+import { type AuditAction, salonAuditLogSchema } from '@/models/Schema';
 
 /**
  * Returns true if the current user is a super admin.
@@ -78,7 +78,9 @@ export async function logAuditAction(
   },
 ): Promise<void> {
   const adminInfo = await getSuperAdminInfo();
-  if (!adminInfo) return;
+  if (!adminInfo) {
+    return;
+  }
 
   await db.insert(salonAuditLogSchema).values({
     id: crypto.randomUUID(),

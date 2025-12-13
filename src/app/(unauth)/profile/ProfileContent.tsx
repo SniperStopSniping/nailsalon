@@ -127,7 +127,7 @@ const StatItem = ({
 }) => (
   <div className="flex h-full flex-col justify-end">
     <span
-      className="mb-1 text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60 font-body"
+      className="font-body mb-1 text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60"
     >
       {label}
     </span>
@@ -148,7 +148,7 @@ const StatItem = ({
               </div>
             </div>
             <span
-              className="self-end text-[10px] font-bold tabular-nums text-[var(--n5-accent)] font-body"
+              className="font-body self-end text-[10px] font-bold tabular-nums text-[var(--n5-accent)]"
             >
               {value}
             </span>
@@ -283,19 +283,19 @@ const MemberCard = ({
               <motion.div
                 variants={meshVariant}
                 animate="animate"
-                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full opacity-80 blur-[80px] bg-[var(--n5-bg-highlight)]"
+                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-80 blur-[80px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full opacity-50 mix-blend-multiply blur-[60px] bg-[var(--n5-accent-soft)]"
+                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-accent-soft)] opacity-50 mix-blend-multiply blur-[60px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 5, duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full opacity-20 blur-[90px] bg-[var(--n5-accent)]"
+                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full bg-[var(--n5-accent)] opacity-20 blur-[90px]"
               />
             </>
           )}
@@ -303,7 +303,7 @@ const MemberCard = ({
 
         {/* B. Glass Surface */}
         <div
-          className="absolute inset-0 bg-[var(--n5-bg-card)]/30 backdrop-blur-[20px]"
+          className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
           style={{ borderRadius: n5.radiusCard }}
         />
 
@@ -316,7 +316,7 @@ const MemberCard = ({
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-2">
               <Sparkles className="size-4 text-[var(--n5-accent)]" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-90 font-body">
+              <span className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-90">
                 {userStats.tier}
                 {' '}
                 Member
@@ -324,7 +324,7 @@ const MemberCard = ({
             </div>
             {/* Salon Logo */}
             <div
-              className="flex size-10 items-center justify-center border bg-[var(--n5-bg-card)]/40 shadow-sm backdrop-blur-md"
+              className="bg-[var(--n5-bg-card)]/40 flex size-10 items-center justify-center border shadow-sm backdrop-blur-md"
               style={{
                 borderRadius: n5.radiusPill,
                 borderColor: 'var(--n5-border)',
@@ -375,7 +375,7 @@ const MemberCard = ({
                     )}
               </button>
               <div
-                className="absolute bottom-0 right-0 z-10 size-4 rounded-full border-2 border-white shadow-sm bg-[var(--n5-success)]"
+                className="absolute bottom-0 right-0 z-10 size-4 rounded-full border-2 border-white bg-[var(--n5-success)] shadow-sm"
               />
             </div>
             <div className="flex-1">
@@ -389,29 +389,29 @@ const MemberCard = ({
                     triggerHaptic();
                     onEditProfile();
                   }}
-                  className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-bg-surface)]/60 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
+                  className="bg-[var(--n5-bg-surface)]/60 flex size-6 items-center justify-center rounded-full text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
                   aria-label="Edit profile"
                 >
                   <Pencil className="size-3" />
                 </button>
                 {hasProfileReward && (
                   <span
-                    className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-[var(--n5-accent)]/10 text-[var(--n5-accent)] font-body"
+                    className="bg-[var(--n5-accent)]/10 font-body px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--n5-accent)]"
                     style={{ borderRadius: n5.radiusPill }}
                   >
-                    $5 reward
+                    +2,500 pts
                   </span>
                 )}
               </div>
               {userEmail && (
                 <p
-                  className="mt-0.5 text-[11px] font-medium text-[var(--n5-ink-muted)] font-body truncate max-w-[180px]"
+                  className="font-body mt-0.5 max-w-[180px] truncate text-[11px] font-medium text-[var(--n5-ink-muted)]"
                 >
                   {userEmail}
                 </p>
               )}
               <p
-                className="mt-1 text-[11px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)] font-body"
+                className="font-body mt-1 text-[11px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]"
               >
                 Saved $
                 {userStats.savedAmount}
@@ -457,7 +457,7 @@ const AppointmentTicket = ({
   if (loading) {
     return (
       <div
-        className="mt-6 h-40 w-full animate-pulse bg-[var(--n5-bg-card)]/50"
+        className="bg-[var(--n5-bg-card)]/50 mt-6 h-40 w-full animate-pulse"
         style={{ borderRadius: n5.radiusCard }}
       />
     );
@@ -478,7 +478,7 @@ const AppointmentTicket = ({
         aria-label="No upcoming appointments"
       >
         <div className="mb-2 text-3xl">📅</div>
-        <p className="mb-3 text-[var(--n5-ink-muted)] font-body">No upcoming appointments</p>
+        <p className="font-body mb-3 text-[var(--n5-ink-muted)]">No upcoming appointments</p>
         <button
           type="button"
           onClick={() => {
@@ -486,7 +486,7 @@ const AppointmentTicket = ({
             onBookNow();
           }}
           aria-label="Book your first appointment"
-          className="px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96] bg-[var(--n5-accent)] font-body"
+          className="font-body bg-[var(--n5-accent)] px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96]"
           style={{
             borderRadius: n5.radiusMd,
             boxShadow: n5.shadowSm,
@@ -529,10 +529,10 @@ const AppointmentTicket = ({
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center space-x-2 text-[var(--n5-accent)]">
           <Calendar className="size-4" strokeWidth={2.5} />
-          <span className="text-[11px] font-bold uppercase tracking-wider font-body">Upcoming</span>
+          <span className="font-body text-[11px] font-bold uppercase tracking-wider">Upcoming</span>
         </div>
         <span
-          className="px-3 py-1 text-xs font-semibold text-[var(--n5-ink-main)] bg-[var(--n5-bg-surface)] font-body"
+          className="font-body bg-[var(--n5-bg-surface)] px-3 py-1 text-xs font-semibold text-[var(--n5-ink-main)]"
           style={{ borderRadius: n5.radiusPill }}
         >
           {formatDateWithTime(appointment.startTime)}
@@ -555,7 +555,7 @@ const AppointmentTicket = ({
               )
             : (
                 <div
-                  className="flex size-full items-center justify-center text-xl bg-[var(--n5-bg-surface)]"
+                  className="flex size-full items-center justify-center bg-[var(--n5-bg-surface)] text-xl"
                 >
                   💅
                 </div>
@@ -568,7 +568,7 @@ const AppointmentTicket = ({
             {serviceName}
           </h3>
           <p
-            className="mt-1 text-sm font-medium text-[var(--n5-ink-muted)] font-body"
+            className="font-body mt-1 text-sm font-medium text-[var(--n5-ink-muted)]"
           >
             with
             {' '}
@@ -589,7 +589,7 @@ const AppointmentTicket = ({
             onManageBooking();
           }}
           aria-label={`Manage booking for ${serviceName}`}
-          className="flex min-h-[48px] items-center justify-center py-3 text-xs font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] bg-[var(--n5-accent)] font-body"
+          className="font-body flex min-h-[48px] items-center justify-center bg-[var(--n5-accent)] py-3 text-xs font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
           style={{
             borderRadius: n5.radiusMd,
             boxShadow: n5.shadowSm,
@@ -601,7 +601,7 @@ const AppointmentTicket = ({
           type="button"
           onClick={triggerHaptic}
           aria-label="Get directions to salon"
-          className="flex min-h-[48px] items-center justify-center space-x-1 py-3 text-xs font-bold transition-all active:scale-[0.98] bg-transparent text-[var(--n5-ink-main)] font-body"
+          className="font-body flex min-h-[48px] items-center justify-center space-x-1 bg-transparent py-3 text-xs font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
           style={{
             borderRadius: n5.radiusMd,
             borderWidth: 1,
@@ -645,7 +645,7 @@ const QuickActions = ({ onNavigate }: { onNavigate: (path: string) => void }) =>
           className="group relative flex flex-col items-center"
         >
           <div
-            className="relative flex size-[4.5rem] items-center justify-center border border-transparent bg-[var(--n5-bg-card)] transition-all duration-300 hover:border-[var(--n5-border-accent)]/30 hover:shadow-lg text-[var(--n5-ink-main)]"
+            className="hover:border-[var(--n5-border-accent)]/30 relative flex size-[4.5rem] items-center justify-center border border-transparent bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] transition-all duration-300 hover:shadow-lg"
             style={{
               borderRadius: n5.radiusMd,
               boxShadow: n5.shadowSm,
@@ -657,7 +657,7 @@ const QuickActions = ({ onNavigate }: { onNavigate: (path: string) => void }) =>
             )}
           </div>
           <span
-            className="mt-2 text-[10px] font-bold uppercase tracking-wide transition-colors text-[var(--n5-ink-muted)] group-hover:text-[var(--n5-ink-main)] font-body"
+            className="font-body mt-2 text-[10px] font-bold uppercase tracking-wide text-[var(--n5-ink-muted)] transition-colors group-hover:text-[var(--n5-ink-main)]"
           >
             {item.label}
           </span>
@@ -673,7 +673,7 @@ const QuickActions = ({ onNavigate }: { onNavigate: (path: string) => void }) =>
 const SettingsGroup = ({ title, items }: { title: string; items: SettingsItem[] }) => (
   <div className="mt-8">
     <h3
-      className="mb-2 px-4 text-xs font-bold uppercase tracking-widest opacity-80 text-[var(--n5-ink-muted)] font-heading"
+      className="font-heading mb-2 px-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] opacity-80"
     >
       {title}
     </h3>
@@ -698,13 +698,13 @@ const SettingsGroup = ({ title, items }: { title: string; items: SettingsItem[] 
         >
           <div className="flex items-center space-x-3">
             <div
-              className="p-2 transition-colors group-hover:text-[var(--n5-accent-hover)] bg-[var(--n5-bg-surface)] text-[var(--n5-accent)]"
+              className="bg-[var(--n5-bg-surface)] p-2 text-[var(--n5-accent)] transition-colors group-hover:text-[var(--n5-accent-hover)]"
               style={{ borderRadius: n5.radiusSm }}
             >
               <item.icon size={18} strokeWidth={2} />
             </div>
             <span
-              className="text-[15px] font-medium text-[var(--n5-ink-main)] font-body"
+              className="font-body text-[15px] font-medium text-[var(--n5-ink-main)]"
             >
               {item.label}
             </span>
@@ -712,7 +712,7 @@ const SettingsGroup = ({ title, items }: { title: string; items: SettingsItem[] 
           <div className="flex items-center space-x-2">
             {item.badge && (
               <span
-                className="px-2 py-1 text-[10px] font-bold bg-[var(--n5-success)]/10 text-[var(--n5-success)] font-body"
+                className="bg-[var(--n5-success)]/10 font-body px-2 py-1 text-[10px] font-bold text-[var(--n5-success)]"
                 style={{ borderRadius: n5.radiusPill }}
               >
                 {item.badge}
@@ -720,7 +720,7 @@ const SettingsGroup = ({ title, items }: { title: string; items: SettingsItem[] 
             )}
             <ChevronRight
               size={16}
-              className="transition-colors group-hover:text-[var(--n5-accent)] text-[var(--n5-ink-muted)]"
+              className="text-[var(--n5-ink-muted)] transition-colors group-hover:text-[var(--n5-accent)]"
             />
           </div>
         </button>
@@ -753,7 +753,7 @@ const FloatingDock = ({ onBookNow, onHome }: { onBookNow: () => void; onHome: ()
         triggerHaptic();
         onHome();
       }}
-      className="p-2 transition-colors hover:text-[var(--n5-ink-main)] text-[var(--n5-ink-muted)]"
+      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
       aria-label="Go to Home"
     >
       <Home strokeWidth={2} className="size-6" />
@@ -765,7 +765,7 @@ const FloatingDock = ({ onBookNow, onHome }: { onBookNow: () => void; onHome: ()
         onBookNow();
       }}
       aria-label="Book a new appointment"
-      className="min-w-[120px] px-6 py-3 text-sm font-bold transition-transform active:scale-95 bg-[var(--n5-ink-main)] text-[var(--n5-ink-inverse)] font-body"
+      className="font-body min-w-[120px] bg-[var(--n5-ink-main)] px-6 py-3 text-sm font-bold text-[var(--n5-ink-inverse)] transition-transform active:scale-95"
       style={{
         borderRadius: n5.radiusButton,
         boxShadow: n5.shadowSm,
@@ -805,7 +805,7 @@ const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
     }}
   >
     {/* Decorative shimmer */}
-    <div className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[shimmer_3s_infinite]" />
+    <div className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_3s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
 
     <div className="relative p-5">
       <div className="flex items-start gap-4">
@@ -816,10 +816,10 @@ const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
         </div>
         <div className="flex-1">
           <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
-            Unlock $5 Off
+            Earn 2,500 Points
           </h3>
-          <p className="mt-1 text-[13px] leading-snug text-[var(--n5-ink-muted)] font-body">
-            Add your name & email to get $5 off your next visit.
+          <p className="font-body mt-1 text-[13px] leading-snug text-[var(--n5-ink-muted)]">
+            Complete your profile to earn bonus points toward rewards.
           </p>
         </div>
       </div>
@@ -830,7 +830,7 @@ const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
           triggerHaptic();
           onComplete();
         }}
-        className="mt-4 flex w-full items-center justify-center gap-2 py-3 text-[13px] font-bold text-white transition-all active:scale-[0.98] bg-[var(--n5-accent)] font-body"
+        className="font-body mt-4 flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-3 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
@@ -893,7 +893,7 @@ const ProfileEditSheet = ({
   }, [isOpen, onClose, isLoading]);
 
   const validateEmail = (emailValue: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/;
     return emailRegex.test(emailValue);
   };
 
@@ -973,18 +973,23 @@ const ProfileEditSheet = ({
               <h2 id="edit-profile-title" className="font-heading text-xl tracking-tight text-[var(--n5-ink-main)]">
                 Complete Your Profile
               </h2>
-              <p className="mt-1 text-[13px] text-[var(--n5-ink-muted)] font-body">
-                Add your details to unlock $5 off
+              <p className="font-body mt-1 text-[13px] text-[var(--n5-ink-muted)]">
+                Add your details to earn 2,500 bonus points
               </p>
             </div>
 
             {/* Form */}
-            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault(); handleSubmit();
+              }}
+              className="space-y-4"
+            >
               {/* Name Input */}
               <div>
                 <label
                   htmlFor="profile-name"
-                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)] font-body"
+                  className="font-body mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)]"
                 >
                   Name
                 </label>
@@ -1006,7 +1011,7 @@ const ProfileEditSheet = ({
                   />
                 </div>
                 {nameError && (
-                  <p className="mt-1 text-xs text-[var(--n5-error)] font-body">{nameError}</p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-error)]">{nameError}</p>
                 )}
               </div>
 
@@ -1014,7 +1019,7 @@ const ProfileEditSheet = ({
               <div>
                 <label
                   htmlFor="profile-email"
-                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)] font-body"
+                  className="font-body mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--n5-ink-muted)]"
                 >
                   Email
                 </label>
@@ -1036,7 +1041,7 @@ const ProfileEditSheet = ({
                   />
                 </div>
                 {emailError && (
-                  <p className="mt-1 text-xs text-[var(--n5-error)] font-body">{emailError}</p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-error)]">{emailError}</p>
                 )}
               </div>
 
@@ -1044,7 +1049,7 @@ const ProfileEditSheet = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="mt-6 flex w-full items-center justify-center gap-2 py-4 text-[14px] font-bold text-white transition-all active:scale-[0.98] disabled:opacity-60 bg-[var(--n5-accent)] font-body"
+                className="font-body mt-6 flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 text-[14px] font-bold text-white transition-all active:scale-[0.98] disabled:opacity-60"
                 style={{
                   borderRadius: n5.radiusMd,
                   boxShadow: n5.shadowSm,
@@ -1060,7 +1065,7 @@ const ProfileEditSheet = ({
                   : (
                       <>
                         <Check className="size-4" />
-                        Save & Claim $5
+                        Save & Earn Points
                       </>
                     )}
               </button>
@@ -1071,7 +1076,7 @@ const ProfileEditSheet = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="mt-3 w-full py-3 text-[13px] font-semibold text-[var(--n5-ink-muted)] transition-colors font-body"
+                className="font-body mt-3 w-full py-3 text-[13px] font-semibold text-[var(--n5-ink-muted)] transition-colors"
               >
                 Cancel
               </button>
@@ -1094,18 +1099,18 @@ const ProfileSkeleton = () => (
     className="space-y-6"
   >
     <div
-      className="aspect-[1.58/1] w-full animate-pulse bg-[var(--n5-bg-card)]/50"
+      className="bg-[var(--n5-bg-card)]/50 aspect-[1.58/1] w-full animate-pulse"
       style={{ borderRadius: n5.radiusCard }}
     />
     <div
-      className="h-40 w-full animate-pulse bg-[var(--n5-bg-card)]/50"
+      className="bg-[var(--n5-bg-card)]/50 h-40 w-full animate-pulse"
       style={{ borderRadius: n5.radiusCard }}
     />
     <div className="grid grid-cols-4 gap-3">
       {[1, 2, 3, 4].map(i => (
         <div
           key={i}
-          className="size-[4.5rem] animate-pulse bg-[var(--n5-bg-card)]/50"
+          className="bg-[var(--n5-bg-card)]/50 size-[4.5rem] animate-pulse"
           style={{ borderRadius: n5.radiusMd }}
         />
       ))}
@@ -1388,7 +1393,7 @@ export default function ProfileContent() {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] shadow-sm transition-transform active:scale-90 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] shadow-sm transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
         >
           <ChevronRight className="size-5 rotate-180" />
@@ -1402,7 +1407,7 @@ export default function ProfileContent() {
           type="button"
           onClick={handleRefresh}
           aria-label="Refresh Profile"
-          className="flex size-10 items-center justify-center transition-transform active:rotate-180 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center text-[var(--n5-ink-main)] transition-transform active:rotate-180"
         >
           <RefreshCw className={cn('size-5', isRefreshing && 'animate-spin text-[var(--n5-accent)]')} />
         </button>
@@ -1410,7 +1415,7 @@ export default function ProfileContent() {
 
       {/* Main Scroll Content */}
       <main
-        className="mx-auto max-w-lg space-y-2 px-5 pb-28 pt-28"
+        className="mx-auto max-w-lg space-y-2 px-5 py-28"
       >
         <AnimatePresence mode="wait">
           {isRefreshing
@@ -1464,7 +1469,7 @@ export default function ProfileContent() {
                       · Est 2024
                     </p>
                     <p
-                      className="mt-1 text-[9px] text-[var(--n5-ink-muted)] font-body"
+                      className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]"
                     >
                       Version 2.0 (Luxury Build)
                     </p>
@@ -1475,7 +1480,7 @@ export default function ProfileContent() {
                     type="button"
                     onClick={handleLogout}
                     aria-label="Sign Out"
-                    className="mt-6 flex w-full items-center justify-center space-x-2 py-4 text-sm font-bold shadow-sm transition-transform active:scale-[0.98] bg-[var(--n5-error)]/10 text-[var(--n5-error)] font-body"
+                    className="bg-[var(--n5-error)]/10 font-body mt-6 flex w-full items-center justify-center space-x-2 py-4 text-sm font-bold text-[var(--n5-error)] shadow-sm transition-transform active:scale-[0.98]"
                     style={{ borderRadius: n5.radiusMd }}
                   >
                     <LogOut className="size-4" />
@@ -1495,8 +1500,8 @@ export default function ProfileContent() {
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
-        title="$5 Reward Unlocked!"
-        message="Thanks for completing your profile. Your $5 reward is ready to use on your next visit!"
+        title="+2,500 Points Earned!"
+        message="Thanks for completing your profile. Your bonus points have been added to your account!"
         emoji="🎉"
         autoDismissMs={4000}
       />

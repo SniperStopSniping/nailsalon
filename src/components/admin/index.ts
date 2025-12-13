@@ -8,63 +8,65 @@
 
 // Legacy Widget components (kept for backward compatibility)
 export {
-  IOSWidget,
-  IOSTrend,
-  IOSTimelineDots,
   IOSAvailabilityBar,
   IOSStaffRow,
+  IOSTimelineDots,
+  IOSTrend,
+  IOSWidget,
   type IOSWidgetProps,
 } from './IOSWidget';
 
 // Legacy App icon components
 export {
-  IOSAppIcon,
-  IOSCustomIcon,
-  iconGradients,
   appIcons,
-  type IOSAppIconProps,
   type AppIconType,
   type IconGradient,
+  iconGradients,
+  IOSAppIcon,
+  type IOSAppIconProps,
+  IOSCustomIcon,
 } from './IOSAppIcon';
 
 // Legacy App tile components
 export {
-  IOSAppTile,
   IOSAppGrid,
+  IOSAppTile,
   type IOSAppTileProps,
 } from './IOSAppTile';
 
 // Legacy Badge components
 export {
   IOSBadge,
-  IOSInlineBadge,
   type IOSBadgeProps,
+  IOSInlineBadge,
 } from './IOSBadge';
 
 // New Swipeable Dashboard Components
-export { SwipeablePages, PageIndicator } from './SwipeablePages';
 export { AnalyticsWidgets } from './AnalyticsWidgets';
-export { AppGrid, APPS, type AppId } from './AppGrid';
-export { AppModal, ModalHeader, BackButton } from './AppModal';
+export { AppGrid, type AppId, APPS } from './AppGrid';
+export { AppModal, BackButton, ModalHeader } from './AppModal';
 export { AppointmentsModal } from './AppointmentsModal';
-export { SettingsModal, Section, Row, ProfileCard, SearchBar } from './SettingsModal';
 export { ClientsModal } from './ClientsModal';
-export { StaffModal } from './StaffModal';
-export { ServicesModal } from './ServicesModal';
 export { MarketingModal } from './MarketingModal';
+export { NotificationsModal } from './NotificationsModal';
+export { QuickActionsWidget } from './QuickActionsWidget';
 export { ReviewsModal } from './ReviewsModal';
 export { RewardsModal } from './RewardsModal';
+export { ServicesModal } from './ServicesModal';
+export { ProfileCard, Row, SearchBar, Section, SettingsModal } from './SettingsModal';
 export { SkeletonWidgets } from './SkeletonWidgets';
-export { QuickActionsWidget } from './QuickActionsWidget';
-export { NotificationsModal } from './NotificationsModal';
+export { StaffModal } from './StaffModal';
+export { StaffOpsModal } from './StaffOpsModal';
+export { PageIndicator, SwipeablePages } from './SwipeablePages';
+export { TimeOffRequestsInbox } from './TimeOffRequestsInbox';
 
 // Chart Components
 export {
-  RevenueChart,
-  ChartLabels,
   ActivityRing,
+  ChartLabels,
+  defaultServiceItems,
   NestedRings,
+  RevenueChart,
   RingLegend,
   ServiceBars,
-  defaultServiceItems,
 } from './charts';

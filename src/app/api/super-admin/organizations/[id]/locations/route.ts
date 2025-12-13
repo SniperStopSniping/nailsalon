@@ -2,8 +2,8 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, logAuditAction } from '@/libs/superAdmin';
-import { salonSchema, salonLocationSchema } from '@/models/Schema';
+import { logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
+import { salonLocationSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +44,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -109,7 +111,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -148,8 +152,13 @@ export async function POST(
 
     if (currentCount >= maxLocations) {
       return Response.json(
-        { error: `Maximum locations (${maxLocations}) reached for this plan` },
-        { status: 400 },
+        {
+          error: {
+            code: 'LOCATION_LIMIT_REACHED',
+            message: `Location limit reached (${currentCount}/${maxLocations})`,
+          },
+        },
+        { status: 403 },
       );
     }
 

@@ -1,9 +1,9 @@
-import { eq, and } from 'drizzle-orm';
 import { v2 as cloudinary } from 'cloudinary';
+import { and, eq } from 'drizzle-orm';
 
+import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
-import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -20,13 +20,13 @@ cloudinary.config({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // POST /api/admin/technicians/[id]/avatar - Upload staff photo

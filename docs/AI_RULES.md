@@ -2,8 +2,8 @@
 
 ## Cursor Development Guidelines
 
-**Version:** 1.0  
-**Last Updated:** December 2024  
+**Version:** 1.0
+**Last Updated:** December 2024
 **Purpose:** Define strict rules for AI-assisted development in this codebase
 
 ---
@@ -90,7 +90,7 @@ When using `style={{ }}` attributes, always import and use `themeVars`:
 import { themeVars } from '@/theme';
 
 // Colors
-style={{ 
+style={{
   backgroundColor: themeVars.primary,
   color: themeVars.titleText,
   borderColor: themeVars.cardBorder,
@@ -113,12 +113,12 @@ When using Tailwind arbitrary values, reference CSS variables:
 
 ```typescript
 // ❌ WRONG
-className="bg-[#f4b864]"
+className = 'bg-[#f4b864]';
 
 // ✅ CORRECT
-className="bg-[var(--theme-primary)]"
-className="text-[var(--theme-title-text)]"
-className="border-[var(--theme-card-border)]"
+className = 'bg-[var(--theme-primary)]';
+className = 'text-[var(--theme-title-text)]';
+className = 'border-[var(--theme-card-border)]';
 ```
 
 ### 2.4 🟠 Available Theme Tokens
@@ -162,7 +162,7 @@ import { themeVars } from '@/theme';
 
 export function NewCard({ children }) {
   return (
-    <div 
+    <div
       className="rounded-2xl bg-white"
       style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
     >
@@ -192,7 +192,7 @@ Animations are part of the brand identity. You MUST:
 <div className="rounded-2xl bg-white">
 
 // ✅ CORRECT - Preserving animation
-<div 
+<div
   className="rounded-2xl bg-white"
   style={{
     opacity: mounted ? 1 : 0,
@@ -400,16 +400,16 @@ function MyComponent() {
 // Future API route pattern
 export async function GET(request: Request) {
   const salonId = await getCurrentSalonId(request);
-  
+
   if (!salonId) {
     return Response.json({ error: 'Salon not found' }, { status: 404 });
   }
-  
+
   const services = await db
     .select()
     .from(servicesTable)
     .where(eq(servicesTable.salonId, salonId));
-    
+
   return Response.json({ data: services });
 }
 ```
@@ -465,35 +465,32 @@ style={{
 type AuthState = 'loggedOut' | 'verify' | 'loggedIn';
 type Category = 'hands' | 'feet' | 'combo';
 
-interface ServiceCardProps {
+type ServiceCardProps = {
   service: Service;
   isSelected: boolean;
   onSelect: (id: string) => void;
-}
+};
 ```
 
 ### 6.4 🟠 Import Ordering
 
 ```typescript
 // 1. React/Next
-import { useState, useEffect } from 'react';
-import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-
 // 2. Third-party libraries
 import { motion } from 'framer-motion';
-
-// 3. Internal - providers/hooks
-import { useSalon } from '@/providers/SalonProvider';
-import { themeVars } from '@/theme';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 // 4. Internal - components
 import { MainCard } from '@/components/MainCard';
 import { PrimaryButton } from '@/components/PrimaryButton';
-
+// 3. Internal - providers/hooks
+import { useSalon } from '@/providers/SalonProvider';
+import { themeVars } from '@/theme';
+import type { Service } from '@/types';
 // 5. Internal - utils/types
 import { cn } from '@/utils/Helpers';
-import type { Service } from '@/types';
 ```
 
 ### 6.5 🔴 No Unnecessary Refactoring
@@ -600,4 +597,3 @@ Before committing any code, verify:
 - [Technical Spec](./TECHNICAL_SPEC.md) - Architecture details
 - [UI/UX Spec](./UI_UX_SPEC.md) - Design patterns
 - [Design System](../design-system.md) - Visual specifications
-

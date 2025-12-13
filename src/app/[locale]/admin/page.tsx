@@ -11,31 +11,37 @@
  */
 
 import { Bell, LogOut } from 'lucide-react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 
-import { SwipeablePages, PageIndicator } from '@/components/admin/SwipeablePages';
 import { AnalyticsWidgets } from '@/components/admin/AnalyticsWidgets';
 import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
-import { SettingsModal } from '@/components/admin/SettingsModal';
 import { ClientsModal } from '@/components/admin/ClientsModal';
-import { StaffModal } from '@/components/admin/StaffModal';
-import { ServicesModal } from '@/components/admin/ServicesModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
+import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
 import { RewardsModal } from '@/components/admin/RewardsModal';
+import { ServicesModal } from '@/components/admin/ServicesModal';
+import { SettingsModal } from '@/components/admin/SettingsModal';
 import { SkeletonWidgets } from '@/components/admin/SkeletonWidgets';
-import { NotificationsModal } from '@/components/admin/NotificationsModal';
-import { SuspendedBanner, CancelledBanner, TrialBanner } from '@/components/admin/SuspendedBanner';
+import { StaffModal } from '@/components/admin/StaffModal';
+import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
+import { CancelledBanner, SuspendedBanner, TrialBanner } from '@/components/admin/SuspendedBanner';
+import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
 import { useSalon } from '@/providers/SalonProvider';
+// =============================================================================
+// Main Page Component
+// =============================================================================
+// Use shared type from admin types
+import type { AnalyticsResponse } from '@/types/admin';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface AdminUser {
+type AdminUser = {
   id: string;
   phone: string;
   name: string | null;
@@ -46,9 +52,9 @@ interface AdminUser {
     name: string;
     role: string;
   }>;
-}
+};
 
-interface DashboardData {
+type DashboardData = {
   revenue: {
     today: number;
     completed: number;
@@ -76,7 +82,7 @@ interface DashboardData {
     marketing: number;
     alerts: number;
   };
-}
+};
 
 // =============================================================================
 // iOS Header Component
@@ -100,21 +106,21 @@ function IOSHeader({
   return (
     <div className="flex items-center justify-between px-5 py-3">
       <div>
-        <h1 className="text-[28px] font-bold text-[#1C1C1E] tracking-tight">
+        <h1 className="text-[28px] font-bold tracking-tight text-[#1C1C1E]">
           {title}
         </h1>
-        <p className="text-[15px] text-[#8E8E93] mt-0.5">{subtitle}</p>
+        <p className="mt-0.5 text-[15px] text-[#8E8E93]">{subtitle}</p>
       </div>
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onNotificationTap}
-          className="relative w-9 h-9 rounded-full bg-black/5 flex items-center justify-center active:bg-black/10 transition-colors"
+          className="relative flex size-9 items-center justify-center rounded-full bg-black/5 transition-colors active:bg-black/10"
         >
           <Bell size={20} className="text-[#8E8E93]" />
           {notificationCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-[#FF3B30] rounded-full flex items-center justify-center px-1">
-              <span className="text-white text-[11px] font-bold">
+            <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
+              <span className="text-[11px] font-bold text-white">
                 {notificationCount > 9 ? '9+' : notificationCount}
               </span>
             </span>
@@ -123,25 +129,18 @@ function IOSHeader({
         <button
           type="button"
           onClick={onLogout}
-          className="w-9 h-9 rounded-full bg-black/5 flex items-center justify-center active:bg-black/10 transition-colors"
-          title="Log out"
+          className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 active:bg-red-200"
         >
-          <LogOut size={18} className="text-[#8E8E93]" />
+          <LogOut size={16} />
+          <span>Log Out</span>
         </button>
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#007AFF] to-[#5856D6] flex items-center justify-center text-white text-[15px] font-semibold">
+        <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-[#007AFF] to-[#5856D6] text-[15px] font-semibold text-white">
           {avatar}
         </div>
       </div>
     </div>
   );
 }
-
-// =============================================================================
-// Main Page Component
-// =============================================================================
-
-// Use shared type from admin types
-import type { AnalyticsResponse } from '@/types/admin';
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
@@ -180,7 +179,10 @@ function AdminDashboardContent() {
   // Notification count (in production, this would come from API)
   const notificationCount = data.badges.alerts + data.badges.reviews;
 
-  // Check admin auth on mount
+  // Track if we've already synced to prevent infinite loops
+  const [hasSynced, setHasSynced] = useState(false);
+
+  // Check admin auth on mount and sync salon cookie
   useEffect(() => {
     async function checkAuth() {
       try {
@@ -188,25 +190,40 @@ function AdminDashboardContent() {
         if (response.ok) {
           const data = await response.json();
           setAdminUser(data.user);
-          
+
           // If admin has multiple salons and no salon selected, show selector
           if (data.user.salons.length > 1 && !searchParams.get('salon')) {
             setShowSalonSelector(true);
           }
+
+          // Sync cookie with query param if different from current salon (only once)
+          const querySalon = searchParams.get('salon')?.trim().toLowerCase();
+          if (querySalon && querySalon !== salonSlug?.toLowerCase() && !hasSynced) {
+            setHasSynced(true);
+            // Update the active salon cookie to match query param
+            const syncResponse = await fetch('/api/admin/auth/set-active-salon', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ salonSlug: querySalon }),
+            });
+            // Only reload if the sync was successful
+            if (syncResponse.ok) {
+              window.location.reload();
+            }
+          }
         } else {
-          // Not authenticated - redirect to login
-          router.push(`/${locale}/admin-login`);
-          return;
+          // Not authenticated - redirect to login immediately
+          router.replace(`/${locale}/admin-login`);
         }
       } catch {
-        router.push(`/${locale}/admin-login`);
+        router.replace(`/${locale}/admin-login`);
         return;
       } finally {
         setAuthLoading(false);
       }
     }
     checkAuth();
-  }, [router, locale, searchParams]);
+  }, [router, locale, searchParams, salonSlug, hasSynced]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -222,14 +239,14 @@ function AdminDashboardContent() {
   const fetchData = useCallback(async () => {
     try {
       setError(null);
-      
+
       // Fetch from analytics API
       const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${salonSlug}&period=monthly`);
-      
+
       if (!analyticsResponse.ok) {
         throw new Error('Failed to load analytics');
       }
-      
+
       if (analyticsResponse.ok) {
         const analyticsResult = await analyticsResponse.json();
         const analytics = analyticsResult.data;
@@ -238,13 +255,14 @@ function AdminDashboardContent() {
         const slots: ('booked' | 'open')[] = [];
         for (let i = 0; i < 16; i++) {
           // More realistic: mark slots as booked based on upcoming count
-          const bookedRatio = analytics?.appointments?.upcoming ? 
-            Math.min(analytics.appointments.upcoming / 8, 1) : 0.4;
+          const bookedRatio = analytics?.appointments?.upcoming
+            ? Math.min(analytics.appointments.upcoming / 8, 1)
+            : 0.4;
           slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
         }
 
-        const openCount = slots.filter((s) => s === 'open').length;
-        const openSlotIndex = slots.findIndex((s) => s === 'open');
+        const openCount = slots.filter(s => s === 'open').length;
+        const openSlotIndex = slots.findIndex(s => s === 'open');
         let nextTime = null;
         if (openSlotIndex !== -1) {
           const baseHour = 9;
@@ -285,9 +303,11 @@ function AdminDashboardContent() {
             nextTime,
             slots,
           },
-          staff: staffStatus.length > 0 ? staffStatus : [
-            { name: 'No staff', status: 'free' as const },
-          ],
+          staff: staffStatus.length > 0
+            ? staffStatus
+            : [
+                { name: 'No staff', status: 'free' as const },
+              ],
           badges: {
             referrals: 0,
             reviews: 0,
@@ -295,7 +315,7 @@ function AdminDashboardContent() {
             alerts: analytics?.appointments?.noShows ?? 0,
           },
         });
-        
+
         // Store analytics for widgets
         setAnalyticsData(analytics);
         setLastUpdated(new Date());
@@ -354,55 +374,32 @@ function AdminDashboardContent() {
     setActiveModal(null);
   };
 
-  // Loading state - show skeleton instead of spinner
-  if (authLoading || loading) {
+  // 1) Auth check phase - never show dashboard UI here
+  if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F2F2F7]">
-        <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
-          {/* Skeleton Header */}
-          <div className="flex items-center justify-between px-5 py-3">
-            <div>
-              <div className="h-8 w-32 bg-gray-200 rounded-lg animate-pulse" />
-              <div className="h-4 w-24 bg-gray-100 rounded mt-1 animate-pulse" />
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
-              <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
-            </div>
-          </div>
-          {/* Skeleton Content */}
-          <SkeletonWidgets />
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
+        <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
       </div>
     );
   }
 
-  // Auth required (redirect happens in useEffect, this is fallback)
+  // 2) Not authenticated - redirect should have happened, but keep safe fallback
   if (!adminUser) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F2F2F7] px-5">
-        <h1 className="text-[24px] font-semibold text-[#1C1C1E] mb-2">
-          Admin Access Required
-        </h1>
-        <p className="text-[15px] text-[#8E8E93]">
-          Please sign in to access the admin dashboard.
-        </p>
-      </div>
-    );
+    return null;
   }
 
-  // Salon selector for admins with multiple salons
+  // 3) Salon selector for admins with multiple salons (check before loading since fetchData waits for salon selection)
   if (showSalonSelector && adminUser.salons.length > 1) {
     return (
-      <div className="min-h-screen bg-[#F2F2F7] flex flex-col items-center justify-center px-5">
-        <h1 className="text-[24px] font-semibold text-[#1C1C1E] mb-2">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#F2F2F7] px-5">
+        <h1 className="mb-2 text-[24px] font-semibold text-[#1C1C1E]">
           Select a Salon
         </h1>
-        <p className="text-[15px] text-[#8E8E93] mb-6">
+        <p className="mb-6 text-[15px] text-[#8E8E93]">
           Choose which salon to manage
         </p>
         <div className="w-full max-w-sm space-y-3">
-          {adminUser.salons.map((salon) => (
+          {adminUser.salons.map(salon => (
             <button
               key={salon.id}
               type="button"
@@ -410,7 +407,7 @@ function AdminDashboardContent() {
                 router.push(`/${locale}/admin?salon=${salon.slug}`);
                 setShowSalonSelector(false);
               }}
-              className="w-full px-4 py-4 bg-white rounded-xl text-left shadow-sm hover:shadow-md transition-shadow"
+              className="w-full rounded-xl bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md"
             >
               <div className="font-semibold text-[#1C1C1E]">{salon.name}</div>
               <div className="text-sm text-[#8E8E93]">{salon.role}</div>
@@ -424,6 +421,29 @@ function AdminDashboardContent() {
         >
           Log out
         </button>
+      </div>
+    );
+  }
+
+  // 4) Authenticated but dashboard data still loading - show skeleton
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F2F2F7]">
+        <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
+          {/* Skeleton Header */}
+          <div className="flex items-center justify-between px-5 py-3">
+            <div>
+              <div className="h-8 w-32 animate-pulse rounded-lg bg-gray-200" />
+              <div className="mt-1 h-4 w-24 animate-pulse rounded bg-gray-100" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="size-9 animate-pulse rounded-full bg-gray-200" />
+              <div className="size-9 animate-pulse rounded-full bg-gray-200" />
+            </div>
+          </div>
+          {/* Skeleton Content */}
+          <SkeletonWidgets />
+        </div>
       </div>
     );
   }
@@ -445,7 +465,7 @@ function AdminDashboardContent() {
     'bg-green-100 text-green-600',
     'bg-orange-100 text-orange-600',
   ];
-  
+
   const staffData = analyticsData?.staff?.slice(0, 5).map((tech, index) => ({
     id: index + 1,
     name: tech.name,
@@ -455,14 +475,14 @@ function AdminDashboardContent() {
   })) || [];
 
   // Utilization data - use real data from API
-  const utilization = analyticsData?.staff?.slice(0, 3).map((tech) => ({
+  const utilization = analyticsData?.staff?.slice(0, 3).map(tech => ({
     name: tech.name.substring(0, 3),
     percent: tech.utilization,
     color: tech.color,
   })) || [];
 
   // Service mix data - use real data from API
-  const services = analyticsData?.services?.slice(0, 4).map((svc) => ({
+  const services = analyticsData?.services?.slice(0, 4).map(svc => ({
     label: svc.label,
     percent: svc.percent,
     color: svc.color,
@@ -479,12 +499,12 @@ function AdminDashboardContent() {
     >
       {/* Status Banners - Show for suspended/cancelled/trial accounts */}
       {status === 'suspended' && (
-        <SuspendedBanner 
+        <SuspendedBanner
           message="Your salon is suspended. New bookings are disabled and changes cannot be made."
         />
       )}
       {status === 'cancelled' && (
-        <CancelledBanner 
+        <CancelledBanner
           message="Your salon account has been cancelled. Please contact support to restore access."
         />
       )}
@@ -495,9 +515,9 @@ function AdminDashboardContent() {
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
         {/* Header */}
-        <IOSHeader 
-          title="Dashboard" 
-          subtitle={salonName} 
+        <IOSHeader
+          title="Dashboard"
+          subtitle={salonName}
           avatar={userInitial}
           notificationCount={notificationCount}
           onNotificationTap={() => setShowNotifications(true)}
@@ -513,8 +533,8 @@ function AdminDashboardContent() {
 
         {/* Swipeable Pages Container */}
         <div className="h-[calc(100vh-140px)]">
-          <SwipeablePages 
-            onPageChange={setCurrentPage} 
+          <SwipeablePages
+            onPageChange={setCurrentPage}
             initialPage={currentPage}
             onRefresh={handleRefresh}
             lastUpdated={lastUpdated}
@@ -539,7 +559,7 @@ function AdminDashboardContent() {
         </div>
 
         {/* Page Indicator */}
-        <div className="fixed bottom-0 left-0 right-0 pb-safe">
+        <div className="pb-safe fixed inset-x-0 bottom-0">
           <PageIndicator
             pageCount={2}
             currentPage={currentPage}
@@ -622,6 +642,13 @@ function AdminDashboardContent() {
         <RewardsModal onClose={handleCloseModal} />
       </AppModal>
 
+      <AppModal
+        isOpen={activeModal === 'staff-ops'}
+        onClose={handleCloseModal}
+      >
+        <StaffOpsModal onClose={handleCloseModal} />
+      </AppModal>
+
       {/* Notifications Modal */}
       <AppModal
         isOpen={showNotifications}
@@ -641,12 +668,12 @@ function AdminDashboardLoading() {
         {/* Skeleton Header */}
         <div className="flex items-center justify-between px-5 py-3">
           <div>
-            <div className="h-8 w-32 bg-gray-200 rounded-lg animate-pulse" />
-            <div className="h-4 w-24 bg-gray-100 rounded mt-1 animate-pulse" />
+            <div className="h-8 w-32 animate-pulse rounded-lg bg-gray-200" />
+            <div className="mt-1 h-4 w-24 animate-pulse rounded bg-gray-100" />
           </div>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
-            <div className="w-9 h-9 rounded-full bg-gray-200 animate-pulse" />
+            <div className="size-9 animate-pulse rounded-full bg-gray-200" />
+            <div className="size-9 animate-pulse rounded-full bg-gray-200" />
           </div>
         </div>
         {/* Skeleton Content */}

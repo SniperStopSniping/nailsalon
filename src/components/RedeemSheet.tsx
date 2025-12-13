@@ -5,13 +5,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { triggerLuxuryConfetti } from '@/utils/confetti';
 
-interface RedeemSheetProps {
+type RedeemSheetProps = {
   isOpen: boolean;
   onClose: () => void;
   onConfirm?: () => void;
   rewardTitle: string;
   pointsCost: number;
-}
+};
 
 export default function RedeemSheet({
   isOpen,
@@ -49,7 +49,9 @@ export default function RedeemSheet({
 
   // Calculate slider value from position
   const calculateValue = useCallback((clientX: number) => {
-    if (!sliderRef.current) return 0;
+    if (!sliderRef.current) {
+      return 0;
+    }
     const rect = sliderRef.current.getBoundingClientRect();
     const thumbWidth = 52; // Approximate thumb width
     const trackWidth = rect.width - thumbWidth;
@@ -60,22 +62,28 @@ export default function RedeemSheet({
 
   // Touch/Mouse handlers for smooth dragging
   const handleStart = useCallback((clientX: number) => {
-    if (isConfirmed) return;
+    if (isConfirmed) {
+      return;
+    }
     setIsDragging(true);
     const value = calculateValue(clientX);
     setSliderValue(value);
   }, [isConfirmed, calculateValue]);
 
   const handleMove = useCallback((clientX: number) => {
-    if (!isDragging || isConfirmed) return;
+    if (!isDragging || isConfirmed) {
+      return;
+    }
     const value = calculateValue(clientX);
     setSliderValue(value);
   }, [isDragging, isConfirmed, calculateValue]);
 
   const handleEnd = useCallback(() => {
-    if (!isDragging) return;
+    if (!isDragging) {
+      return;
+    }
     setIsDragging(false);
-    
+
     // Check if slider reached the end
     if (sliderValue >= 90 && !isConfirmed) {
       handleConfirm();
@@ -102,7 +110,9 @@ export default function RedeemSheet({
 
   // Global mouse/touch move and end
   useEffect(() => {
-    if (!isDragging) return;
+    if (!isDragging) {
+      return;
+    }
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
       handleMove(e.clientX);
@@ -151,14 +161,16 @@ export default function RedeemSheet({
     }, 1500);
   };
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   // Dynamic colors based on progress
-  const progressColor = sliderValue > 50 
+  const progressColor = sliderValue > 50
     ? `linear-gradient(to right, #D6A249, #E8B85A)` // Gold
     : `linear-gradient(to right, #D6A249, #E8B85A)`; // Gold throughout
-  
-  const thumbColor = isDragging || sliderValue > 30 
+
+  const thumbColor = isDragging || sliderValue > 30
     ? '#D6A249' // Gold when dragging
     : 'white';
 
@@ -167,7 +179,7 @@ export default function RedeemSheet({
       {/* 1. BACKDROP (Darken Screen) */}
       <div
         onClick={onClose}
-        onKeyDown={(e) => e.key === 'Escape' && onClose()}
+        onKeyDown={e => e.key === 'Escape' && onClose()}
         role="button"
         tabIndex={0}
         aria-label="Close sheet"
@@ -181,7 +193,7 @@ export default function RedeemSheet({
 
       {/* 2. THE SHEET (Spring Up Animation) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[70] overflow-hidden animate-spring-up"
+        className="fixed inset-x-0 bottom-0 z-[70] animate-spring-up overflow-hidden"
         style={{
           backgroundColor: '#FFFBF7',
           borderTopLeftRadius: '32px',
@@ -210,25 +222,27 @@ export default function RedeemSheet({
               width: '80px',
               height: '80px',
               borderRadius: '9999px',
-              background: isConfirmed 
-                ? 'linear-gradient(to top right, #D6A249, #E8B85A)' 
+              background: isConfirmed
+                ? 'linear-gradient(to top right, #D6A249, #E8B85A)'
                 : 'linear-gradient(to top right, #FDF7F0, white)',
               border: isConfirmed ? 'none' : '1px solid #F0E6DE',
-              boxShadow: isConfirmed 
-                ? '0 10px 30px -5px rgba(214, 162, 73, 0.4)' 
+              boxShadow: isConfirmed
+                ? '0 10px 30px -5px rgba(214, 162, 73, 0.4)'
                 : '0 10px 25px -5px rgba(214, 162, 73, 0.1)',
               transform: isConfirmed ? 'scale(1.1)' : 'scale(1)',
             }}
           >
-            {isConfirmed ? (
-              <Check className="text-white" size={36} strokeWidth={3} />
-            ) : (
-              <Sparkles
-                size={32}
-                strokeWidth={1.5}
-                style={{ color: '#D6A249' }}
-              />
-            )}
+            {isConfirmed
+              ? (
+                  <Check className="text-white" size={36} strokeWidth={3} />
+                )
+              : (
+                  <Sparkles
+                    size={32}
+                    strokeWidth={1.5}
+                    style={{ color: '#D6A249' }}
+                  />
+                )}
           </div>
 
           {/* Typography */}
@@ -242,28 +256,35 @@ export default function RedeemSheet({
             className="mb-10 max-w-[260px] text-[15px] leading-relaxed"
             style={{ color: '#8A7E78' }}
           >
-            {isConfirmed ? (
-              <>Your reward has been applied successfully!</>
-            ) : (
-              <>
-                You are about to redeem{' '}
-                <span className="font-semibold" style={{ color: '#3F2B24' }}>
-                  {rewardTitle}
-                </span>{' '}
-                for{' '}
-                <span className="font-semibold" style={{ color: '#3F2B24' }}>
-                  {pointsCost.toLocaleString()} pts
-                </span>
-                .
-              </>
-            )}
+            {isConfirmed
+              ? (
+                  <>Your reward has been applied successfully!</>
+                )
+              : (
+                  <>
+                    You are about to redeem
+                    {' '}
+                    <span className="font-semibold" style={{ color: '#3F2B24' }}>
+                      {rewardTitle}
+                    </span>
+                    {' '}
+                    for
+                    {' '}
+                    <span className="font-semibold" style={{ color: '#3F2B24' }}>
+                      {pointsCost.toLocaleString()}
+                      {' '}
+                      pts
+                    </span>
+                    .
+                  </>
+                )}
           </p>
 
           {/* 3. THE SLIDER (Touch-Optimized) */}
           {!isConfirmed && (
             <div
               ref={sliderRef}
-              className="relative w-full select-none overflow-hidden touch-none"
+              className="relative w-full touch-none select-none overflow-hidden"
               style={{
                 height: '64px',
                 backgroundColor: '#F2ECE6',
@@ -294,10 +315,10 @@ export default function RedeemSheet({
                   opacity: sliderValue > 30 ? 0 : 1,
                 }}
               >
-                <ChevronRight 
-                  className="mr-1 animate-pulse" 
-                  size={18} 
-                  style={{ color: '#A89F99' }} 
+                <ChevronRight
+                  className="mr-1 animate-pulse"
+                  size={18}
+                  style={{ color: '#A89F99' }}
                 />
                 <span
                   className="text-[13px] font-bold uppercase tracking-widest"
@@ -310,26 +331,26 @@ export default function RedeemSheet({
               {/* The Draggable Thumb (Touch Target) */}
               <div
                 ref={thumbRef}
-                className="absolute top-1 bottom-1 z-10 flex aspect-square cursor-grab items-center justify-center rounded-full border-2 active:cursor-grabbing"
+                className="absolute inset-y-1 z-10 flex aspect-square cursor-grab items-center justify-center rounded-full border-2 active:cursor-grabbing"
                 style={{
                   left: `calc(${sliderValue}% * (100% - 56px) / 100% + 4px)`,
                   width: '56px',
                   height: '56px',
                   backgroundColor: thumbColor,
                   borderColor: isDragging ? '#D6A249' : '#E6E0DA',
-                  boxShadow: isDragging 
-                    ? '0 6px 20px rgba(214, 162, 73, 0.4)' 
+                  boxShadow: isDragging
+                    ? '0 6px 20px rgba(214, 162, 73, 0.4)'
                     : '0 4px 12px rgba(0, 0, 0, 0.1)',
                   transition: isDragging ? 'none' : 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
                   transform: isDragging ? 'scale(1.05)' : 'scale(1)',
                 }}
               >
-                <ChevronRight 
-                  size={24} 
-                  style={{ 
+                <ChevronRight
+                  size={24}
+                  style={{
                     color: isDragging || sliderValue > 30 ? 'white' : '#3F2B24',
                     transition: 'color 0.2s ease',
-                  }} 
+                  }}
                 />
               </div>
             </div>
@@ -344,7 +365,7 @@ export default function RedeemSheet({
               }}
             >
               <Check className="mr-2 text-white" size={24} strokeWidth={3} />
-              <span className="text-[15px] font-bold text-white tracking-wide">
+              <span className="text-[15px] font-bold tracking-wide text-white">
                 Confirmed!
               </span>
             </div>

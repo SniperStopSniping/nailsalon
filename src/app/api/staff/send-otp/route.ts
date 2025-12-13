@@ -16,17 +16,17 @@ import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
 // TYPES
 // =============================================================================
 
-interface SendOtpRequest {
+type SendOtpRequest = {
   phone: string;
   salonSlug: string;
-}
+};
 
-interface TwilioVerifyResponse {
+type TwilioVerifyResponse = {
   sid: string;
   status: 'pending' | 'approved' | 'canceled';
   to: string;
   channel: string;
-}
+};
 
 // =============================================================================
 // ENVIRONMENT
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+        'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
       },
       body: new URLSearchParams({
         To: formattedPhone,

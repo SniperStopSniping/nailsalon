@@ -18,15 +18,15 @@ const cancelAppointmentSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     appointment: {
       id: string;
@@ -35,7 +35,7 @@ interface SuccessResponse {
       cancelledAt: Date;
     };
   };
-}
+};
 
 // =============================================================================
 // PATCH /api/appointments/[id]/cancel - Cancel an appointment
@@ -167,4 +167,3 @@ export async function PATCH(
     );
   }
 }
-

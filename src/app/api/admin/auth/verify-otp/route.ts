@@ -10,28 +10,28 @@
  * All invite claiming done in a transaction.
  */
 
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { eq, and, gt, isNull } from 'drizzle-orm';
 
-import { db } from '@/libs/DB';
 import {
-  adminUserSchema,
-  adminSessionSchema,
-  adminInviteSchema,
-  adminSalonMembershipSchema,
-} from '@/models/Schema';
-import {
-  formatPhoneE164,
-  isValidPhone,
   ADMIN_SESSION_COOKIE,
   COOKIE_OPTIONS,
-  SESSION_DURATION_MS,
+  formatPhoneE164,
   getAdminByPhone,
   getAdminWithSalons,
+  isValidPhone,
+  SESSION_DURATION_MS,
   shouldBootstrap,
 } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import { checkOtpRateLimit, getClientIp } from '@/libs/rateLimit';
+import {
+  adminInviteSchema,
+  adminSalonMembershipSchema,
+  adminSessionSchema,
+  adminUserSchema,
+} from '@/models/Schema';
 
 // =============================================================================
 // ENVIRONMENT
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+          'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
         },
         body: new URLSearchParams({
           To: phoneE164,
@@ -207,6 +207,60 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
   // Check 1: Existing admin user
   const existingAdmin = await getAdminByPhone(phoneE164);
   if (existingAdmin) {
+    // ==========================================================================
+    // CLAIM ANY PENDING INVITES FOR THIS EXISTING USER
+    // This handles the case where a super admin or existing admin is invited
+    // to a new salon - they should automatically get membership when logging in
+    // ==========================================================================
+    const pendingInvites = await db
+      .select()
+      .from(adminInviteSchema)
+      .where(
+        and(
+          eq(adminInviteSchema.phoneE164, phoneE164),
+          isNull(adminInviteSchema.usedAt),
+          gt(adminInviteSchema.expiresAt, new Date()),
+        ),
+      );
+
+    // Claim all pending invites in a transaction
+    if (pendingInvites.length > 0) {
+      await db.transaction(async (tx) => {
+        for (const invite of pendingInvites) {
+          // Create salon membership if ADMIN role and salonId exists
+          if (invite.role === 'ADMIN' && invite.salonId) {
+            // Check if membership already exists
+            const [existingMembership] = await tx
+              .select()
+              .from(adminSalonMembershipSchema)
+              .where(
+                and(
+                  eq(adminSalonMembershipSchema.adminId, existingAdmin.id),
+                  eq(adminSalonMembershipSchema.salonId, invite.salonId),
+                ),
+              )
+              .limit(1);
+
+            if (!existingMembership) {
+              const membershipRole = invite.membershipRole || 'admin';
+              await tx.insert(adminSalonMembershipSchema).values({
+                adminId: existingAdmin.id,
+                salonId: invite.salonId,
+                role: membershipRole,
+              });
+              console.log(`[INVITE CLAIMED] Created membership for existing admin ${existingAdmin.id} to salon ${invite.salonId} as ${membershipRole}`);
+            }
+          }
+
+          // Mark invite as used
+          await tx
+            .update(adminInviteSchema)
+            .set({ usedAt: new Date() })
+            .where(eq(adminInviteSchema.id, invite.id));
+        }
+      });
+    }
+
     // Create session for existing user
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
@@ -217,7 +271,7 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
       expiresAt,
     });
 
-    // Get salons for redirect
+    // Get salons for redirect (refresh to include newly claimed invites)
     const adminWithSalons = await getAdminWithSalons(existingAdmin.id);
     const salonSlug = adminWithSalons?.salons[0]?.salonSlug;
 
@@ -248,7 +302,7 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
       ),
     )
     .limit(1)
-    .then((rows) => rows[0]);
+    .then(rows => rows[0]);
 
   if (invite) {
     // Claim invite in transaction

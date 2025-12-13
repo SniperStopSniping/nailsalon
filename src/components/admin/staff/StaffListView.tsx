@@ -1,16 +1,13 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Search, Plus, User, X } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
 import {
-  DndContext,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -20,8 +17,12 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { motion } from 'framer-motion';
+import { Plus, Search, User, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
+
 import { StaffCard, type StaffCardData } from './StaffCard';
 
 // =============================================================================
@@ -34,12 +35,12 @@ type FilterTab = 'all' | 'available' | 'busy' | 'break' | 'off' | 'inactive';
 // Sortable Staff Card Wrapper
 // =============================================================================
 
-interface SortableStaffCardProps {
+type SortableStaffCardProps = {
   staff: StaffCardData;
   isLast: boolean;
   onClick: () => void;
   isDraggable: boolean;
-}
+};
 
 function SortableStaffCard({ staff, isLast, onClick, isDraggable }: SortableStaffCardProps) {
   const {
@@ -70,10 +71,10 @@ function SortableStaffCard({ staff, isLast, onClick, isDraggable }: SortableStaf
   );
 }
 
-interface StaffListViewProps {
+type StaffListViewProps = {
   onStaffSelect: (staff: StaffCardData) => void;
   onAddStaff: () => void;
-}
+};
 
 // =============================================================================
 // Filter Tabs
@@ -109,7 +110,7 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   // Only allow dragging in active staff views (not inactive, not searching)
@@ -119,12 +120,16 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!over || active.id === over.id || !salonSlug) return;
+    if (!over || active.id === over.id || !salonSlug) {
+      return;
+    }
 
-    const oldIndex = staff.findIndex((s) => s.id === active.id);
-    const newIndex = staff.findIndex((s) => s.id === over.id);
+    const oldIndex = staff.findIndex(s => s.id === active.id);
+    const newIndex = staff.findIndex(s => s.id === over.id);
 
-    if (oldIndex === -1 || newIndex === -1) return;
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
 
     // Optimistically update local state
     const newStaff = arrayMove(staff, oldIndex, newIndex);
@@ -158,7 +163,9 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
 
   // Fetch staff data
   const fetchStaff = useCallback(async () => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     try {
       setLoading(true);
@@ -202,26 +209,26 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Search Bar */}
       <div className="px-4 py-3">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E8E93]" />
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E8E93]" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search staff..."
-            className="w-full pl-10 pr-10 py-2.5 bg-[#E5E5EA] rounded-xl text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+            className="w-full rounded-xl bg-[#E5E5EA] px-10 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={clearSearch}
               aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 bg-[#8E8E93] rounded-full flex items-center justify-center"
+              className="absolute right-3 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full bg-[#8E8E93]"
             >
-              <X className="w-3 h-3 text-white" />
+              <X className="size-3 text-white" />
             </button>
           )}
         </div>
@@ -229,7 +236,7 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
 
       {/* Filter Tabs */}
       <div className="px-4 pb-3">
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        <div className="no-scrollbar flex gap-2 overflow-x-auto">
           {FILTER_TABS.map((tab) => {
             const isActive = activeFilter === tab.value;
             return (
@@ -238,13 +245,13 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
                 type="button"
                 onClick={() => setActiveFilter(tab.value)}
                 className={`
-                  flex-shrink-0 px-3 py-1.5 rounded-full text-[13px] font-medium
+                  shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium
                   transition-colors
                   ${
-                    isActive
-                      ? 'bg-[#007AFF] text-white'
-                      : 'bg-[#E5E5EA] text-[#8E8E93]'
-                  }
+              isActive
+                ? 'bg-[#007AFF] text-white'
+                : 'bg-[#E5E5EA] text-[#8E8E93]'
+              }
                 `}
               >
                 {tab.label}
@@ -256,36 +263,42 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pb-20">
-        {loading ? (
-          <LoadingSkeleton />
-        ) : error ? (
-          <ErrorState message={error} onRetry={fetchStaff} />
-        ) : staff.length === 0 ? (
-          <EmptyState filter={activeFilter} searchQuery={searchQuery} />
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={staff.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="bg-white mx-4 rounded-[12px] overflow-hidden shadow-sm">
-                {staff.map((member, index) => (
-                  <SortableStaffCard
-                    key={member.id}
-                    staff={member}
-                    isLast={index === staff.length - 1}
-                    onClick={() => onStaffSelect(member)}
-                    isDraggable={isDraggable}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
+        {loading
+          ? (
+              <LoadingSkeleton />
+            )
+          : error
+            ? (
+                <ErrorState message={error} onRetry={fetchStaff} />
+              )
+            : staff.length === 0
+              ? (
+                  <EmptyState filter={activeFilter} searchQuery={searchQuery} />
+                )
+              : (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext
+                      items={staff.map(s => s.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="mx-4 overflow-hidden rounded-[12px] bg-white shadow-sm">
+                        {staff.map((member, index) => (
+                          <SortableStaffCard
+                            key={member.id}
+                            staff={member}
+                            isLast={index === staff.length - 1}
+                            onClick={() => onStaffSelect(member)}
+                            isDraggable={isDraggable}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                )}
       </div>
 
       {/* Floating Add Button */}
@@ -293,12 +306,12 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
         type="button"
         onClick={onAddStaff}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-24 right-5 w-14 h-14 bg-[#007AFF] rounded-full shadow-lg flex items-center justify-center"
+        className="fixed bottom-24 right-5 flex size-14 items-center justify-center rounded-full bg-[#007AFF] shadow-lg"
         style={{
           boxShadow: '0 4px 20px rgba(0, 122, 255, 0.4)',
         }}
       >
-        <Plus className="w-6 h-6 text-white" />
+        <Plus className="size-6 text-white" />
       </motion.button>
     </div>
   );
@@ -310,13 +323,13 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
 
 function LoadingSkeleton() {
   return (
-    <div className="bg-white mx-4 rounded-[12px] overflow-hidden shadow-sm animate-pulse">
-      {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="flex items-center px-4 py-4">
-          <div className="w-14 h-14 rounded-full bg-gray-200 mr-3" />
+    <div className="mx-4 animate-pulse overflow-hidden rounded-[12px] bg-white shadow-sm">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="flex items-center p-4">
+          <div className="mr-3 size-14 rounded-full bg-gray-200" />
           <div className="flex-1">
-            <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
-            <div className="h-3 bg-gray-100 rounded w-20" />
+            <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
+            <div className="h-3 w-20 rounded bg-gray-100" />
           </div>
         </div>
       ))}
@@ -336,18 +349,18 @@ function EmptyState({ filter, searchQuery }: { filter: FilterTab; searchQuery: s
     title = 'No Results';
     message = `No staff found matching "${searchQuery}"`;
   } else if (filter !== 'all') {
-    const filterLabel = FILTER_TABS.find((t) => t.value === filter)?.label ?? filter;
+    const filterLabel = FILTER_TABS.find(t => t.value === filter)?.label ?? filter;
     title = `No ${filterLabel} Staff`;
     message = `No staff members are currently ${filter}`;
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-8">
-      <div className="w-16 h-16 rounded-full bg-[#F2F2F7] flex items-center justify-center mb-4">
-        <User className="w-8 h-8 text-[#8E8E93]" />
+    <div className="flex flex-col items-center justify-center px-8 py-20">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
+        <User className="size-8 text-[#8E8E93]" />
       </div>
-      <h3 className="text-[17px] font-semibold text-[#1C1C1E] mb-1">{title}</h3>
-      <p className="text-[15px] text-[#8E8E93] text-center">{message}</p>
+      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">{title}</h3>
+      <p className="text-center text-[15px] text-[#8E8E93]">{message}</p>
     </div>
   );
 }
@@ -358,16 +371,16 @@ function EmptyState({ filter, searchQuery }: { filter: FilterTab; searchQuery: s
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 px-8">
-      <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">
-        <X className="w-8 h-8 text-red-500" />
+    <div className="flex flex-col items-center justify-center px-8 py-20">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-red-100">
+        <X className="size-8 text-red-500" />
       </div>
-      <h3 className="text-[17px] font-semibold text-[#1C1C1E] mb-1">Error</h3>
-      <p className="text-[15px] text-[#8E8E93] text-center mb-4">{message}</p>
+      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">Error</h3>
+      <p className="mb-4 text-center text-[15px] text-[#8E8E93]">{message}</p>
       <button
         type="button"
         onClick={onRetry}
-        className="px-4 py-2 bg-[#007AFF] text-white rounded-lg text-[15px] font-medium"
+        className="rounded-lg bg-[#007AFF] px-4 py-2 text-[15px] font-medium text-white"
       >
         Try Again
       </button>

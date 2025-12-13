@@ -9,31 +9,31 @@ import { nanoid } from 'nanoid';
 
 import { db } from '@/libs/DB';
 import {
+  type NotificationRecipientRole,
   notificationSchema,
   type NotificationType,
-  type NotificationRecipientRole,
 } from '@/models/Schema';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface CreateStaffNotificationParams {
+export type CreateStaffNotificationParams = {
   salonId: string;
   technicianId: string;
   type: NotificationType;
   title: string;
   body: string;
   metadata?: Record<string, unknown>;
-}
+};
 
-export interface CreateAdminNotificationParams {
+export type CreateAdminNotificationParams = {
   salonId: string;
   type: NotificationType;
   title: string;
   body: string;
   metadata?: Record<string, unknown>;
-}
+};
 
 // =============================================================================
 // CREATE NOTIFICATIONS
@@ -130,7 +130,7 @@ export function buildOverrideDecisionNotification(params: {
 }): { title: string; body: string } {
   const { status, date, type } = params;
 
-  const formattedDate = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+  const formattedDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',

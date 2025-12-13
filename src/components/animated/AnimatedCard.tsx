@@ -4,9 +4,9 @@ import { motion } from 'framer-motion';
 import { type ReactNode, useCallback } from 'react';
 
 import { ANIMATION } from '@/libs/animations';
-import { triggerHaptic, type HapticType } from '@/libs/haptics';
+import { type HapticType, triggerHaptic } from '@/libs/haptics';
 
-interface AnimatedCardProps {
+type AnimatedCardProps = {
   /** Card content */
   children: ReactNode;
   /** Click handler */
@@ -27,7 +27,7 @@ interface AnimatedCardProps {
   showGlow?: boolean;
   /** Aria label for accessibility */
   ariaLabel?: string;
-}
+};
 
 /**
  * AnimatedCard
@@ -62,7 +62,9 @@ export function AnimatedCard({
   ariaLabel,
 }: AnimatedCardProps) {
   const handlePress = useCallback(() => {
-    if (disabled) return;
+    if (disabled) {
+      return;
+    }
     if (haptic) {
       triggerHaptic(haptic);
     }

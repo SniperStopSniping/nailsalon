@@ -19,7 +19,7 @@ const colors = {
   systemRed: '#FF3B30',
 };
 
-export interface IOSWidgetProps {
+export type IOSWidgetProps = {
   /** Widget title label */
   title: string;
   /** Optional colored indicator dot */
@@ -33,7 +33,7 @@ export interface IOSWidgetProps {
   /** Size variant */
   size?: 'small' | 'medium' | 'large';
   className?: string;
-}
+};
 
 export function IOSWidget({
   title,
@@ -151,9 +151,13 @@ export function IOSTrend({
         }}
       >
         {isPositive ? '↑' : '↓'}
-        {Math.abs(value)}%
+        {Math.abs(value)}
+        %
       </span>
-      <span style={{ color: colors.labelSecondary }}> {label}</span>
+      <span style={{ color: colors.labelSecondary }}>
+        {' '}
+        {label}
+      </span>
     </span>
   );
 }
@@ -341,4 +345,3 @@ export function IOSStaffRow({
     </div>
   );
 }
-

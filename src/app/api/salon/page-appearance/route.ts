@@ -1,6 +1,6 @@
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { NextResponse, type NextRequest } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 
 import { db } from '@/libs/DB';
 import { salonPageAppearanceSchema, THEMEABLE_PAGES } from '@/models/Schema';
@@ -23,7 +23,7 @@ export async function GET() {
 
     // Build a complete list with defaults for pages that don't have rows yet
     const result = THEMEABLE_PAGES.map((pageName) => {
-      const existing = appearances.find((a) => a.pageName === pageName);
+      const existing = appearances.find(a => a.pageName === pageName);
       if (existing) {
         return {
           pageName: existing.pageName,
@@ -136,6 +136,3 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
-
-
-

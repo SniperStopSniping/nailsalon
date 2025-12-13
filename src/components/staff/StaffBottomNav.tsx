@@ -18,9 +18,9 @@ import { themeVars } from '@/theme';
 
 type NavItem = 'home' | 'photos' | 'schedule' | 'earnings';
 
-interface StaffBottomNavProps {
+type StaffBottomNavProps = {
   activeItem: NavItem;
-}
+};
 
 // =============================================================================
 // COMPONENT
@@ -41,15 +41,15 @@ export function StaffBottomNav({ activeItem }: StaffBottomNavProps) {
     { id: 'earnings', label: 'Earnings', icon: '💰', path: `/${locale}/staff/earnings`, visible: showEarnings },
   ];
 
-  const visibleItems = navItems.filter((item) => item.visible);
+  const visibleItems = navItems.filter(item => item.visible);
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 border-t bg-white/95 px-4 py-3 backdrop-blur-sm"
+      className="fixed inset-x-0 bottom-0 border-t bg-white/95 px-4 py-3 backdrop-blur-sm"
       style={{ borderColor: themeVars.cardBorder }}
     >
       <div className="mx-auto flex max-w-2xl items-center justify-around">
-        {visibleItems.map((item) => (
+        {visibleItems.map(item => (
           <button
             key={item.id}
             type="button"

@@ -213,6 +213,7 @@ export const themeVars = {
   accentLight: 'var(--theme-accent-light)',
   background: 'var(--theme-background)',
   cardBackground: 'var(--theme-card-background)',
+  cardBg: 'var(--theme-card-background)', // Alias for cardBackground
   surfaceAlt: 'var(--theme-surface-alt)',
   selectedBackground: 'var(--theme-selected-background)',
   accentSelected: 'var(--theme-accent-selected)',
@@ -222,6 +223,7 @@ export const themeVars = {
   borderMuted: 'var(--theme-border-muted)',
   selectedRing: 'var(--theme-selected-ring)',
   titleText: 'var(--theme-title-text)',
+  secondaryText: 'var(--theme-taupe)', // Alias for muted text
   // Premium Glass Theme - Additional semantic colors
   espresso: 'var(--theme-espresso)',
   taupe: 'var(--theme-taupe)',

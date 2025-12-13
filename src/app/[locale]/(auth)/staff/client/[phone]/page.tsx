@@ -12,7 +12,7 @@ import { themeVars } from '@/theme';
 // Types
 // =============================================================================
 
-interface ClientProfile {
+type ClientProfile = {
   client: {
     phone: string;
     name: string | null;
@@ -57,7 +57,7 @@ interface ClientProfile {
     caption: string | null;
     createdAt: string;
   }>;
-}
+};
 
 // =============================================================================
 // Stat Card Component
@@ -107,7 +107,9 @@ export default function StaffClientProfilePage() {
 
   // Fetch client profile
   const fetchProfile = useCallback(async () => {
-    if (!salonSlug || !phone) return;
+    if (!salonSlug || !phone) {
+      return;
+    }
 
     setLoading(true);
     try {
@@ -261,7 +263,9 @@ export default function StaffClientProfilePage() {
                     </div>
                     {profile.client.memberSince && (
                       <div className="mt-1 text-xs text-neutral-400">
-                        Member since {formatDate(profile.client.memberSince)}
+                        Member since
+                        {' '}
+                        {formatDate(profile.client.memberSince)}
                       </div>
                     )}
                   </div>
@@ -290,7 +294,7 @@ export default function StaffClientProfilePage() {
 
             {/* Tabs */}
             <div className="flex gap-1 rounded-xl bg-white p-1 shadow-sm" style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}>
-              {(['photos', 'appointments', 'preferences'] as const).map((tab) => (
+              {(['photos', 'appointments', 'preferences'] as const).map(tab => (
                 <button
                   key={tab}
                   type="button"
@@ -318,86 +322,95 @@ export default function StaffClientProfilePage() {
               <div className="p-4">
                 {/* Photos Tab */}
                 {activeTab === 'photos' && (
-                  profile.photos.length === 0 ? (
-                    <div className="py-8 text-center text-neutral-500">
-                      <div className="mb-2 text-3xl">📸</div>
-                      <p>No photos yet</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2">
-                      {profile.photos.map((photo) => (
-                        <button
-                          key={photo.id}
-                          type="button"
-                          onClick={() => setSelectedPhoto(photo.imageUrl)}
-                          className="relative aspect-square overflow-hidden rounded-xl"
-                        >
-                          <Image
-                            src={photo.thumbnailUrl || photo.imageUrl}
-                            alt={photo.photoType}
-                            fill
-                            className="object-cover transition-transform hover:scale-105"
-                          />
-                          <div
-                            className="absolute bottom-0 left-0 right-0 py-0.5 text-center text-[10px] font-medium text-white"
-                            style={{ backgroundColor: photo.photoType === 'before' ? themeVars.accent : '#22c55e' }}
-                          >
-                            {photo.photoType}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )
+                  profile.photos.length === 0
+                    ? (
+                        <div className="py-8 text-center text-neutral-500">
+                          <div className="mb-2 text-3xl">📸</div>
+                          <p>No photos yet</p>
+                        </div>
+                      )
+                    : (
+                        <div className="grid grid-cols-3 gap-2">
+                          {profile.photos.map(photo => (
+                            <button
+                              key={photo.id}
+                              type="button"
+                              onClick={() => setSelectedPhoto(photo.imageUrl)}
+                              className="relative aspect-square overflow-hidden rounded-xl"
+                            >
+                              <Image
+                                src={photo.thumbnailUrl || photo.imageUrl}
+                                alt={photo.photoType}
+                                fill
+                                className="object-cover transition-transform hover:scale-105"
+                              />
+                              <div
+                                className="absolute inset-x-0 bottom-0 py-0.5 text-center text-[10px] font-medium text-white"
+                                style={{ backgroundColor: photo.photoType === 'before' ? themeVars.accent : '#22c55e' }}
+                              >
+                                {photo.photoType}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )
                 )}
 
                 {/* Appointments Tab */}
                 {activeTab === 'appointments' && (
-                  profile.appointments.length === 0 ? (
-                    <div className="py-8 text-center text-neutral-500">
-                      <div className="mb-2 text-3xl">📅</div>
-                      <p>No appointment history</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {profile.appointments.slice(0, 10).map((appt) => (
-                        <div
-                          key={appt.id}
-                          className="rounded-xl p-3"
-                          style={{ backgroundColor: themeVars.surfaceAlt }}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="font-medium text-neutral-900">
-                                {appt.services.join(', ')}
-                              </div>
-                              <div className="text-sm text-neutral-500">
-                                {formatDate(appt.startTime)} at {formatTime(appt.startTime)}
-                              </div>
-                              {appt.technicianName && (
-                                <div className="mt-1 text-xs" style={{ color: themeVars.accent }}>
-                                  with {appt.technicianName}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <div className="font-bold" style={{ color: themeVars.primary }}>
-                                {formatPrice(appt.totalPrice)}
-                              </div>
-                              <div
-                                className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-                                style={{
-                                  backgroundColor: appt.status === 'completed' ? '#dcfce7' : themeVars.selectedBackground,
-                                  color: appt.status === 'completed' ? '#166534' : themeVars.titleText,
-                                }}
-                              >
-                                {appt.status}
-                              </div>
-                            </div>
-                          </div>
+                  profile.appointments.length === 0
+                    ? (
+                        <div className="py-8 text-center text-neutral-500">
+                          <div className="mb-2 text-3xl">📅</div>
+                          <p>No appointment history</p>
                         </div>
-                      ))}
-                    </div>
-                  )
+                      )
+                    : (
+                        <div className="space-y-3">
+                          {profile.appointments.slice(0, 10).map(appt => (
+                            <div
+                              key={appt.id}
+                              className="rounded-xl p-3"
+                              style={{ backgroundColor: themeVars.surfaceAlt }}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="font-medium text-neutral-900">
+                                    {appt.services.join(', ')}
+                                  </div>
+                                  <div className="text-sm text-neutral-500">
+                                    {formatDate(appt.startTime)}
+                                    {' '}
+                                    at
+                                    {formatTime(appt.startTime)}
+                                  </div>
+                                  {appt.technicianName && (
+                                    <div className="mt-1 text-xs" style={{ color: themeVars.accent }}>
+                                      with
+                                      {' '}
+                                      {appt.technicianName}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-bold" style={{ color: themeVars.primary }}>
+                                    {formatPrice(appt.totalPrice)}
+                                  </div>
+                                  <div
+                                    className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                                    style={{
+                                      backgroundColor: appt.status === 'completed' ? '#dcfce7' : themeVars.selectedBackground,
+                                      color: appt.status === 'completed' ? '#166534' : themeVars.titleText,
+                                    }}
+                                  >
+                                    {appt.status}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
                 )}
 
                 {/* Preferences Tab */}
@@ -419,7 +432,7 @@ export default function StaffClientProfilePage() {
                           {profile.preferences.nailLength && (
                             <PreferenceTag label={`Length: ${profile.preferences.nailLength}`} />
                           )}
-                          {profile.preferences.finishes?.map((f) => (
+                          {profile.preferences.finishes?.map(f => (
                             <PreferenceTag key={f} label={f} />
                           ))}
                         </div>
@@ -430,7 +443,7 @@ export default function StaffClientProfilePage() {
                         <div>
                           <div className="mb-2 text-sm font-medium text-neutral-600">Favorite Colors</div>
                           <div className="flex flex-wrap gap-2">
-                            {profile.preferences.colorFamilies.map((c) => (
+                            {profile.preferences.colorFamilies.map(c => (
                               <PreferenceTag key={c} label={c} />
                             ))}
                           </div>
@@ -442,7 +455,7 @@ export default function StaffClientProfilePage() {
                         <div>
                           <div className="mb-2 text-sm font-medium text-red-600">⚠️ Sensitivities</div>
                           <div className="flex flex-wrap gap-2">
-                            {profile.preferences.sensitivities.map((s) => (
+                            {profile.preferences.sensitivities.map(s => (
                               <span key={s} className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                 {s}
                               </span>
@@ -482,7 +495,7 @@ export default function StaffClientProfilePage() {
                             {profile.preferences.conversationLevel && (
                               <PreferenceTag label={`💬 ${profile.preferences.conversationLevel}`} />
                             )}
-                            {profile.preferences.beveragePreference?.map((b) => (
+                            {profile.preferences.beveragePreference?.map(b => (
                               <PreferenceTag key={b} label={`☕ ${b}`} />
                             ))}
                           </div>
@@ -532,4 +545,3 @@ export default function StaffClientProfilePage() {
     </div>
   );
 }
-

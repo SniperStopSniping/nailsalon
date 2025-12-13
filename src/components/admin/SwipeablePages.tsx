@@ -11,9 +11,10 @@
  * - Pull-to-refresh on first page
  */
 
-import { motion, useAnimation, PanInfo } from 'framer-motion';
-import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import type { PanInfo } from 'framer-motion';
+import { motion, useAnimation } from 'framer-motion';
 import { RefreshCw } from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 // iOS Spring Physics Config
 const SPRING_CONFIG = {
@@ -30,13 +31,13 @@ const VELOCITY_THRESHOLD = 500;
 const PULL_THRESHOLD = 80;
 const PULL_MAX = 120;
 
-interface SwipeablePagesProps {
+type SwipeablePagesProps = {
   children: ReactNode[];
   onPageChange?: (page: number) => void;
   onRefresh?: () => Promise<void>;
   initialPage?: number;
   lastUpdated?: Date | null;
-}
+};
 
 export function SwipeablePages({
   children,
@@ -98,11 +99,13 @@ export function SwipeablePages({
 
   // Handle touch move for pull-to-refresh
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!canPull || pullStartY.current === null || isRefreshing) return;
-    
+    if (!canPull || pullStartY.current === null || isRefreshing) {
+      return;
+    }
+
     const currentY = e.touches[0]?.clientY ?? 0;
     const diff = currentY - pullStartY.current;
-    
+
     if (diff > 0 && checkScrollTop()) {
       // Apply resistance to pull
       const resistance = 0.5;
@@ -116,7 +119,7 @@ export function SwipeablePages({
     if (pullDistance >= PULL_THRESHOLD && onRefresh && !isRefreshing) {
       setIsRefreshing(true);
       setPullDistance(PULL_THRESHOLD); // Keep at threshold during refresh
-      
+
       try {
         await onRefresh();
       } finally {
@@ -152,7 +155,9 @@ export function SwipeablePages({
 
   // Format last updated time
   const formatLastUpdated = (date: Date | null | undefined): string => {
-    if (!date) return '';
+    if (!date) {
+      return '';
+    }
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -163,7 +168,7 @@ export function SwipeablePages({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden"
+      className="relative size-full overflow-hidden"
       style={{ touchAction: 'pan-y' }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -171,9 +176,9 @@ export function SwipeablePages({
     >
       {/* Pull-to-refresh indicator */}
       {currentPage === 0 && (pullDistance > 0 || isRefreshing) && (
-        <div 
-          className="absolute left-0 right-0 flex flex-col items-center justify-end z-10 pointer-events-none"
-          style={{ 
+        <div
+          className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center justify-end"
+          style={{
             height: pullDistance,
             top: 0,
             transition: isRefreshing ? 'none' : 'height 0.1s ease-out',
@@ -181,26 +186,28 @@ export function SwipeablePages({
         >
           <motion.div
             className="flex flex-col items-center pb-2"
-            animate={{ 
+            animate={{
               rotate: isRefreshing ? 360 : pullDistance >= PULL_THRESHOLD ? 180 : 0,
             }}
-            transition={{ 
-              rotate: isRefreshing 
+            transition={{
+              rotate: isRefreshing
                 ? { repeat: Infinity, duration: 1, ease: 'linear' }
-                : { duration: 0.2 }
+                : { duration: 0.2 },
             }}
           >
-            <RefreshCw 
-              className={`w-6 h-6 ${pullDistance >= PULL_THRESHOLD || isRefreshing ? 'text-[#007AFF]' : 'text-[#8E8E93]'}`}
+            <RefreshCw
+              className={`size-6 ${pullDistance >= PULL_THRESHOLD || isRefreshing ? 'text-[#007AFF]' : 'text-[#8E8E93]'}`}
             />
           </motion.div>
           {lastUpdated && !isRefreshing && pullDistance >= PULL_THRESHOLD && (
-            <span className="text-[11px] text-[#8E8E93] pb-1">
-              Last updated {formatLastUpdated(lastUpdated)}
+            <span className="pb-1 text-[11px] text-[#8E8E93]">
+              Last updated
+              {' '}
+              {formatLastUpdated(lastUpdated)}
             </span>
           )}
           {isRefreshing && (
-            <span className="text-[11px] text-[#007AFF] pb-1">
+            <span className="pb-1 text-[11px] text-[#007AFF]">
               Updating...
             </span>
           )}
@@ -209,7 +216,7 @@ export function SwipeablePages({
 
       <motion.div
         className="flex h-full"
-        style={{ 
+        style={{
           width: `${children.length * 100}%`,
           marginTop: pullDistance,
           transition: isRefreshing ? 'none' : 'margin-top 0.1s ease-out',
@@ -226,7 +233,9 @@ export function SwipeablePages({
         {children.map((child, index) => (
           <div
             key={index}
-            ref={(el) => { pageRefs.current[index] = el; }}
+            ref={(el) => {
+              pageRefs.current[index] = el;
+            }}
             className="h-full overflow-y-auto"
             style={{ width: containerWidth || '100vw' }}
           >
@@ -241,11 +250,11 @@ export function SwipeablePages({
 /**
  * Page Indicator Dots
  */
-interface PageIndicatorProps {
+type PageIndicatorProps = {
   pageCount: number;
   currentPage: number;
   onPageSelect?: (page: number) => void;
-}
+};
 
 export function PageIndicator({
   pageCount,

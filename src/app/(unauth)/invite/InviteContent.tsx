@@ -65,62 +65,62 @@ const HeroCard = () => (
       <motion.div
         variants={meshVariant}
         animate="animate"
-        className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full opacity-60 blur-[80px] bg-[var(--n5-accent-soft)]"
+        className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-accent-soft)] opacity-60 blur-[80px]"
       />
       <motion.div
         variants={meshVariant}
         animate="animate"
         transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full opacity-40 blur-[60px] bg-[var(--n5-bg-highlight)]"
+        className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-40 blur-[60px]"
       />
     </div>
 
     {/* Glass Surface */}
     <div
-      className="absolute inset-0 bg-[var(--n5-bg-card)]/30 backdrop-blur-[20px]"
+      className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
       style={{ borderRadius: n5.radiusCard }}
     />
 
     {/* Content */}
     <div className="relative z-10 flex flex-col items-center text-center">
       <div
-        className="mb-4 flex size-16 items-center justify-center shadow-sm bg-[var(--n5-accent)]"
+        className="mb-4 flex size-16 items-center justify-center bg-[var(--n5-accent)] shadow-sm"
         style={{ borderRadius: n5.radiusPill }}
       >
         <Gift className="size-8 text-white" strokeWidth={1.5} />
       </div>
 
-      <h2 className="mb-2 font-heading text-2xl font-semibold text-[var(--n5-ink-main)]">
+      <h2 className="font-heading mb-2 text-2xl font-semibold text-[var(--n5-ink-main)]">
         Share the Love
       </h2>
 
-      <p className="mb-6 max-w-xs text-sm leading-relaxed text-[var(--n5-ink-muted)] font-body">
+      <p className="font-body mb-6 max-w-xs text-sm leading-relaxed text-[var(--n5-ink-muted)]">
         Invite friends to experience our salon. When they book, you both get rewarded!
       </p>
 
       {/* Reward Pills */}
       <div className="flex items-center gap-3">
         <div
-          className="flex items-center gap-2 border px-4 py-2 bg-[var(--n5-bg-surface)]"
+          className="flex items-center gap-2 border bg-[var(--n5-bg-surface)] px-4 py-2"
           style={{
             borderRadius: n5.radiusPill,
             borderColor: 'var(--n5-border)',
           }}
         >
           <Sparkles className="size-4 text-[var(--n5-accent)]" />
-          <span className="text-xs font-bold text-[var(--n5-ink-main)] font-body">
+          <span className="font-body text-xs font-bold text-[var(--n5-ink-main)]">
             You get $35 OFF
           </span>
         </div>
         <div
-          className="flex items-center gap-2 border px-4 py-2 bg-[var(--n5-bg-surface)]"
+          className="flex items-center gap-2 border bg-[var(--n5-bg-surface)] px-4 py-2"
           style={{
             borderRadius: n5.radiusPill,
             borderColor: 'var(--n5-border)',
           }}
         >
           <Gift className="size-4 text-[var(--n5-success)]" />
-          <span className="text-xs font-bold text-[var(--n5-ink-main)] font-body">
+          <span className="font-body text-xs font-bold text-[var(--n5-ink-main)]">
             They get FREE mani
           </span>
         </div>
@@ -167,7 +167,7 @@ const ActionCard = ({
           <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
             {title}
           </h3>
-          <p className="text-xs text-[var(--n5-ink-muted)] font-body">{description}</p>
+          <p className="font-body text-xs text-[var(--n5-ink-muted)]">{description}</p>
         </div>
       </div>
       {children}
@@ -201,17 +201,17 @@ const SettingsItem = ({
   >
     <div className="flex items-center space-x-3">
       <div
-        className="p-2 transition-colors group-hover:text-[var(--n5-accent-hover)] bg-[var(--n5-bg-surface)] text-[var(--n5-accent)]"
+        className="bg-[var(--n5-bg-surface)] p-2 text-[var(--n5-accent)] transition-colors group-hover:text-[var(--n5-accent-hover)]"
         style={{ borderRadius: n5.radiusSm }}
       >
         <Icon size={18} strokeWidth={2} />
       </div>
-      <span className="text-[15px] font-medium text-[var(--n5-ink-main)] font-body">{label}</span>
+      <span className="font-body text-[15px] font-medium text-[var(--n5-ink-main)]">{label}</span>
     </div>
     <div className="flex items-center space-x-2">
       {badge && (
         <span
-          className="px-2 py-1 text-[10px] font-bold bg-[var(--n5-success)]/10 text-[var(--n5-success)] font-body"
+          className="bg-[var(--n5-success)]/10 font-body px-2 py-1 text-[10px] font-bold text-[var(--n5-success)]"
           style={{ borderRadius: n5.radiusPill }}
         >
           {badge}
@@ -219,7 +219,7 @@ const SettingsItem = ({
       )}
       <ChevronRight
         size={16}
-        className="transition-colors group-hover:text-[var(--n5-accent)] text-[var(--n5-ink-muted)]"
+        className="text-[var(--n5-ink-muted)] transition-colors group-hover:text-[var(--n5-accent)]"
       />
     </div>
   </button>
@@ -256,7 +256,9 @@ export default function InviteContent() {
       .find(row => row.startsWith('client_name='));
     if (clientNameCookie) {
       const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
-      if (name) setUserName(name);
+      if (name) {
+        setUserName(name);
+      }
     }
 
     const clientPhoneCookie = document.cookie
@@ -264,7 +266,9 @@ export default function InviteContent() {
       .find(row => row.startsWith('client_phone='));
     if (clientPhoneCookie) {
       const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) setUserPhone(phone);
+      if (phone) {
+        setUserPhone(phone);
+      }
     }
   }, []);
 
@@ -272,8 +276,12 @@ export default function InviteContent() {
   const normalizedUserPhone = userPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
 
   const handleSendReferral = useCallback(async () => {
-    if (sendingRef.current || isSending) return;
-    if (!friendPhone.trim() || friendPhone.length !== 10) return;
+    if (sendingRef.current || isSending) {
+      return;
+    }
+    if (!friendPhone.trim() || friendPhone.length !== 10) {
+      return;
+    }
 
     sendingRef.current = true;
     setIsSending(true);
@@ -380,7 +388,7 @@ export default function InviteContent() {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] shadow-sm transition-transform active:scale-90 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] shadow-sm transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
         >
           <ChevronRight className="size-5 rotate-180" />
@@ -388,11 +396,13 @@ export default function InviteContent() {
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
           Refer a Friend
         </span>
-        <div className="w-10" /> {/* Spacer for centering */}
+        <div className="w-10" />
+        {' '}
+        {/* Spacer for centering */}
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-6 px-5 pb-28 pt-28">
+      <main className="mx-auto max-w-lg space-y-6 px-5 py-28">
         {/* Hero Card */}
         <HeroCard />
 
@@ -406,7 +416,7 @@ export default function InviteContent() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <div
-                className="flex items-center px-3 py-2.5 text-xs font-medium bg-[var(--n5-bg-surface)] text-[var(--n5-ink-muted)] font-body"
+                className="font-body flex items-center bg-[var(--n5-bg-surface)] px-3 py-2.5 text-xs font-medium text-[var(--n5-ink-muted)]"
                 style={{ borderRadius: n5.radiusPill }}
               >
                 +1
@@ -422,7 +432,7 @@ export default function InviteContent() {
                   setError(null);
                 }}
                 placeholder="Friend's phone number"
-                className="flex-1 px-4 py-2.5 text-sm font-body bg-[var(--n5-bg-surface)] text-[var(--n5-ink-main)] outline-none placeholder:text-[var(--n5-ink-muted)]"
+                className="font-body flex-1 bg-[var(--n5-bg-surface)] px-4 py-2.5 text-sm text-[var(--n5-ink-main)] outline-none placeholder:text-[var(--n5-ink-muted)]"
                 style={{ borderRadius: n5.radiusPill }}
                 disabled={isSending}
               />
@@ -434,7 +444,7 @@ export default function InviteContent() {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="text-center text-xs font-body text-[var(--n5-error)]"
+                  className="font-body text-center text-xs text-[var(--n5-error)]"
                 >
                   {error}
                 </motion.p>
@@ -445,24 +455,26 @@ export default function InviteContent() {
               type="button"
               onClick={handleSendReferral}
               disabled={!isValidPhone(friendPhone) || isSending}
-              className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 bg-[var(--n5-accent)] font-body"
+              className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-3 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 borderRadius: n5.radiusMd,
                 boxShadow: n5.shadowSm,
               }}
             >
-              {isSending ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  className="size-4 rounded-full border-2 border-white/30 border-t-white"
-                />
-              ) : (
-                <>
-                  <Send className="size-4" />
-                  <span>Send Invite</span>
-                </>
-              )}
+              {isSending
+                ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="size-4 rounded-full border-2 border-white/30 border-t-white"
+                    />
+                  )
+                : (
+                    <>
+                      <Send className="size-4" />
+                      <span>Send Invite</span>
+                    </>
+                  )}
             </button>
           </div>
         </ActionCard>
@@ -482,7 +494,7 @@ export default function InviteContent() {
                 className="overflow-hidden"
               >
                 <p
-                  className="break-all p-3 text-xs font-body bg-[var(--n5-bg-surface)] text-[var(--n5-ink-main)]"
+                  className="font-body break-all bg-[var(--n5-bg-surface)] p-3 text-xs text-[var(--n5-ink-main)]"
                   style={{ borderRadius: n5.radiusMd }}
                 >
                   {referralLink}
@@ -502,23 +514,27 @@ export default function InviteContent() {
               )}
               style={{ borderRadius: n5.radiusMd }}
             >
-              {isGeneratingLink ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  className="size-4 rounded-full border-2 border-current/30 border-t-current"
-                />
-              ) : copied ? (
-                <>
-                  <Check className="size-4" />
-                  <span>Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="size-4" />
-                  <span>Copy Referral Link</span>
-                </>
-              )}
+              {isGeneratingLink
+                ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="border-current/30 size-4 rounded-full border-2 border-t-current"
+                    />
+                  )
+                : copied
+                  ? (
+                      <>
+                        <Check className="size-4" />
+                        <span>Copied!</span>
+                      </>
+                    )
+                  : (
+                      <>
+                        <Copy className="size-4" />
+                        <span>Copy Referral Link</span>
+                      </>
+                    )}
             </button>
           </div>
         </ActionCard>
@@ -529,7 +545,7 @@ export default function InviteContent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.3 }}
         >
-          <h3 className="mb-2 px-4 text-xs font-bold uppercase tracking-widest opacity-80 text-[var(--n5-ink-muted)] font-heading">
+          <h3 className="font-heading mb-2 px-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] opacity-80">
             More Ways to Earn
           </h3>
           <div

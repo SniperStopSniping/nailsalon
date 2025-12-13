@@ -7,8 +7,8 @@
  * Supports prefilling phone and salon from URL query params (from SMS invite).
  */
 
-import { useRouter, useSearchParams, useParams } from 'next/navigation';
-import { useState, useEffect, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 
 // =============================================================================
 // Types
@@ -22,9 +22,15 @@ type Step = 'phone' | 'code';
 
 function formatPhoneDisplay(value: string): string {
   const digits = value.replace(/\D/g, '').slice(0, 10);
-  if (digits.length === 0) return '';
-  if (digits.length <= 3) return `(${digits}`;
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  if (digits.length === 0) {
+    return '';
+  }
+  if (digits.length <= 3) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  }
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
@@ -44,7 +50,7 @@ function StaffLoginContent() {
 
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
-  const [salonSlug] = useState(prefilledSalon);
+  const [salonSlug, setSalonSlug] = useState(prefilledSalon);
   const [code, setCode] = useState('');
   const [techName, setTechName] = useState('');
   const [error, setError] = useState('');
@@ -56,12 +62,21 @@ function StaffLoginContent() {
       // Decode and format the phone number
       const decoded = decodeURIComponent(prefilledPhone).replace(/\D/g, '');
       // Remove country code if present
-      const tenDigit = decoded.length === 11 && decoded.startsWith('1') 
-        ? decoded.slice(1) 
+      const tenDigit = decoded.length === 11 && decoded.startsWith('1')
+        ? decoded.slice(1)
         : decoded;
       setPhone(tenDigit);
     }
   }, [prefilledPhone]);
+
+  // Set prefilled salon on mount / when URL params change
+  // Don't overwrite if already set (e.g., user already has a value)
+  useEffect(() => {
+    if (prefilledSalon && !salonSlug) {
+      const normalized = prefilledSalon.trim().toLowerCase();
+      setSalonSlug(normalized);
+    }
+  }, [prefilledSalon, salonSlug]);
 
   // Handle phone input change
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -163,29 +178,28 @@ function StaffLoginContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#F8F4F0] to-[#EDE8E3] flex flex-col">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-[#F8F4F0] to-[#EDE8E3]">
       {/* Header */}
-      <div className="pt-12 pb-8 px-6 text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[#D4A574] to-[#C4956A] flex items-center justify-center shadow-lg">
+      <div className="px-6 pb-8 pt-12 text-center">
+        <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#D4A574] to-[#C4956A] shadow-lg">
           <span className="text-3xl">💅</span>
         </div>
         <h1 className="text-2xl font-bold text-[#2C2C2C]">Staff Login</h1>
-        <p className="text-[#6B6B6B] mt-1">
-          {step === 'phone' 
+        <p className="mt-1 text-[#6B6B6B]">
+          {step === 'phone'
             ? 'Enter your phone number to sign in'
-            : `Welcome back${techName ? `, ${techName}` : ''}!`
-          }
+            : `Welcome back${techName ? `, ${techName}` : ''}!`}
         </p>
       </div>
 
       {/* Form */}
       <div className="flex-1 px-6">
-        <form onSubmit={handleSubmit} className="max-w-sm mx-auto">
+        <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
           {step === 'phone' ? (
             <>
               {/* Phone Input */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-[#4A4A4A] mb-2">
+                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
                   Phone Number
                 </label>
                 <input
@@ -194,32 +208,35 @@ function StaffLoginContent() {
                   onChange={handlePhoneChange}
                   placeholder="(416) 555-1234"
                   autoFocus
-                  className="w-full px-4 py-3 bg-white rounded-xl border border-[#E0D6CC] text-[#2C2C2C] text-lg focus:outline-none focus:ring-2 focus:ring-[#D4A574] focus:border-transparent"
+                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
                 />
               </div>
 
-              {/* Salon Display (if prefilled) */}
-              {salonSlug && (
-                <div className="mb-4 px-4 py-3 bg-white/50 rounded-xl border border-[#E0D6CC]">
-                  <span className="text-sm text-[#6B6B6B]">Salon: </span>
-                  <span className="text-sm font-medium text-[#4A4A4A]">{salonSlug}</span>
-                </div>
-              )}
-
-              {/* No salon warning */}
-              {!salonSlug && (
-                <div className="mb-4 px-4 py-3 bg-amber-50 rounded-xl border border-amber-200">
-                  <p className="text-sm text-amber-800">
-                    No salon specified. Please use the login link from your invite SMS.
-                  </p>
-                </div>
-              )}
+              {/* Salon Input */}
+              <div className="mb-4">
+                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
+                  Salon Code
+                </label>
+                <input
+                  type="text"
+                  value={salonSlug}
+                  onChange={(e) => {
+                    setSalonSlug(e.target.value.trim().toLowerCase());
+                    setError('');
+                  }}
+                  placeholder="e.g. luxe-nails"
+                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
+                />
+                <p className="mt-1.5 text-xs text-[#8B8B8B]">
+                  Enter your salon&apos;s code or use the link from your invite SMS
+                </p>
+              </div>
             </>
           ) : (
             <>
               {/* Code Input */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-[#4A4A4A] mb-2">
+                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
                   Verification Code
                 </label>
                 <input
@@ -230,10 +247,12 @@ function StaffLoginContent() {
                   placeholder="123456"
                   autoFocus
                   maxLength={6}
-                  className="w-full px-4 py-3 bg-white rounded-xl border border-[#E0D6CC] text-[#2C2C2C] text-lg text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-[#D4A574] focus:border-transparent"
+                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
                 />
-                <p className="text-sm text-[#6B6B6B] mt-2 text-center">
-                  We sent a 6-digit code to {formatPhoneDisplay(phone)}
+                <p className="mt-2 text-center text-sm text-[#6B6B6B]">
+                  We sent a 6-digit code to
+                  {' '}
+                  {formatPhoneDisplay(phone)}
                 </p>
               </div>
 
@@ -245,7 +264,7 @@ function StaffLoginContent() {
                   setCode('');
                   setError('');
                 }}
-                className="w-full mb-3 text-[#D4A574] text-sm font-medium"
+                className="mb-3 w-full text-sm font-medium text-[#D4A574]"
               >
                 ← Use a different number
               </button>
@@ -254,7 +273,7 @@ function StaffLoginContent() {
 
           {/* Error Message */}
           {error && (
-            <div className="mb-4 px-4 py-3 bg-red-50 rounded-xl border border-red-200">
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
@@ -263,30 +282,35 @@ function StaffLoginContent() {
           <button
             type="submit"
             disabled={loading || (step === 'phone' && (!phone || phone.length !== 10 || !salonSlug))}
-            className="w-full py-3.5 bg-gradient-to-r from-[#D4A574] to-[#C4956A] text-white font-semibold rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg active:scale-[0.98]"
+            className="w-full rounded-xl bg-gradient-to-r from-[#D4A574] to-[#C4956A] py-3.5 font-semibold text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                {step === 'phone' ? 'Sending...' : 'Verifying...'}
-              </span>
-            ) : step === 'phone' ? (
-              'Send Code'
-            ) : (
-              'Sign In'
-            )}
+            {loading
+              ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="size-5 animate-spin" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    {step === 'phone' ? 'Sending...' : 'Verifying...'}
+                  </span>
+                )
+              : step === 'phone'
+                ? (
+                    'Send Code'
+                  )
+                : (
+                    'Sign In'
+                  )}
           </button>
         </form>
       </div>
 
       {/* Footer */}
-      <div className="py-8 px-6 text-center">
+      <div className="px-6 py-8 text-center">
         <p className="text-sm text-[#8B8B8B]">
-          Not a staff member?{' '}
-          <a href={`/${locale}`} className="text-[#D4A574] font-medium">
+          Not a staff member?
+          {' '}
+          <a href={`/${locale}`} className="font-medium text-[#D4A574]">
             Book an appointment
           </a>
         </p>
@@ -301,11 +325,12 @@ function StaffLoginContent() {
 
 export default function StaffLoginPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-b from-[#F8F4F0] to-[#EDE8E3] flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-[#D4A574] border-t-transparent rounded-full" />
+    <Suspense fallback={(
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#F8F4F0] to-[#EDE8E3]">
+        <div className="size-8 animate-spin rounded-full border-4 border-[#D4A574] border-t-transparent" />
       </div>
-    }>
+    )}
+    >
       <StaffLoginContent />
     </Suspense>
   );

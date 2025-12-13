@@ -1,12 +1,12 @@
 /**
  * Direct migration script for admin auth tables
- * 
+ *
  * This bypasses Drizzle's migrator to apply the admin tables directly.
  * Run with: npx tsx scripts/apply-admin-migration.ts
  */
 
-import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { Pool } from 'pg';
 
 // Load env from .env.development.local
 dotenv.config({ path: '.env.development.local' });
@@ -19,7 +19,7 @@ if (!DATABASE_URL) {
 }
 
 console.log('Connecting to database...');
-console.log('DATABASE_URL:', DATABASE_URL.substring(0, 50) + '...');
+console.log('DATABASE_URL:', `${DATABASE_URL.substring(0, 50)}...`);
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -92,7 +92,7 @@ async function main() {
     console.log('Running admin auth migration...');
     await pool.query(migrationSQL);
     console.log('✅ Migration applied successfully!');
-    
+
     // Verify tables exist
     const result = await pool.query(`
       SELECT table_name 
@@ -100,10 +100,9 @@ async function main() {
       WHERE table_schema = 'public' 
       AND table_name LIKE 'admin%'
     `);
-    
+
     console.log('\nAdmin tables in database:');
     result.rows.forEach(row => console.log('  -', row.table_name));
-    
   } catch (error) {
     console.error('Migration failed:', error);
     process.exit(1);

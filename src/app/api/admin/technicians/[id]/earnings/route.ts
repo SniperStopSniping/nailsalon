@@ -1,9 +1,10 @@
-import { eq, and, sql, gte, lt } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { getSalonBySlug } from '@/libs/queries';
-import { technicianSchema, appointmentSchema } from '@/models/Schema';
+import { appointmentSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -23,13 +24,13 @@ const getEarningsSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/technicians/[id]/earnings - Get earnings data
@@ -74,6 +75,12 @@ export async function GET(
       );
     }
 
+    // Step 16.3: Check if staffEarnings module is enabled
+    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'staffEarnings' });
+    if (moduleGuard) {
+      return moduleGuard;
+    }
+
     // Verify technician exists and belongs to salon
     const [technician] = await db
       .select()
@@ -105,14 +112,14 @@ export async function GET(
     defaultFrom.setHours(0, 0, 0, 0);
 
     const fromDate = validated.data.from
-      ? new Date(validated.data.from + 'T00:00:00')
+      ? new Date(`${validated.data.from}T00:00:00`)
       : defaultFrom;
-    
+
     const toDate = validated.data.to
-      ? new Date(validated.data.to + 'T23:59:59')
+      ? new Date(`${validated.data.to}T23:59:59`)
       : new Date(now.setHours(23, 59, 59, 999));
 
-    const commissionRate = technician.commissionRate ? parseFloat(technician.commissionRate) : 0;
+    const commissionRate = technician.commissionRate ? Number.parseFloat(technician.commissionRate) : 0;
 
     // Get summary
     const summaryResult = await db
@@ -168,7 +175,7 @@ export async function GET(
       .groupBy(dateGroupSql)
       .orderBy(dateGroupSql);
 
-    const series = seriesResult.map(row => {
+    const series = seriesResult.map((row) => {
       const rowRevenue = Number(row.totalRevenue);
       const rowTechEarned = Math.round(rowRevenue * commissionRate);
       return {

@@ -188,7 +188,7 @@ const DefaultCardHero = ({
         <h3 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
           No card on file yet
         </h3>
-        <p className="mt-1 text-sm text-[var(--n5-ink-muted)] font-body">
+        <p className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
           Add a card for deposits and easy checkout
         </p>
         <button
@@ -198,7 +198,7 @@ const DefaultCardHero = ({
             onAddCard();
           }}
           aria-label="Add payment method"
-          className="mt-6 px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96] bg-[var(--n5-accent)] font-body"
+          className="font-body mt-6 bg-[var(--n5-accent)] px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96]"
           style={{
             borderRadius: n5.radiusMd,
             boxShadow: n5.shadowSm,
@@ -244,19 +244,19 @@ const DefaultCardHero = ({
               <motion.div
                 variants={meshVariant}
                 animate="animate"
-                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full opacity-80 blur-[80px] bg-[var(--n5-bg-highlight)]"
+                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-80 blur-[80px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full opacity-50 mix-blend-multiply blur-[60px] bg-[var(--n5-accent-soft)]"
+                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-accent-soft)] opacity-50 mix-blend-multiply blur-[60px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 5, duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full opacity-20 blur-[90px] bg-[var(--n5-accent)]"
+                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full bg-[var(--n5-accent)] opacity-20 blur-[90px]"
               />
             </>
           )}
@@ -264,7 +264,7 @@ const DefaultCardHero = ({
 
         {/* B. Glass Surface */}
         <div
-          className="absolute inset-0 bg-[var(--n5-bg-card)]/30 backdrop-blur-[20px]"
+          className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
           style={{ borderRadius: n5.radiusCard }}
         />
 
@@ -277,7 +277,7 @@ const DefaultCardHero = ({
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-2">
               <Shield className="size-4 text-[var(--n5-accent)]" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-90 font-body">
+              <span className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-90">
                 Default Card
               </span>
             </div>
@@ -306,7 +306,7 @@ const DefaultCardHero = ({
           {/* Bottom Row */}
           <div className="flex items-end justify-between">
             <div>
-              <span className="text-[9px] uppercase tracking-widest text-[var(--n5-ink-muted)] font-body">
+              <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-muted)]">
                 Expires
               </span>
               <p className="font-heading text-lg font-semibold leading-none">
@@ -314,7 +314,7 @@ const DefaultCardHero = ({
               </p>
             </div>
             <div
-              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-[var(--n5-accent)]/10 text-[var(--n5-accent)] font-body"
+              className="bg-[var(--n5-accent)]/10 font-body px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--n5-accent)]"
               style={{ borderRadius: n5.radiusPill }}
             >
               Used for deposits
@@ -345,7 +345,7 @@ const SavedCardsList = ({
   return (
     <div className="mt-8">
       <h3
-        className="mb-2 px-4 text-xs font-bold uppercase tracking-widest opacity-80 text-[var(--n5-ink-muted)] font-heading"
+        className="font-heading mb-2 px-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] opacity-80"
       >
         Saved Cards
       </h3>
@@ -372,21 +372,21 @@ const SavedCardsList = ({
                 <BrandIcon brand={card.brand} size={36} />
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[15px] font-medium text-[var(--n5-ink-main)] font-body">
+                    <span className="font-body text-[15px] font-medium text-[var(--n5-ink-main)]">
                       ····
                       {' '}
                       {card.last4}
                     </span>
                     {card.isDefault && (
                       <span
-                        className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-[var(--n5-accent)]/10 text-[var(--n5-accent)] font-body"
+                        className="bg-[var(--n5-accent)]/10 font-body px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--n5-accent)]"
                         style={{ borderRadius: n5.radiusPill }}
                       >
                         Default
                       </span>
                     )}
                   </div>
-                  <span className="text-[13px] text-[var(--n5-ink-muted)] font-body">
+                  <span className="font-body text-[13px] text-[var(--n5-ink-muted)]">
                     Expires
                     {' '}
                     {expiry}
@@ -403,7 +403,7 @@ const SavedCardsList = ({
                       onSetDefault(card.id);
                     }}
                     aria-label={`Set card ending in ${card.last4} as default`}
-                    className="px-3 py-1.5 text-[11px] font-semibold transition-colors hover:bg-[var(--n5-accent)]/10 text-[var(--n5-accent)] font-body"
+                    className="hover:bg-[var(--n5-accent)]/10 font-body px-3 py-1.5 text-[11px] font-semibold text-[var(--n5-accent)] transition-colors"
                     style={{ borderRadius: n5.radiusSm }}
                   >
                     Set Default
@@ -416,7 +416,7 @@ const SavedCardsList = ({
                     onRemove(card.id);
                   }}
                   aria-label={`Remove card ending in ${card.last4}`}
-                  className="p-2 transition-colors hover:bg-[var(--n5-error)]/10 text-[var(--n5-ink-muted)] hover:text-[var(--n5-error)]"
+                  className="hover:bg-[var(--n5-error)]/10 p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-error)]"
                   style={{ borderRadius: n5.radiusSm }}
                 >
                   <Trash2 className="size-4" />
@@ -441,7 +441,7 @@ const AddCardButton = ({ onClick }: { onClick: () => void }) => (
       onClick();
     }}
     aria-label="Add new card"
-    className="mt-4 flex w-full items-center justify-center space-x-2 py-4 text-[13px] font-semibold transition-all active:scale-[0.98] bg-[var(--n5-bg-card)] text-[var(--n5-accent)] font-body"
+    className="font-body mt-4 flex w-full items-center justify-center space-x-2 bg-[var(--n5-bg-card)] py-4 text-[13px] font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
     style={{
       borderRadius: n5.radiusMd,
       boxShadow: n5.shadowSm,
@@ -489,7 +489,7 @@ const BillingPreferencesSection = ({
   return (
     <div className="mt-8">
       <h3
-        className="mb-2 px-4 text-xs font-bold uppercase tracking-widest opacity-80 text-[var(--n5-ink-muted)] font-heading"
+        className="font-heading mb-2 px-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] opacity-80"
       >
         Billing Preferences
       </h3>
@@ -518,16 +518,16 @@ const BillingPreferencesSection = ({
           >
             <div className="flex items-center space-x-3">
               <div
-                className="p-2 transition-colors group-hover:text-[var(--n5-accent-hover)] bg-[var(--n5-bg-surface)] text-[var(--n5-accent)]"
+                className="bg-[var(--n5-bg-surface)] p-2 text-[var(--n5-accent)] transition-colors group-hover:text-[var(--n5-accent-hover)]"
                 style={{ borderRadius: n5.radiusSm }}
               >
                 <item.icon size={18} strokeWidth={2} />
               </div>
               <div className="text-left">
-                <span className="text-[15px] font-medium text-[var(--n5-ink-main)] font-body">
+                <span className="font-body text-[15px] font-medium text-[var(--n5-ink-main)]">
                   {item.label}
                 </span>
-                <p className="text-[12px] text-[var(--n5-ink-muted)] font-body">
+                <p className="font-body text-[12px] text-[var(--n5-ink-muted)]">
                   {item.description}
                 </p>
               </div>
@@ -638,18 +638,18 @@ const AddCardSheet = ({
 
               {/* Security Notice */}
               <div
-                className="mb-6 flex items-center space-x-2 px-4 py-3 bg-[var(--n5-bg-surface)]"
+                className="mb-6 flex items-center space-x-2 bg-[var(--n5-bg-surface)] px-4 py-3"
                 style={{ borderRadius: n5.radiusMd }}
               >
                 <Lock className="size-4 text-[var(--n5-success)]" />
-                <p className="text-left text-[12px] text-[var(--n5-ink-muted)] font-body">
+                <p className="font-body text-left text-[12px] text-[var(--n5-ink-muted)]">
                   Your payment info is securely stored by our payment provider. We never see or store your full card number.
                 </p>
               </div>
 
               {/* Stripe Elements Placeholder */}
               <div
-                className="w-full space-y-4 p-4 border border-dashed border-[var(--n5-border)]"
+                className="w-full space-y-4 border border-dashed border-[var(--n5-border)] p-4"
                 style={{ borderRadius: n5.radiusMd }}
               >
                 <div className="h-12 w-full animate-pulse rounded-lg bg-[var(--n5-bg-surface)]" />
@@ -657,7 +657,7 @@ const AddCardSheet = ({
                   <div className="h-12 flex-1 animate-pulse rounded-lg bg-[var(--n5-bg-surface)]" />
                   <div className="h-12 flex-1 animate-pulse rounded-lg bg-[var(--n5-bg-surface)]" />
                 </div>
-                <p className="text-center text-[11px] text-[var(--n5-ink-muted)] font-body italic">
+                <p className="font-body text-center text-[11px] italic text-[var(--n5-ink-muted)]">
                   Stripe Elements will be integrated here
                 </p>
               </div>
@@ -669,7 +669,7 @@ const AddCardSheet = ({
                   triggerHaptic();
                   onClose();
                 }}
-                className="mt-6 w-full py-4 text-[13px] font-bold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] bg-[var(--n5-accent)] font-body"
+                className="font-body mt-6 w-full bg-[var(--n5-accent)] py-4 text-[13px] font-bold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
                 style={{
                   borderRadius: n5.radiusMd,
                   boxShadow: n5.shadowSm,
@@ -717,7 +717,7 @@ const FloatingDock = ({ onHome, onProfile }: { onHome: () => void; onProfile: ()
         triggerHaptic();
         onHome();
       }}
-      className="p-2 transition-colors hover:text-[var(--n5-ink-main)] text-[var(--n5-ink-muted)]"
+      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
       aria-label="Go to Home"
     >
       <Home strokeWidth={2} className="size-6" />
@@ -741,7 +741,7 @@ const FloatingDock = ({ onHome, onProfile }: { onHome: () => void; onProfile: ()
         triggerHaptic();
         onProfile();
       }}
-      className="p-2 transition-colors hover:text-[var(--n5-ink-main)] text-[var(--n5-ink-muted)]"
+      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
       aria-label="Go to Profile"
     >
       <User strokeWidth={2} className="size-6" />
@@ -798,7 +798,7 @@ export default function PaymentMethodsContent() {
   }, []);
 
   const handleRemoveCard = useCallback((cardId: string) => {
-    setCards(prev => {
+    setCards((prev) => {
       const filtered = prev.filter(card => card.id !== cardId);
       // If we removed the default card, make the first remaining card default
       if (filtered.length > 0 && !filtered.some(c => c.isDefault)) {
@@ -836,7 +836,7 @@ export default function PaymentMethodsContent() {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] shadow-sm transition-transform active:scale-90 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] shadow-sm transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
         >
           <ChevronRight className="size-5 rotate-180" />
@@ -846,13 +846,15 @@ export default function PaymentMethodsContent() {
         >
           Payment Methods
         </span>
-        <div className="size-10" /> {/* Spacer for centering */}
+        <div className="size-10" />
+        {' '}
+        {/* Spacer for centering */}
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-2 px-5 pb-28 pt-28">
+      <main className="mx-auto max-w-lg space-y-2 px-5 py-28">
         {/* Subtitle */}
-        <p className="mb-6 text-center text-sm text-[var(--n5-ink-muted)] font-body">
+        <p className="font-body mb-6 text-center text-sm text-[var(--n5-ink-muted)]">
           Manage the cards you use for bookings.
         </p>
 
@@ -889,7 +891,7 @@ export default function PaymentMethodsContent() {
             <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
               Powered by Stripe
             </p>
-            <p className="mt-1 text-[9px] text-[var(--n5-ink-muted)] font-body">
+            <p className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]">
               PCI-DSS Compliant
             </p>
           </div>

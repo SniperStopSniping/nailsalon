@@ -14,7 +14,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-import { ModuleSkeleton, StaffHeader, StaffBottomNav } from '@/components/staff';
+import { ModuleSkeleton, StaffBottomNav, StaffHeader, UpgradeRequiredState } from '@/components/staff';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -28,7 +28,7 @@ type StaffAuthState = 'loading' | 'authed' | 'unauthed';
 
 type DaySchedule = { start: string; end: string } | null;
 
-interface WeeklySchedule {
+type WeeklySchedule = {
   sunday?: DaySchedule;
   monday?: DaySchedule;
   tuesday?: DaySchedule;
@@ -36,9 +36,9 @@ interface WeeklySchedule {
   thursday?: DaySchedule;
   friday?: DaySchedule;
   saturday?: DaySchedule;
-}
+};
 
-interface TimeOffRequest {
+type TimeOffRequest = {
   id: string;
   startDate: string;
   endDate: string;
@@ -46,25 +46,46 @@ interface TimeOffRequest {
   status: 'PENDING' | 'APPROVED' | 'DENIED';
   decidedAt: string | null;
   createdAt: string;
-}
+};
 
-interface ScheduleOverride {
+type ScheduleOverride = {
   id: string;
   date: string;
   type: 'off' | 'hours';
   startTime: string | null;
   endTime: string | null;
   note: string | null;
-}
+};
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const TIME_OPTIONS = [
-  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
-  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
-  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
-  '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00',
+  '08:00',
+  '08:30',
+  '09:00',
+  '09:30',
+  '10:00',
+  '10:30',
+  '11:00',
+  '11:30',
+  '12:00',
+  '12:30',
+  '13:00',
+  '13:30',
+  '14:00',
+  '14:30',
+  '15:00',
+  '15:30',
+  '16:00',
+  '16:30',
+  '17:00',
+  '17:30',
+  '18:00',
+  '18:30',
+  '19:00',
+  '19:30',
+  '20:00',
 ];
 
 // =============================================================================
@@ -90,31 +111,33 @@ function DayScheduleEditor({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="w-10 text-sm font-bold">{label}</span>
-          {isOff ? (
-            <span className="text-sm text-neutral-500">Day Off</span>
-          ) : (
-            <div className="flex items-center gap-1">
-              <select
-                value={schedule?.start || '09:00'}
-                onChange={(e) => onChange({ start: e.target.value, end: schedule?.end || '17:00' })}
-                className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
-              >
-                {TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-              <span className="text-neutral-400">–</span>
-              <select
-                value={schedule?.end || '17:00'}
-                onChange={(e) => onChange({ start: schedule?.start || '09:00', end: e.target.value })}
-                className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
-              >
-                {TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {isOff
+            ? (
+                <span className="text-sm text-neutral-500">Day Off</span>
+              )
+            : (
+                <div className="flex items-center gap-1">
+                  <select
+                    value={schedule?.start || '09:00'}
+                    onChange={e => onChange({ start: e.target.value, end: schedule?.end || '17:00' })}
+                    className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
+                  >
+                    {TIME_OPTIONS.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <span className="text-neutral-400">–</span>
+                  <select
+                    value={schedule?.end || '17:00'}
+                    onChange={e => onChange({ start: schedule?.start || '09:00', end: e.target.value })}
+                    className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
+                  >
+                    {TIME_OPTIONS.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
         </div>
         <button
           type="button"
@@ -138,7 +161,7 @@ function DayScheduleEditor({
 
 function TimeOffRequestCard({ request }: { request: TimeOffRequest }) {
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
+    const date = new Date(`${dateStr}T00:00:00`);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
@@ -148,7 +171,7 @@ function TimeOffRequestCard({ request }: { request: TimeOffRequest }) {
     DENIED: { bg: '#FEE2E2', text: '#DC2626', label: 'Denied' },
   };
 
-  const style = statusStyles[request.status] || statusStyles.PENDING;
+  const style = statusStyles[request.status] ?? statusStyles.PENDING;
 
   return (
     <div
@@ -157,7 +180,10 @@ function TimeOffRequestCard({ request }: { request: TimeOffRequest }) {
     >
       <div>
         <div className="font-medium text-neutral-900">
-          {formatDate(request.startDate)} – {formatDate(request.endDate)}
+          {formatDate(request.startDate)}
+          {' '}
+          –
+          {formatDate(request.endDate)}
         </div>
         {request.note && (
           <div className="mt-0.5 text-xs text-neutral-500">{request.note}</div>
@@ -165,9 +191,9 @@ function TimeOffRequestCard({ request }: { request: TimeOffRequest }) {
       </div>
       <span
         className="rounded-full px-2.5 py-1 text-xs font-semibold"
-        style={{ backgroundColor: style.bg, color: style.text }}
+        style={{ backgroundColor: style!.bg, color: style!.text }}
       >
-        {style.label}
+        {style!.label}
       </span>
     </div>
   );
@@ -189,17 +215,18 @@ function MiniCalendar({
   onClose: () => void;
 }) {
   const [viewDate, setViewDate] = useState(() => {
-    if (selectedDate) return new Date(selectedDate + 'T00:00:00');
+    if (selectedDate) {
+      return new Date(`${selectedDate}T00:00:00`);
+    }
     return new Date();
   });
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const minDateObj = minDate ? new Date(minDate + 'T00:00:00') : today;
+  const minDateObj = minDate ? new Date(`${minDate}T00:00:00`) : today;
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
   const getDaysInMonth = (date: Date) => {
@@ -252,7 +279,9 @@ function MiniCalendar({
           ←
         </button>
         <span className="text-sm font-semibold text-neutral-900">
-          {monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}
+          {monthNames[viewDate.getMonth()]}
+          {' '}
+          {viewDate.getFullYear()}
         </span>
         <button
           type="button"
@@ -264,7 +293,7 @@ function MiniCalendar({
       </div>
 
       <div className="mb-2 grid grid-cols-7 gap-1">
-        {dayNames.map((day) => (
+        {dayNames.map(day => (
           <div key={day} className="py-1 text-center text-xs font-medium text-neutral-400">
             {day}
           </div>
@@ -330,7 +359,7 @@ function OverrideCard({
   isDeleting: boolean;
 }) {
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
+    const date = new Date(`${dateStr}T00:00:00`);
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
@@ -351,15 +380,20 @@ function OverrideCard({
           {formatDate(override.date)}
         </div>
         <div className="flex items-center gap-2">
-          {override.type === 'off' ? (
-            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-              OFF
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-              {formatTime(override.startTime!)} – {formatTime(override.endTime!)}
-            </span>
-          )}
+          {override.type === 'off'
+            ? (
+                <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                  OFF
+                </span>
+              )
+            : (
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  {formatTime(override.startTime!)}
+                  {' '}
+                  –
+                  {formatTime(override.endTime!)}
+                </span>
+              )}
         </div>
         {override.note && (
           <div className="mt-1 text-xs text-neutral-500">{override.note}</div>
@@ -420,9 +454,11 @@ function AddOverrideForm({
   const isEditing = !!editingOverride;
 
   const handleSubmit = () => {
-    if (!startDate) return;
+    if (!startDate) {
+      return;
+    }
     const effectiveEndDate = isEditing ? startDate : (endDate || startDate);
-    
+
     onSave({
       startDate,
       endDate: effectiveEndDate,
@@ -435,8 +471,10 @@ function AddOverrideForm({
   const today = new Date().toISOString().split('T')[0];
 
   const formatDisplayDate = (dateStr: string) => {
-    if (!dateStr) return 'Tap to select';
-    const date = new Date(dateStr + 'T00:00:00');
+    if (!dateStr) {
+      return 'Tap to select';
+    }
+    const date = new Date(`${dateStr}T00:00:00`);
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
@@ -479,10 +517,10 @@ function AddOverrideForm({
               setShowEndCalendar(false);
             }}
             className={`
-              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
-              ${startDate 
-                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
-                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+              w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
+              ${startDate
+      ? 'border-amber-400 bg-amber-50 text-neutral-900'
+      : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
             `}
           >
             <div className="flex items-center justify-between">
@@ -518,10 +556,10 @@ function AddOverrideForm({
                 setShowStartCalendar(false);
               }}
               className={`
-                w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
-                ${endDate 
-                  ? 'border-amber-400 bg-amber-50 text-neutral-900' 
-                  : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+                w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
+                ${endDate
+            ? 'border-amber-400 bg-amber-50 text-neutral-900'
+            : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
               `}
             >
               <div className="flex items-center justify-between">
@@ -551,10 +589,10 @@ function AddOverrideForm({
             </label>
             <select
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
+              onChange={e => setStartTime(e.target.value)}
+              className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
             >
-              {TIME_OPTIONS.map((t) => (
+              {TIME_OPTIONS.map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -565,10 +603,10 @@ function AddOverrideForm({
             </label>
             <select
               value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
+              onChange={e => setEndTime(e.target.value)}
+              className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
             >
-              {TIME_OPTIONS.map((t) => (
+              {TIME_OPTIONS.map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -583,9 +621,9 @@ function AddOverrideForm({
         <input
           type="text"
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={e => setNote(e.target.value)}
           placeholder="e.g., Doctor appointment"
-          className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
+          className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
         />
       </div>
 
@@ -632,22 +670,28 @@ function RequestTimeOffForm({
   const [showEndCalendar, setShowEndCalendar] = useState(false);
 
   const handleSubmit = () => {
-    if (!startDate || !endDate) return;
+    if (!startDate || !endDate) {
+      return;
+    }
     onSubmit(startDate, endDate, note);
   };
 
   const today = new Date().toISOString().split('T')[0];
 
   const formatDisplayDate = (dateStr: string) => {
-    if (!dateStr) return 'Tap to select';
-    const date = new Date(dateStr + 'T00:00:00');
+    if (!dateStr) {
+      return 'Tap to select';
+    }
+    const date = new Date(`${dateStr}T00:00:00`);
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
   return (
     <div className="space-y-4">
       <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-        <strong>Note:</strong> Time off requests require admin approval. You&apos;ll receive a notification when your request is reviewed.
+        <strong>Note:</strong>
+        {' '}
+        Time off requests require admin approval. You&apos;ll receive a notification when your request is reviewed.
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -662,10 +706,10 @@ function RequestTimeOffForm({
               setShowEndCalendar(false);
             }}
             className={`
-              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
-              ${startDate 
-                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
-                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+              w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
+              ${startDate
+      ? 'border-amber-400 bg-amber-50 text-neutral-900'
+      : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
             `}
           >
             <div className="flex items-center justify-between">
@@ -700,10 +744,10 @@ function RequestTimeOffForm({
               setShowStartCalendar(false);
             }}
             className={`
-              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
-              ${endDate 
-                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
-                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+              w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
+              ${endDate
+      ? 'border-amber-400 bg-amber-50 text-neutral-900'
+      : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
             `}
           >
             <div className="flex items-center justify-between">
@@ -732,9 +776,9 @@ function RequestTimeOffForm({
           id="request-note"
           type="text"
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={e => setNote(e.target.value)}
           placeholder="e.g., Family vacation"
-          className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
+          className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
         />
       </div>
 
@@ -773,7 +817,7 @@ export default function StaffSchedulePage() {
 
   // Staff auth state
   const [authState, setAuthState] = useState<StaffAuthState>('loading');
-  
+
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -784,14 +828,15 @@ export default function StaffSchedulePage() {
   const [technicianId, setTechnicianId] = useState<string | null>(null);
   const [salonSlug, setSalonSlug] = useState<string | null>(null);
   const [salonName, setSalonName] = useState<string>(providerSalonName);
-  
+
   // Schedule overrides state
   const [overrides, setOverrides] = useState<ScheduleOverride[]>([]);
   const [showAddOverride, setShowAddOverride] = useState(false);
   const [editingOverride, setEditingOverride] = useState<ScheduleOverride | null>(null);
   const [savingOverride, setSavingOverride] = useState(false);
   const [deletingOverrideId, setDeletingOverrideId] = useState<string | null>(null);
-  
+  const [overridesUpgradeRequired, setOverridesUpgradeRequired] = useState(false);
+
   // Module capabilities
   const { modules, loading: capabilitiesLoading } = useStaffCapabilities();
   const scheduleOverridesEnabled = modules?.scheduleOverrides ?? false;
@@ -831,7 +876,9 @@ export default function StaffSchedulePage() {
 
   // Fetch schedule data
   const fetchData = useCallback(async () => {
-    if (!salonSlug || !technicianId) return;
+    if (!salonSlug || !technicianId) {
+      return;
+    }
 
     setLoading(true);
     try {
@@ -857,14 +904,20 @@ export default function StaffSchedulePage() {
         if (overridesResponse.ok) {
           const data = await overridesResponse.json();
           setOverrides(data.data?.overrides || []);
+          setOverridesUpgradeRequired(false);
         } else {
           const errorData = await overridesResponse.json().catch(() => ({}));
-          if (errorData.error?.code === 'MODULE_DISABLED') {
+          if (errorData.error?.code === 'UPGRADE_REQUIRED') {
+            setOverridesUpgradeRequired(true);
+            setOverrides([]);
+          } else if (errorData.error?.code === 'MODULE_DISABLED') {
+            setOverridesUpgradeRequired(false);
             setOverrides([]);
           }
         }
       } else {
         setOverrides([]);
+        setOverridesUpgradeRequired(false);
       }
     } catch (error) {
       console.error('Failed to fetch schedule:', error);
@@ -885,7 +938,9 @@ export default function StaffSchedulePage() {
 
   // Save weekly schedule
   const handleSaveSchedule = async () => {
-    if (!salonSlug || !technicianId) return;
+    if (!salonSlug || !technicianId) {
+      return;
+    }
 
     setSaving(true);
     try {
@@ -911,7 +966,7 @@ export default function StaffSchedulePage() {
 
   // Update day schedule
   const handleDayChange = (day: keyof WeeklySchedule, schedule: DaySchedule) => {
-    setWeeklySchedule((prev) => ({
+    setWeeklySchedule(prev => ({
       ...prev,
       [day]: schedule,
     }));
@@ -997,7 +1052,7 @@ export default function StaffSchedulePage() {
       });
 
       if (response.ok) {
-        setOverrides((prev) => prev.filter((o) => o.id !== id));
+        setOverrides(prev => prev.filter(o => o.id !== id));
       }
     } catch (error) {
       console.error('Failed to delete override:', error);
@@ -1013,7 +1068,7 @@ export default function StaffSchedulePage() {
   };
 
   // Get approved time off for display
-  const approvedTimeOff = timeOffRequests.filter((r) => r.status === 'APPROVED');
+  const approvedTimeOff = timeOffRequests.filter(r => r.status === 'APPROVED');
 
   // Auth loading state
   if (authState === 'loading') {
@@ -1058,9 +1113,12 @@ export default function StaffSchedulePage() {
             }}
           >
             <div className="text-sm font-medium text-green-800">Upcoming Approved Time Off</div>
-            {approvedTimeOff.slice(0, 3).map((r) => (
+            {approvedTimeOff.slice(0, 3).map(r => (
               <div key={r.id} className="mt-1 text-xs text-green-700">
-                {new Date(r.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(r.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {new Date(`${r.startDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {' '}
+                –
+                {new Date(`${r.endDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </div>
             ))}
           </div>
@@ -1109,7 +1167,7 @@ export default function StaffSchedulePage() {
                       key={day}
                       label={DAY_LABELS[index]!}
                       schedule={weeklySchedule[day] ?? null}
-                      onChange={(schedule) => handleDayChange(day, schedule)}
+                      onChange={schedule => handleDayChange(day, schedule)}
                     />
                   ))}
                 </div>
@@ -1117,68 +1175,80 @@ export default function StaffSchedulePage() {
             </div>
 
             {/* Upcoming Changes (Schedule Overrides) - Only show if module enabled */}
-            {capabilitiesLoading ? (
-              <ModuleSkeleton />
-            ) : scheduleOverridesEnabled ? (
-              <div
-                className="overflow-hidden rounded-2xl bg-white shadow-lg"
-                style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-              >
-                <div className="p-4">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <h2 className="font-bold" style={{ color: themeVars.titleText }}>
-                        Upcoming Changes
-                      </h2>
-                      <p className="text-xs text-neutral-500">One-time schedule adjustments</p>
-                    </div>
-                    {!showAddOverride && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingOverride(null);
-                          setShowAddOverride(true);
-                        }}
-                        className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
-                        style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+            {capabilitiesLoading
+              ? (
+                  <ModuleSkeleton />
+                )
+              : overridesUpgradeRequired
+                ? (
+                    <UpgradeRequiredState featureName="Schedule Overrides" />
+                  )
+                : scheduleOverridesEnabled
+                  ? (
+                      <div
+                        className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                        style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
                       >
-                        + Add
-                      </button>
-                    )}
-                  </div>
+                        <div className="p-4">
+                          <div className="mb-4 flex items-center justify-between">
+                            <div>
+                              <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                                Upcoming Changes
+                              </h2>
+                              <p className="text-xs text-neutral-500">One-time schedule adjustments</p>
+                            </div>
+                            {!showAddOverride && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingOverride(null);
+                                  setShowAddOverride(true);
+                                }}
+                                className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
+                                style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                              >
+                                + Add
+                              </button>
+                            )}
+                          </div>
 
-                  {showAddOverride ? (
-                    <AddOverrideForm
-                      editingOverride={editingOverride}
-                      onSave={handleSaveOverride}
-                      onCancel={() => {
-                        setShowAddOverride(false);
-                        setEditingOverride(null);
-                      }}
-                      isSubmitting={savingOverride}
-                    />
-                  ) : overrides.length === 0 ? (
-                    <div className="py-6 text-center text-neutral-500">
-                      <div className="mb-2 text-2xl">✨</div>
-                      <p>No upcoming changes</p>
-                      <p className="mt-1 text-xs">Add a day off or custom hours</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {overrides.map((override) => (
-                        <OverrideCard
-                          key={override.id}
-                          override={override}
-                          onEdit={handleEditOverride}
-                          onDelete={handleDeleteOverride}
-                          isDeleting={deletingOverrideId === override.id}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
+                          {showAddOverride
+                            ? (
+                                <AddOverrideForm
+                                  editingOverride={editingOverride}
+                                  onSave={handleSaveOverride}
+                                  onCancel={() => {
+                                    setShowAddOverride(false);
+                                    setEditingOverride(null);
+                                  }}
+                                  isSubmitting={savingOverride}
+                                />
+                              )
+                            : overrides.length === 0
+                              ? (
+                                  <div className="py-6 text-center text-neutral-500">
+                                    <div className="mb-2 text-2xl">✨</div>
+                                    <p>No upcoming changes</p>
+                                    <p className="mt-1 text-xs">Add a day off or custom hours</p>
+                                  </div>
+                                )
+                              : (
+                                  <div className="space-y-2">
+                                    {overrides.map(override => (
+                                      <OverrideCard
+                                        key={override.id}
+                                        override={override}
+                                        onEdit={handleEditOverride}
+                                        onDelete={handleDeleteOverride}
+                                        isDeleting={deletingOverrideId === override.id}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                        </div>
+                      </div>
+                    )
+                  : null}
 
             {/* Time Off Requests (EDIT 2: Request-based) */}
             <div
@@ -1205,25 +1275,29 @@ export default function StaffSchedulePage() {
                   )}
                 </div>
 
-                {showRequestTimeOff ? (
-                  <RequestTimeOffForm
-                    onSubmit={handleSubmitTimeOffRequest}
-                    onCancel={() => setShowRequestTimeOff(false)}
-                    isSubmitting={submittingRequest}
-                  />
-                ) : timeOffRequests.length === 0 ? (
-                  <div className="py-6 text-center text-neutral-500">
-                    <div className="mb-2 text-2xl">📅</div>
-                    <p>No time off requests</p>
-                    <p className="mt-1 text-xs">Submit a request for admin approval</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {timeOffRequests.map((request) => (
-                      <TimeOffRequestCard key={request.id} request={request} />
-                    ))}
-                  </div>
-                )}
+                {showRequestTimeOff
+                  ? (
+                      <RequestTimeOffForm
+                        onSubmit={handleSubmitTimeOffRequest}
+                        onCancel={() => setShowRequestTimeOff(false)}
+                        isSubmitting={submittingRequest}
+                      />
+                    )
+                  : timeOffRequests.length === 0
+                    ? (
+                        <div className="py-6 text-center text-neutral-500">
+                          <div className="mb-2 text-2xl">📅</div>
+                          <p>No time off requests</p>
+                          <p className="mt-1 text-xs">Submit a request for admin approval</p>
+                        </div>
+                      )
+                    : (
+                        <div className="space-y-2">
+                          {timeOffRequests.map(request => (
+                            <TimeOffRequestCard key={request.id} request={request} />
+                          ))}
+                        </div>
+                      )}
               </div>
             </div>
           </div>

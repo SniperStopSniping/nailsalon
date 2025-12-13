@@ -26,6 +26,23 @@ export const PLAN_ID = {
   ENTERPRISE: 'enterprise',
 } as const;
 
+// =============================================================================
+// LOYALTY POINTS CONFIGURATION
+// =============================================================================
+
+export const LOYALTY_POINTS = {
+  /** Welcome bonus for new clients (matches free gel manicure tier) */
+  WELCOME_BONUS: 25_000,
+  /** Bonus for completing profile (name + email) */
+  PROFILE_COMPLETION: 2_500,
+  /** Points earned per dollar spent */
+  PER_DOLLAR_SPENT: 20,
+  /** Referee gets this immediately when claiming referral link */
+  REFERRAL_REFEREE_BONUS: 2_500,
+  /** Referrer gets this after referee completes first paid appointment */
+  REFERRAL_REFERRER_BONUS: 25_000,
+} as const;
+
 export const PricingPlanList: Record<string, PricingPlan> = {
   [PLAN_ID.FREE]: {
     id: PLAN_ID.FREE,

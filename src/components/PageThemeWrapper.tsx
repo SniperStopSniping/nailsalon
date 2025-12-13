@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { ThemeProvider } from '@/theme';
 
@@ -20,7 +20,7 @@ import { ThemeProvider } from '@/theme';
  * </PageThemeWrapper>
  * ```
  */
-export interface PageThemeWrapperProps {
+export type PageThemeWrapperProps = {
   /** Mode: 'custom' = no theme, 'theme' = use themeKey */
   mode: 'custom' | 'theme';
   /** Theme key when mode = 'theme', null otherwise */
@@ -29,7 +29,7 @@ export interface PageThemeWrapperProps {
   pageName?: string;
   /** Page content */
   children: ReactNode;
-}
+};
 
 /**
  * Dev-only debug banner showing current theme state
@@ -67,13 +67,19 @@ function ThemeDebugBanner({
       }}
     >
       <span>
-        <strong>page:</strong> {pageName}
+        <strong>page:</strong>
+        {' '}
+        {pageName}
       </span>
       <span>
-        <strong>mode:</strong> {mode}
+        <strong>mode:</strong>
+        {' '}
+        {mode}
       </span>
       <span>
-        <strong>themeKey:</strong> {themeKey || 'none'}
+        <strong>themeKey:</strong>
+        {' '}
+        {themeKey || 'none'}
       </span>
     </div>
   );

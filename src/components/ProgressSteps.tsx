@@ -95,4 +95,3 @@ export const ProgressSteps = React.forwardRef<
   );
 });
 ProgressSteps.displayName = 'ProgressSteps';
-

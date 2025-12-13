@@ -39,21 +39,23 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
-interface BookConfirmClientProps {
+type BookConfirmClientProps = {
   services: ServiceSummary[];
   technician: TechnicianSummary;
   salonSlug: string;
   dateStr: string;
   timeStr: string;
   bookingFlow: BookingStep[];
-}
+};
 
 // --- Helpers ---
 
 const triggerLuxuryConfetti = () => {
   if (typeof window !== 'undefined') {
     const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    if (mq?.matches) return;
+    if (mq?.matches) {
+      return;
+    }
   } else {
     return;
   }
@@ -125,12 +127,16 @@ const BookingCard = ({
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (typeof window === 'undefined' || shouldReduceMotion) return;
+    if (typeof window === 'undefined' || shouldReduceMotion) {
+      return;
+    }
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       const gamma = e.gamma;
       const beta = e.beta;
-      if (gamma === null || beta === null) return;
+      if (gamma === null || beta === null) {
+        return;
+      }
       const clampedX = Math.min(Math.max(gamma, -20), 20);
       const clampedY = Math.min(Math.max(beta, -20), 20);
       x.set(clampedX * 2);
@@ -147,7 +153,9 @@ const BookingCard = ({
   const serviceNames = services.map(s => s.name).join(' + ');
 
   const formatDate = (dateString: string) => {
-    if (!dateString) return 'Not selected';
+    if (!dateString) {
+      return 'Not selected';
+    }
     const date = new Date(`${dateString}T00:00:00`);
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -155,7 +163,9 @@ const BookingCard = ({
   };
 
   const formatTime = (timeString: string) => {
-    if (!timeString) return '';
+    if (!timeString) {
+      return '';
+    }
     const [hours, minutes] = timeString.split(':');
     const hour = Number.parseInt(hours || '0', 10);
     const ampm = hour >= 12 ? 'PM' : 'AM';
@@ -189,28 +199,33 @@ const BookingCard = ({
         <div className="relative z-10 p-6 text-[var(--n5-ink-inverse)]">
           {/* Header with Tech & Price */}
           <div className="mb-5 flex items-center gap-4">
-            {technician ? (
-              <div
-                className="relative size-14 shrink-0 overflow-hidden border-2 border-white/30"
-                style={{ borderRadius: n5.radiusPill }}
-              >
-                <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-              </div>
-            ) : (
-              <div
-                className="flex size-14 shrink-0 items-center justify-center bg-white/10 text-2xl"
-                style={{ borderRadius: n5.radiusPill }}
-              >
-                🎲
-              </div>
-            )}
+            {technician
+              ? (
+                  <div
+                    className="relative size-14 shrink-0 overflow-hidden border-2 border-white/30"
+                    style={{ borderRadius: n5.radiusPill }}
+                  >
+                    <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
+                  </div>
+                )
+              : (
+                  <div
+                    className="flex size-14 shrink-0 items-center justify-center bg-white/10 text-2xl"
+                    style={{ borderRadius: n5.radiusPill }}
+                  >
+                    🎲
+                  </div>
+                )}
             <div className="flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70 font-body">Your Artist</p>
+              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Your Artist</p>
               <p className="font-heading text-lg font-semibold">{technician?.name || 'Any Available'}</p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70 font-body">Total</p>
-              <p className="font-heading text-3xl font-bold text-[var(--n5-accent)]">${totalPrice}</p>
+              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Total</p>
+              <p className="font-heading text-3xl font-bold text-[var(--n5-accent)]">
+                $
+                {totalPrice}
+              </p>
             </div>
           </div>
 
@@ -223,12 +238,16 @@ const BookingCard = ({
               💅
             </div>
             <div className="flex-1">
-              <p className="text-xs opacity-70 font-body">Service</p>
-              <p className="font-semibold font-body">{serviceNames}</p>
+              <p className="font-body text-xs opacity-70">Service</p>
+              <p className="font-body font-semibold">{serviceNames}</p>
             </div>
-            <div className="flex items-center gap-1 text-sm opacity-70 font-body">
+            <div className="font-body flex items-center gap-1 text-sm opacity-70">
               <Clock className="size-3.5" />
-              <span>{totalDuration} min</span>
+              <span>
+                {totalDuration}
+                {' '}
+                min
+              </span>
             </div>
           </div>
 
@@ -241,8 +260,14 @@ const BookingCard = ({
               📅
             </div>
             <div className="flex-1">
-              <p className="text-xs opacity-70 font-body">When</p>
-              <p className="font-semibold font-body">{formatDate(dateStr)} at {formatTime(timeStr)}</p>
+              <p className="font-body text-xs opacity-70">When</p>
+              <p className="font-body font-semibold">
+                {formatDate(dateStr)}
+                {' '}
+                at
+                {' '}
+                {formatTime(timeStr)}
+              </p>
             </div>
           </div>
 
@@ -251,14 +276,19 @@ const BookingCard = ({
             className="flex items-center gap-3 border-t border-white/10 pt-4"
           >
             <div
-              className="flex size-10 items-center justify-center text-lg bg-[var(--n5-accent)]"
+              className="flex size-10 items-center justify-center bg-[var(--n5-accent)] text-lg"
               style={{ borderRadius: n5.radiusMd }}
             >
               ⭐
             </div>
             <div className="flex-1">
-              <p className="text-xs opacity-70 font-body">You'll earn</p>
-              <p className="font-semibold text-[var(--n5-accent)] font-body">+{pointsEarned} points</p>
+              <p className="font-body text-xs opacity-70">You'll earn</p>
+              <p className="font-body font-semibold text-[var(--n5-accent)]">
+                +
+                {pointsEarned}
+                {' '}
+                points
+              </p>
             </div>
           </div>
         </div>
@@ -279,8 +309,8 @@ const LoadingState = () => (
       className="flex flex-col items-center"
     >
       {/* Elegant pulsing dots */}
-      <div className="flex items-center gap-2 mb-8">
-        {[0, 1, 2].map((i) => (
+      <div className="mb-8 flex items-center gap-2">
+        {[0, 1, 2].map(i => (
           <motion.div
             key={i}
             className="size-2 rounded-full bg-[var(--n5-accent)]"
@@ -297,13 +327,13 @@ const LoadingState = () => (
           />
         ))}
       </div>
-      
+
       {/* Refined typography */}
       <motion.p
         initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3, duration: 0.5 }}
-        className="font-heading text-sm tracking-[0.2em] uppercase text-[var(--n5-ink-muted)]"
+        className="font-heading text-sm uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]"
       >
         Confirming
       </motion.p>
@@ -330,16 +360,16 @@ const ExistingAppointmentState = ({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="mx-auto mb-6 flex size-24 items-center justify-center bg-[var(--n5-warning)]/10"
+        className="bg-[var(--n5-warning)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
         style={{ borderRadius: n5.radiusPill }}
       >
         <Calendar className="size-12 text-[var(--n5-warning)]" />
       </motion.div>
 
-      <h1 className="mb-3 font-heading text-2xl font-bold text-[var(--n5-ink-main)]">
+      <h1 className="font-heading mb-3 text-2xl font-bold text-[var(--n5-ink-main)]">
         You Already Have an Appointment!
       </h1>
-      <p className="mb-8 text-sm leading-relaxed text-[var(--n5-ink-muted)] font-body">
+      <p className="font-body mb-8 text-sm leading-relaxed text-[var(--n5-ink-muted)]">
         Please change or cancel your existing appointment from your profile instead of booking a new one.
       </p>
 
@@ -353,7 +383,7 @@ const ExistingAppointmentState = ({
           triggerHaptic('select');
           onViewProfile();
         }}
-        className="mb-3 w-full py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
+        className="font-body mb-3 w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
@@ -372,7 +402,7 @@ const ExistingAppointmentState = ({
           triggerHaptic('select');
           onViewProfile();
         }}
-        className="w-full border py-3 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-accent)]"
+        className="font-body w-full border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           borderColor: 'var(--n5-accent)',
@@ -404,16 +434,16 @@ const ErrorState = ({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="mx-auto mb-6 flex size-24 items-center justify-center bg-[var(--n5-error)]/10"
+        className="bg-[var(--n5-error)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
         style={{ borderRadius: n5.radiusPill }}
       >
         <AlertCircle className="size-12 text-[var(--n5-error)]" />
       </motion.div>
 
-      <h1 className="mb-3 font-heading text-2xl font-bold text-[var(--n5-ink-main)]">
+      <h1 className="font-heading mb-3 text-2xl font-bold text-[var(--n5-ink-main)]">
         Oops!
       </h1>
-      <p className="mb-8 text-sm text-[var(--n5-ink-muted)] font-body">
+      <p className="font-body mb-8 text-sm text-[var(--n5-ink-muted)]">
         {message}
       </p>
 
@@ -423,7 +453,7 @@ const ErrorState = ({
           triggerHaptic('select');
           onGoBack();
         }}
-        className="w-full py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
+        className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
@@ -501,10 +531,10 @@ const SuccessContent = ({
           >
             <Check className="size-10 text-white" strokeWidth={3} />
           </motion.div>
-          <h1 className="mb-1 font-heading text-2xl font-bold text-[var(--n5-ink-main)]">
+          <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
             You're All Set! 💅
           </h1>
-          <p className="text-sm text-[var(--n5-ink-muted)] font-body">
+          <p className="font-body text-sm text-[var(--n5-ink-muted)]">
             Your appointment is confirmed
           </p>
         </motion.div>
@@ -540,17 +570,20 @@ const SuccessContent = ({
               triggerHaptic('confirm');
               onPayNow();
             }}
-            className="flex w-full items-center justify-center gap-2 py-4 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-ink-inverse)] bg-[var(--n5-accent)]"
+            className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
             style={{
               borderRadius: n5.radiusMd,
               boxShadow: n5.shadowSm,
             }}
           >
             <CreditCard className="size-5" />
-            <span>Pay Now · ${totalPrice}</span>
+            <span>
+              Pay Now · $
+              {totalPrice}
+            </span>
           </button>
 
-          <p className="text-center text-xs text-[var(--n5-ink-muted)] font-body">
+          <p className="font-body text-center text-xs text-[var(--n5-ink-muted)]">
             or pay at the salon
           </p>
 
@@ -561,14 +594,19 @@ const SuccessContent = ({
               triggerHaptic('select');
               onViewRewards();
             }}
-            className="flex w-full items-center justify-center gap-2 border py-3 font-bold transition-all active:scale-[0.98] font-body bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)]"
+            className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
             style={{
               borderRadius: n5.radiusMd,
               borderColor: 'var(--n5-border)',
             }}
           >
             <Star className="size-4 text-[var(--n5-accent)]" />
-            <span>View Rewards (+{pointsEarned} pts)</span>
+            <span>
+              View Rewards (+
+              {pointsEarned}
+              {' '}
+              pts)
+            </span>
           </button>
 
           {/* View/Change Appointment */}
@@ -578,7 +616,7 @@ const SuccessContent = ({
               triggerHaptic('select');
               onViewAppointment();
             }}
-            className="flex w-full items-center justify-center gap-2 border py-3 font-bold transition-all active:scale-[0.98] font-body text-[var(--n5-accent)]"
+            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
             style={{
               borderRadius: n5.radiusMd,
               borderColor: 'var(--n5-accent)',
@@ -595,7 +633,7 @@ const SuccessContent = ({
               triggerHaptic('select');
               onGoToProfile();
             }}
-            className="w-full py-3 text-center font-medium text-[var(--n5-ink-muted)] transition-colors font-body hover:text-[var(--n5-accent)]"
+            className="font-body w-full py-3 text-center font-medium text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
           >
             Back to Profile →
           </button>
@@ -610,18 +648,20 @@ const SuccessContent = ({
         >
           <div className="mb-2 flex items-center justify-center gap-2">
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
-            <span className="text-sm text-[var(--n5-ink-muted)] font-body">We can't wait to see you!</span>
+            <span className="font-body text-sm text-[var(--n5-ink-muted)]">We can't wait to see you!</span>
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
           </div>
-          <p className="text-xs text-[var(--n5-ink-muted)] font-body">
+          <p className="font-body text-xs text-[var(--n5-ink-muted)]">
             📱 We'll send you a text reminder
           </p>
-          <p className="mt-0.5 text-xs text-[var(--n5-ink-muted)] font-body">
+          <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
             Free cancellation up to 24 hours before
           </p>
           {appointmentId && (
-            <p className="mt-2 text-[10px] text-[var(--n5-border)] font-body">
-              ID: {appointmentId}
+            <p className="font-body mt-2 text-[10px] text-[var(--n5-border)]">
+              ID:
+              {' '}
+              {appointmentId}
             </p>
           )}
         </motion.div>
@@ -629,7 +669,7 @@ const SuccessContent = ({
 
       {/* Floating Dock */}
       <div
-        className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8 bg-[var(--n5-bg-card)]/90 backdrop-blur-xl"
+        className="bg-[var(--n5-bg-card)]/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8 backdrop-blur-xl"
         style={{
           borderRadius: n5.radiusCard,
           boxShadow: n5.shadowDock,
@@ -698,10 +738,10 @@ const NameCaptureModal = ({
 }) => (
   <AnimatePresence>
     {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         className="fixed inset-0 z-[60] flex items-center justify-center p-4 backdrop-blur-sm"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-ink-main) 40%, transparent)',
@@ -710,7 +750,9 @@ const NameCaptureModal = ({
           WebkitTransform: 'translateZ(0)',
         }}
         onClick={(e) => {
-          if (e.target === e.currentTarget) onSkip();
+          if (e.target === e.currentTarget) {
+            onSkip();
+          }
         }}
       >
         <motion.div
@@ -724,7 +766,7 @@ const NameCaptureModal = ({
             // Prevent keyboard from pushing modal too high on Android
             maxHeight: '85vh',
           }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
         >
           <div style={{ padding: n5.spaceLg }}>
             <div className="mb-4 text-center">
@@ -732,7 +774,7 @@ const NameCaptureModal = ({
               <h2 className="font-heading text-xl font-bold text-[var(--n5-ink-main)]">
                 Before you go...
               </h2>
-              <p className="mt-1 text-sm text-[var(--n5-ink-muted)] font-body">
+              <p className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
                 What's your name?
               </p>
             </div>
@@ -740,12 +782,14 @@ const NameCaptureModal = ({
             <input
               type="text"
               value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
+              onChange={e => setFirstName(e.target.value)}
               placeholder="First name"
-              className="mb-4 w-full px-4 py-3 text-lg outline-none transition-colors bg-[var(--n5-bg-surface)] text-[var(--n5-ink-main)] placeholder:text-[var(--n5-ink-muted)] font-body"
+              className="font-body mb-4 w-full bg-[var(--n5-bg-surface)] px-4 py-3 text-lg text-[var(--n5-ink-main)] outline-none transition-colors placeholder:text-[var(--n5-ink-muted)]"
               style={{ borderRadius: n5.radiusMd }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && firstName.trim()) onSave();
+                if (e.key === 'Enter' && firstName.trim()) {
+                  onSave();
+                }
               }}
               autoFocus
             />
@@ -754,7 +798,7 @@ const NameCaptureModal = ({
               <button
                 type="button"
                 onClick={onSkip}
-                className="flex-1 py-3 font-medium text-[var(--n5-ink-muted)] transition-colors font-body hover:bg-[var(--n5-bg-surface)]"
+                className="font-body flex-1 py-3 font-medium text-[var(--n5-ink-muted)] transition-colors hover:bg-[var(--n5-bg-surface)]"
                 style={{ borderRadius: n5.radiusMd }}
               >
                 Skip
@@ -763,14 +807,14 @@ const NameCaptureModal = ({
                 type="button"
                 onClick={onSave}
                 disabled={!firstName.trim() || isSaving}
-                className="flex-1 py-3 font-bold text-[var(--n5-ink-inverse)] transition-all disabled:opacity-50 font-body bg-[var(--n5-accent)]"
+                className="font-body flex-1 bg-[var(--n5-accent)] py-3 font-bold text-[var(--n5-ink-inverse)] transition-all disabled:opacity-50"
                 style={{ borderRadius: n5.radiusMd }}
               >
                 {isSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
 
-            <p className="mt-4 text-center text-xs text-[var(--n5-ink-muted)] font-body">
+            <p className="font-body mt-4 text-center text-xs text-[var(--n5-ink-muted)]">
               We'll remember you for next time!
             </p>
           </div>
@@ -819,7 +863,9 @@ export function BookConfirmClient({
   const pointsEarned = Math.round(totalPrice * 0.1);
 
   const createBooking = useCallback(async () => {
-    if (bookingInitiatedRef.current) return;
+    if (bookingInitiatedRef.current) {
+      return;
+    }
     bookingInitiatedRef.current = true;
 
     setIsBooking(true);
@@ -893,11 +939,13 @@ export function BookConfirmClient({
         return () => clearTimeout(timer);
       }
     }
-    return;
+    return undefined;
   }, [bookingComplete]);
 
   const handleSaveName = async () => {
-    if (!firstName.trim() || isSavingName) return;
+    if (!firstName.trim() || isSavingName) {
+      return;
+    }
 
     setIsSavingName(true);
     try {

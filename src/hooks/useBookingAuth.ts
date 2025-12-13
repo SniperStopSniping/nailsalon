@@ -53,5 +53,3 @@ export function useBookingAuth(initialPhone?: string) {
     handleLoginSuccess,
   };
 }
-
-

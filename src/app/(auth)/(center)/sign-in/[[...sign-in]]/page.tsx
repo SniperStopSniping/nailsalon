@@ -1,7 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { SignIn } from '@clerk/nextjs';
-
-const SignInPage = () => <SignIn path="/sign-in" />;
-
-export default SignInPage;
+// Redirect Clerk sign-in to phone OTP admin login
+export default function SignInPage() {
+  redirect('/en/admin-login');
+}

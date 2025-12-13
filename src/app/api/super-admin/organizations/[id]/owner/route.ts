@@ -1,13 +1,13 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import {
-  salonSchema,
   adminSalonMembershipSchema,
   adminUserSchema,
+  salonSchema,
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (!guard.ok) return guard.response;
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   const { id: salonId } = await params;
 
@@ -135,7 +137,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (!guard.ok) return guard.response;
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   const { id: salonId } = await params;
 

@@ -13,19 +13,19 @@
  */
 
 import { AnimatePresence } from 'framer-motion';
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
-import { ModalHeader, BackButton } from './AppModal';
+import { BackButton, ModalHeader } from './AppModal';
 import {
-  StaffListView,
   AddStaffModal,
-  StaffDetailPage,
   type StaffCardData,
+  StaffDetailPage,
+  StaffListView,
 } from './staff';
 
-interface StaffModalProps {
+type StaffModalProps = {
   onClose: () => void;
-}
+};
 
 export function StaffModal({ onClose }: StaffModalProps) {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export function StaffModal({ onClose }: StaffModalProps) {
   }, []);
 
   const handleAddSuccess = useCallback(() => {
-    setRefreshKey((prev) => prev + 1);
+    setRefreshKey(prev => prev + 1);
   }, []);
 
   const handleBack = useCallback(() => {
@@ -49,11 +49,11 @@ export function StaffModal({ onClose }: StaffModalProps) {
   }, []);
 
   const handleUpdate = useCallback(() => {
-    setRefreshKey((prev) => prev + 1);
+    setRefreshKey(prev => prev + 1);
   }, []);
 
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] text-black font-sans flex flex-col relative">
+    <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
@@ -89,4 +89,3 @@ export function StaffModal({ onClose }: StaffModalProps) {
     </div>
   );
 }
-

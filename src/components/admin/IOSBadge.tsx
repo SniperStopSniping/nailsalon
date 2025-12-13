@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 
-export interface IOSBadgeProps {
+export type IOSBadgeProps = {
   /** Count to display */
   count: number;
   /** Max count before showing "99+" */
@@ -18,7 +18,7 @@ export interface IOSBadgeProps {
   size?: 'small' | 'medium';
   /** Additional className */
   className?: string;
-}
+};
 
 export function IOSBadge({
   count,
@@ -40,7 +40,9 @@ export function IOSBadge({
     return undefined;
   }, [count, prevCount]);
 
-  if (count <= 0) return null;
+  if (count <= 0) {
+    return null;
+  }
 
   const displayValue = count > max ? `${max}+` : count.toString();
   const isWide = displayValue.length > 1;
@@ -101,7 +103,9 @@ export function IOSInlineBadge({
   count: number;
   color?: 'red' | 'blue' | 'gray';
 }) {
-  if (count <= 0) return null;
+  if (count <= 0) {
+    return null;
+  }
 
   const colors = {
     red: '#FF3B30',
@@ -130,4 +134,3 @@ export function IOSInlineBadge({
     </span>
   );
 }
-

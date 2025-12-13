@@ -16,7 +16,7 @@
  * - Never returns commissionRate or other forbidden fields
  */
 
-import { eq, and, gte, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
@@ -30,7 +30,7 @@ export const dynamic = 'force-dynamic';
 // RESPONSE TYPES
 // =============================================================================
 
-interface EarningsResponse {
+type EarningsResponse = {
   data: {
     range: {
       from: string;
@@ -50,14 +50,14 @@ interface EarningsResponse {
       appointmentCount: number;
     }>;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // HELPERS
@@ -67,16 +67,18 @@ function getMonthRange(offset: number = 0): { from: Date; to: Date } {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   from.setHours(0, 0, 0, 0);
-  
+
   const to = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
   to.setHours(23, 59, 59, 999);
-  
+
   return { from, to };
 }
 
 function parseDate(dateStr: string): Date | null {
   const parsed = new Date(dateStr);
-  if (isNaN(parsed.getTime())) return null;
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
   return parsed;
 }
 
@@ -103,7 +105,9 @@ export async function GET(request: Request): Promise<Response> {
       salonId,
       module: 'staffEarnings',
     });
-    if (moduleGuard) return moduleGuard;
+    if (moduleGuard) {
+      return moduleGuard;
+    }
 
     // 3. Parse query params for date range
     const url = new URL(request.url);
@@ -116,7 +120,7 @@ export async function GET(request: Request): Promise<Response> {
     if (fromParam && toParam) {
       const parsedFrom = parseDate(fromParam);
       const parsedTo = parseDate(toParam);
-      
+
       if (!parsedFrom || !parsedTo) {
         return Response.json(
           {
@@ -131,7 +135,7 @@ export async function GET(request: Request): Promise<Response> {
 
       fromDate = parsedFrom;
       fromDate.setHours(0, 0, 0, 0);
-      
+
       toDate = parsedTo;
       toDate.setHours(23, 59, 59, 999);
     } else {
@@ -151,8 +155,8 @@ export async function GET(request: Request): Promise<Response> {
       .limit(1);
 
     // Parse commission rate (null/undefined/0 = no commission model)
-    const commissionRate = technician?.commissionRate 
-      ? parseFloat(technician.commissionRate) 
+    const commissionRate = technician?.commissionRate
+      ? Number.parseFloat(technician.commissionRate)
       : 0;
 
     // 5. Get totals for the period
@@ -174,9 +178,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const totalGrossSales = Number(totalsResult[0]?.grossSales ?? 0);
     const appointmentCount = Number(totalsResult[0]?.count ?? 0);
-    
+
     // EDIT 1: If no commission model/rate, earnings = 0 (NOT grossSales)
-    const totalEarnings = commissionRate > 0 
+    const totalEarnings = commissionRate > 0
       ? Math.round(totalGrossSales * commissionRate)
       : 0;
 
@@ -203,7 +207,7 @@ export async function GET(request: Request): Promise<Response> {
     const daily = dailyResult.map((row) => {
       const dayGrossSales = Number(row.grossSales);
       // EDIT 1: If no commission model/rate, earnings = 0
-      const dayEarnings = commissionRate > 0 
+      const dayEarnings = commissionRate > 0
         ? Math.round(dayGrossSales * commissionRate)
         : 0;
 

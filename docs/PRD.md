@@ -2,8 +2,8 @@
 
 ## Nail Salon Booking Platform
 
-**Version:** 1.0  
-**Last Updated:** December 2024  
+**Version:** 1.0
+**Last Updated:** December 2024
 **Status:** Active Development
 
 ---
@@ -138,19 +138,19 @@ Example: salon-name.com → maps to salon tenant
 Each salon has a `themeKey` that references a theme in the registry:
 
 ```typescript
-interface Theme {
-  key: string;           // 'nail-salon-no5'
-  name: string;          // 'Nail Salon No.5'
+type Theme = {
+  key: string; // 'nail-salon-no5'
+  name: string; // 'Nail Salon No.5'
   colors: {
-    primary: string;     // Main brand color (buttons, accents)
+    primary: string; // Main brand color (buttons, accents)
     primaryDark: string; // Darker variant (selection states)
-    accent: string;      // Secondary brand color (titles)
+    accent: string; // Secondary brand color (titles)
     accentLight: string; // Light accent for gradients
-    background: string;  // Page background
+    background: string; // Page background
     cardBackground: string;
     // ... additional semantic color tokens
-  }
-}
+  };
+};
 ```
 
 Themes are applied via CSS variables injected at runtime:
@@ -201,20 +201,20 @@ Salon owners can manage their service offerings:
 
 **Service Model:**
 ```typescript
-interface Service {
+type Service = {
   id: string;
-  salonId: string;        // Tenant scope
-  name: string;           // "BIAB Short"
-  description?: string;   // Optional detailed description
-  price: number;          // 65 (in dollars)
+  salonId: string; // Tenant scope
+  name: string; // "BIAB Short"
+  description?: string; // Optional detailed description
+  price: number; // 65 (in dollars)
   durationMinutes: number; // 75
   category: 'hands' | 'feet' | 'combo';
-  imageUrl?: string;      // Optional service image
-  isActive: boolean;      // Show/hide from booking
-  sortOrder?: number;     // Display order within category
+  imageUrl?: string; // Optional service image
+  isActive: boolean; // Show/hide from booking
+  sortOrder?: number; // Display order within category
   createdAt: Date;
   updatedAt: Date;
-}
+};
 ```
 
 ### 4.3 Phone-First Authentication
@@ -489,4 +489,3 @@ The following features are **NOT in current scope** but planned for future relea
 - [UI/UX Specification](./UI_UX_SPEC.md) - Design system, user flows
 - [AI Behavioral Rules](./AI_RULES.md) - Cursor/AI coding constraints
 - [Design System](../design-system.md) - Typography, colors, spacing
-

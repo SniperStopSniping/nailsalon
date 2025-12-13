@@ -24,9 +24,17 @@ export async function POST() {
       await deleteAdminSession(sessionId);
     }
 
-    // Clear cookie with identical options
+    // Clear session cookie with identical options
     cookieStore.set(ADMIN_SESSION_COOKIE, '', {
       ...COOKIE_OPTIONS,
+      maxAge: 0,
+    });
+
+    // Clear active salon cookie
+    cookieStore.set('__active_salon_slug', '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
       maxAge: 0,
     });
 
@@ -37,11 +45,17 @@ export async function POST() {
   } catch (error) {
     console.error('Admin logout error:', error);
 
-    // Still try to clear the cookie even if DB delete fails
+    // Still try to clear the cookies even if DB delete fails
     try {
       const cookieStore = await cookies();
       cookieStore.set(ADMIN_SESSION_COOKIE, '', {
         ...COOKIE_OPTIONS,
+        maxAge: 0,
+      });
+      cookieStore.set('__active_salon_slug', '', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
         maxAge: 0,
       });
     } catch {

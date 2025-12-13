@@ -434,13 +434,15 @@ export default function BookServiceContent() {
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
                 whileTap={{ scale: 0.98 }}
                 // Pulse animation when first enabled
-                animate={continueButtonEnabled ? {
-                  boxShadow: [
-                    '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
-                    '0 0 0 4px rgba(var(--n5-accent-rgb, 214, 162, 73), 0.3)',
-                    '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
-                  ],
-                } : {}}
+                animate={continueButtonEnabled
+                  ? {
+                      boxShadow: [
+                        '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
+                        '0 0 0 4px rgba(var(--n5-accent-rgb, 214, 162, 73), 0.3)',
+                        '0 0 0 0 rgba(var(--n5-accent-rgb, 214, 162, 73), 0)',
+                      ],
+                    }
+                  : {}}
                 transition={{
                   boxShadow: { duration: 1, repeat: 1 },
                 }}

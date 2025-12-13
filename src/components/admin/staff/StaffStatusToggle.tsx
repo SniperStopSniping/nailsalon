@@ -9,12 +9,12 @@ import type { StaffStatus } from '@/models/Schema';
 // Types
 // =============================================================================
 
-interface StaffStatusToggleProps {
+type StaffStatusToggleProps = {
   currentStatus: StaffStatus;
   onStatusChange: (status: StaffStatus) => Promise<void>;
   disabled?: boolean;
   size?: 'sm' | 'md';
-}
+};
 
 const STATUSES: { value: StaffStatus; label: string; color: string }[] = [
   { value: 'available', label: 'Available', color: '#34C759' },
@@ -37,10 +37,12 @@ export function StaffStatusToggle({
   const [optimisticStatus, setOptimisticStatus] = useState<StaffStatus | null>(null);
 
   const displayStatus = optimisticStatus ?? currentStatus;
-  const currentIndex = STATUSES.findIndex((s) => s.value === displayStatus);
+  const currentIndex = STATUSES.findIndex(s => s.value === displayStatus);
 
   const handleStatusChange = async (status: StaffStatus) => {
-    if (disabled || isUpdating || status === displayStatus) return;
+    if (disabled || isUpdating || status === displayStatus) {
+      return;
+    }
 
     // Optimistic update
     setOptimisticStatus(status);
@@ -67,13 +69,13 @@ export function StaffStatusToggle({
   return (
     <div
       className={`
-        relative flex ${gap} bg-[#F2F2F7] rounded-lg ${containerPadding}
-        ${disabled ? 'opacity-50 pointer-events-none' : ''}
+        relative flex ${gap} rounded-lg bg-[#F2F2F7] ${containerPadding}
+        ${disabled ? 'pointer-events-none opacity-50' : ''}
       `}
     >
       {/* Background slider */}
       <motion.div
-        className="absolute bg-white rounded-md shadow-sm"
+        className="absolute rounded-md bg-white shadow-sm"
         style={{
           width: `calc(${100 / STATUSES.length}% - ${isSmall ? '2px' : '4px'})`,
           height: `calc(100% - ${isSmall ? '4px' : '8px'})`,
@@ -103,7 +105,7 @@ export function StaffStatusToggle({
           >
             <span className="flex items-center justify-center gap-1">
               <span
-                className="w-2 h-2 rounded-full"
+                className="size-2 rounded-full"
                 style={{ backgroundColor: status.color }}
               />
               <span className={isSmall ? 'hidden sm:inline' : ''}>

@@ -3,14 +3,14 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/superAdmin';
 import {
+  appointmentSchema,
+  clientPreferencesSchema,
+  referralSchema,
+  rewardSchema,
+  salonLocationSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
-  appointmentSchema,
-  referralSchema,
-  rewardSchema,
-  clientPreferencesSchema,
-  salonLocationSchema,
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -165,30 +167,30 @@ export async function GET(
     if (format === 'csv') {
       // Convert to CSV format (simplified - just appointments for now)
       const csvRows: string[] = [];
-      
+
       // Header
       csvRows.push('type,id,name,email,phone,status,created_at');
-      
+
       // Salon info
       csvRows.push(`salon,${salon.id},${salon.name},${salon.email || ''},${salon.phone || ''},${salon.status},${salon.createdAt.toISOString()}`);
-      
+
       // Technicians
       for (const tech of technicians) {
         csvRows.push(`technician,${tech.id},"${tech.name}",${tech.email || ''},${tech.phone || ''},${tech.isActive ? 'active' : 'inactive'},${tech.createdAt.toISOString()}`);
       }
-      
+
       // Services
       for (const svc of services) {
         csvRows.push(`service,${svc.id},"${svc.name}",,,${svc.isActive ? 'active' : 'inactive'},${svc.createdAt.toISOString()}`);
       }
-      
+
       // Appointments
       for (const appt of appointments) {
         csvRows.push(`appointment,${appt.id},"${appt.clientName || ''}",${appt.clientPhone},${appt.clientPhone},${appt.status},${appt.createdAt.toISOString()}`);
       }
 
       const csvContent = csvRows.join('\n');
-      
+
       return new Response(csvContent, {
         headers: {
           'Content-Type': 'text/csv',

@@ -1,10 +1,10 @@
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import { sendStaffInvite } from '@/libs/SMS';
-import { db } from '@/libs/DB';
 import { technicianSchema } from '@/models/Schema';
-import { eq, and } from 'drizzle-orm';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -21,12 +21,12 @@ const inviteSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // POST /api/admin/technicians/[id]/invite - Send SMS invite to technician

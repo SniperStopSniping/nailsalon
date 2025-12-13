@@ -1,11 +1,11 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import { ANIMATION } from '@/libs/animations';
 
-interface ShakeWrapperProps {
+type ShakeWrapperProps = {
   /** Content to wrap */
   children: ReactNode;
   /** Whether to trigger the shake animation */
@@ -14,7 +14,7 @@ interface ShakeWrapperProps {
   onShakeComplete?: () => void;
   /** Additional className */
   className?: string;
-}
+};
 
 /**
  * ShakeWrapper

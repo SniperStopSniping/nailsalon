@@ -8,26 +8,26 @@
  * DELETE /api/staff/time-off/[id] - Delete a time-off entry
  */
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+
+import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
+import { technicianTimeOffSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
-
-import { db } from '@/libs/DB';
-import { getAdminSession } from '@/libs/adminAuth';
-import { technicianTimeOffSchema } from '@/models/Schema';
 
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // DELETE /api/staff/time-off/[id] - Delete a time-off entry (ADMIN-ONLY)
@@ -79,7 +79,7 @@ export async function DELETE(
 
     // 3. Enforce admin salon scope
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === existingEntry.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === existingEntry.salonId);
       if (!hasAccess) {
         return Response.json(
           {
@@ -168,7 +168,7 @@ export async function GET(
 
     // 3. Enforce admin salon scope
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === entry.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === entry.salonId);
       if (!hasAccess) {
         return Response.json(
           {

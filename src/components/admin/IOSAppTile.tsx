@@ -10,12 +10,12 @@
  */
 
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 
-import { IOSAppIcon, type AppIconType } from './IOSAppIcon';
+import { type AppIconType, IOSAppIcon } from './IOSAppIcon';
 import { IOSBadge } from './IOSBadge';
 
-export interface IOSAppTileProps {
+export type IOSAppTileProps = {
   /** App label */
   label: string;
   /** Pre-defined app icon type */
@@ -28,7 +28,7 @@ export interface IOSAppTileProps {
   badge?: number;
   /** Additional className */
   className?: string;
-}
+};
 
 export function IOSAppTile({
   label,
@@ -116,4 +116,3 @@ export function IOSAppGrid({
     </div>
   );
 }
-

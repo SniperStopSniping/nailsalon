@@ -2,8 +2,8 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { getSalonBySlug } from '@/libs/queries';
-import { createFeatureDisabledResponse, isRewardsEnabled } from '@/libs/salonStatus';
 import { sendReferralInvite } from '@/libs/SMS';
 import { appointmentSchema, clientSchema, referralSchema } from '@/models/Schema';
 
@@ -108,9 +108,11 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 3.5. Check if rewards/referrals are enabled for this salon
-    if (!await isRewardsEnabled(salon.id)) {
-      return createFeatureDisabledResponse('rewards');
+    // 3.5. Check if referrals module is enabled (Step 16.3)
+    // Uses effective gating: entitled AND adminEnabled
+    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (moduleGuard) {
+      return moduleGuard;
     }
 
     // 4. Check if this referral already exists

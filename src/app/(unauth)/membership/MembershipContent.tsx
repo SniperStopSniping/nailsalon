@@ -200,12 +200,16 @@ const TierHeroCard = ({
 
   // Gyroscope Logic for Mobile
   useEffect(() => {
-    if (typeof window === 'undefined' || shouldReduceMotion) return;
+    if (typeof window === 'undefined' || shouldReduceMotion) {
+      return;
+    }
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       const gamma = e.gamma;
       const beta = e.beta;
-      if (gamma === null || beta === null) return;
+      if (gamma === null || beta === null) {
+        return;
+      }
 
       const clampedX = Math.min(Math.max(gamma, -20), 20);
       const clampedY = Math.min(Math.max(beta, -20), 20);
@@ -225,7 +229,9 @@ const TierHeroCard = ({
   const rotateYSpring = useSpring(rotateY, springConfig);
 
   function handleMouseMove(event: React.MouseEvent<HTMLDivElement>) {
-    if (shouldReduceMotion) return;
+    if (shouldReduceMotion) {
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -268,19 +274,19 @@ const TierHeroCard = ({
               <motion.div
                 variants={meshVariant}
                 animate="animate"
-                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full opacity-80 blur-[80px] bg-[var(--n5-bg-highlight)]"
+                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-80 blur-[80px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full opacity-50 mix-blend-multiply blur-[60px] bg-[var(--n5-accent-soft)]"
+                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-accent-soft)] opacity-50 mix-blend-multiply blur-[60px]"
               />
               <motion.div
                 variants={meshVariant}
                 animate="animate"
                 transition={{ delay: 5, duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full opacity-20 blur-[90px] bg-[var(--n5-accent)]"
+                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full bg-[var(--n5-accent)] opacity-20 blur-[90px]"
               />
             </>
           )}
@@ -288,7 +294,7 @@ const TierHeroCard = ({
 
         {/* Glass Surface */}
         <div
-          className="absolute inset-0 bg-[var(--n5-bg-card)]/30 backdrop-blur-[20px]"
+          className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
           style={{ borderRadius: n5.radiusCard }}
         />
 
@@ -298,8 +304,10 @@ const TierHeroCard = ({
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-2">
               <TierIcon className={cn('size-5', tier.colorClass)} />
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-90 font-body">
-                {tier.name} Member
+              <span className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-90">
+                {tier.name}
+                {' '}
+                Member
               </span>
             </div>
             <div
@@ -309,45 +317,52 @@ const TierHeroCard = ({
               )}
               style={{ borderRadius: n5.radiusPill, borderColor: 'var(--n5-border)' }}
             >
-              <span className="text-[10px] font-bold font-body">{tier.pointsMultiplier}% Back</span>
+              <span className="font-body text-[10px] font-bold">
+                {tier.pointsMultiplier}
+                % Back
+              </span>
             </div>
           </div>
 
           {/* Middle Row - Stats */}
           <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col">
-              <span className="text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60 font-body">
+              <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60">
                 Visits
               </span>
-              <span className="text-2xl font-bold tabular-nums leading-none font-heading text-[var(--n5-ink-main)]">
+              <span className="font-heading text-2xl font-bold tabular-nums leading-none text-[var(--n5-ink-main)]">
                 {visits}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60 font-body">
+              <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60">
                 Points
               </span>
-              <span className="text-2xl font-bold tabular-nums leading-none font-heading text-[var(--n5-accent)]">
+              <span className="font-heading text-2xl font-bold tabular-nums leading-none text-[var(--n5-accent)]">
                 {pointsEarned >= 1000 ? `${(pointsEarned / 1000).toFixed(1)}k` : pointsEarned}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60 font-body">
+              <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60">
                 Saved
               </span>
-              <span className="text-2xl font-bold tabular-nums leading-none font-heading text-[var(--n5-success)]">
-                ${savedAmount}
+              <span className="font-heading text-2xl font-bold tabular-nums leading-none text-[var(--n5-success)]">
+                $
+                {savedAmount}
               </span>
             </div>
           </div>
 
           {/* Bottom Row - Progress */}
           <div className="space-y-2" style={{ borderTopWidth: 1, borderColor: 'var(--n5-border-muted)', paddingTop: n5.spaceMd }}>
-            <div className="flex items-center justify-between text-[10px] font-body">
+            <div className="font-body flex items-center justify-between text-[10px]">
               <span className="text-[var(--n5-ink-muted)]">
                 {nextTier ? `${visitsToNext} visits to ${nextTier.name}` : 'Maximum tier reached!'}
               </span>
-              <span className="font-bold text-[var(--n5-accent)]">{Math.round(progressPercent)}%</span>
+              <span className="font-bold text-[var(--n5-accent)]">
+                {Math.round(progressPercent)}
+                %
+              </span>
             </div>
             <div
               className="h-1.5 w-full overflow-hidden bg-[var(--n5-accent-soft)]"
@@ -373,7 +388,7 @@ const TierHeroCard = ({
 const TierProgressTimeline = ({ currentTier, visits }: { currentTier: MembershipTier; visits: number }) => {
   return (
     <div className="mt-8">
-      <h3 className="mb-4 px-1 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] font-heading">
+      <h3 className="font-heading mb-4 px-1 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)]">
         Membership Ladder
       </h3>
       <div
@@ -413,21 +428,25 @@ const TierProgressTimeline = ({ currentTier, visits }: { currentTier: Membership
               {/* Content */}
               <div className="ml-3 flex-1">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[15px] font-semibold text-[var(--n5-ink-main)] font-body">
+                  <span className="font-body text-[15px] font-semibold text-[var(--n5-ink-main)]">
                     {tier.name}
                   </span>
                   {isCurrentTier && (
                     <span
-                      className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-[var(--n5-accent)] text-[var(--n5-ink-inverse)] font-body"
+                      className="font-body bg-[var(--n5-accent)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--n5-ink-inverse)]"
                       style={{ borderRadius: n5.radiusPill }}
                     >
                       Current
                     </span>
                   )}
                 </div>
-                <span className="text-[12px] text-[var(--n5-ink-muted)] font-body">
+                <span className="font-body text-[12px] text-[var(--n5-ink-muted)]">
                   {tier.minVisits}
-                  {tier.maxVisits ? `–${tier.maxVisits}` : '+'} visits · {tier.pointsMultiplier}% points back
+                  {tier.maxVisits ? `–${tier.maxVisits}` : '+'}
+                  {' '}
+                  visits ·
+                  {tier.pointsMultiplier}
+                  % points back
                 </span>
               </div>
 
@@ -459,7 +478,7 @@ const PerksList = ({ currentTier }: { currentTier: MembershipTier }) => {
 
   return (
     <div className="mt-8 space-y-6">
-      <h3 className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] font-heading">
+      <h3 className="font-heading px-1 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)]">
         Your Member Perks
       </h3>
 
@@ -472,12 +491,18 @@ const PerksList = ({ currentTier }: { currentTier: MembershipTier }) => {
             {/* Tier Header */}
             <div className="mb-2 flex items-center space-x-2 px-1">
               <TierIcon className={cn('size-4', tier.colorClass)} />
-              <span className="text-[13px] font-semibold text-[var(--n5-ink-main)] font-body">
-                {tier.name} Perks
+              <span className="font-body text-[13px] font-semibold text-[var(--n5-ink-main)]">
+                {tier.name}
+                {' '}
+                Perks
               </span>
               {!isUnlocked && (
-                <span className="text-[10px] text-[var(--n5-ink-muted)] font-body">
-                  · Unlocks at {tier.minVisits} visits
+                <span className="font-body text-[10px] text-[var(--n5-ink-muted)]">
+                  · Unlocks at
+                  {' '}
+                  {tier.minVisits}
+                  {' '}
+                  visits
                 </span>
               )}
             </div>
@@ -514,27 +539,29 @@ const PerksList = ({ currentTier }: { currentTier: MembershipTier }) => {
 
                     {/* Content */}
                     <div className="ml-3 flex-1">
-                      <span className="text-[15px] font-medium text-[var(--n5-ink-main)] font-body">
+                      <span className="font-body text-[15px] font-medium text-[var(--n5-ink-main)]">
                         {perk.title}
                       </span>
-                      <p className="text-[12px] text-[var(--n5-ink-muted)] font-body">
+                      <p className="font-body text-[12px] text-[var(--n5-ink-muted)]">
                         {perk.description}
                       </p>
                     </div>
 
                     {/* Frequency Badge / Lock */}
-                    {isUnlocked ? (
-                      perk.frequency && (
-                        <span
-                          className="px-2 py-1 text-[10px] font-bold bg-[var(--n5-success)]/10 text-[var(--n5-success)] font-body"
-                          style={{ borderRadius: n5.radiusPill }}
-                        >
-                          {perk.frequency}
-                        </span>
-                      )
-                    ) : (
-                      <Lock className="size-4 text-[var(--n5-ink-muted)]" />
-                    )}
+                    {isUnlocked
+                      ? (
+                          perk.frequency && (
+                            <span
+                              className="bg-[var(--n5-success)]/10 font-body px-2 py-1 text-[10px] font-bold text-[var(--n5-success)]"
+                              style={{ borderRadius: n5.radiusPill }}
+                            >
+                              {perk.frequency}
+                            </span>
+                          )
+                        )
+                      : (
+                          <Lock className="size-4 text-[var(--n5-ink-muted)]" />
+                        )}
                   </div>
                 );
               })}
@@ -570,7 +597,7 @@ const FloatingDock = ({ onBookNow, onHome, onProfile }: { onBookNow: () => void;
         triggerHaptic();
         onHome();
       }}
-      className="p-2 transition-colors hover:text-[var(--n5-ink-main)] text-[var(--n5-ink-muted)]"
+      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
       aria-label="Go to Home"
     >
       <Home strokeWidth={2} className="size-6" />
@@ -582,7 +609,7 @@ const FloatingDock = ({ onBookNow, onHome, onProfile }: { onBookNow: () => void;
         onBookNow();
       }}
       aria-label="Book a new appointment"
-      className="min-w-[120px] px-6 py-3 text-sm font-bold transition-transform active:scale-95 bg-[var(--n5-ink-main)] text-[var(--n5-ink-inverse)] font-body"
+      className="font-body min-w-[120px] bg-[var(--n5-ink-main)] px-6 py-3 text-sm font-bold text-[var(--n5-ink-inverse)] transition-transform active:scale-95"
       style={{
         borderRadius: n5.radiusButton,
         boxShadow: n5.shadowSm,
@@ -596,7 +623,7 @@ const FloatingDock = ({ onBookNow, onHome, onProfile }: { onBookNow: () => void;
         triggerHaptic();
         onProfile();
       }}
-      className="p-2 transition-colors hover:text-[var(--n5-ink-main)] text-[var(--n5-ink-muted)]"
+      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
       aria-label="Go to Profile"
     >
       <User strokeWidth={2} className="size-6" />
@@ -609,9 +636,9 @@ const FloatingDock = ({ onBookNow, onHome, onProfile }: { onBookNow: () => void;
  */
 const MembershipSkeleton = () => (
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-    <div className="aspect-[1.58/1] w-full animate-pulse bg-[var(--n5-bg-card)]/50" style={{ borderRadius: n5.radiusCard }} />
-    <div className="h-48 w-full animate-pulse bg-[var(--n5-bg-card)]/50" style={{ borderRadius: n5.radiusCard }} />
-    <div className="h-64 w-full animate-pulse bg-[var(--n5-bg-card)]/50" style={{ borderRadius: n5.radiusCard }} />
+    <div className="bg-[var(--n5-bg-card)]/50 aspect-[1.58/1] w-full animate-pulse" style={{ borderRadius: n5.radiusCard }} />
+    <div className="bg-[var(--n5-bg-card)]/50 h-48 w-full animate-pulse" style={{ borderRadius: n5.radiusCard }} />
+    <div className="bg-[var(--n5-bg-card)]/50 h-64 w-full animate-pulse" style={{ borderRadius: n5.radiusCard }} />
   </motion.div>
 );
 
@@ -719,7 +746,7 @@ export default function MembershipContent() {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] shadow-sm transition-transform active:scale-90 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] shadow-sm transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
         >
           <ChevronRight className="size-5 rotate-180" />
@@ -731,14 +758,14 @@ export default function MembershipContent() {
           type="button"
           onClick={handleRefresh}
           aria-label="Refresh Membership"
-          className="flex size-10 items-center justify-center transition-transform active:rotate-180 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center text-[var(--n5-ink-main)] transition-transform active:rotate-180"
         >
           <RefreshCw className={cn('size-5', isRefreshing && 'animate-spin text-[var(--n5-accent)]')} />
         </button>
       </nav>
 
       {/* Main Scroll Content */}
-      <main className="mx-auto max-w-lg space-y-2 px-5 pb-28 pt-28">
+      <main className="mx-auto max-w-lg space-y-2 px-5 py-28">
         <AnimatePresence mode="wait">
           {loading || isRefreshing ? (
             <MembershipSkeleton key="skeleton" />
@@ -763,7 +790,7 @@ export default function MembershipContent() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.3 }}
                 onClick={() => handleNavigate('/rewards')}
-                className="mt-8 flex w-full items-center justify-center space-x-2 py-4 text-sm font-semibold transition-colors bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] font-body hover:bg-[var(--n5-bg-surface)]"
+                className="font-body mt-8 flex w-full items-center justify-center space-x-2 bg-[var(--n5-bg-card)] py-4 text-sm font-semibold text-[var(--n5-ink-main)] transition-colors hover:bg-[var(--n5-bg-surface)]"
                 style={{ borderRadius: n5.radiusMd, boxShadow: n5.shadowSm }}
               >
                 <Gift className="size-4 text-[var(--n5-accent)]" />
@@ -774,9 +801,11 @@ export default function MembershipContent() {
               {/* Footer */}
               <div className="pt-10 text-center opacity-40">
                 <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
-                  {salonName || 'Nail Salon No.5'} · Est 2024
+                  {salonName || 'Nail Salon No.5'}
+                  {' '}
+                  · Est 2024
                 </p>
-                <p className="mt-1 text-[9px] text-[var(--n5-ink-muted)] font-body">
+                <p className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]">
                   Membership benefits subject to availability
                 </p>
               </div>

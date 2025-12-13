@@ -58,7 +58,7 @@ export const appIcons = {
 
 export type AppIconType = keyof typeof appIcons;
 
-export interface IOSAppIconProps {
+export type IOSAppIconProps = {
   /** Pre-defined app type or custom configuration */
   type?: AppIconType;
   /** Custom icon component (overrides type) */
@@ -69,7 +69,7 @@ export interface IOSAppIconProps {
   size?: number;
   /** Custom className */
   className?: string;
-}
+};
 
 export function IOSAppIcon({
   type,
@@ -148,4 +148,3 @@ export function IOSCustomIcon({
     </div>
   );
 }
-

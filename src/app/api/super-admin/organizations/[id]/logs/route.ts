@@ -2,7 +2,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/superAdmin';
-import { salonSchema, salonAuditLogSchema } from '@/models/Schema';
+import { salonAuditLogSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +15,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
+
+    const page = Number.parseInt(searchParams.get('page') || '1', 10);
+    const limit = Number.parseInt(searchParams.get('limit') || '20', 10);
     const offset = (page - 1) * limit;
 
     // Check salon exists

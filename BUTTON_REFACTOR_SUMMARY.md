@@ -166,4 +166,3 @@ To verify the changes:
 - Text links (like "View all photos") were left as-is since they're not primary action buttons
 - All primary action buttons now use the unified Button component
 - All secondary action buttons now use the unified Button component
-

@@ -2,19 +2,19 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, logAuditAction } from '@/libs/superAdmin';
+import { logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import {
-  salonSchema,
+  appointmentPhotoSchema,
   appointmentSchema,
   appointmentServicesSchema,
-  appointmentPhotoSchema,
+  clientPreferencesSchema,
+  referralSchema,
+  rewardSchema,
+  salonSchema,
+  technicianBlockedSlotSchema,
   technicianSchema,
   technicianServicesSchema,
   technicianTimeOffSchema,
-  technicianBlockedSlotSchema,
-  referralSchema,
-  rewardSchema,
-  clientPreferencesSchema,
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +40,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;

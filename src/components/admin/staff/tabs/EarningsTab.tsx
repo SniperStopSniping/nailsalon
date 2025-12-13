@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { DollarSign, TrendingUp, Building2 } from 'lucide-react';
+import { Building2, DollarSign, TrendingUp } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 
@@ -9,25 +9,25 @@ import { useSalon } from '@/providers/SalonProvider';
 // Types
 // =============================================================================
 
-interface EarningsSummary {
+type EarningsSummary = {
   appointmentCount: number;
   totalRevenue: number;
   techEarned: number;
   salonEarned: number;
-}
+};
 
-interface EarningsSeries {
+type EarningsSeries = {
   date: string | null;
   appointments: number;
   totalRevenue: number;
   techEarned: number;
   salonEarned: number;
-}
+};
 
-interface EarningsTabProps {
+type EarningsTabProps = {
   technicianId: string;
   commissionRate: number;
-}
+};
 
 type DateRange = 'today' | 'week' | 'month' | 'custom';
 
@@ -82,7 +82,9 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
   const [loading, setLoading] = useState(true);
 
   const fetchEarnings = useCallback(async () => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     try {
       setLoading(true);
@@ -95,7 +97,7 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
       });
 
       const response = await fetch(
-        `/api/admin/technicians/${technicianId}/earnings?${params}`
+        `/api/admin/technicians/${technicianId}/earnings?${params}`,
       );
 
       if (!response.ok) {
@@ -117,25 +119,25 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
   }, [fetchEarnings]);
 
   // Find max revenue for chart scaling
-  const maxRevenue = Math.max(...series.map((s) => s.totalRevenue), 1);
+  const maxRevenue = Math.max(...series.map(s => s.totalRevenue), 1);
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 p-4">
       {/* Date Range Selector */}
       <div className="flex gap-2">
-        {(['today', 'week', 'month'] as DateRange[]).map((range) => (
+        {(['today', 'week', 'month'] as DateRange[]).map(range => (
           <button
             key={range}
             type="button"
             onClick={() => setDateRange(range)}
             className={`
-              flex-1 py-2 rounded-lg text-[13px] font-medium
-              transition-colors capitalize
+              flex-1 rounded-lg py-2 text-[13px] font-medium
+              capitalize transition-colors
               ${
-                dateRange === range
-                  ? 'bg-[#007AFF] text-white'
-                  : 'bg-[#E5E5EA] text-[#1C1C1E]'
-              }
+          dateRange === range
+            ? 'bg-[#007AFF] text-white'
+            : 'bg-[#E5E5EA] text-[#1C1C1E]'
+          }
             `}
           >
             {range === 'today' ? 'Today' : range === 'week' ? 'Week' : 'Month'}
@@ -150,14 +152,14 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
           {/* Summary Cards */}
           <div className="grid grid-cols-2 gap-3">
             <EarningsCard
-              icon={<DollarSign className="w-5 h-5" />}
+              icon={<DollarSign className="size-5" />}
               label="They Earned"
               value={formatCurrency(summary?.techEarned ?? 0)}
               sublabel={`${Math.round(commissionRate * 100)}% commission`}
               color="#34C759"
             />
             <EarningsCard
-              icon={<Building2 className="w-5 h-5" />}
+              icon={<Building2 className="size-5" />}
               label="They Made Us"
               value={formatCurrency(summary?.salonEarned ?? 0)}
               sublabel={`${Math.round((1 - commissionRate) * 100)}% salon`}
@@ -166,10 +168,10 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
           </div>
 
           {/* Total Revenue */}
-          <div className="bg-white rounded-[12px] p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-[#FF950015] flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-[#FF9500]" />
+          <div className="rounded-[12px] bg-white p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-[#FF950015]">
+                <TrendingUp className="size-5 text-[#FF9500]" />
               </div>
               <span className="text-[13px] text-[#8E8E93]">Total Revenue</span>
             </div>
@@ -177,18 +179,23 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
               {formatCurrency(summary?.totalRevenue ?? 0)}
             </div>
             <div className="text-[13px] text-[#8E8E93]">
-              from {summary?.appointmentCount ?? 0} appointment{(summary?.appointmentCount ?? 0) !== 1 ? 's' : ''}
+              from
+              {' '}
+              {summary?.appointmentCount ?? 0}
+              {' '}
+              appointment
+              {(summary?.appointmentCount ?? 0) !== 1 ? 's' : ''}
             </div>
           </div>
 
           {/* Chart */}
           {series.length > 0 && (
             <div>
-              <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+              <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
                 Revenue Trend
               </h3>
-              <div className="bg-white rounded-[12px] p-4">
-                <div className="flex items-end gap-1 h-32">
+              <div className="rounded-[12px] bg-white p-4">
+                <div className="flex h-32 items-end gap-1">
                   {series.slice(-14).map((item, index) => {
                     const height = (item.totalRevenue / maxRevenue) * 100;
                     const date = item.date ? new Date(item.date) : null;
@@ -199,13 +206,13 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
                     return (
                       <div
                         key={index}
-                        className="flex-1 flex flex-col items-center"
+                        className="flex flex-1 flex-col items-center"
                       >
                         <div
-                          className="w-full bg-[#007AFF] rounded-t-sm min-h-[4px]"
+                          className="min-h-[4px] w-full rounded-t-sm bg-[#007AFF]"
                           style={{ height: `${Math.max(height, 4)}%` }}
                         />
-                        <span className="text-[9px] text-[#8E8E93] mt-1">
+                        <span className="mt-1 text-[9px] text-[#8E8E93]">
                           {dayLabel}
                         </span>
                       </div>
@@ -239,10 +246,10 @@ function EarningsCard({
   color: string;
 }) {
   return (
-    <div className="bg-white rounded-[12px] p-4">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="rounded-[12px] bg-white p-4">
+      <div className="mb-2 flex items-center gap-2">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          className="flex size-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${color}15`, color }}
         >
           {icon}
@@ -252,7 +259,7 @@ function EarningsCard({
       <div className="text-[24px] font-bold" style={{ color }}>
         {value}
       </div>
-      <div className="text-[11px] text-[#8E8E93] mt-0.5">{sublabel}</div>
+      <div className="mt-0.5 text-[11px] text-[#8E8E93]">{sublabel}</div>
     </div>
   );
 }
@@ -263,12 +270,12 @@ function EarningsCard({
 
 function LoadingSkeleton() {
   return (
-    <div className="space-y-4 animate-pulse">
+    <div className="animate-pulse space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-[12px] p-4 h-28" />
-        <div className="bg-white rounded-[12px] p-4 h-28" />
+        <div className="h-28 rounded-[12px] bg-white p-4" />
+        <div className="h-28 rounded-[12px] bg-white p-4" />
       </div>
-      <div className="bg-white rounded-[12px] p-4 h-32" />
+      <div className="h-32 rounded-[12px] bg-white p-4" />
     </div>
   );
 }

@@ -1,12 +1,12 @@
-import { eq, and, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import {
+  serviceSchema,
   technicianSchema,
   technicianServicesSchema,
-  serviceSchema,
 } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -33,13 +33,13 @@ const updateServicesSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/technicians/[id]/services - Get service capabilities
@@ -126,11 +126,11 @@ export async function GET(
 
     // Build a map of assigned services
     const assignedMap = new Map(
-      techServices.map(ts => [ts.serviceId, { enabled: ts.enabled, priority: ts.priority }])
+      techServices.map(ts => [ts.serviceId, { enabled: ts.enabled, priority: ts.priority }]),
     );
 
     // Combine all services with assignment status
-    const servicesWithCapability = allServices.map(service => {
+    const servicesWithCapability = allServices.map((service) => {
       const assignment = assignedMap.get(service.id);
       return {
         serviceId: service.id,

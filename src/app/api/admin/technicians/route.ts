@@ -1,15 +1,16 @@
-import { eq, and, or, ilike, desc, asc, sql, gte, lt, inArray } from 'drizzle-orm';
-import { z } from 'zod';
+import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { canAddTechnician } from '@/libs/planLimits';
 import { getSalonBySlug } from '@/libs/queries';
 import {
-  technicianSchema,
   appointmentSchema,
-  STAFF_ROLES,
-  SKILL_LEVELS,
   PAY_TYPES,
+  SKILL_LEVELS,
+  STAFF_ROLES,
+  technicianSchema,
   type WeeklySchedule,
 } from '@/models/Schema';
 
@@ -59,13 +60,13 @@ const createTechnicianSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/technicians - List technicians with stats
@@ -172,7 +173,7 @@ export async function GET(request: Request): Promise<Response> {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
     const techIds = technicians.map(t => t.id);
-    
+
     // Get appointments stats
     let todayStats: { technicianId: string; count: number; revenue: number }[] = [];
     let monthStats: { technicianId: string; count: number; revenue: number }[] = [];
@@ -232,7 +233,7 @@ export async function GET(request: Request): Promise<Response> {
     const monthStatsMap = new Map(monthStats.map(s => [s.technicianId, s]));
 
     // Format response
-    const techniciansWithStats = technicians.map(tech => {
+    const techniciansWithStats = technicians.map((tech) => {
       const todayStat = todayStatsMap.get(tech.id);
       const monthStat = monthStatsMap.get(tech.id);
 
@@ -250,9 +251,9 @@ export async function GET(request: Request): Promise<Response> {
         currentStatus: tech.currentStatus,
         isActive: tech.isActive,
         acceptingNewClients: tech.acceptingNewClients,
-        rating: tech.rating ? parseFloat(tech.rating) : null,
+        rating: tech.rating ? Number.parseFloat(tech.rating) : null,
         reviewCount: tech.reviewCount,
-        commissionRate: tech.commissionRate ? parseFloat(tech.commissionRate) : 0,
+        commissionRate: tech.commissionRate ? Number.parseFloat(tech.commissionRate) : 0,
         displayOrder: tech.displayOrder,
         hiredAt: tech.hiredAt,
         onboardingStatus: tech.onboardingStatus,
@@ -329,6 +330,20 @@ export async function POST(request: Request): Promise<Response> {
           },
         } satisfies ErrorResponse,
         { status: 404 },
+      );
+    }
+
+    // Check seat limit before creating
+    const limitCheck = await canAddTechnician(salon.id);
+    if (!limitCheck.allowed) {
+      return Response.json(
+        {
+          error: {
+            code: 'SEAT_LIMIT_REACHED',
+            message: `Staff seat limit reached (${limitCheck.current}/${limitCheck.max})`,
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
       );
     }
 

@@ -11,9 +11,9 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import {
+  type ClientPreferences,
   clientPreferencesSchema,
   technicianSchema,
-  type ClientPreferences,
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -50,15 +50,15 @@ const putPreferencesSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
-interface PreferencesData {
+type PreferencesData = {
   id: string;
   salonId: string;
   normalizedClientPhone: string;
@@ -77,16 +77,16 @@ interface PreferencesData {
   appointmentNotes: string | null;
   createdAt: string;
   updatedAt: string;
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     preferences: PreferencesData | null;
   };
   meta: {
     timestamp: string;
   };
-}
+};
 
 // =============================================================================
 // Helper: Normalize phone number to 10 digits

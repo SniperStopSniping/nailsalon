@@ -55,11 +55,11 @@ const config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
-        shimmer: {
+        'shimmer': {
           '0%': { backgroundPosition: '-200% 0' },
           '100%': { backgroundPosition: '200% 0' },
         },
-        sparkle: {
+        'sparkle': {
           '0%': { transform: 'scale(1)' },
           '50%': { transform: 'scale(1.18)' },
           '100%': { transform: 'scale(0.94)' },
@@ -76,8 +76,8 @@ const config = {
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
-        shimmer: 'shimmer 6s ease-in-out infinite',
-        sparkle: 'sparkle 2s ease-in-out infinite',
+        'shimmer': 'shimmer 6s ease-in-out infinite',
+        'sparkle': 'sparkle 2s ease-in-out infinite',
         'spring-up': 'spring-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards',
         'fade-in': 'fade-in 0.3s ease-out forwards',
       },

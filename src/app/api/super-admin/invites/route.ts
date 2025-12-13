@@ -7,19 +7,19 @@
  * Protected by requireSuperAdmin().
  */
 
+import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { eq, and, desc, isNull, gt, or, lte } from 'drizzle-orm';
 
+import { formatPhoneE164, isValidPhone, requireSuperAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import {
-  adminInviteSchema,
-  salonSchema,
-  adminUserSchema,
-  type AdminInviteRole,
-  ADMIN_INVITE_ROLES,
-} from '@/models/Schema';
-import { requireSuperAdmin, formatPhoneE164, isValidPhone } from '@/libs/adminAuth';
 import { getSalonBySlug } from '@/libs/queries';
+import {
+  ADMIN_INVITE_ROLES,
+  type AdminInviteRole,
+  adminInviteSchema,
+  adminUserSchema,
+  salonSchema,
+} from '@/models/Schema';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,9 @@ const isTwilioConfigured = Boolean(
 export async function GET() {
   // Auth check
   const guard = await requireSuperAdmin();
-  if (!guard.ok) return guard.response;
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   try {
     const now = new Date();
@@ -101,7 +103,9 @@ export async function GET() {
 export async function POST(request: Request) {
   // Auth check
   const guard = await requireSuperAdmin();
-  if (!guard.ok) return guard.response;
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   const { admin } = guard;
 
@@ -218,10 +222,10 @@ export async function POST(request: Request) {
     });
 
     // Send SMS invite
-    const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
-      'http://localhost:3000';
+    const baseUrl
+      = process.env.NEXT_PUBLIC_APP_URL
+      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+      || 'http://localhost:3000';
 
     const loginUrl = `${baseUrl}/en/admin-login`;
     const roleDisplay = inviteRole === 'SUPER_ADMIN' ? 'Super Admin' : (finalMembershipRole === 'owner' ? 'Owner' : 'Admin');
@@ -237,7 +241,7 @@ export async function POST(request: Request) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+            'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
           },
           body: new URLSearchParams({
             To: phoneE164,

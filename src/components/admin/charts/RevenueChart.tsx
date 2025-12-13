@@ -12,7 +12,7 @@
 
 import { motion } from 'framer-motion';
 
-interface RevenueChartProps {
+type RevenueChartProps = {
   /** Primary stroke color */
   strokeColor?: string;
   /** Gradient start color (top) */
@@ -25,7 +25,7 @@ interface RevenueChartProps {
   gradientId?: string;
   /** Chart height */
   height?: number;
-}
+};
 
 export function RevenueChart({
   strokeColor = '#fa709a',
@@ -41,7 +41,7 @@ export function RevenueChart({
 
   return (
     <div className="relative w-full" style={{ height }}>
-      <svg viewBox="0 0 300 100" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+      <svg viewBox="0 0 300 100" className="size-full overflow-visible" preserveAspectRatio="none">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={gradientStart} stopOpacity="0.25" />
@@ -67,7 +67,7 @@ export function RevenueChart({
 
       {/* Active Dot at end of line */}
       <motion.div
-        className="absolute w-3 h-3 rounded-full border-2 border-white shadow-sm"
+        className="absolute size-3 rounded-full border-2 border-white shadow-sm"
         style={{
           backgroundColor: strokeColor,
           top: '5%',
@@ -84,17 +84,16 @@ export function RevenueChart({
 /**
  * Chart X-Axis Labels
  */
-interface ChartLabelsProps {
+type ChartLabelsProps = {
   labels: string[];
-}
+};
 
 export function ChartLabels({ labels }: ChartLabelsProps) {
   return (
-    <div className="flex justify-between text-[11px] text-[#8E8E93] font-medium mt-2 px-1">
+    <div className="mt-2 flex justify-between px-1 text-[11px] font-medium text-[#8E8E93]">
       {labels.map((label, index) => (
         <span key={index}>{label}</span>
       ))}
     </div>
   );
 }
-

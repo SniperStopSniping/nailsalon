@@ -4,9 +4,9 @@ import { motion } from 'framer-motion';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { ANIMATION } from '@/libs/animations';
-import { triggerHaptic, type HapticType } from '@/libs/haptics';
+import { type HapticType, triggerHaptic } from '@/libs/haptics';
 
-interface AnimatedButtonProps {
+type AnimatedButtonProps = {
   /** Button content */
   children: ReactNode;
   /** Click handler */
@@ -25,7 +25,7 @@ interface AnimatedButtonProps {
   type?: 'button' | 'submit';
   /** Aria label for accessibility */
   ariaLabel?: string;
-}
+};
 
 /**
  * AnimatedButton
@@ -76,7 +76,9 @@ export function AnimatedButton({
   }, [disabled, pulseOnEnabled, wasDisabled]);
 
   const handleClick = useCallback(() => {
-    if (disabled) return;
+    if (disabled) {
+      return;
+    }
     if (haptic) {
       triggerHaptic(haptic);
     }

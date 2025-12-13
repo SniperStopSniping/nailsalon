@@ -1,30 +1,30 @@
-import { and, eq, gte, sql, desc, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, getSuperAdminInfo, logAuditAction } from '@/libs/superAdmin';
+import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import {
-  salonSchema,
-  technicianSchema,
-  appointmentSchema,
-  appointmentServicesSchema,
-  appointmentPhotoSchema,
-  serviceSchema,
-  technicianServicesSchema,
-  technicianTimeOffSchema,
-  technicianBlockedSlotSchema,
-  referralSchema,
-  rewardSchema,
-  clientPreferencesSchema,
-  salonPageAppearanceSchema,
-  salonLocationSchema,
+  adminInviteSchema,
   adminSalonMembershipSchema,
   adminUserSchema,
-  adminInviteSchema,
+  appointmentPhotoSchema,
+  appointmentSchema,
+  appointmentServicesSchema,
+  clientPreferencesSchema,
+  referralSchema,
+  rewardSchema,
   SALON_PLANS,
   SALON_STATUSES,
+  salonLocationSchema,
+  salonPageAppearanceSchema,
   type SalonPlan,
+  salonSchema,
   type SalonStatus,
+  serviceSchema,
+  technicianBlockedSlotSchema,
+  technicianSchema,
+  technicianServicesSchema,
+  technicianTimeOffSchema,
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -65,7 +65,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -91,8 +93,8 @@ export async function GET(
       .where(
         and(
           eq(technicianSchema.salonId, id),
-          eq(technicianSchema.isActive, true)
-        )
+          eq(technicianSchema.isActive, true),
+        ),
       );
 
     // Get unique client count (from clientPreferences which tracks registered clients)
@@ -111,8 +113,8 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, id),
-          gte(appointmentSchema.createdAt, thirtyDaysAgo)
-        )
+          gte(appointmentSchema.createdAt, thirtyDaysAgo),
+        ),
       );
 
     // Get owner info from admin_salon_membership
@@ -191,16 +193,20 @@ export async function GET(
         updatedAt: salon.updatedAt.toISOString(),
       },
       // New owner info from admin system
-      owner: ownerInfo ? {
-        adminId: ownerInfo.adminId,
-        phoneE164: ownerInfo.phoneE164,
-        name: ownerInfo.name,
-      } : null,
-      pendingOwnerInvite: pendingOwnerInvite ? {
-        phoneE164: pendingOwnerInvite.phoneE164,
-        expiresAt: pendingOwnerInvite.expiresAt.toISOString(),
-        isExpired: pendingOwnerInvite.expiresAt < now,
-      } : null,
+      owner: ownerInfo
+        ? {
+            adminId: ownerInfo.adminId,
+            phoneE164: ownerInfo.phoneE164,
+            name: ownerInfo.name,
+          }
+        : null,
+      pendingOwnerInvite: pendingOwnerInvite
+        ? {
+            phoneE164: pendingOwnerInvite.phoneE164,
+            expiresAt: pendingOwnerInvite.expiresAt.toISOString(),
+            isExpired: pendingOwnerInvite.expiresAt < now,
+          }
+        : null,
       admins: admins.map(a => ({
         adminId: a.adminId,
         role: a.role,
@@ -233,7 +239,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -349,7 +357,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;
@@ -375,15 +385,15 @@ export async function DELETE(
     if (hardDelete) {
       // HARD DELETE: Permanently remove all data
       // Order matters due to foreign key constraints
-      
+
       // 1. Delete appointment-related data
       const appointments = await db
         .select({ id: appointmentSchema.id })
         .from(appointmentSchema)
         .where(eq(appointmentSchema.salonId, id));
-      
+
       const appointmentIds = appointments.map(a => a.id);
-      
+
       if (appointmentIds.length > 0) {
         // Delete appointment services
         for (const apptId of appointmentIds) {
@@ -391,82 +401,82 @@ export async function DELETE(
             .delete(appointmentServicesSchema)
             .where(eq(appointmentServicesSchema.appointmentId, apptId));
         }
-        
+
         // Delete appointment photos
         await db
           .delete(appointmentPhotoSchema)
           .where(eq(appointmentPhotoSchema.salonId, id));
-        
+
         // Delete appointments
         await db
           .delete(appointmentSchema)
           .where(eq(appointmentSchema.salonId, id));
       }
-      
+
       // 2. Delete rewards
       await db
         .delete(rewardSchema)
         .where(eq(rewardSchema.salonId, id));
-      
+
       // 3. Delete referrals
       await db
         .delete(referralSchema)
         .where(eq(referralSchema.salonId, id));
-      
+
       // 4. Delete client preferences
       await db
         .delete(clientPreferencesSchema)
         .where(eq(clientPreferencesSchema.salonId, id));
-      
+
       // 5. Delete technician-related data
       const technicians = await db
         .select({ id: technicianSchema.id })
         .from(technicianSchema)
         .where(eq(technicianSchema.salonId, id));
-      
+
       const technicianIds = technicians.map(t => t.id);
-      
+
       if (technicianIds.length > 0) {
         for (const techId of technicianIds) {
           await db
             .delete(technicianServicesSchema)
             .where(eq(technicianServicesSchema.technicianId, techId));
-          
+
           await db
             .delete(technicianTimeOffSchema)
             .where(eq(technicianTimeOffSchema.technicianId, techId));
-          
+
           await db
             .delete(technicianBlockedSlotSchema)
             .where(eq(technicianBlockedSlotSchema.technicianId, techId));
         }
-        
+
         // Delete technicians
         await db
           .delete(technicianSchema)
           .where(eq(technicianSchema.salonId, id));
       }
-      
+
       // 6. Delete services
       await db
         .delete(serviceSchema)
         .where(eq(serviceSchema.salonId, id));
-      
+
       // 7. Delete locations
       await db
         .delete(salonLocationSchema)
         .where(eq(salonLocationSchema.salonId, id));
-      
+
       // 8. Delete page appearances
       await db
         .delete(salonPageAppearanceSchema)
         .where(eq(salonPageAppearanceSchema.salonId, id));
-      
+
       // 9. Finally delete the salon (audit logs will cascade)
       await db
         .delete(salonSchema)
         .where(eq(salonSchema.id, id));
-      
+
       return Response.json({
         success: true,
         message: 'Salon permanently deleted',
@@ -483,12 +493,12 @@ export async function DELETE(
         })
         .where(eq(salonSchema.id, id))
         .returning();
-      
+
       // Log the action
       await logAuditAction(id, 'deleted', {
         details: 'Soft deleted (data preserved)',
       });
-      
+
       return Response.json({
         success: true,
         message: 'Salon soft deleted',

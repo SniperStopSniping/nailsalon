@@ -1,8 +1,6 @@
-import { eq, and, inArray, desc } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-
-export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentSchema,
@@ -11,15 +9,17 @@ import {
   technicianSchema,
 } from '@/models/Schema';
 
+export const dynamic = 'force-dynamic';
+
 // Default salon slug - in production this would come from subdomain
 const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 /**
  * GET /api/appointments/history?phone=1234567890
@@ -105,9 +105,9 @@ export async function GET(request: Request): Promise<Response> {
     // Batch fetch all services
     const services = serviceIds.length > 0
       ? await db
-          .select()
-          .from(serviceSchema)
-          .where(inArray(serviceSchema.id, serviceIds))
+        .select()
+        .from(serviceSchema)
+        .where(inArray(serviceSchema.id, serviceIds))
       : [];
 
     // Create service lookup map
@@ -119,22 +119,22 @@ export async function GET(request: Request): Promise<Response> {
     // Batch fetch all technicians
     const technicians = technicianIds.length > 0
       ? await db
-          .select()
-          .from(technicianSchema)
-          .where(inArray(technicianSchema.id, technicianIds))
+        .select()
+        .from(technicianSchema)
+        .where(inArray(technicianSchema.id, technicianIds))
       : [];
 
     // Create technician lookup map
     const technicianMap = new Map(technicians.map(t => [t.id, t]));
 
     // Build response with all details
-    const appointmentsWithDetails = appointments.map(appointment => {
+    const appointmentsWithDetails = appointments.map((appointment) => {
       // Get services for this appointment
       const apptServices = allAppointmentServices.filter(
         as => as.appointmentId === appointment.id,
       );
 
-      const servicesData = apptServices.map(as => {
+      const servicesData = apptServices.map((as) => {
         const service = serviceMap.get(as.serviceId);
         return {
           id: as.serviceId,
@@ -192,4 +192,3 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 }
-

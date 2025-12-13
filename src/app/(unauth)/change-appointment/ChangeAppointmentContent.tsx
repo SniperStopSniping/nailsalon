@@ -11,27 +11,27 @@ import { themeVars } from '@/theme';
 // TYPES
 // =============================================================================
 
-interface ServiceData {
+type ServiceData = {
   id: string;
   name: string;
   price: number; // in dollars
   duration: number;
-}
+};
 
-interface TechnicianData {
+type TechnicianData = {
   id: string;
   name: string;
   imageUrl: string;
-}
+};
 
-interface ChangeAppointmentClientProps {
+type ChangeAppointmentClientProps = {
   services: ServiceData[];
   technician: TechnicianData | null;
   dateStr: string;
   timeStr: string;
   clientPhone: string;
   originalAppointmentId?: string;
-}
+};
 
 // =============================================================================
 // HELPERS
@@ -106,7 +106,9 @@ const filterPastTimeSlots = (
   slots: { time: string; period: 'morning' | 'afternoon' }[],
   date: Date | null,
 ) => {
-  if (!date) return slots;
+  if (!date) {
+    return slots;
+  }
 
   const torontoNow = getTorontoNow();
   const torontoToday = getTorontoToday();
@@ -116,7 +118,9 @@ const filterPastTimeSlots = (
   selectedDateMidnight.setHours(0, 0, 0, 0);
   const isToday = selectedDateMidnight.toDateString() === torontoToday.toDateString();
 
-  if (!isToday) return slots;
+  if (!isToday) {
+    return slots;
+  }
 
   // Calculate minimum allowed booking time (now + 30 min buffer)
   const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
@@ -217,14 +221,14 @@ export function ChangeAppointmentClient({
       const startTime = performance.now();
 
       const easeInOutCubic = (t: number): number => {
-        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
       };
 
       const step = (currentTime: number) => {
         const elapsed = currentTime - startTime;
         const progress = Math.min(elapsed / duration, 1);
         const easeProgress = easeInOutCubic(progress);
-        
+
         window.scrollTo(0, startY + difference * easeProgress);
 
         if (progress < 1) {
@@ -242,7 +246,9 @@ export function ChangeAppointmentClient({
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     setLoadingSlots(true);
     try {
@@ -283,28 +289,30 @@ export function ChangeAppointmentClient({
     if (!pendingScrollRef.current || loadingSlots) {
       return;
     }
-    
+
     pendingScrollRef.current = false;
-    
+
     // Small delay to ensure DOM is rendered after loading state change
     const timer = setTimeout(async () => {
-      if (!morningSlotsRef.current) return;
-      
+      if (!morningSlotsRef.current) {
+        return;
+      }
+
       // Calculate position to show morning card at bottom of viewport
       const rect = morningSlotsRef.current.getBoundingClientRect();
       const targetY = window.scrollY + rect.bottom - window.innerHeight;
-      
+
       // First scroll - slow and smooth to morning card (800ms)
       await smoothScrollTo(Math.max(0, targetY), 800);
-      
+
       // Pause for 150ms
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       // Second scroll - continue to bottom (1200ms)
       const bottomY = document.documentElement.scrollHeight - window.innerHeight;
       await smoothScrollTo(bottomY, 1200);
     }, 100);
-    
+
     return () => clearTimeout(timer);
   }, [loadingSlots, smoothScrollTo]);
 
@@ -319,8 +327,18 @@ export function ChangeAppointmentClient({
   const isSlotBooked = (time: string) => bookedSlots.includes(time);
 
   const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -366,17 +384,17 @@ export function ChangeAppointmentClient({
     }
 
     const newDateStr = selectedDate.toISOString().split('T')[0];
-    
+
     // Use technician ID or 'any' for the URL (not empty string)
     const techIdForUrl = technician?.id || 'any';
-    
+
     let confirmUrl = `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techIdForUrl}&date=${newDateStr}&time=${selectedTime}&clientPhone=${encodeURIComponent(clientPhone)}`;
 
     // If this is a reschedule, include the original appointment ID
     if (originalAppointmentId) {
       confirmUrl += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
     }
-    
+
     // Debug: log the URL being navigated to
     console.log('[Change Appointment] Navigating to:', confirmUrl);
     console.log('[Change Appointment] originalAppointmentId:', originalAppointmentId);
@@ -399,7 +417,9 @@ export function ChangeAppointmentClient({
 
   // Check if appointment is within 24 hours (for cancellation fee)
   const isWithin24Hours = () => {
-    if (!dateStr || !timeStr) return false;
+    if (!dateStr || !timeStr) {
+      return false;
+    }
 
     const [year, month, day] = dateStr.split('-').map(Number);
     const [hour, minute] = timeStr.split(':').map(Number);
@@ -506,11 +526,22 @@ export function ChangeAppointmentClient({
                 <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
                 <div className="truncate text-base font-bold text-white">{serviceNames}</div>
                 <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                  with {technician?.name || 'Any Artist'} · {totalDuration} min
+                  with
+                  {' '}
+                  {technician?.name || 'Any Artist'}
+                  {' '}
+                  ·
+                  {' '}
+                  {totalDuration}
+                  {' '}
+                  min
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-2xl font-bold text-white">${totalPrice}</div>
+                <div className="text-2xl font-bold text-white">
+                  $
+                  {totalPrice}
+                </div>
               </div>
             </div>
           </div>
@@ -562,7 +593,9 @@ export function ChangeAppointmentClient({
             </button>
 
             <div className="text-lg font-bold text-neutral-900">
-              {monthNames[currentMonth]} {currentYear}
+              {monthNames[currentMonth]}
+              {' '}
+              {currentYear}
             </div>
 
             <button

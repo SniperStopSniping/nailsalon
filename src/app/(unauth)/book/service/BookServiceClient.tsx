@@ -73,7 +73,7 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
   });
 
   const toggleService = (id: string) => {
-    setSelectedServiceIds(prev => {
+    setSelectedServiceIds((prev) => {
       const wasSelected = prev.includes(id);
       triggerHaptic(wasSelected ? 'deselect' : 'select');
       return wasSelected ? prev.filter(x => x !== id) : [...prev, id];

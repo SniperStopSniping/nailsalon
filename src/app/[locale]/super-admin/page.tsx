@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
-import { isSuperAdmin } from '@/libs/superAdmin';
 import { SuperAdminDashboard } from '@/components/super-admin/SuperAdminDashboard';
+import { isSuperAdmin } from '@/libs/superAdmin';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,7 @@ export default async function SuperAdminPage({
   const isSuper = await isSuperAdmin();
 
   if (!isSuper) {
-    redirect(`/${locale}/admin-login`);
+    redirect(`/${locale}/super-admin-login`);
   }
 
   return <SuperAdminDashboard />;

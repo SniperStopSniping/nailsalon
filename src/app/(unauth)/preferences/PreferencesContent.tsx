@@ -107,7 +107,7 @@ function Section({
 }) {
   return (
     <div
-      className="overflow-hidden shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
+      className="bg-[var(--n5-bg-card)]/80 overflow-hidden border border-[var(--n5-border)] shadow-[var(--n5-shadow-md)] backdrop-blur-sm"
       style={{
         borderRadius: 'var(--n5-radius-card)',
         opacity: mounted ? 1 : 0,
@@ -118,7 +118,7 @@ function Section({
       <div className="p-5">
         <div className="mb-4 flex items-center gap-2">
           <span className="text-xl">{icon}</span>
-          <h2 className="text-base font-bold font-body text-[var(--n5-ink-main)]">{title}</h2>
+          <h2 className="font-body text-base font-bold text-[var(--n5-ink-main)]">{title}</h2>
         </div>
         {children}
       </div>
@@ -168,7 +168,9 @@ export default function PreferencesContent() {
       .find(row => row.startsWith('client_phone='));
     if (clientPhoneCookie) {
       const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) setClientPhone(phone);
+      if (phone) {
+        setClientPhone(phone);
+      }
     }
   }, []);
 
@@ -318,14 +320,14 @@ export default function PreferencesContent() {
             type="button"
             onClick={handleBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-[var(--n5-bg-card)]/60 active:scale-95"
+            className="hover:bg-[var(--n5-bg-card)]/60 z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 active:scale-95"
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight font-heading text-[var(--n5-accent)]"
+            className="font-heading absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight text-[var(--n5-accent)]"
           >
             {salonName}
           </div>
@@ -339,15 +341,15 @@ export default function PreferencesContent() {
             transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
           }}
         >
-          <h1 className="mb-1 text-2xl font-bold font-heading text-[var(--n5-ink-main)]">Your Style Profile ✨</h1>
-          <p className="text-sm font-body text-[var(--n5-ink-muted)]">Help us personalize every visit just for you</p>
+          <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">Your Style Profile ✨</h1>
+          <p className="font-body text-sm text-[var(--n5-ink-muted)]">Help us personalize every visit just for you</p>
         </div>
 
         {/* Loading state */}
         {loading && (
           <div className="flex items-center justify-center py-12">
             <div
-              className="size-8 animate-spin rounded-full border-2 border-t-transparent border-[var(--n5-accent)]"
+              className="size-8 animate-spin rounded-full border-2 border-[var(--n5-accent)] border-t-transparent"
             />
           </div>
         )}
@@ -385,7 +387,7 @@ export default function PreferencesContent() {
                   >
                     <Image src={tech.image} alt={tech.name} fill className="object-cover" />
                   </div>
-                  <span className={`text-sm font-bold font-body ${favoriteTech === tech.id ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{tech.name}</span>
+                  <span className={`font-body text-sm font-bold ${favoriteTech === tech.id ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{tech.name}</span>
                 </button>
               ))}
               <button
@@ -419,18 +421,18 @@ export default function PreferencesContent() {
                 >
                   🎲
                 </div>
-                <span className={`text-sm font-bold font-body ${favoriteTech === 'any' ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>Any</span>
+                <span className={`font-body text-sm font-bold ${favoriteTech === 'any' ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>Any</span>
               </button>
             </div>
           </Section>
 
           <Section title="Notes for Your Artist" icon="💬" delay={150} mounted={mounted}>
-            <p className="mb-3 text-xs font-body text-[var(--n5-ink-muted)]">Let your nail artist know anything special about your preferences</p>
+            <p className="font-body mb-3 text-xs text-[var(--n5-ink-muted)]">Let your nail artist know anything special about your preferences</p>
             <textarea
               value={techNotes}
               onChange={e => setTechNotes(e.target.value)}
               placeholder="e.g., I prefer gentle cuticle work, please avoid filing too much..."
-              className="h-24 w-full resize-none p-4 text-sm font-body bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] outline-none transition-all placeholder:text-[var(--n5-ink-muted)] border border-[var(--n5-border)]"
+              className="font-body h-24 w-full resize-none border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm text-[var(--n5-ink-main)] outline-none transition-all placeholder:text-[var(--n5-ink-muted)]"
               style={{
                 borderRadius: 'var(--n5-radius-md)',
               }}
@@ -445,7 +447,7 @@ export default function PreferencesContent() {
 
           <Section title="Go-To Services" icon="💅" delay={200} mounted={mounted}>
             <div className="flex flex-wrap gap-2">
-              {SERVICES.map(service => {
+              {SERVICES.map((service) => {
                 const isSelected = favoriteServices.includes(service.id);
                 return (
                   <button
@@ -471,7 +473,9 @@ export default function PreferencesContent() {
                       }
                     }}
                   >
-                    {service.icon} {service.name}
+                    {service.icon}
+                    {' '}
+                    {service.name}
                   </button>
                 );
               })}
@@ -480,7 +484,7 @@ export default function PreferencesContent() {
 
           <Section title="Preferred Nail Shape" icon="✨" delay={250} mounted={mounted}>
             <div className="grid grid-cols-3 gap-2">
-              {NAIL_SHAPES.map(shape => {
+              {NAIL_SHAPES.map((shape) => {
                 const isSelected = nailShape === shape.id;
                 return (
                   <button
@@ -507,7 +511,7 @@ export default function PreferencesContent() {
                     }}
                   >
                     <div className="mb-1 text-xl">{shape.icon}</div>
-                    <div className={`text-xs font-bold font-body ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{shape.name}</div>
+                    <div className={`font-body text-xs font-bold ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{shape.name}</div>
                   </button>
                 );
               })}
@@ -516,7 +520,7 @@ export default function PreferencesContent() {
 
           <Section title="Preferred Length" icon="📏" delay={300} mounted={mounted}>
             <div className="grid grid-cols-2 gap-2">
-              {NAIL_LENGTHS.map(length => {
+              {NAIL_LENGTHS.map((length) => {
                 const isSelected = nailLength === length.id;
                 return (
                   <button
@@ -541,8 +545,8 @@ export default function PreferencesContent() {
                       }
                     }}
                   >
-                    <div className={`text-sm font-bold font-body ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{length.name}</div>
-                    <div className={`mt-0.5 text-xs font-body ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-muted)]'}`}>{length.desc}</div>
+                    <div className={`font-body text-sm font-bold ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-main)]'}`}>{length.name}</div>
+                    <div className={`font-body mt-0.5 text-xs ${isSelected ? 'text-[var(--n5-ink-main)]' : 'text-[var(--n5-ink-muted)]'}`}>{length.desc}</div>
                   </button>
                 );
               })}
@@ -551,14 +555,14 @@ export default function PreferencesContent() {
 
           <Section title="Favorite Finishes" icon="✦" delay={350} mounted={mounted}>
             <div className="flex flex-wrap gap-2">
-              {FINISHES.map(finish => {
+              {FINISHES.map((finish) => {
                 const isSelected = finishes.includes(finish.id);
                 return (
                   <button
                     key={finish.id}
                     type="button"
                     onClick={() => toggleArrayItem(finishes, finish.id, setFinishes)}
-                    className="rounded-full px-4 py-2.5 text-sm font-semibold font-body transition-all duration-200"
+                    className="font-body rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200"
                     style={{
                       background: isSelected
                         ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
@@ -577,7 +581,9 @@ export default function PreferencesContent() {
                       }
                     }}
                   >
-                    {finish.icon} {finish.name}
+                    {finish.icon}
+                    {' '}
+                    {finish.name}
                   </button>
                 );
               })}
@@ -586,7 +592,7 @@ export default function PreferencesContent() {
 
           <Section title="Favorite Color Families" icon="🎨" delay={400} mounted={mounted}>
             <div className="grid grid-cols-4 gap-2">
-              {COLOR_FAMILIES.map(color => {
+              {COLOR_FAMILIES.map((color) => {
                 const isSelected = colorFamilies.includes(color.id);
                 return (
                   <button
@@ -611,7 +617,7 @@ export default function PreferencesContent() {
                     }}
                   >
                     <div className="mb-1.5 aspect-square w-full rounded-lg shadow-sm" style={{ backgroundColor: color.color }} />
-                    <div className="text-xs font-medium font-body text-[var(--n5-ink-main)]">{color.name}</div>
+                    <div className="font-body text-xs font-medium text-[var(--n5-ink-main)]">{color.name}</div>
                   </button>
                 );
               })}
@@ -619,16 +625,16 @@ export default function PreferencesContent() {
           </Section>
 
           <Section title="Preferred Gel Brands" icon="🏷️" delay={450} mounted={mounted}>
-            <p className="mb-3 text-xs font-body text-[var(--n5-ink-muted)]">Let us know if you have a brand preference</p>
+            <p className="font-body mb-3 text-xs text-[var(--n5-ink-muted)]">Let us know if you have a brand preference</p>
             <div className="flex flex-wrap gap-2">
-              {GEL_BRANDS.map(brand => {
+              {GEL_BRANDS.map((brand) => {
                 const isSelected = preferredBrands.includes(brand.id);
                 return (
                   <button
                     key={brand.id}
                     type="button"
                     onClick={() => toggleArrayItem(preferredBrands, brand.id, setPreferredBrands)}
-                    className="rounded-full px-4 py-2.5 text-sm font-semibold font-body transition-all duration-200"
+                    className="font-body rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200"
                     style={{
                       background: isSelected
                         ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
@@ -659,9 +665,9 @@ export default function PreferencesContent() {
           </Section>
 
           <Section title="Sensitivities & Allergies" icon="🌸" delay={500} mounted={mounted}>
-            <p className="mb-3 text-xs font-body text-[var(--n5-ink-muted)]">Help us take extra care of you</p>
+            <p className="font-body mb-3 text-xs text-[var(--n5-ink-muted)]">Help us take extra care of you</p>
             <div className="flex flex-wrap gap-2">
-              {SENSITIVITIES.map(item => {
+              {SENSITIVITIES.map((item) => {
                 const isSelected = sensitivities.includes(item.id);
                 return (
                   <button
@@ -679,7 +685,7 @@ export default function PreferencesContent() {
                         }
                       }
                     }}
-                    className="rounded-full px-4 py-2.5 text-sm font-semibold font-body transition-all duration-200"
+                    className="font-body rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200"
                     style={{
                       background: isSelected
                         ? item.id === 'none'
@@ -704,7 +710,9 @@ export default function PreferencesContent() {
                       }
                     }}
                   >
-                    {item.icon} {item.name}
+                    {item.icon}
+                    {' '}
+                    {item.name}
                   </button>
                 );
               })}
@@ -714,20 +722,20 @@ export default function PreferencesContent() {
           <Section title="Your Ideal Salon Experience" icon="🧘" delay={550} mounted={mounted}>
             <div className="space-y-4">
               <div>
-                <span className="mb-2 block text-xs font-bold font-body text-[var(--n5-ink-main)]">Music Vibe</span>
+                <span className="font-body mb-2 block text-xs font-bold text-[var(--n5-ink-main)]">Music Vibe</span>
                 <div className="flex gap-2">
                   {[
                     { id: 'soft', label: '🎵 Soft' },
                     { id: 'upbeat', label: '🎶 Upbeat' },
                     { id: 'quiet', label: '🤫 Quiet' },
-                  ].map(option => {
+                  ].map((option) => {
                     const isSelected = musicPreference === option.id;
                     return (
                       <button
                         key={option.id}
                         type="button"
                         onClick={() => setMusicPreference(option.id)}
-                        className="flex-1 rounded-xl px-3 py-2.5 text-xs font-semibold font-body transition-all duration-200"
+                        className="font-body flex-1 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all duration-200"
                         style={{
                           background: isSelected
                             ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
@@ -753,20 +761,20 @@ export default function PreferencesContent() {
                 </div>
               </div>
               <div>
-                <span className="mb-2 block text-xs font-bold font-body text-[var(--n5-ink-main)]">Conversation Level</span>
+                <span className="font-body mb-2 block text-xs font-bold text-[var(--n5-ink-main)]">Conversation Level</span>
                 <div className="flex gap-2">
                   {[
                     { id: 'chatty', label: '💬 Chatty' },
                     { id: 'friendly', label: '😊 Friendly' },
                     { id: 'quiet', label: '😌 Quiet' },
-                  ].map(option => {
+                  ].map((option) => {
                     const isSelected = conversationLevel === option.id;
                     return (
                       <button
                         key={option.id}
                         type="button"
                         onClick={() => setConversationLevel(option.id)}
-                        className="flex-1 rounded-xl px-3 py-2.5 text-xs font-semibold font-body transition-all duration-200"
+                        className="font-body flex-1 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all duration-200"
                         style={{
                           background: isSelected
                             ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
@@ -792,7 +800,7 @@ export default function PreferencesContent() {
                 </div>
               </div>
               <div>
-                <span className="mb-2 block text-xs font-bold font-body text-[var(--n5-ink-main)]">Complimentary Beverage</span>
+                <span className="font-body mb-2 block text-xs font-bold text-[var(--n5-ink-main)]">Complimentary Beverage</span>
                 <div className="flex flex-wrap gap-2">
                   {[
                     { id: 'water', label: '💧 Water' },
@@ -800,7 +808,7 @@ export default function PreferencesContent() {
                     { id: 'coffee', label: '☕ Coffee' },
                     { id: 'sparkling', label: '✨ Sparkling' },
                     { id: 'none', label: '🚫 None' },
-                  ].map(option => {
+                  ].map((option) => {
                     const isSelected = beveragePreference.includes(option.id);
                     return (
                       <button
@@ -818,7 +826,7 @@ export default function PreferencesContent() {
                             }
                           }
                         }}
-                        className="rounded-full px-3 py-2 text-xs font-semibold font-body transition-all duration-200"
+                        className="font-body rounded-full px-3 py-2 text-xs font-semibold transition-all duration-200"
                         style={{
                           background: isSelected
                             ? `linear-gradient(to right, var(--n5-accent), var(--n5-accent-hover))`
@@ -847,12 +855,12 @@ export default function PreferencesContent() {
           </Section>
 
           <Section title="Anything Else?" icon="📝" delay={600} mounted={mounted}>
-            <p className="mb-3 text-xs font-body text-[var(--n5-ink-muted)]">Any other notes or preferences we should know about</p>
+            <p className="font-body mb-3 text-xs text-[var(--n5-ink-muted)]">Any other notes or preferences we should know about</p>
             <textarea
               value={appointmentNotes}
               onChange={e => setAppointmentNotes(e.target.value)}
               placeholder="e.g., I'm usually running a few minutes late, I like to see nail art inspiration before deciding..."
-              className="h-24 w-full resize-none p-4 text-sm font-body bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] outline-none transition-all placeholder:text-[var(--n5-ink-muted)] border border-[var(--n5-border)]"
+              className="font-body h-24 w-full resize-none border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm text-[var(--n5-ink-main)] outline-none transition-all placeholder:text-[var(--n5-ink-muted)]"
               style={{
                 borderRadius: 'var(--n5-radius-md)',
               }}
@@ -868,13 +876,13 @@ export default function PreferencesContent() {
 
         <div className="mt-8 space-y-3" style={{ opacity: mounted ? 1 : 0, transition: 'opacity 300ms ease-out 650ms' }}>
           {error && (
-            <p className="text-center text-sm font-body text-[var(--n5-error)]">{error}</p>
+            <p className="font-body text-center text-sm text-[var(--n5-error)]">{error}</p>
           )}
           <button
             type="button"
             onClick={handleSave}
             disabled={saved || saving || loading}
-            className="w-full py-4 text-base font-bold font-body transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="font-body w-full py-4 text-base font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
             style={{
               borderRadius: 'var(--n5-radius-md)',
               background: saved
@@ -889,7 +897,7 @@ export default function PreferencesContent() {
         </div>
 
         <div className="mt-6 text-center" style={{ opacity: mounted ? 1 : 0, transition: 'opacity 300ms ease-out 700ms' }}>
-          <p className="text-xs font-body text-[var(--n5-ink-muted)]">💜 Your preferences help us create the perfect experience</p>
+          <p className="font-body text-xs text-[var(--n5-ink-muted)]">💜 Your preferences help us create the perfect experience</p>
         </div>
 
         <div className="h-10" />

@@ -10,9 +10,10 @@ export default function AuthLayout(props: {
   params: { locale: string };
 }) {
   let clerkLocale = enUS;
-  let signInUrl = '/sign-in';
-  let signUpUrl = '/sign-up';
-  let dashboardUrl = '/dashboard';
+  // Use admin-login (phone OTP) instead of Clerk sign-in/sign-up
+  let signInUrl = '/admin-login';
+  let signUpUrl = '/admin-login';
+  let dashboardUrl = '/admin';
   let afterSignOutUrl = '/';
 
   if (props.params.locale === 'fr') {

@@ -7,21 +7,22 @@
  * - Use a specific theme from the registry (espresso, lavender, etc.)
  */
 
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+
+import type { PageAppearanceMode } from '@/models/Schema';
+import { salonPageAppearanceSchema } from '@/models/Schema';
 
 import { db } from './DB';
-import { salonPageAppearanceSchema } from '@/models/Schema';
-import type { PageAppearanceMode } from '@/models/Schema';
 
 /**
  * Page appearance result
  */
-export interface PageAppearanceResult {
+export type PageAppearanceResult = {
   /** Mode: 'custom' = no theme, 'theme' = use themeKey */
   mode: PageAppearanceMode;
   /** Theme key when mode = 'theme', null otherwise */
   themeKey: string | null;
-}
+};
 
 /**
  * Get page appearance settings for a specific page within a salon.
@@ -103,6 +104,3 @@ export async function getAllPageAppearances(salonId: string) {
     return [];
   }
 }
-
-
-

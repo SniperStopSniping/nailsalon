@@ -19,7 +19,9 @@ const searchQuerySchema = z.object({
 
 export async function GET(request: Request): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -44,8 +46,8 @@ export async function GET(request: Request): Promise<Response> {
 
     // Format response
     const items = users.data.map((user) => {
-      const primaryEmail =
-        user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)
+      const primaryEmail
+        = user.emailAddresses.find(e => e.id === user.primaryEmailAddressId)
           ?.emailAddress || user.emailAddresses[0]?.emailAddress;
 
       return {

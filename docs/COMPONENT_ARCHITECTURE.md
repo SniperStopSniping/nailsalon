@@ -2,7 +2,7 @@
 
 ## Nail Salon Booking Platform
 
-**Version:** 1.0  
+**Version:** 1.0
 **Last Updated:** December 2024
 
 ---
@@ -40,14 +40,14 @@ When creating new files, follow these placement rules:
 
 ```typescript
 // ✅ CORRECT placements
-src/app/[locale]/(unauth)/book/service/page.tsx  // Route page
-src/components/ServiceCard.tsx                    // Reusable component
-src/providers/SalonProvider.tsx                   // Context provider
-src/hooks/useBooking.ts                           // Custom hook
+src / app / [locale] / (unauth) / book / service / page.tsx; // Route page
+src / components / ServiceCard.tsx; // Reusable component
+src / providers / SalonProvider.tsx; // Context provider
+src / hooks / useBooking.ts; // Custom hook
 
 // ❌ WRONG placements
-src/app/[locale]/components/ServiceCard.tsx       // Don't nest components in app/
-src/components/api/fetchServices.ts               // API logic doesn't go in components/
+src / app / [locale] / components / ServiceCard.tsx; // Don't nest components in app/
+src / components / api / fetchServices.ts; // API logic doesn't go in components/
 ```
 
 ---
@@ -128,9 +128,9 @@ BookConfirmPage
 **Purpose:** Provides tenant (salon) context to all components.
 
 ```typescript
-interface SalonContextValue {
+type SalonContextValue = {
   salonName: string;
-}
+};
 
 // Usage
 const { salonName } = useSalon();
@@ -140,12 +140,12 @@ const { salonName } = useSalon();
 
 **Future Enhancement:**
 ```typescript
-interface SalonContextValue {
+type SalonContextValue = {
   salonId: string;
   salonName: string;
   salonSlug: string;
   settings: SalonSettings;
-}
+};
 ```
 
 ### 3.2 ThemeProvider
@@ -155,10 +155,10 @@ interface SalonContextValue {
 **Purpose:** Manages theme state and injects CSS variables.
 
 ```typescript
-interface ThemeContextValue {
-  theme: Theme;        // Full theme object
-  themeKey: string;    // Theme identifier
-}
+type ThemeContextValue = {
+  theme: Theme; // Full theme object
+  themeKey: string; // Theme identifier
+};
 
 // Usage
 const { theme, themeKey } = useTheme();
@@ -423,7 +423,7 @@ The standard layout includes:
 ```typescript
 export default function SomePage() {
   const [mounted, setMounted] = useState(false);
-  
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -432,9 +432,9 @@ export default function SomePage() {
     <div
       className="min-h-screen"
       style={{
-        background: `linear-gradient(to bottom, 
-          color-mix(in srgb, ${themeVars.background} 95%, white), 
-          ${themeVars.background}, 
+        background: `linear-gradient(to bottom,
+          color-mix(in srgb, ${themeVars.background} 95%, white),
+          ${themeVars.background},
           color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
@@ -443,15 +443,15 @@ export default function SomePage() {
         <div style={{ opacity: mounted ? 1 : 0, transition: 'opacity 300ms' }}>
           {/* Navigation + Title */}
         </div>
-        
+
         {/* Progress Steps */}
         <ProgressSteps currentStep={0} />
-        
+
         {/* Main Content */}
         <MainCard>
           {/* ... */}
         </MainCard>
-        
+
         {/* Footer */}
       </div>
     </div>
@@ -466,11 +466,11 @@ return (
   <div className="min-h-screen" style={{ background: '...' }}>
     <div className="mx-auto max-w-[430px] px-4 pb-10">
       {/* Main content */}
-      
+
       {/* Spacer for fixed bar */}
       {hasSelection && <div className="h-24" />}
     </div>
-    
+
     {/* Fixed bottom bar */}
     {hasSelection && (
       <div className="fixed inset-x-0 bottom-0 z-50 bg-white shadow-lg">
@@ -494,7 +494,7 @@ return (
       style={{
         opacity: mounted ? 1 : 0,
         transform: mounted ? 'translateY(0)' : 'translateY(15px)',
-        transition: `opacity 300ms ease-out ${200 + index * 50}ms, 
+        transition: `opacity 300ms ease-out ${200 + index * 50}ms,
                      transform 300ms ease-out ${200 + index * 50}ms`,
       }}
     >
@@ -570,7 +570,7 @@ For animated components:
 ```typescript
 export function AnimatedCard({ children, delay = 0 }) {
   const [mounted, setMounted] = useState(false);
-  
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -580,7 +580,7 @@ export function AnimatedCard({ children, delay = 0 }) {
       style={{
         opacity: mounted ? 1 : 0,
         transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-        transition: `opacity 300ms ease-out ${delay}ms, 
+        transition: `opacity 300ms ease-out ${delay}ms,
                      transform 300ms ease-out ${delay}ms`,
       }}
     >
@@ -595,10 +595,10 @@ export function AnimatedCard({ children, delay = 0 }) {
 For selectable components:
 
 ```typescript
-export function SelectableCard({ 
-  isSelected, 
-  onSelect, 
-  children 
+export function SelectableCard({
+  isSelected,
+  onSelect,
+  children
 }) {
   return (
     <button
@@ -608,8 +608,8 @@ export function SelectableCard({
       style={{
         transform: isSelected ? 'scale(1.02)' : undefined,
         background: isSelected
-          ? `linear-gradient(to bottom right, 
-              color-mix(in srgb, ${themeVars.primary} 20%, transparent), 
+          ? `linear-gradient(to bottom right,
+              color-mix(in srgb, ${themeVars.primary} 20%, transparent),
               color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`
           : 'white',
         outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
@@ -618,7 +618,7 @@ export function SelectableCard({
       }}
     >
       {children}
-      
+
       {/* Selection indicator */}
       {isSelected && (
         <div
@@ -644,4 +644,3 @@ export function SelectableCard({
 - [UI/UX Spec](./UI_UX_SPEC.md) - Design patterns
 - [AI Rules](./AI_RULES.md) - Development constraints
 - [Design System](../design-system.md) - Visual specifications
-

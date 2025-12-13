@@ -15,22 +15,22 @@ import { themeVars } from '@/theme';
 // TYPES
 // =============================================================================
 
-interface Notification {
+type Notification = {
   id: string;
   type: string;
   title: string;
   body: string;
   readAt: string | null;
   createdAt: string;
-}
+};
 
-interface StaffHeaderProps {
+type StaffHeaderProps = {
   title: string;
   subtitle?: string;
   showBack?: boolean;
   onBack?: () => void;
   rightContent?: React.ReactNode;
-}
+};
 
 // =============================================================================
 // NOTIFICATION BELL
@@ -100,7 +100,7 @@ function NotificationBell() {
   // Mark all as read when panel opens
   const handleOpenPanel = async () => {
     setShowPanel(true);
-    
+
     if (unreadCount > 0) {
       setLoading(true);
       try {
@@ -109,12 +109,12 @@ function NotificationBell() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ markAllRead: true }),
         });
-        
+
         if (response.ok) {
           setUnreadCount(0);
           // Update local state to mark all as read
-          setNotifications((prev) =>
-            prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })),
+          setNotifications(prev =>
+            prev.map(n => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })),
           );
         }
       } catch (error) {
@@ -133,10 +133,18 @@ function NotificationBell() {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) {
+      return 'Just now';
+    }
+    if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    }
+    if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+    if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
@@ -165,7 +173,9 @@ function NotificationBell() {
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16 sm:pt-24"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setShowPanel(false);
+            if (e.target === e.currentTarget) {
+              setShowPanel(false);
+            }
           }}
         >
           <div className="mx-4 max-h-[70vh] w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -207,7 +217,7 @@ function NotificationBell() {
 
               {!loading && notifications.length > 0 && (
                 <div className="divide-y" style={{ borderColor: themeVars.cardBorder }}>
-                  {notifications.map((notif) => (
+                  {notifications.map(notif => (
                     <div
                       key={notif.id}
                       className="px-4 py-3 transition-colors hover:bg-neutral-50"

@@ -1,12 +1,19 @@
-import { eq, and } from 'drizzle-orm';
+/**
+ * Staff Availability API
+ *
+ * SECURITY: All operations are scoped to the authenticated staff member.
+ * technicianId and salonId are DERIVED from session cookies, NEVER from client input.
+ */
+
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+
+import { db } from '@/libs/DB';
+import { requireStaffSession } from '@/libs/staffAuth';
+import { technicianSchema, type WeeklySchedule } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
-
-import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
-import { technicianSchema, type WeeklySchedule } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -18,8 +25,6 @@ const dayScheduleSchema = z.object({
 }).nullable();
 
 const updateAvailabilitySchema = z.object({
-  technicianId: z.string().min(1, 'Technician ID is required'),
-  salonSlug: z.string().min(1, 'Salon slug is required'),
   weeklySchedule: z.object({
     sunday: dayScheduleSchema.optional(),
     monday: dayScheduleSchema.optional(),
@@ -29,72 +34,65 @@ const updateAvailabilitySchema = z.object({
     friday: dayScheduleSchema.optional(),
     saturday: dayScheduleSchema.optional(),
   }),
-});
-
-const getAvailabilitySchema = z.object({
-  technicianId: z.string().min(1, 'Technician ID is required'),
-  salonSlug: z.string().min(1, 'Salon slug is required'),
+  // NOTE: technicianId and salonSlug are IGNORED if provided - we use session values
 });
 
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
+    reason?: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
-// GET /api/staff/availability - Get technician's weekly schedule
+// GET /api/staff/availability - Get logged-in technician's weekly schedule
+// =============================================================================
+// SECURITY: technicianId is derived from session, NOT from query params.
+// If technicianId query param is provided and doesn't match session, return 404.
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { searchParams } = new URL(request.url);
-    const technicianId = searchParams.get('technicianId');
-    const salonSlug = searchParams.get('salonSlug');
-
-    // Validate query params
-    const validated = getAvailabilitySchema.safeParse({ technicianId, salonSlug });
-    if (!validated.success) {
-      return Response.json(
-        {
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid query parameters',
-            details: validated.error.flatten(),
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
+    // 1. Require staff session - derive technicianId and salonId from cookies
+    const auth = await requireStaffSession();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
+    const { session } = auth;
+
+    // 2. Check if client tried to pass a different technicianId (security check)
+    const { searchParams } = new URL(request.url);
+    const requestedTechnicianId = searchParams.get('technicianId');
+
+    // If client requested a different tech's data, deny with 404 (don't leak existence)
+    if (requestedTechnicianId && requestedTechnicianId !== session.technicianId) {
       return Response.json(
         {
           error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
+            code: 'NOT_FOUND',
+            message: 'Technician not found',
+            reason: 'cross_tenant_access_denied',
           },
         } satisfies ErrorResponse,
         { status: 404 },
       );
     }
 
-    // Get technician (scoped to salon)
+    // 3. Fetch technician's schedule (scoped to session salonId + technicianId)
     const [technician] = await db
       .select()
       .from(technicianSchema)
       .where(
         and(
-          eq(technicianSchema.id, validated.data.technicianId),
-          eq(technicianSchema.salonId, salon.id),
+          eq(technicianSchema.id, session.technicianId),
+          eq(technicianSchema.salonId, session.salonId),
         ),
       )
       .limit(1);
@@ -103,8 +101,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(
         {
           error: {
-            code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician not found in this salon',
+            code: 'NOT_FOUND',
+            message: 'Technician not found',
+            reason: 'technician_not_found',
           },
         } satisfies ErrorResponse,
         { status: 404 },
@@ -143,11 +142,23 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // =============================================================================
-// PUT /api/staff/availability - Update technician's weekly schedule
+// PUT /api/staff/availability - Update logged-in technician's weekly schedule
+// =============================================================================
+// SECURITY: Updates are ALWAYS scoped to the logged-in staff member.
+// Any technicianId or salonSlug in the request body is IGNORED.
 // =============================================================================
 
 export async function PUT(request: Request): Promise<Response> {
   try {
+    // 1. Require staff session - derive technicianId and salonId from cookies
+    const auth = await requireStaffSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const { session } = auth;
+
+    // 2. Parse and validate request body (ignore technicianId/salonSlug if provided)
     const body = await request.json();
     const validated = updateAvailabilitySchema.safeParse(body);
 
@@ -164,28 +175,14 @@ export async function PUT(request: Request): Promise<Response> {
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // Verify technician belongs to this salon
+    // 3. Verify technician exists in this salon (double-check ownership)
     const [existingTech] = await db
       .select()
       .from(technicianSchema)
       .where(
         and(
-          eq(technicianSchema.id, validated.data.technicianId),
-          eq(technicianSchema.salonId, salon.id),
+          eq(technicianSchema.id, session.technicianId),
+          eq(technicianSchema.salonId, session.salonId),
         ),
       )
       .limit(1);
@@ -194,15 +191,16 @@ export async function PUT(request: Request): Promise<Response> {
       return Response.json(
         {
           error: {
-            code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician not found in this salon',
+            code: 'NOT_FOUND',
+            message: 'Technician not found',
+            reason: 'technician_not_found',
           },
         } satisfies ErrorResponse,
         { status: 404 },
       );
     }
 
-    // Update the schedule
+    // 4. Update the schedule (using session-derived IDs, NOT client input)
     const newSchedule: WeeklySchedule = validated.data.weeklySchedule;
 
     const [updatedTech] = await db
@@ -211,7 +209,12 @@ export async function PUT(request: Request): Promise<Response> {
         weeklySchedule: newSchedule,
         updatedAt: new Date(),
       })
-      .where(eq(technicianSchema.id, validated.data.technicianId))
+      .where(
+        and(
+          eq(technicianSchema.id, session.technicianId),
+          eq(technicianSchema.salonId, session.salonId),
+        ),
+      )
       .returning();
 
     return Response.json({
@@ -239,4 +242,3 @@ export async function PUT(request: Request): Promise<Response> {
     );
   }
 }
-

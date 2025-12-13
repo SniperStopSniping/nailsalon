@@ -19,7 +19,9 @@ type ReferralData = {
 };
 
 function formatPhone(phone: string): string {
-  if (phone.length !== 10) return phone;
+  if (phone.length !== 10) {
+    return phone;
+  }
   return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
 }
 
@@ -127,7 +129,7 @@ export default function MyReferralsPage() {
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4 bg-[var(--n5-bg-page)]"
+      className="flex min-h-screen justify-center bg-[var(--n5-bg-page)] py-4"
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Top bar with back button */}
@@ -135,7 +137,7 @@ export default function MyReferralsPage() {
           <button
             type="button"
             onClick={handleBack}
-            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-[var(--n5-bg-card)]/50 active:scale-95"
+            className="hover:bg-[var(--n5-bg-card)]/50 z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 active:scale-95"
           >
             <svg
               width="20"
@@ -156,7 +158,7 @@ export default function MyReferralsPage() {
 
           {/* Salon name - centered */}
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold font-heading text-[var(--n5-accent)]"
+            className="font-heading absolute left-1/2 -translate-x-1/2 text-xl font-semibold text-[var(--n5-accent)]"
           >
             {salonName}
           </div>
@@ -164,8 +166,8 @@ export default function MyReferralsPage() {
 
         {/* Title section */}
         <div className="pt-2 text-center">
-          <h1 className="text-2xl font-bold font-heading text-[var(--n5-ink-main)]">My Referrals</h1>
-          <p className="mt-1 text-sm font-body text-[var(--n5-ink-muted)]">
+          <h1 className="font-heading text-2xl font-bold text-[var(--n5-ink-main)]">My Referrals</h1>
+          <p className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
             Track your referrals and rewards
           </p>
         </div>
@@ -199,7 +201,7 @@ export default function MyReferralsPage() {
               type="button"
               onClick={handleLookup}
               disabled={!isValidPhone || loading}
-              className="mt-4 w-full py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              className="font-body mt-4 w-full bg-[var(--n5-button-primary-bg)] py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
               style={{ borderRadius: 'var(--n5-radius-pill)' }}
             >
               {loading ? 'Looking up...' : 'View My Referrals'}
@@ -219,15 +221,16 @@ export default function MyReferralsPage() {
               </div>
               <div className="h-10 w-px bg-neutral-200" />
               <div className="text-center">
-                <div className="text-2xl font-bold font-body text-[var(--n5-accent)]">
+                <div className="font-body text-2xl font-bold text-[var(--n5-accent)]">
                   {referrals.filter(r => r.status === 'reward_earned').length}
                 </div>
-                <div className="text-sm font-body text-[var(--n5-ink-muted)]">Rewarded</div>
+                <div className="font-body text-sm text-[var(--n5-ink-muted)]">Rewarded</div>
               </div>
               <div className="h-10 w-px bg-neutral-200" />
               <div className="text-center">
                 <div className="text-2xl font-bold" style={{ color: '#22c55e' }}>
-                  ${referrals.filter(r => r.status === 'reward_earned').length * 45}
+                  $
+                  {referrals.filter(r => r.status === 'reward_earned').length * 45}
                 </div>
                 <div className="text-sm text-neutral-500">Earned</div>
               </div>
@@ -259,7 +262,7 @@ export default function MyReferralsPage() {
               <button
                 type="button"
                 onClick={() => router.push(`/${locale}/invite`)}
-                className="mt-4 px-6 py-2.5 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                className="font-body mt-4 bg-[var(--n5-button-primary-bg)] px-6 py-2.5 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Invite Friends
@@ -289,20 +292,33 @@ export default function MyReferralsPage() {
                         </div>
                         {referral.refereePhone && referral.refereeName && (
                           <div className="mt-0.5 text-sm text-neutral-500">
-                            +1 {formatPhone(referral.refereePhone)}
+                            +1
+                            {' '}
+                            {formatPhone(referral.refereePhone)}
                           </div>
                         )}
                         <div className="mt-0.5 text-sm text-neutral-500">
-                          Sent {formatDate(referral.createdAt)}
+                          Sent
+                          {' '}
+                          {formatDate(referral.createdAt)}
                         </div>
                         {referral.claimedAt && (
                           <div className="mt-0.5 text-sm text-neutral-500">
-                            Claimed {formatDate(referral.claimedAt)}
+                            Claimed
+                            {' '}
+                            {formatDate(referral.claimedAt)}
                           </div>
                         )}
                         {showExpiry && (
                           <div className="mt-1 text-xs text-amber-600">
-                            ⏰ {referral.daysUntilExpiry} day{referral.daysUntilExpiry !== 1 ? 's' : ''} left to book
+                            ⏰
+                            {' '}
+                            {referral.daysUntilExpiry}
+                            {' '}
+                            day
+                            {referral.daysUntilExpiry !== 1 ? 's' : ''}
+                            {' '}
+                            left to book
                           </div>
                         )}
                         {referral.hasReferrerReward && referral.status === 'reward_earned' && (
@@ -330,7 +346,7 @@ export default function MyReferralsPage() {
           <button
             type="button"
             onClick={() => router.push(`/${locale}/invite`)}
-            className="w-full py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+            className="font-body w-full bg-[var(--n5-button-primary-bg)] py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
             style={{ borderRadius: 'var(--n5-radius-pill)' }}
           >
             Invite More Friends
@@ -340,4 +356,3 @@ export default function MyReferralsPage() {
     </div>
   );
 }
-

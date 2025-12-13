@@ -1,19 +1,19 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ChevronLeft, Star, Camera, Loader2 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Camera, ChevronLeft, Loader2, Star } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { StaffStatus } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
+
 import { StaffStatusToggle } from './StaffStatusToggle';
+import { ClientsTab } from './tabs/ClientsTab';
+import { EarningsTab } from './tabs/EarningsTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ScheduleTab } from './tabs/ScheduleTab';
 import { ServicesTab } from './tabs/ServicesTab';
-import { ClientsTab } from './tabs/ClientsTab';
-import { EarningsTab } from './tabs/EarningsTab';
 import { SettingsTab } from './tabs/SettingsTab';
-
-import type { StaffStatus } from '@/models/Schema';
 
 // =============================================================================
 // Types
@@ -21,7 +21,7 @@ import type { StaffStatus } from '@/models/Schema';
 
 type TabId = 'overview' | 'schedule' | 'services' | 'clients' | 'earnings' | 'settings';
 
-interface TechnicianDetail {
+type TechnicianDetail = {
   id: string;
   name: string;
   email: string | null;
@@ -51,9 +51,9 @@ interface TechnicianDetail {
   weeklySchedule: Record<string, { start: string; end: string } | null> | null;
   createdAt: string;
   updatedAt: string;
-}
+};
 
-interface TechnicianStats {
+type TechnicianStats = {
   today: {
     appointments: number;
     completed: number;
@@ -74,13 +74,13 @@ interface TechnicianStats {
     salonEarned: number;
   };
   totalClients: number;
-}
+};
 
-interface StaffDetailPageProps {
+type StaffDetailPageProps = {
   staffId: string;
   onBack: () => void;
   onUpdate?: () => void;
-}
+};
 
 // =============================================================================
 // Tab Configuration
@@ -107,21 +107,23 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
   const [_services, setServices] = useState<{ serviceId: string; enabled: boolean; priority: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Avatar upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Fetch technician detail
   const fetchDetail = useCallback(async () => {
-    if (!salonSlug || !staffId) return;
+    if (!salonSlug || !staffId) {
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
 
       const response = await fetch(
-        `/api/admin/technicians/${staffId}?salonSlug=${salonSlug}`
+        `/api/admin/technicians/${staffId}?salonSlug=${salonSlug}`,
       );
 
       if (!response.ok) {
@@ -146,7 +148,9 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
 
   // Handle status change
   const handleStatusChange = async (newStatus: StaffStatus) => {
-    if (!salonSlug || !technician) return;
+    if (!salonSlug || !technician) {
+      return;
+    }
 
     const response = await fetch(`/api/admin/technicians/${staffId}/status`, {
       method: 'PUT',
@@ -162,15 +166,15 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
     }
 
     // Update local state
-    setTechnician((prev) =>
-      prev ? { ...prev, currentStatus: newStatus } : null
+    setTechnician(prev =>
+      prev ? { ...prev, currentStatus: newStatus } : null,
     );
     onUpdate?.();
   };
 
   // Handle technician update
   const handleTechnicianUpdate = (updates: Partial<TechnicianDetail>) => {
-    setTechnician((prev) => (prev ? { ...prev, ...updates } : null));
+    setTechnician(prev => (prev ? { ...prev, ...updates } : null));
     onUpdate?.();
   };
 
@@ -181,7 +185,9 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !salonSlug) return;
+    if (!file || !salonSlug) {
+      return;
+    }
 
     // Validate file
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -211,8 +217,8 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
       }
 
       const result = await response.json();
-      setTechnician((prev) =>
-        prev ? { ...prev, avatarUrl: result.data?.avatarUrl } : null
+      setTechnician(prev =>
+        prev ? { ...prev, avatarUrl: result.data?.avatarUrl } : null,
       );
       onUpdate?.();
     } catch (err) {
@@ -234,7 +240,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="absolute inset-0 bg-[#F2F2F7] z-10"
+        className="absolute inset-0 z-10 bg-[#F2F2F7]"
       >
         <LoadingSkeleton onBack={onBack} />
       </motion.div>
@@ -248,14 +254,14 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="absolute inset-0 bg-[#F2F2F7] z-10 flex items-center justify-center"
+        className="absolute inset-0 z-10 flex items-center justify-center bg-[#F2F2F7]"
       >
-        <div className="text-center px-8">
-          <p className="text-[17px] text-[#8E8E93] mb-4">{error || 'Staff not found'}</p>
+        <div className="px-8 text-center">
+          <p className="mb-4 text-[17px] text-[#8E8E93]">{error || 'Staff not found'}</p>
           <button
             type="button"
             onClick={onBack}
-            className="px-4 py-2 bg-[#007AFF] text-white rounded-lg text-[15px] font-medium"
+            className="rounded-lg bg-[#007AFF] px-4 py-2 text-[15px] font-medium text-white"
           >
             Go Back
           </button>
@@ -266,7 +272,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
 
   const initials = technician.name
     .split(' ')
-    .map((n) => n[0])
+    .map(n => n[0])
     .join('')
     .toUpperCase()
     .slice(0, 2);
@@ -277,17 +283,17 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="absolute inset-0 bg-[#F2F2F7] z-10 overflow-hidden flex flex-col"
+      className="absolute inset-0 z-10 flex flex-col overflow-hidden bg-[#F2F2F7]"
     >
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="border-b border-gray-200 bg-white">
         <div className="flex items-center px-4 py-3">
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center text-[#007AFF] text-[17px] mr-4"
+            className="mr-4 flex items-center text-[17px] text-[#007AFF]"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="size-5" />
             <span>Staff</span>
           </button>
         </div>
@@ -309,53 +315,65 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
                 type="button"
                 onClick={handleAvatarClick}
                 disabled={uploadingAvatar}
-                className="relative group"
+                className="group relative"
               >
-                {technician.avatarUrl ? (
-                  <img
-                    src={technician.avatarUrl}
-                    alt={technician.name}
-                    className="w-20 h-20 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] flex items-center justify-center text-white text-2xl font-bold">
-                    {initials}
-                  </div>
-                )}
+                {technician.avatarUrl
+                  ? (
+                      <img
+                        src={technician.avatarUrl}
+                        alt={technician.name}
+                        className="size-20 rounded-full object-cover"
+                      />
+                    )
+                  : (
+                      <div className="flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] text-2xl font-bold text-white">
+                        {initials}
+                      </div>
+                    )}
                 {/* Upload Overlay */}
                 <div className={`
-                  absolute inset-0 rounded-full flex items-center justify-center
+                  absolute inset-0 flex items-center justify-center rounded-full
                   transition-opacity
                   ${uploadingAvatar ? 'bg-black/50' : 'bg-black/0 group-hover:bg-black/40'}
-                `}>
-                  {uploadingAvatar ? (
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                  )}
+                `}
+                >
+                  {uploadingAvatar
+                    ? (
+                        <Loader2 className="size-6 animate-spin text-white" />
+                      )
+                    : (
+                        <Camera className="size-6 text-white opacity-0 transition-opacity group-hover:opacity-100" />
+                      )}
                 </div>
               </button>
             </div>
 
             {/* Info */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-[22px] font-bold text-[#1C1C1E] truncate">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-[22px] font-bold text-[#1C1C1E]">
                 {technician.name}
               </h1>
-              <p className="text-[15px] text-[#8E8E93] capitalize">
+              <p className="text-[15px] capitalize text-[#8E8E93]">
                 {technician.role ?? 'Technician'}
                 {technician.skillLevel && technician.skillLevel !== 'standard' && (
-                  <span> · {technician.skillLevel}</span>
+                  <span>
+                    {' '}
+                    ·
+                    {technician.skillLevel}
+                  </span>
                 )}
               </p>
               {technician.rating !== null && technician.reviewCount > 0 && (
-                <div className="flex items-center gap-1 mt-1">
-                  <Star className="w-4 h-4 text-[#FFD60A] fill-[#FFD60A]" />
+                <div className="mt-1 flex items-center gap-1">
+                  <Star className="size-4 fill-[#FFD60A] text-[#FFD60A]" />
                   <span className="text-[14px] font-medium text-[#1C1C1E]">
                     {technician.rating.toFixed(1)}
                   </span>
                   <span className="text-[13px] text-[#8E8E93]">
-                    ({technician.reviewCount} reviews)
+                    (
+                    {technician.reviewCount}
+                    {' '}
+                    reviews)
                   </span>
                 </div>
               )}
@@ -372,20 +390,20 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex overflow-x-auto no-scrollbar border-t border-gray-100">
-          {TABS.map((tab) => (
+        <div className="no-scrollbar flex overflow-x-auto border-t border-gray-100">
+          {TABS.map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={`
-                flex-shrink-0 px-4 py-3 text-[15px] font-medium
-                border-b-2 transition-colors
+                shrink-0 border-b-2 px-4 py-3 text-[15px]
+                font-medium transition-colors
                 ${
-                  activeTab === tab.id
-                    ? 'text-[#007AFF] border-[#007AFF]'
-                    : 'text-[#8E8E93] border-transparent'
-                }
+            activeTab === tab.id
+              ? 'border-[#007AFF] text-[#007AFF]'
+              : 'border-transparent text-[#8E8E93]'
+            }
               `}
             >
               {tab.label}
@@ -407,7 +425,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
           <ScheduleTab
             technicianId={staffId}
             weeklySchedule={technician.weeklySchedule}
-            onUpdate={(schedule) => handleTechnicianUpdate({ weeklySchedule: schedule })}
+            onUpdate={schedule => handleTechnicianUpdate({ weeklySchedule: schedule })}
           />
         )}
         {activeTab === 'services' && (
@@ -444,30 +462,30 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
 function LoadingSkeleton({ onBack }: { onBack: () => void }) {
   return (
     <>
-      <div className="bg-white border-b border-gray-200">
+      <div className="border-b border-gray-200 bg-white">
         <div className="flex items-center px-4 py-3">
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center text-[#007AFF] text-[17px]"
+            className="flex items-center text-[17px] text-[#007AFF]"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="size-5" />
             <span>Staff</span>
           </button>
         </div>
-        <div className="px-4 pb-4 animate-pulse">
+        <div className="animate-pulse px-4 pb-4">
           <div className="flex items-start gap-4">
-            <div className="w-20 h-20 rounded-full bg-gray-200" />
+            <div className="size-20 rounded-full bg-gray-200" />
             <div className="flex-1">
-              <div className="h-6 bg-gray-200 rounded w-32 mb-2" />
-              <div className="h-4 bg-gray-100 rounded w-24" />
+              <div className="mb-2 h-6 w-32 rounded bg-gray-200" />
+              <div className="h-4 w-24 rounded bg-gray-100" />
             </div>
           </div>
-          <div className="mt-4 h-10 bg-gray-100 rounded-lg" />
+          <div className="mt-4 h-10 rounded-lg bg-gray-100" />
         </div>
-        <div className="flex border-t border-gray-100 px-4 py-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-4 bg-gray-100 rounded w-16" />
+        <div className="flex gap-4 border-t border-gray-100 px-4 py-3">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="h-4 w-16 rounded bg-gray-100" />
           ))}
         </div>
       </div>

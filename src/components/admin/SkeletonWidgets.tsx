@@ -28,16 +28,16 @@ const shimmerAnimation = {
 /**
  * Skeleton Box with Shimmer
  */
-function SkeletonBox({ 
-  className = '', 
-  style = {} 
-}: { 
-  className?: string; 
+function SkeletonBox({
+  className = '',
+  style = {},
+}: {
+  className?: string;
   style?: React.CSSProperties;
 }) {
   return (
-    <div 
-      className={`relative overflow-hidden bg-gray-200 rounded-lg ${className}`}
+    <div
+      className={`relative overflow-hidden rounded-lg bg-gray-200 ${className}`}
       style={style}
     >
       <motion.div
@@ -53,15 +53,15 @@ function SkeletonBox({
 /**
  * Skeleton Card Container
  */
-function SkeletonCard({ 
-  children, 
-  className = '' 
-}: { 
-  children: React.ReactNode; 
+function SkeletonCard({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={`bg-white rounded-[22px] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] ${className}`}>
+    <div className={`rounded-[22px] bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] ${className}`}>
       {children}
     </div>
   );
@@ -72,13 +72,13 @@ function SkeletonCard({
  */
 function TimeFilterSkeleton() {
   return (
-    <div className="bg-[#767680]/10 p-0.5 rounded-lg flex mb-6">
+    <div className="mb-6 flex rounded-lg bg-[#767680]/10 p-0.5">
       {['Daily', 'Weekly', 'Monthly', 'Yearly'].map((_, index) => (
         <div
           key={index}
-          className={`flex-1 py-1.5 rounded-[6px] ${index === 1 ? 'bg-white shadow-sm' : ''}`}
+          className={`flex-1 rounded-[6px] py-1.5 ${index === 1 ? 'bg-white shadow-sm' : ''}`}
         >
-          <SkeletonBox className="h-4 mx-2" />
+          <SkeletonBox className="mx-2 h-4" />
         </div>
       ))}
     </div>
@@ -92,26 +92,26 @@ function RevenueCardSkeleton() {
   return (
     <SkeletonCard>
       <TimeFilterSkeleton />
-      
-      <div className="flex justify-between items-start mb-4">
+
+      <div className="mb-4 flex items-start justify-between">
         <div>
-          <SkeletonBox className="h-3 w-24 mb-2" />
+          <SkeletonBox className="mb-2 h-3 w-24" />
           <SkeletonBox className="h-10 w-32" />
         </div>
         <SkeletonBox className="h-6 w-16 rounded-full" />
       </div>
-      
+
       {/* Chart skeleton */}
-      <div className="h-[120px] flex items-end justify-between gap-1 mb-2">
+      <div className="mb-2 flex h-[120px] items-end justify-between gap-1">
         {[0.6, 0.8, 0.5, 0.9, 0.7, 0.85, 0.65].map((height, i) => (
-          <SkeletonBox 
-            key={i} 
-            className="flex-1 rounded-t-sm" 
+          <SkeletonBox
+            key={i}
+            className="flex-1 rounded-t-sm"
             style={{ height: `${height * 100}%` }}
           />
         ))}
       </div>
-      
+
       {/* Chart labels */}
       <div className="flex justify-between px-1">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((_, i) => (
@@ -127,27 +127,27 @@ function RevenueCardSkeleton() {
  */
 function UtilizationCardSkeleton() {
   return (
-    <SkeletonCard className="flex flex-col items-center justify-between aspect-square">
+    <SkeletonCard className="flex aspect-square flex-col items-center justify-between">
       <div className="w-full text-left">
         <SkeletonBox className="h-3 w-20" />
       </div>
-      
+
       {/* Rings skeleton */}
-      <div className="relative w-[100px] h-[100px]">
+      <div className="relative size-[100px]">
         <SkeletonBox className="absolute inset-0 rounded-full" style={{ borderRadius: '50%' }} />
         <div className="absolute inset-[12px]">
-          <SkeletonBox className="w-full h-full rounded-full" style={{ borderRadius: '50%' }} />
+          <SkeletonBox className="size-full rounded-full" style={{ borderRadius: '50%' }} />
         </div>
         <div className="absolute inset-[24px]">
-          <SkeletonBox className="w-full h-full rounded-full" style={{ borderRadius: '50%' }} />
+          <SkeletonBox className="size-full rounded-full" style={{ borderRadius: '50%' }} />
         </div>
       </div>
-      
+
       {/* Legend */}
       <div className="flex gap-3">
-        {[1, 2, 3].map((i) => (
+        {[1, 2, 3].map(i => (
           <div key={i} className="flex items-center gap-1">
-            <SkeletonBox className="w-2 h-2 rounded-full" />
+            <SkeletonBox className="size-2 rounded-full" />
             <SkeletonBox className="h-3 w-6" />
           </div>
         ))}
@@ -161,19 +161,19 @@ function UtilizationCardSkeleton() {
  */
 function ServiceMixCardSkeleton() {
   return (
-    <SkeletonCard className="aspect-square flex flex-col">
-      <SkeletonBox className="h-3 w-24 mb-4" />
-      
+    <SkeletonCard className="flex aspect-square flex-col">
+      <SkeletonBox className="mb-4 h-3 w-24" />
+
       <div className="flex-1 space-y-4">
         {[0.45, 0.30, 0.15].map((width, i) => (
           <div key={i}>
-            <div className="flex justify-between mb-1">
+            <div className="mb-1 flex justify-between">
               <SkeletonBox className="h-3 w-16" />
               <SkeletonBox className="h-3 w-8" />
             </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-              <SkeletonBox 
-                className="h-full rounded-full" 
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+              <SkeletonBox
+                className="h-full rounded-full"
                 style={{ width: `${width * 100}%` }}
               />
             </div>
@@ -189,22 +189,22 @@ function ServiceMixCardSkeleton() {
  */
 function StaffLeaderboardSkeleton() {
   return (
-    <SkeletonCard className="!p-0 overflow-hidden">
+    <SkeletonCard className="overflow-hidden !p-0">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
         <SkeletonBox className="h-4 w-28" />
-        <SkeletonBox className="h-5 w-5 rounded" />
+        <SkeletonBox className="size-5 rounded" />
       </div>
-      
+
       {/* Staff rows */}
       <div className="divide-y divide-gray-100">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="px-5 py-3 flex items-center justify-between">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="flex items-center justify-between px-5 py-3">
             <div className="flex items-center gap-3">
-              <SkeletonBox className="w-3 h-3" />
-              <SkeletonBox className="w-10 h-10 rounded-full" />
+              <SkeletonBox className="size-3" />
+              <SkeletonBox className="size-10 rounded-full" />
               <div>
-                <SkeletonBox className="h-4 w-24 mb-1" />
+                <SkeletonBox className="mb-1 h-4 w-24" />
                 <SkeletonBox className="h-3 w-16" />
               </div>
             </div>
@@ -212,10 +212,10 @@ function StaffLeaderboardSkeleton() {
           </div>
         ))}
       </div>
-      
+
       {/* Footer */}
-      <div className="p-3 text-center border-t border-gray-100">
-        <SkeletonBox className="h-4 w-24 mx-auto" />
+      <div className="border-t border-gray-100 p-3 text-center">
+        <SkeletonBox className="mx-auto h-4 w-24" />
       </div>
     </SkeletonCard>
   );
@@ -226,16 +226,16 @@ function StaffLeaderboardSkeleton() {
  */
 export function SkeletonWidgets() {
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] text-black font-sans pb-10">
+    <div className="min-h-full w-full bg-[#F2F2F7] pb-10 font-sans text-black">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="px-5 pt-6 space-y-6 max-w-md mx-auto"
+        className="mx-auto max-w-md space-y-6 px-5 pt-6"
       >
         {/* Header & Date */}
         <div>
-          <SkeletonBox className="h-10 w-48 mb-2" />
+          <SkeletonBox className="mb-2 h-10 w-48" />
           <SkeletonBox className="h-4 w-36" />
         </div>
 
@@ -254,4 +254,3 @@ export function SkeletonWidgets() {
     </div>
   );
 }
-

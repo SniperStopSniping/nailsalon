@@ -20,13 +20,13 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
-interface BookConfirmClientProps {
+type BookConfirmClientProps = {
   services: ServiceSummary[];
   technician: TechnicianSummary;
   salonSlug: string;
   dateStr: string;
   timeStr: string;
-}
+};
 
 // Confetti particle component
 function Confetti({ delay, color, left }: { delay: number; color: string; left: number }) {
@@ -154,7 +154,7 @@ export function BookConfirmClient({
         // The API will cancel the old appointment and bypass duplicate check
         ...(originalAppointmentId && { originalAppointmentId }),
       };
-      
+
       // Debug: log what we're sending to the API
       console.log('[BookConfirm] originalAppointmentId from URL:', originalAppointmentId);
       console.log('[BookConfirm] Request body:', requestBody);
@@ -218,12 +218,14 @@ export function BookConfirmClient({
         return () => clearTimeout(timer);
       }
     }
-    return;
+    return undefined;
   }, [stage, bookingComplete]);
 
   // Save name to server
   const handleSaveName = async () => {
-    if (!firstName.trim() || isSavingName) return;
+    if (!firstName.trim() || isSavingName) {
+      return;
+    }
 
     setIsSavingName(true);
     try {
@@ -282,14 +284,14 @@ export function BookConfirmClient({
     // Use actual booked service IDs and technician (same approach as Profile page)
     const bookedServiceIds = services.map(s => s.id).join(',');
     const bookedTechId = technician?.id || 'any';
-    
+
     let changeUrl = `/${locale}/change-appointment?serviceIds=${bookedServiceIds}&techId=${bookedTechId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(clientPhone)}`;
-    
+
     // Include appointmentId for rescheduling
     if (appointmentId) {
       changeUrl += `&originalAppointmentId=${encodeURIComponent(appointmentId)}`;
     }
-    
+
     router.push(changeUrl);
   };
 
@@ -532,7 +534,9 @@ export function BookConfirmClient({
             WebkitTransform: 'translateZ(0)',
           }}
           onClick={(e) => {
-            if (e.target === e.currentTarget) handleSkipName();
+            if (e.target === e.currentTarget) {
+              handleSkipName();
+            }
           }}
         >
           <div
@@ -542,7 +546,7 @@ export function BookConfirmClient({
               // Prevent keyboard from pushing modal too high on Android
               maxHeight: '85vh',
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
             <div className="mb-4 text-center">
               <div className="mb-3 text-4xl">👋</div>
@@ -561,7 +565,7 @@ export function BookConfirmClient({
               <input
                 type="text"
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                onChange={e => setFirstName(e.target.value)}
                 placeholder="First name"
                 className="w-full rounded-xl border-2 px-4 py-3 text-lg outline-none transition-colors"
                 style={{
@@ -942,4 +946,3 @@ export function BookConfirmClient({
     </div>
   );
 }
-

@@ -10,7 +10,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-import { ModuleDisabledState, ModuleSkeleton, StaffHeader, StaffBottomNav } from '@/components/staff';
+import { ModuleDisabledState, ModuleSkeleton, StaffBottomNav, StaffHeader, UpgradeRequiredState } from '@/components/staff';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
 import { themeVars } from '@/theme';
 
@@ -18,7 +18,7 @@ import { themeVars } from '@/theme';
 // TYPES
 // =============================================================================
 
-interface EarningsData {
+type EarningsData = {
   range: {
     from: string;
     to: string;
@@ -36,7 +36,7 @@ interface EarningsData {
     earnings: number;
     appointmentCount: number;
   }>;
-}
+};
 
 type DateRange = 'this_month' | 'last_month';
 
@@ -63,7 +63,7 @@ function formatCurrency(cents: number): string {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00');
+  const date = new Date(`${dateStr}T00:00:00`);
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
@@ -92,6 +92,7 @@ export default function StaffEarningsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moduleDisabled, setModuleDisabled] = useState(false);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('this_month');
 
@@ -115,8 +116,15 @@ export default function StaffEarningsPage() {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
 
+        if (data.error?.code === 'UPGRADE_REQUIRED') {
+          setUpgradeRequired(true);
+          setModuleDisabled(false);
+          return;
+        }
+
         if (data.error?.code === 'MODULE_DISABLED') {
           setModuleDisabled(true);
+          setUpgradeRequired(false);
           return;
         }
 
@@ -132,6 +140,7 @@ export default function StaffEarningsPage() {
       const data = await response.json();
       setEarnings(data.data);
       setModuleDisabled(false);
+      setUpgradeRequired(false);
     } catch (err) {
       console.error('Failed to fetch earnings:', err);
       setError('Network error. Please try again.');
@@ -175,7 +184,29 @@ export default function StaffEarningsPage() {
     );
   }
 
-  // Show disabled state if module is off
+  // Show upgrade required state if not entitled
+  if (upgradeRequired) {
+    return (
+      <div
+        className="min-h-screen pb-24"
+        style={{
+          background: `linear-gradient(to bottom, ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        }}
+      >
+        <div className="mx-auto max-w-2xl px-4">
+          <StaffHeader
+            title="My Earnings"
+            showBack
+            onBack={() => router.push(`/${locale}/staff`)}
+          />
+          <UpgradeRequiredState featureName="Earnings" />
+        </div>
+        <StaffBottomNav activeItem="earnings" />
+      </div>
+    );
+  }
+
+  // Show disabled state if module is off (but entitled)
   if (!earningsEnabled || moduleDisabled) {
     return (
       <div
@@ -342,7 +373,7 @@ export default function StaffEarningsPage() {
                     Daily Breakdown
                   </h3>
                   <div className="space-y-2">
-                    {earnings.daily.map((day) => (
+                    {earnings.daily.map(day => (
                       <div
                         key={day.date}
                         className="flex items-center justify-between rounded-xl p-3"
@@ -353,7 +384,10 @@ export default function StaffEarningsPage() {
                             {formatDate(day.date)}
                           </div>
                           <div className="text-xs text-neutral-500">
-                            {day.appointmentCount} appointment{day.appointmentCount !== 1 ? 's' : ''}
+                            {day.appointmentCount}
+                            {' '}
+                            appointment
+                            {day.appointmentCount !== 1 ? 's' : ''}
                           </div>
                         </div>
                         <div className="text-right">
@@ -361,7 +395,9 @@ export default function StaffEarningsPage() {
                             {formatCurrency(day.earnings)}
                           </div>
                           <div className="text-xs text-neutral-500">
-                            {formatCurrency(day.grossSales)} sales
+                            {formatCurrency(day.grossSales)}
+                            {' '}
+                            sales
                           </div>
                         </div>
                       </div>

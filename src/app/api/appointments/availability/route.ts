@@ -1,12 +1,18 @@
 import { and, eq, gte, inArray, lt, lte } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { getSalonBySlug } from '@/libs/queries';
+import { guardSalonApiRoute } from '@/libs/salonStatus';
+import {
+  appointmentSchema,
+  technicianScheduleOverrideSchema,
+  technicianSchema,
+  technicianTimeOffSchema,
+  type WeeklySchedule,
+} from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
-import { getSalonBySlug } from '@/libs/queries';
-import { guardSalonApiRoute } from '@/libs/salonStatus';
-import { appointmentSchema, technicianSchema, technicianTimeOffSchema, type WeeklySchedule } from '@/models/Schema';
 
 // =============================================================================
 // GET /api/appointments/availability
@@ -38,7 +44,9 @@ function isSlotWithinSchedule(
   slotTime: string, // "HH:MM"
   daySchedule: { start: string; end: string } | null | undefined,
 ): boolean {
-  if (!daySchedule) return false; // Day off
+  if (!daySchedule) {
+    return false;
+  } // Day off
 
   const [slotHour, slotMin] = slotTime.split(':').map(Number);
   const [startHour, startMin] = daySchedule.start.split(':').map(Number);
@@ -50,6 +58,41 @@ function isSlotWithinSchedule(
 
   // Slot must start at or after working hours start, and before end (with 30 min buffer for service)
   return slotMinutes >= startMinutes && slotMinutes < endMinutes - 30;
+}
+
+// Type for schedule override
+type ScheduleOverride = {
+  technicianId: string;
+  type: string;
+  startTime: string | null;
+  endTime: string | null;
+};
+
+// Get effective schedule for a technician on a specific date
+// Returns: { available: false } for off days, { available: true, schedule: {...} } for working days
+function getEffectiveSchedule(
+  technicianId: string,
+  daySchedule: { start: string; end: string } | null | undefined,
+  overrides: Map<string, ScheduleOverride>,
+): { available: false } | { available: true; schedule: { start: string; end: string } } {
+  const override = overrides.get(technicianId);
+
+  if (override) {
+    // Override exists - use it instead of weekly schedule
+    if (override.type === 'off') {
+      return { available: false };
+    }
+    if (override.type === 'hours' && override.startTime && override.endTime) {
+      return { available: true, schedule: { start: override.startTime, end: override.endTime } };
+    }
+  }
+
+  // No override - use weekly schedule
+  if (!daySchedule) {
+    return { available: false };
+  }
+
+  return { available: true, schedule: daySchedule };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -150,7 +193,36 @@ export async function GET(request: Request): Promise<Response> {
         );
     }
 
-    // Filter out technicians who are on time off for this date
+    // Fetch schedule overrides for all technicians on this date
+    const overridesMap = new Map<string, ScheduleOverride>();
+    if (technicians.length > 0) {
+      try {
+        const techIds = technicians.map(t => t.id);
+        const overrides = await db
+          .select({
+            technicianId: technicianScheduleOverrideSchema.technicianId,
+            type: technicianScheduleOverrideSchema.type,
+            startTime: technicianScheduleOverrideSchema.startTime,
+            endTime: technicianScheduleOverrideSchema.endTime,
+          })
+          .from(technicianScheduleOverrideSchema)
+          .where(
+            and(
+              inArray(technicianScheduleOverrideSchema.technicianId, techIds),
+              eq(technicianScheduleOverrideSchema.date, date),
+            ),
+          );
+
+        for (const override of overrides) {
+          overridesMap.set(override.technicianId, override);
+        }
+      } catch (overrideError) {
+        // Table might not exist yet - continue without override filtering
+        console.warn('Schedule override query failed (table may not exist):', overrideError);
+      }
+    }
+
+    // Filter out technicians who are on time off for this date (legacy table)
     if (technicians.length > 0) {
       try {
         const techIds = technicians.map(t => t.id);
@@ -197,9 +269,24 @@ export async function GET(request: Request): Promise<Response> {
       const schedule = tech.weeklySchedule as WeeklySchedule | null;
       const daySchedule = schedule?.[dayName];
 
-      // First, block all slots outside working hours
+      // Get effective schedule (override takes precedence over weekly schedule)
+      const effectiveSchedule = getEffectiveSchedule(tech.id, daySchedule, overridesMap);
+
+      // If tech is off (via override or weekly schedule), block all slots
+      if (!effectiveSchedule.available) {
+        return Response.json({
+          date,
+          salonSlug,
+          technicianId: technicianId || null,
+          bookedSlots: allSlots, // All slots unavailable
+          appointmentCount: 0,
+          reason: 'technician_off',
+        });
+      }
+
+      // First, block all slots outside working hours (using effective schedule)
       for (const slot of allSlots) {
-        if (!isSlotWithinSchedule(slot, daySchedule)) {
+        if (!isSlotWithinSchedule(slot, effectiveSchedule.schedule)) {
           blockedSlots.add(slot);
         }
       }
@@ -247,8 +334,16 @@ export async function GET(request: Request): Promise<Response> {
           const schedule = tech.weeklySchedule as WeeklySchedule | null;
           const daySchedule = schedule?.[dayName];
 
+          // Get effective schedule (override takes precedence)
+          const effectiveSchedule = getEffectiveSchedule(tech.id, daySchedule, overridesMap);
+
+          // Check if this tech is available on this day
+          if (!effectiveSchedule.available) {
+            continue; // This tech is off today
+          }
+
           // Check if this tech works at this time
-          if (!isSlotWithinSchedule(slot, daySchedule)) {
+          if (!isSlotWithinSchedule(slot, effectiveSchedule.schedule)) {
             continue; // This tech doesn't work at this time
           }
 

@@ -28,7 +28,7 @@ export const DashboardHeader = (props: {
   return (
     <>
       <div className="flex items-center">
-        <Link href="/dashboard" className="max-sm:hidden">
+        <Link href="/admin" className="max-sm:hidden">
           <Logo />
         </Link>
 
@@ -47,10 +47,10 @@ export const DashboardHeader = (props: {
         <OrganizationSwitcher
           organizationProfileMode="navigation"
           organizationProfileUrl={getI18nPath(
-            '/dashboard/organization-profile',
+            '/admin/organization-profile',
             locale,
           )}
-          afterCreateOrganizationUrl="/dashboard"
+          afterCreateOrganizationUrl="/admin"
           hidePersonal
           skipInvitationScreen
           appearance={{
@@ -103,7 +103,7 @@ export const DashboardHeader = (props: {
           <li>
             <UserButton
               userProfileMode="navigation"
-              userProfileUrl="/dashboard/user-profile"
+              userProfileUrl="/admin/user-profile"
               appearance={{
                 elements: {
                   rootBox: 'px-2 py-1.5',

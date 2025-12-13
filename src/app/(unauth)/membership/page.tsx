@@ -1,5 +1,5 @@
-import { getPageAppearance } from '@/libs/pageAppearance';
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { getPageAppearance } from '@/libs/pageAppearance';
 
 import MembershipContent from './MembershipContent';
 

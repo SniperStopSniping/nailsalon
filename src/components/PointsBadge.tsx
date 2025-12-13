@@ -3,11 +3,11 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface PointsBadgeProps {
+export type PointsBadgeProps = {
   points: number;
   size?: 'sm' | 'md';
   className?: string;
-}
+};
 
 /**
  * PointsBadge Component
@@ -40,4 +40,3 @@ export const PointsBadge = React.forwardRef<HTMLDivElement, PointsBadgeProps>(
   },
 );
 PointsBadge.displayName = 'PointsBadge';
-

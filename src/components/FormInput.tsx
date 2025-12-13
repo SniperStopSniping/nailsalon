@@ -3,10 +3,9 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface FormInputProps
-  extends React.InputHTMLAttributes<HTMLInputElement> {
+export type FormInputProps = {
   error?: boolean;
-}
+} & React.InputHTMLAttributes<HTMLInputElement>;
 
 /**
  * FormInput Component
@@ -30,4 +29,3 @@ export const FormInput = React.forwardRef<HTMLInputElement, FormInputProps>(
   },
 );
 FormInput.displayName = 'FormInput';
-

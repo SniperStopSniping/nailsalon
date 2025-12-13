@@ -11,14 +11,15 @@
  * - Drag handle indicator
  */
 
-import { motion, useAnimation, PanInfo, AnimatePresence } from 'framer-motion';
-import { useEffect, useCallback, type ReactNode } from 'react';
+import type { PanInfo } from 'framer-motion';
+import { AnimatePresence, motion, useAnimation } from 'framer-motion';
+import { type ReactNode, useCallback, useEffect } from 'react';
 
 // Dismiss threshold in pixels
 const DISMISS_THRESHOLD = 100;
 const VELOCITY_THRESHOLD = 500;
 
-interface AppModalProps {
+type AppModalProps = {
   /** Whether modal is open */
   isOpen: boolean;
   /** Callback when modal should close */
@@ -27,7 +28,7 @@ interface AppModalProps {
   children: ReactNode;
   /** Modal title (optional, shown in header) */
   title?: string;
-}
+};
 
 export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
   const controls = useAnimation();
@@ -68,7 +69,7 @@ export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
         controls.start({ y: 0 });
       }
     },
-    [onClose, controls]
+    [onClose, controls],
   );
 
   return (
@@ -87,7 +88,7 @@ export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
 
           {/* Modal */}
           <motion.div
-            className="fixed inset-x-0 bottom-0 top-12 z-50 bg-white rounded-t-[20px] shadow-2xl overflow-hidden flex flex-col"
+            className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -103,14 +104,14 @@ export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
             style={{ touchAction: 'pan-x' }}
           >
             {/* Drag Handle */}
-            <div className="flex justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing">
-              <div className="w-9 h-1 bg-gray-300 rounded-full" />
+            <div className="flex cursor-grab justify-center pb-2 pt-3 active:cursor-grabbing">
+              <div className="h-1 w-9 rounded-full bg-gray-300" />
             </div>
 
             {/* Optional Header */}
             {title && (
-              <div className="px-4 pb-3 border-b border-gray-100">
-                <h2 className="text-[17px] font-semibold text-center text-[#1C1C1E]">
+              <div className="border-b border-gray-100 px-4 pb-3">
+                <h2 className="text-center text-[17px] font-semibold text-[#1C1C1E]">
                   {title}
                 </h2>
               </div>
@@ -131,13 +132,13 @@ export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
  * Modal Header Component
  * For use inside modal content when you need a sticky header
  */
-interface ModalHeaderProps {
+type ModalHeaderProps = {
   title: string;
   subtitle?: string;
   leftAction?: ReactNode;
   rightAction?: ReactNode;
   transparent?: boolean;
-}
+};
 
 export function ModalHeader({
   title,
@@ -150,22 +151,22 @@ export function ModalHeader({
     <div
       className={`
         sticky top-0 z-10
-        ${transparent ? 'bg-transparent' : 'bg-white/85 backdrop-blur-xl border-b border-gray-200'}
+        ${transparent ? 'bg-transparent' : 'border-b border-gray-200 bg-white/85 backdrop-blur-xl'}
       `}
     >
-      <div className="flex items-center justify-between px-4 h-[52px]">
-        <div className="w-20 flex justify-start">{leftAction}</div>
-        <div className="flex flex-col items-center flex-1">
+      <div className="flex h-[52px] items-center justify-between px-4">
+        <div className="flex w-20 justify-start">{leftAction}</div>
+        <div className="flex flex-1 flex-col items-center">
           <span className="text-[17px] font-semibold leading-none text-[#1C1C1E]">
             {title}
           </span>
           {subtitle && (
-            <span className="text-[11px] text-gray-500 font-medium mt-0.5">
+            <span className="mt-0.5 text-[11px] font-medium text-gray-500">
               {subtitle}
             </span>
           )}
         </div>
-        <div className="w-20 flex justify-end">{rightAction}</div>
+        <div className="flex w-20 justify-end">{rightAction}</div>
       </div>
     </div>
   );
@@ -174,20 +175,20 @@ export function ModalHeader({
 /**
  * Back Button for Modal Headers
  */
-interface BackButtonProps {
+type BackButtonProps = {
   onClick: () => void;
   label?: string;
-}
+};
 
 export function BackButton({ onClick, label = 'Back' }: BackButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center text-[#007AFF] text-[17px] active:opacity-50 transition-opacity"
+      className="flex items-center text-[17px] text-[#007AFF] transition-opacity active:opacity-50"
     >
       <svg
-        className="w-6 h-6 -ml-1"
+        className="-ml-1 size-6"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -203,4 +204,3 @@ export function BackButton({ onClick, label = 'Back' }: BackButtonProps) {
     </button>
   );
 }
-

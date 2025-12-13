@@ -26,13 +26,13 @@ const listQuerySchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/clients - List salon clients with stats
@@ -62,7 +62,9 @@ export async function GET(request: Request): Promise<Response> {
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) return error!;
+    if (error || !salon) {
+      return error!;
+    }
 
     // Build options for query
     const options: ListSalonClientsOptions = {
@@ -77,7 +79,7 @@ export async function GET(request: Request): Promise<Response> {
     const { clients, total } = await getSalonClients(salon.id, options);
 
     // Format response
-    const formattedClients = clients.map((client) => ({
+    const formattedClients = clients.map(client => ({
       id: client.id,
       phone: client.phone,
       fullName: client.fullName,

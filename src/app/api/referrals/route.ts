@@ -1,12 +1,12 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-// Force dynamic rendering for this API route
-export const dynamic = 'force-dynamic';
-
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
-import { referralSchema, rewardSchema, type Referral, type ReferralStatus } from '@/models/Schema';
+import { type Referral, referralSchema, type ReferralStatus, rewardSchema } from '@/models/Schema';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -22,15 +22,15 @@ const getReferralsSchema = z.object({
 // =============================================================================
 
 // Enriched referral with additional info for the UI
-interface EnrichedReferral extends Referral {
+type EnrichedReferral = {
   // Reward info
   hasReferrerReward: boolean;
   // Days until expiry for claimed referrals
   daysUntilExpiry: number | null;
   isExpired: boolean;
-}
+} & Referral;
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     referrals: EnrichedReferral[];
   };
@@ -40,15 +40,15 @@ interface SuccessResponse {
     rewardedCount: number;
     pendingCount: number;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/referrals - Get referrals sent by a phone number
@@ -68,7 +68,7 @@ export async function GET(request: Request): Promise<Response> {
       // Create a user-friendly error message based on which field failed
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request parameters';
-      
+
       if (fieldErrors.phone) {
         userMessage = 'Your phone number is invalid. Please book an appointment first.';
       } else if (fieldErrors.salonSlug) {
@@ -117,14 +117,14 @@ export async function GET(request: Request): Promise<Response> {
     const referralIds = referrals.map(r => r.id);
     const referrerRewards = referralIds.length > 0
       ? await db
-          .select({ referralId: rewardSchema.referralId })
-          .from(rewardSchema)
-          .where(
-            and(
-              eq(rewardSchema.clientPhone, parsed.data.phone),
-              eq(rewardSchema.type, 'referral_referrer'),
-            ),
-          )
+        .select({ referralId: rewardSchema.referralId })
+        .from(rewardSchema)
+        .where(
+          and(
+            eq(rewardSchema.clientPhone, parsed.data.phone),
+            eq(rewardSchema.type, 'referral_referrer'),
+          ),
+        )
       : [];
 
     const referralIdsWithReward = new Set(
@@ -206,4 +206,3 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 }
-

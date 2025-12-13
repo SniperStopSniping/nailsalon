@@ -157,11 +157,11 @@ Caption (text-xs, neutral-500, default)
 
 **Page Structure:**
 ```tsx
-<div className="min-h-screen bg-[#f6ebdd] flex justify-center pt-6 pb-10">
-  <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+<div className="flex min-h-screen justify-center bg-[#f6ebdd] pb-10 pt-6">
+  <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
     {/* Page content */}
   </div>
-</div>
+</div>;
 ```
 
 ### Vertical Spacing Between Sections
@@ -197,13 +197,13 @@ Caption (text-xs, neutral-500, default)
 
 **Every page should follow this structure:**
 ```tsx
-<div className="min-h-screen bg-[#f6ebdd] flex justify-center pt-6 pb-10">
-  <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+<div className="flex min-h-screen justify-center bg-[#f6ebdd] pb-10 pt-6">
+  <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
     {/* Header/Navigation */}
     {/* Main Content Cards */}
     {/* Footer/Actions */}
   </div>
-</div>
+</div>;
 ```
 
 **Grid Layouts:**
@@ -227,7 +227,7 @@ Caption (text-xs, neutral-500, default)
 - **Dark gold:** `#d6a249` — Selected states, rings, darker accents
 - **Gradient:** `from-[#d6a249] to-[#f4b864]` — Accent bars, selected calendar days
 - **Usage:** Primary buttons, selected states, accent bars, checkmarks
-- **Tailwind classes:** 
+- **Tailwind classes:**
   - `bg-[#f4b864]` (primary buttons)
   - `bg-[#d6a249]` (selected badges, checkmarks)
   - `ring-[#d6a249]` (selection rings)
@@ -412,23 +412,23 @@ className={`transition-all duration-500 ${
 
 **Props:**
 ```tsx
-interface MainCardProps {
+type MainCardProps = {
   children: React.ReactNode;
   showGoldBar?: boolean; // Optional gold accent bar at top
   className?: string;
-}
+};
 ```
 
 **Structure:**
 ```tsx
-<div className="w-full rounded-2xl bg-white border border-[#e6d6c2] shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden">
+<div className="w-full overflow-hidden rounded-2xl border border-[#e6d6c2] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
   {showGoldBar && (
     <div className="h-1 bg-gradient-to-r from-[#d6a249] to-[#f4b864]" />
   )}
   <div className="px-5 py-6">
     {children}
   </div>
-</div>
+</div>;
 ```
 
 **Usage:** Wrap all primary card content (summary sections, forms, confirmations)
@@ -441,23 +441,24 @@ interface MainCardProps {
 
 **Props:**
 ```tsx
-interface SummaryRowProps {
+type SummaryRowProps = {
   label: string;
   value: string | React.ReactNode;
   highlight?: boolean; // For temporary highlights (discount applied)
-}
+};
 ```
 
 **Structure:**
 ```tsx
-<div className={`flex justify-between items-start ${
-  highlight ? 'bg-[#fef9e7] rounded px-2 py-1.5 -mx-2' : ''
-} transition-all duration-500`}>
-  <div className="text-sm text-neutral-500 font-medium">{label}</div>
-  <div className="text-base font-semibold text-neutral-900 text-right">
+<div className={`flex items-start justify-between ${
+  highlight ? '-mx-2 rounded bg-[#fef9e7] px-2 py-1.5' : ''
+} transition-all duration-500`}
+>
+  <div className="text-sm font-medium text-neutral-500">{label}</div>
+  <div className="text-right text-base font-semibold text-neutral-900">
     {value}
   </div>
-</div>
+</div>;
 ```
 
 **Usage:** Service details, pricing, technician info, date/time display
@@ -472,19 +473,19 @@ interface SummaryRowProps {
 
 **Props:**
 ```tsx
-interface SectionTitleProps {
+type SectionTitleProps = {
   children: React.ReactNode;
   icon?: React.ReactNode; // Optional icon before title
   className?: string;
-}
+};
 ```
 
 **Structure:**
 ```tsx
-<div className="flex items-center gap-2 mb-3 px-1">
+<div className="mb-3 flex items-center gap-2 px-1">
   {icon && <div className="text-[#d6a249]">{icon}</div>}
   <h3 className="text-base font-semibold text-neutral-900">{children}</h3>
-</div>
+</div>;
 ```
 
 **Usage:** "Choose Date", "Select Time", "Summary" sections
@@ -497,10 +498,10 @@ interface SectionTitleProps {
 
 **Props:**
 ```tsx
-interface PrimaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+type PrimaryButtonProps = {
   children: React.ReactNode;
   fullWidth?: boolean; // Default: true
-}
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
 ```
 
 **Structure:**
@@ -510,7 +511,7 @@ interface PrimaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   {...props}
 >
   {children}
-</button>
+</button>;
 ```
 
 **Usage:** "Choose technician", "View Appointment", "Apply" discount, primary actions
@@ -523,10 +524,10 @@ interface PrimaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 **Props:**
 ```tsx
-interface SecondaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+type SecondaryButtonProps = {
   children: React.ReactNode;
   fullWidth?: boolean; // Default: true
-}
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
 ```
 
 **Structure:**
@@ -536,7 +537,7 @@ interface SecondaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElem
   {...props}
 >
   {children}
-</button>
+</button>;
 ```
 
 **Usage:** "View Profile", "Edit", cancel actions, secondary CTAs
@@ -549,19 +550,19 @@ interface SecondaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElem
 
 **Props:**
 ```tsx
-interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+type FormInputProps = {
   error?: boolean;
-}
+} & React.InputHTMLAttributes<HTMLInputElement>;
 ```
 
 **Structure:**
 ```tsx
 <input
-  className={`flex-1 rounded-full bg-neutral-50 border border-neutral-200 px-4 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-[#d6a249] focus:ring-1 focus:ring-[#d6a249] transition-all ${
+  className={`flex-1 rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 outline-none transition-all placeholder:text-neutral-400 focus:border-[#d6a249] focus:ring-1 focus:ring-[#d6a249] ${
     error ? 'border-red-500' : ''
   }`}
   {...props}
-/>
+/>;
 ```
 
 **Usage:** Phone number, discount codes, search inputs, any text input
@@ -574,22 +575,26 @@ interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 **Props:**
 ```tsx
-interface RewardInfoRowProps {
+type RewardInfoRowProps = {
   points: number;
   message?: string; // Optional custom message
-}
+};
 ```
 
 **Structure:**
 ```tsx
 <div className="py-4">
   <p className="text-sm font-bold text-neutral-900">
-    {message || "Thank you! We'll see you soon 💜"}
+    {message || 'Thank you! We\'ll see you soon 💜'}
   </p>
-  <p className="text-[13px] text-neutral-600 mt-1.5">
-    You earned {points} points from this visit.
+  <p className="mt-1.5 text-[13px] text-neutral-600">
+    You earned
+    {' '}
+    {points}
+    {' '}
+    points from this visit.
   </p>
-</div>
+</div>;
 ```
 
 **Usage:** Confirmation pages, rewards display, points earned notifications
@@ -602,17 +607,19 @@ interface RewardInfoRowProps {
 
 **Props:**
 ```tsx
-interface PointsBadgeProps {
+type PointsBadgeProps = {
   points: number;
   size?: 'sm' | 'md'; // Default: 'sm'
-}
+};
 ```
 
 **Structure:**
 ```tsx
-<div className={`${size === 'md' ? 'px-3 py-1.5 text-sm' : 'px-2.5 py-1 text-xs'} rounded-full bg-[#fef9e7] border border-[#d6a249]/30 font-semibold text-neutral-900`}>
-  {points} pts
-</div>
+<div className={`${size === 'md' ? 'px-3 py-1.5 text-sm' : 'px-2.5 py-1 text-xs'} rounded-full border border-[#d6a249]/30 bg-[#fef9e7] font-semibold text-neutral-900`}>
+  {points}
+  {' '}
+  pts
+</div>;
 ```
 
 **Usage:** Profile pages, rewards pages, inline points display
@@ -625,20 +632,20 @@ interface PointsBadgeProps {
 
 **Props:**
 ```tsx
-interface PageLayoutProps {
+type PageLayoutProps = {
   children: React.ReactNode;
   background?: string; // Default: '#f6ebdd'
   verticalPadding?: 'sm' | 'md' | 'lg'; // Default: 'md'
-}
+};
 ```
 
 **Structure:**
 ```tsx
-<div className={`min-h-screen ${background || 'bg-[#f6ebdd]'} flex justify-center pt-6 pb-10`}>
-  <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+<div className={`min-h-screen ${background || 'bg-[#f6ebdd]'} flex justify-center pb-10 pt-6`}>
+  <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
     {children}
   </div>
-</div>
+</div>;
 ```
 
 **Usage:** Wrap all page content for consistent layout
@@ -886,7 +893,6 @@ When creating or updating any page, ensure:
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2025  
+**Document Version:** 1.0
+**Last Updated:** 2025
 **Maintained by:** Design System Team
-

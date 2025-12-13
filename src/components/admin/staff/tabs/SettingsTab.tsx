@@ -1,17 +1,17 @@
 'use client';
 
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertTriangle, Check, Send, Trash2, UserCheck } from 'lucide-react';
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Trash2, Check, UserCheck, Send } from 'lucide-react';
 
+import type { SkillLevel, StaffRole } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
-import type { StaffRole, SkillLevel } from '@/models/Schema';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface TechnicianDetail {
+type TechnicianDetail = {
   id: string;
   name: string;
   email: string | null;
@@ -27,7 +27,7 @@ interface TechnicianDetail {
   terminatedAt: string | null;
   onboardingStatus: string | null;
   userId: string | null;
-}
+};
 
 // Format phone number for display
 function formatPhoneDisplay(phone: string): string {
@@ -41,11 +41,11 @@ function formatPhoneDisplay(phone: string): string {
   return phone;
 }
 
-interface SettingsTabProps {
+type SettingsTabProps = {
   technician: TechnicianDetail;
   onUpdate: (updates: Partial<TechnicianDetail>) => void;
   onDelete: () => void;
-}
+};
 
 // =============================================================================
 // Constants
@@ -85,7 +85,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   const [showReenableModal, setShowReenableModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [reenabling, setReenabling] = useState(false);
-  
+
   // Resend invite state
   const [resendingInvite, setResendingInvite] = useState(false);
   const [inviteSent, setInviteSent] = useState(false);
@@ -93,7 +93,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   const [inviteError, setInviteError] = useState<string | null>(null);
 
   const handleSave = async () => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     setSaving(true);
     try {
@@ -104,7 +106,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
           salonSlug,
           role,
           skillLevel,
-          commissionRate: parseFloat(commissionRate) / 100,
+          commissionRate: Number.parseFloat(commissionRate) / 100,
           acceptingNewClients,
           notes: notes.trim() || null,
           userId: userId.trim() || null,
@@ -118,7 +120,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
       onUpdate({
         role,
         skillLevel,
-        commissionRate: parseFloat(commissionRate) / 100,
+        commissionRate: Number.parseFloat(commissionRate) / 100,
         acceptingNewClients,
         notes: notes.trim() || null,
         userId: userId.trim() || null,
@@ -134,12 +136,14 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   const handleDisable = async () => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     try {
       const response = await fetch(
         `/api/admin/technicians/${technician.id}?salonSlug=${salonSlug}`,
-        { method: 'DELETE' }
+        { method: 'DELETE' },
       );
 
       if (!response.ok) {
@@ -154,12 +158,14 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   const handlePermanentDelete = async () => {
-    if (!salonSlug || deleteConfirmText !== 'DELETE') return;
+    if (!salonSlug || deleteConfirmText !== 'DELETE') {
+      return;
+    }
 
     try {
       const response = await fetch(
         `/api/admin/technicians/${technician.id}?salonSlug=${salonSlug}&hard=true`,
-        { method: 'DELETE' }
+        { method: 'DELETE' },
       );
 
       if (!response.ok) {
@@ -175,7 +181,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   const handleReenable = async () => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     setReenabling(true);
     try {
@@ -208,7 +216,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   const handleResendInvite = async () => {
-    if (!salonSlug || !technician.phone || inviteCooldown) return;
+    if (!salonSlug || !technician.phone || inviteCooldown) {
+      return;
+    }
 
     setResendingInvite(true);
     setInviteError(null);
@@ -230,7 +240,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
 
       // Reset success message after 3 seconds
       setTimeout(() => setInviteSent(false), 3000);
-      
+
       // Cooldown for 10 seconds to prevent spam
       setTimeout(() => setInviteCooldown(false), 10000);
     } catch (err) {
@@ -242,7 +252,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   const formatDate = (dateString: string | null): string => {
-    if (!dateString) return 'Unknown';
+    if (!dateString) {
+      return 'Unknown';
+    }
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
@@ -251,20 +263,20 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   };
 
   return (
-    <div className="p-4 space-y-4 pb-24">
+    <div className="space-y-4 p-4 pb-24">
       {/* Role */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Role
         </h3>
-        <div className="bg-white rounded-[12px] p-4">
+        <div className="rounded-[12px] bg-white p-4">
           <div className="flex flex-wrap gap-2">
-            {ROLE_OPTIONS.map((option) => (
+            {ROLE_OPTIONS.map(option => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => setRole(option.value)}
-                className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                   role === option.value
                     ? 'bg-[#007AFF] text-white'
                     : 'bg-[#E5E5EA] text-[#1C1C1E]'
@@ -279,17 +291,17 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
 
       {/* Skill Level */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Skill Level
         </h3>
-        <div className="bg-white rounded-[12px] p-4">
+        <div className="rounded-[12px] bg-white p-4">
           <div className="flex flex-wrap gap-2">
-            {SKILL_OPTIONS.map((option) => (
+            {SKILL_OPTIONS.map(option => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => setSkillLevel(option.value)}
-                className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                   skillLevel === option.value
                     ? 'bg-[#007AFF] text-white'
                     : 'bg-[#E5E5EA] text-[#1C1C1E]'
@@ -304,30 +316,31 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
 
       {/* Commission */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Commission Rate
         </h3>
-        <div className="bg-white rounded-[12px] p-4">
+        <div className="rounded-[12px] bg-white p-4">
           <div className="flex items-center gap-4">
             <input
               type="range"
               min="0"
               max="100"
               value={commissionRate}
-              onChange={(e) => setCommissionRate(e.target.value)}
+              onChange={e => setCommissionRate(e.target.value)}
               className="flex-1 accent-[#007AFF]"
               aria-label="Commission rate percentage"
             />
-            <span className="text-[17px] font-semibold text-[#1C1C1E] min-w-[50px] text-right">
-              {commissionRate}%
+            <span className="min-w-[50px] text-right text-[17px] font-semibold text-[#1C1C1E]">
+              {commissionRate}
+              %
             </span>
           </div>
         </div>
       </div>
 
       {/* Accept New Clients */}
-      <div className="bg-white rounded-[12px] overflow-hidden">
-        <div className="p-4 flex items-center justify-between">
+      <div className="overflow-hidden rounded-[12px] bg-white">
+        <div className="flex items-center justify-between p-4">
           <div>
             <span className="text-[17px] text-[#1C1C1E]">Accept New Clients</span>
             <p className="text-[13px] text-[#8E8E93]">
@@ -338,12 +351,12 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             type="button"
             onClick={() => setAcceptingNewClients(!acceptingNewClients)}
             aria-label={acceptingNewClients ? 'Disable accepting new clients' : 'Enable accepting new clients'}
-            className={`w-[51px] h-[31px] rounded-full p-[2px] transition-colors ${
+            className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
               acceptingNewClients ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
             }`}
           >
             <motion.div
-              className="w-[27px] h-[27px] bg-white rounded-full shadow-sm"
+              className="size-[27px] rounded-full bg-white shadow-sm"
               animate={{ x: acceptingNewClients ? 20 : 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
             />
@@ -353,26 +366,26 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
 
       {/* Clerk Account Link */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Tech Dashboard Login
         </h3>
-        <div className="bg-white rounded-[12px] p-4">
-          <label className="text-[13px] text-[#8E8E93] mb-1 block">Clerk User ID</label>
+        <div className="rounded-[12px] bg-white p-4">
+          <label className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
           <input
             type="text"
             value={userId}
-            onChange={(e) => setUserId(e.target.value)}
+            onChange={e => setUserId(e.target.value)}
             placeholder="user_2abc123..."
-            className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-[#F2F2F7] rounded-lg px-3 py-2"
+            className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
           />
-          <p className="text-[12px] text-[#8E8E93] mt-2">
+          <p className="mt-2 text-[12px] text-[#8E8E93]">
             Paste the tech&apos;s Clerk User ID here to let them access the Tech Dashboard.
             Find it in your Clerk dashboard under Users → click user → copy User ID.
           </p>
           {userId && (
             <div className="mt-2 flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-[#34C759]" />
-              <span className="text-[12px] text-[#34C759] font-medium">Account linked</span>
+              <div className="size-2 rounded-full bg-[#34C759]" />
+              <span className="text-[12px] font-medium text-[#34C759]">Account linked</span>
             </div>
           )}
         </div>
@@ -381,55 +394,61 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
       {/* Account & Invitations */}
       {technician.phone && (
         <div>
-          <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
             Account & Invitations
           </h3>
-          <div className="bg-white rounded-[12px] overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
+          <div className="overflow-hidden rounded-[12px] bg-white">
+            <div className="border-b border-gray-100 p-4">
               <span className="text-[13px] text-[#8E8E93]">Phone Number</span>
               <div className="text-[17px] text-[#1C1C1E]">
                 {formatPhoneDisplay(technician.phone)}
               </div>
             </div>
             <div className="p-4">
-              <p className="text-[13px] text-[#8E8E93] mb-3">
+              <p className="mb-3 text-[13px] text-[#8E8E93]">
                 Send an SMS invite so this staff member can access their dashboard.
               </p>
               {inviteError && (
-                <p className="text-[13px] text-[#FF3B30] mb-3">{inviteError}</p>
+                <p className="mb-3 text-[13px] text-[#FF3B30]">{inviteError}</p>
               )}
               <button
                 type="button"
                 onClick={handleResendInvite}
                 disabled={resendingInvite || inviteCooldown}
                 className={`
-                  w-full py-3 rounded-xl text-[15px] font-medium
-                  flex items-center justify-center gap-2
+                  flex w-full items-center justify-center gap-2
+                  rounded-xl py-3 text-[15px] font-medium
                   transition-colors
-                  ${inviteSent 
-                    ? 'bg-[#34C759] text-white' 
-                    : inviteCooldown
-                      ? 'bg-[#E5E5EA] text-[#8E8E93]'
-                      : 'bg-[#007AFF]/10 text-[#007AFF]'
-                  }
+                  ${inviteSent
+          ? 'bg-[#34C759] text-white'
+          : inviteCooldown
+            ? 'bg-[#E5E5EA] text-[#8E8E93]'
+            : 'bg-[#007AFF]/10 text-[#007AFF]'
+        }
                   disabled:opacity-50
                 `}
               >
-                {inviteSent ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Invite Sent
-                  </>
-                ) : resendingInvite ? (
-                  'Sending...'
-                ) : inviteCooldown ? (
-                  'Please wait...'
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    Send Invite SMS
-                  </>
-                )}
+                {inviteSent
+                  ? (
+                      <>
+                        <Check className="size-4" />
+                        Invite Sent
+                      </>
+                    )
+                  : resendingInvite
+                    ? (
+                        'Sending...'
+                      )
+                    : inviteCooldown
+                      ? (
+                          'Please wait...'
+                        )
+                      : (
+                          <>
+                            <Send className="size-4" />
+                            Send Invite SMS
+                          </>
+                        )}
               </button>
             </div>
           </div>
@@ -438,34 +457,34 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
 
       {/* Notes */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Internal Notes
         </h3>
-        <div className="bg-white rounded-[12px] p-4">
+        <div className="rounded-[12px] bg-white p-4">
           <textarea
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={e => setNotes(e.target.value)}
             placeholder="Private notes about this staff member..."
             rows={4}
-            className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none bg-white"
+            className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
           />
         </div>
       </div>
 
       {/* Employment Info */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Employment
         </h3>
-        <div className="bg-white rounded-[12px] overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
+        <div className="overflow-hidden rounded-[12px] bg-white">
+          <div className="border-b border-gray-100 p-4">
             <span className="text-[13px] text-[#8E8E93]">Hired</span>
             <div className="text-[17px] text-[#1C1C1E]">
               {formatDate(technician.hiredAt)}
             </div>
           </div>
           {technician.terminatedAt && (
-            <div className="p-4 border-b border-gray-100">
+            <div className="border-b border-gray-100 p-4">
               <span className="text-[13px] text-[#8E8E93]">Disabled</span>
               <div className="text-[17px] text-[#FF3B30]">
                 {formatDate(technician.terminatedAt)}
@@ -484,15 +503,15 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
       {/* Re-enable Section (only for inactive staff) */}
       {!technician.isActive && (
         <div>
-          <h3 className="text-[13px] font-semibold text-[#34C759] uppercase mb-2 px-1">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#34C759]">
             Restore Staff Member
           </h3>
           <button
             type="button"
             onClick={() => setShowReenableModal(true)}
-            className="w-full py-3 bg-[#34C759] text-white rounded-xl text-[17px] font-medium flex items-center justify-center gap-2"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#34C759] py-3 text-[17px] font-medium text-white"
           >
-            <UserCheck className="w-5 h-5" />
+            <UserCheck className="size-5" />
             Re-enable Staff Member
           </button>
         </div>
@@ -504,27 +523,31 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
         onClick={handleSave}
         disabled={saving}
         className={`
-          w-full py-3 rounded-xl text-[17px] font-semibold
-          flex items-center justify-center gap-2
+          flex w-full items-center justify-center gap-2
+          rounded-xl py-3 text-[17px] font-semibold
           ${saved ? 'bg-[#34C759] text-white' : 'bg-[#007AFF] text-white'}
           disabled:opacity-50
         `}
       >
-        {saved ? (
-          <>
-            <Check className="w-5 h-5" />
-            Saved
-          </>
-        ) : saving ? (
-          'Saving...'
-        ) : (
-          'Save Changes'
-        )}
+        {saved
+          ? (
+              <>
+                <Check className="size-5" />
+                Saved
+              </>
+            )
+          : saving
+            ? (
+                'Saving...'
+              )
+            : (
+                'Save Changes'
+              )}
       </button>
 
       {/* Danger Zone */}
       <div className="pt-4">
-        <h3 className="text-[13px] font-semibold text-[#FF3B30] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#FF3B30]">
           Danger Zone
         </h3>
         <div className="space-y-3">
@@ -532,18 +555,18 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             <button
               type="button"
               onClick={() => setShowDisableModal(true)}
-              className="w-full py-3 bg-white border border-[#FF9500] text-[#FF9500] rounded-xl text-[17px] font-medium flex items-center justify-center gap-2"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#FF9500] bg-white py-3 text-[17px] font-medium text-[#FF9500]"
             >
-              <Trash2 className="w-5 h-5" />
+              <Trash2 className="size-5" />
               Disable Staff Member
             </button>
           )}
           <button
             type="button"
             onClick={() => setShowDeleteModal(true)}
-            className="w-full py-3 bg-white border border-[#FF3B30] text-[#FF3B30] rounded-xl text-[17px] font-medium flex items-center justify-center gap-2"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#FF3B30] bg-white py-3 text-[17px] font-medium text-[#FF3B30]"
           >
-            <Trash2 className="w-5 h-5" />
+            <Trash2 className="size-5" />
             Permanently Remove
           </button>
         </div>
@@ -556,39 +579,41 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
             onClick={() => setShowDisableModal(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[20px] p-6 max-w-sm w-full"
-              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 rounded-full bg-[#FF9500]/10 flex items-center justify-center">
-                  <AlertTriangle className="w-8 h-8 text-[#FF9500]" />
+              <div className="mb-4 flex justify-center">
+                <div className="flex size-16 items-center justify-center rounded-full bg-[#FF9500]/10">
+                  <AlertTriangle className="size-8 text-[#FF9500]" />
                 </div>
               </div>
-              <h3 className="text-[20px] font-bold text-[#1C1C1E] text-center mb-2">
+              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
                 Disable Staff Member?
               </h3>
-              <p className="text-[15px] text-[#8E8E93] text-center mb-6">
-                {technician.name} will be hidden from booking. Their data and history will be preserved. You can re-enable them anytime.
+              <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
+                {technician.name}
+                {' '}
+                will be hidden from booking. Their data and history will be preserved. You can re-enable them anytime.
               </p>
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowDisableModal(false)}
-                  className="flex-1 py-3 bg-[#E5E5EA] text-[#1C1C1E] rounded-xl text-[17px] font-medium"
+                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleDisable}
-                  className="flex-1 py-3 bg-[#FF9500] text-white rounded-xl text-[17px] font-medium"
+                  className="flex-1 rounded-xl bg-[#FF9500] py-3 text-[17px] font-medium text-white"
                 >
                   Disable
                 </button>
@@ -605,7 +630,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
             onClick={() => {
               setShowDeleteModal(false);
               setDeleteConfirmText('');
@@ -615,29 +640,33 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[20px] p-6 max-w-sm w-full"
-              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 rounded-full bg-[#FF3B30]/10 flex items-center justify-center">
-                  <AlertTriangle className="w-8 h-8 text-[#FF3B30]" />
+              <div className="mb-4 flex justify-center">
+                <div className="flex size-16 items-center justify-center rounded-full bg-[#FF3B30]/10">
+                  <AlertTriangle className="size-8 text-[#FF3B30]" />
                 </div>
               </div>
-              <h3 className="text-[20px] font-bold text-[#1C1C1E] text-center mb-2">
+              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
                 Permanently Remove?
               </h3>
-              <p className="text-[15px] text-[#8E8E93] text-center mb-4">
-                This will permanently delete {technician.name} and all their data. This action cannot be undone.
+              <p className="mb-4 text-center text-[15px] text-[#8E8E93]">
+                This will permanently delete
+                {' '}
+                {technician.name}
+                {' '}
+                and all their data. This action cannot be undone.
               </p>
-              <p className="text-[13px] text-[#FF3B30] text-center mb-3 font-medium">
+              <p className="mb-3 text-center text-[13px] font-medium text-[#FF3B30]">
                 Type DELETE to confirm
               </p>
               <input
                 type="text"
                 value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value.toUpperCase())}
+                onChange={e => setDeleteConfirmText(e.target.value.toUpperCase())}
                 placeholder="DELETE"
-                className="w-full py-3 px-4 bg-[#F2F2F7] rounded-xl text-[17px] text-center text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30 mb-4"
+                className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
               />
               <div className="flex gap-3">
                 <button
@@ -646,7 +675,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
                     setShowDeleteModal(false);
                     setDeleteConfirmText('');
                   }}
-                  className="flex-1 py-3 bg-[#E5E5EA] text-[#1C1C1E] rounded-xl text-[17px] font-medium"
+                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
                 >
                   Cancel
                 </button>
@@ -654,7 +683,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
                   type="button"
                   onClick={handlePermanentDelete}
                   disabled={deleteConfirmText !== 'DELETE'}
-                  className="flex-1 py-3 bg-[#FF3B30] text-white rounded-xl text-[17px] font-medium disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-[#FF3B30] py-3 text-[17px] font-medium text-white disabled:opacity-50"
                 >
                   Remove
                 </button>
@@ -671,32 +700,34 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
             onClick={() => setShowReenableModal(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-[20px] p-6 max-w-sm w-full"
-              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 rounded-full bg-[#34C759]/10 flex items-center justify-center">
-                  <UserCheck className="w-8 h-8 text-[#34C759]" />
+              <div className="mb-4 flex justify-center">
+                <div className="flex size-16 items-center justify-center rounded-full bg-[#34C759]/10">
+                  <UserCheck className="size-8 text-[#34C759]" />
                 </div>
               </div>
-              <h3 className="text-[20px] font-bold text-[#1C1C1E] text-center mb-2">
+              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
                 Re-enable Staff Member?
               </h3>
-              <p className="text-[15px] text-[#8E8E93] text-center mb-6">
-                {technician.name} will be visible in booking again and can start accepting appointments immediately.
+              <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
+                {technician.name}
+                {' '}
+                will be visible in booking again and can start accepting appointments immediately.
               </p>
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowReenableModal(false)}
-                  className="flex-1 py-3 bg-[#E5E5EA] text-[#1C1C1E] rounded-xl text-[17px] font-medium"
+                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
                 >
                   Cancel
                 </button>
@@ -704,7 +735,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
                   type="button"
                   onClick={handleReenable}
                   disabled={reenabling}
-                  className="flex-1 py-3 bg-[#34C759] text-white rounded-xl text-[17px] font-medium disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-[#34C759] py-3 text-[17px] font-medium text-white disabled:opacity-50"
                 >
                   {reenabling ? 'Enabling...' : 'Re-enable'}
                 </button>

@@ -2,8 +2,8 @@
 
 ## Nail Salon Booking Platform
 
-**Version:** 1.0  
-**Last Updated:** December 2024  
+**Version:** 1.0
+**Last Updated:** December 2024
 **Status:** Active Development
 
 ---
@@ -233,12 +233,12 @@ export function SalonProvider({ children, salonName }: SalonProviderProps) {
 export function middleware(request: NextRequest) {
   const host = request.headers.get('host') || '';
   const subdomain = host.split('.')[0];
-  
+
   // Skip for main domain
   if (subdomain === 'www' || subdomain === 'nailsaas') {
     return NextResponse.next();
   }
-  
+
   // Add salon slug to headers for downstream use
   const response = NextResponse.next();
   response.headers.set('x-salon-slug', subdomain);
@@ -269,7 +269,7 @@ Each salon's theme is loaded at request time:
 // Layout.tsx (future)
 export default async function Layout({ children, params }) {
   const salon = await getSalonBySlug(params.salonSlug);
-  
+
   return (
     <SalonProvider salonName={salon.name}>
       <ThemeProvider themeKey={salon.themeKey}>
@@ -318,36 +318,36 @@ ThemeProvider (injects CSS vars)
 
 ```typescript
 // src/theme/theme.types.ts
-export interface ThemeColors {
+export type ThemeColors = {
   // Brand colors
-  primary: string;           // #f4b864 - Main gold
-  primaryDark: string;       // #d6a249 - Dark gold
-  accent: string;            // #7b4ea3 - Purple titles
-  accentLight: string;       // #9b6dc6 - Light purple
+  primary: string; // #f4b864 - Main gold
+  primaryDark: string; // #d6a249 - Dark gold
+  accent: string; // #7b4ea3 - Purple titles
+  accentLight: string; // #9b6dc6 - Light purple
 
   // Backgrounds
-  background: string;        // #f6ebdd - Page background
-  cardBackground: string;    // #ffffff - Card bg
-  surfaceAlt: string;        // #fff7ec - Alt surface
+  background: string; // #f6ebdd - Page background
+  cardBackground: string; // #ffffff - Card bg
+  surfaceAlt: string; // #fff7ec - Alt surface
   selectedBackground: string;// #f5e6d3 - Selected state
-  accentSelected: string;    // #e9d5f5 - Purple selected
-  inputBackground: string;   // neutral-50
+  accentSelected: string; // #e9d5f5 - Purple selected
+  inputBackground: string; // neutral-50
   highlightBackground: string;// #fef9e7 - Points highlight
 
   // Borders
-  cardBorder: string;        // #e6d6c2 - Card borders
-  borderMuted: string;       // #d9c6aa - Muted borders
-  selectedRing: string;      // #d6a249 - Selection ring
+  cardBorder: string; // #e6d6c2 - Card borders
+  borderMuted: string; // #d9c6aa - Muted borders
+  selectedRing: string; // #d6a249 - Selection ring
 
   // Text
-  titleText: string;         // #7b4ea3 - Page titles
-}
+  titleText: string; // #7b4ea3 - Page titles
+};
 
-export interface Theme {
+export type Theme = {
   key: string;
   name: string;
   colors: ThemeColors;
-}
+};
 ```
 
 ### 5.3 Theme Registry
@@ -381,9 +381,9 @@ export function getTheme(themeKey?: string | null): Theme {
 import { themeVars } from '@/theme';
 
 // Method 1: Inline styles (recommended for dynamic values)
-<div style={{ 
+<div style={{
   backgroundColor: themeVars.primary,
-  color: themeVars.titleText 
+  color: themeVars.titleText
 }}>
 
 // Method 2: Tailwind arbitrary values
@@ -418,17 +418,17 @@ The core tenant entity representing a nail salon business.
 // Schema definition (Drizzle)
 export const salonSchema = pgTable('salon', {
   id: text('id').primaryKey(),
-  
+
   // Identity
-  name: text('name').notNull(),                    // "Glow Nails"
-  slug: text('slug').notNull().unique(),           // "glow-nails"
-  customDomain: text('custom_domain'),             // "glownails.com"
-  
+  name: text('name').notNull(), // "Glow Nails"
+  slug: text('slug').notNull().unique(), // "glow-nails"
+  customDomain: text('custom_domain'), // "glownails.com"
+
   // Branding
   themeKey: text('theme_key').default('nail-salon-no5'),
   logoUrl: text('logo_url'),
   coverImageUrl: text('cover_image_url'),
-  
+
   // Contact
   phone: text('phone'),
   email: text('email'),
@@ -436,21 +436,21 @@ export const salonSchema = pgTable('salon', {
   city: text('city'),
   state: text('state'),
   zipCode: text('zip_code'),
-  
+
   // Social Links (JSON)
   socialLinks: jsonb('social_links').$type<{
     instagram?: string;
     facebook?: string;
     tiktok?: string;
   }>(),
-  
+
   // Business Hours (JSON)
   businessHours: jsonb('business_hours').$type<{
     monday: { open: string; close: string } | null;
     tuesday: { open: string; close: string } | null;
     // ... etc
   }>(),
-  
+
   // Policies (JSON)
   policies: jsonb('policies').$type<{
     cancellationHours: number;
@@ -458,12 +458,12 @@ export const salonSchema = pgTable('salon', {
     depositRequired: boolean;
     depositAmount: number;
   }>(),
-  
+
   // Stripe Integration
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   stripeSubscriptionStatus: text('stripe_subscription_status'),
-  
+
   // Metadata
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -483,27 +483,27 @@ Services offered by a salon (scoped to tenant).
 export const serviceSchema = pgTable('service', {
   id: text('id').primaryKey(),
   salonId: text('salon_id').notNull().references(() => salonSchema.id),
-  
+
   // Service Details
-  name: text('name').notNull(),              // "BIAB Short"
-  description: text('description'),           // "Builder gel for natural..."
-  price: integer('price').notNull(),          // 6500 (cents) or 65 (dollars)
+  name: text('name').notNull(), // "BIAB Short"
+  description: text('description'), // "Builder gel for natural..."
+  price: integer('price').notNull(), // 6500 (cents) or 65 (dollars)
   durationMinutes: integer('duration_minutes').notNull(), // 75
-  
+
   // Categorization
-  category: text('category').notNull(),       // 'hands' | 'feet' | 'combo'
-  
+  category: text('category').notNull(), // 'hands' | 'feet' | 'combo'
+
   // Display
   imageUrl: text('image_url'),
   sortOrder: integer('sort_order').default(0),
-  
+
   // Status
   isActive: boolean('is_active').default(true),
-  
+
   // Metadata
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
-}, (table) => ({
+}, table => ({
   salonIdx: index('service_salon_idx').on(table.salonId),
   categoryIdx: index('service_category_idx').on(table.salonId, table.category),
 }));
@@ -524,29 +524,29 @@ Nail technicians/artists who perform services.
 export const technicianSchema = pgTable('technician', {
   id: text('id').primaryKey(),
   salonId: text('salon_id').notNull().references(() => salonSchema.id),
-  
+
   // Profile
-  name: text('name').notNull(),               // "Daniela"
-  bio: text('bio'),                           // "5 years experience..."
+  name: text('name').notNull(), // "Daniela"
+  bio: text('bio'), // "5 years experience..."
   avatarUrl: text('avatar_url'),
-  
+
   // Professional
   specialties: jsonb('specialties').$type<string[]>(), // ["BIAB", "Gel-X"]
   rating: numeric('rating', { precision: 2, scale: 1 }), // 4.8
   reviewCount: integer('review_count').default(0),
-  
+
   // Availability (basic model)
   workDays: jsonb('work_days').$type<number[]>(), // [1, 2, 3, 4, 5] = Mon-Fri
-  startTime: text('start_time'),              // "09:00"
-  endTime: text('end_time'),                  // "18:00"
-  
+  startTime: text('start_time'), // "09:00"
+  endTime: text('end_time'), // "18:00"
+
   // Status
   isActive: boolean('is_active').default(true),
-  
+
   // Metadata
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
-}, (table) => ({
+}, table => ({
   salonIdx: index('technician_salon_idx').on(table.salonId),
 }));
 
@@ -554,7 +554,7 @@ export const technicianSchema = pgTable('technician', {
 export const technicianServicesSchema = pgTable('technician_services', {
   technicianId: text('technician_id').notNull().references(() => technicianSchema.id),
   serviceId: text('service_id').notNull().references(() => serviceSchema.id),
-}, (table) => ({
+}, table => ({
   pk: primaryKey({ columns: [table.technicianId, table.serviceId] }),
 }));
 
@@ -570,33 +570,33 @@ Booked appointments linking clients and technicians. Supports **multi-service bo
 export const appointmentSchema = pgTable('appointment', {
   id: text('id').primaryKey(),
   salonId: text('salon_id').notNull().references(() => salonSchema.id),
-  
+
   // Technician (services are linked via junction table)
   technicianId: text('technician_id').references(() => technicianSchema.id),
-  
+
   // Client (phone-based identification)
   clientPhone: text('client_phone').notNull(),
   clientName: text('client_name'),
-  
+
   // Timing
   startTime: timestamp('start_time').notNull(),
   endTime: timestamp('end_time').notNull(),
-  
+
   // Status
   status: text('status').notNull().default('confirmed'),
   // 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
-  
+
   // Totals (computed from linked services at booking time)
-  totalPrice: integer('total_price').notNull(),           // Sum of all service prices
+  totalPrice: integer('total_price').notNull(), // Sum of all service prices
   totalDurationMinutes: integer('total_duration_minutes').notNull(), // Sum of durations
-  
+
   // Additional
   notes: text('notes'),
-  
+
   // Metadata
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
-}, (table) => ({
+}, table => ({
   salonIdx: index('appointment_salon_idx').on(table.salonId),
   clientIdx: index('appointment_client_idx').on(table.clientPhone),
   dateIdx: index('appointment_date_idx').on(table.salonId, table.startTime),
@@ -626,14 +626,14 @@ export const appointmentServicesSchema = pgTable('appointment_services', {
   id: text('id').primaryKey(),
   appointmentId: text('appointment_id').notNull().references(() => appointmentSchema.id, { onDelete: 'cascade' }),
   serviceId: text('service_id').notNull().references(() => serviceSchema.id),
-  
+
   // Price snapshot at booking time (in case service price changes later)
   priceAtBooking: integer('price_at_booking').notNull(),
-  
+
   // Duration snapshot (in case service duration changes later)
   durationAtBooking: integer('duration_at_booking').notNull(),
-  
-}, (table) => ({
+
+}, table => ({
   appointmentIdx: index('appt_services_appointment_idx').on(table.appointmentId),
   serviceIdx: index('appt_services_service_idx').on(table.serviceId),
   // Prevent duplicate service in same appointment
@@ -655,9 +655,9 @@ const appointment = {
   technicianId: 'tech_daniela',
   clientPhone: '5551234567',
   startTime: new Date('2024-12-15T10:00:00'),
-  endTime: new Date('2024-12-15T12:30:00'),  // 150 min total
-  totalPrice: 135,  // $65 + $70
-  totalDurationMinutes: 150,  // 75 + 75
+  endTime: new Date('2024-12-15T12:30:00'), // 150 min total
+  totalPrice: 135, // $65 + $70
+  totalDurationMinutes: 150, // 75 + 75
   status: 'confirmed',
 };
 
@@ -770,46 +770,46 @@ useEffect(() => {
 // /api/auth/send-otp/route.ts
 export async function POST(request: Request) {
   const { phone } = await request.json();
-  
+
   // Validate phone format
   const phoneSchema = z.string().regex(/^\d{10}$/);
   const parsed = phoneSchema.safeParse(phone);
   if (!parsed.success) {
     return Response.json({ error: 'Invalid phone' }, { status: 400 });
   }
-  
+
   // Generate OTP
   const otp = generateSecureOTP(6);
-  
+
   // Store OTP with expiration (5 minutes)
   await storeOTP(phone, otp, 5 * 60);
-  
+
   // Send via Twilio
   await twilioClient.messages.create({
     to: `+1${phone}`,
     from: process.env.TWILIO_PHONE_NUMBER,
     body: `Your verification code is: ${otp}`,
   });
-  
+
   return Response.json({ success: true });
 }
 
 // /api/auth/verify-otp/route.ts
 export async function POST(request: Request) {
   const { phone, code } = await request.json();
-  
+
   // Verify OTP
   const isValid = await verifyOTP(phone, code);
   if (!isValid) {
     return Response.json({ error: 'Invalid code' }, { status: 401 });
   }
-  
+
   // Create or get user by phone
   const user = await getOrCreateUser(phone);
-  
+
   // Create session
   const token = await createSession(user.id);
-  
+
   return Response.json({ token, user });
 }
 ```
@@ -902,7 +902,7 @@ Currently, data is hardcoded in page components. Future implementation will use 
 export default async function BookServicePage({ params }) {
   const salon = await getSalon(params.salonSlug);
   const services = await getServices(salon.id);
-  
+
   return <ServiceGrid services={services} />;
 }
 ```
@@ -1010,4 +1010,3 @@ SENTRY_DSN=...
 - [UI/UX Spec](./UI_UX_SPEC.md) - Design system reference
 - [AI Rules](./AI_RULES.md) - Development constraints
 - [Design System](../design-system.md) - Visual guidelines
-

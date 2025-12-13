@@ -8,9 +8,9 @@
  */
 
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
 
 // =============================================================================
 // HELPERS
@@ -62,6 +62,30 @@ function generateSessionToken(phone: string): string {
 // =============================================================================
 
 export async function GET() {
+  // DEV ONLY: Check for role override
+  if (process.env.NODE_ENV !== 'production') {
+    const {
+      isDevModeServer,
+      readDevRoleFromCookies,
+      getMockValidateSessionResponse,
+    } = await import('@/libs/devRole.server');
+    if (isDevModeServer()) {
+      const devRole = readDevRoleFromCookies();
+      if (devRole === 'client') {
+        return NextResponse.json(getMockValidateSessionResponse(), {
+          headers: { 'Cache-Control': 'no-store' },
+        });
+      }
+      // If a different dev role is set, return invalid session
+      if (devRole) {
+        return NextResponse.json({
+          valid: false,
+          reason: 'Dev role mismatch',
+        });
+      }
+    }
+  }
+
   try {
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('client_session');
@@ -117,4 +141,3 @@ export async function GET() {
     );
   }
 }
-

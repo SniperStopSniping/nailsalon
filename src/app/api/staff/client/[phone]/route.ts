@@ -1,20 +1,24 @@
-import { and, eq, desc, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-
-// Force dynamic rendering for this API route
-export const dynamic = 'force-dynamic';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
+import { isFullAccess, redactClientForStaff } from '@/libs/redact';
+import { getEffectiveVisibility } from '@/libs/visibilityPolicy';
 import {
-  appointmentSchema,
   appointmentPhotoSchema,
+  appointmentSchema,
   appointmentServicesSchema,
   clientPreferencesSchema,
   clientSchema,
+  salonSchema,
   serviceSchema,
   technicianSchema,
 } from '@/models/Schema';
+import type { SalonVisibilityPolicy } from '@/types/salonPolicy';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -28,13 +32,13 @@ const getClientProfileSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // Helper to normalize phone to 10 digits
 function normalizePhone(phone: string): string {
@@ -72,7 +76,7 @@ export async function GET(
       );
     }
 
-    // Get salon
+    // Get salon with visibility policy
     const salon = await getSalonBySlug(validated.data.salonSlug);
     if (!salon) {
       return Response.json(
@@ -85,6 +89,17 @@ export async function GET(
         { status: 404 },
       );
     }
+
+    // Fetch salon visibility policy for staff redaction
+    const [salonData] = await db
+      .select({ visibility: salonSchema.visibility })
+      .from(salonSchema)
+      .where(eq(salonSchema.id, salon.id))
+      .limit(1);
+    const salonVisibilityPolicy = (salonData?.visibility as SalonVisibilityPolicy) ?? null;
+
+    // Get effective visibility for staff role
+    const visibility = getEffectiveVisibility(salonVisibilityPolicy, 'staff');
 
     // Normalize phone number
     const normalizedPhone = normalizePhone(rawPhone);
@@ -179,7 +194,7 @@ export async function GET(
           status: appt.status,
           totalPrice: appt.totalPrice,
           technicianName: techName,
-          services: apptServices.map((s) => s.serviceName),
+          services: apptServices.map(s => s.serviceName),
         };
       }),
     );
@@ -197,42 +212,110 @@ export async function GET(
       .orderBy(desc(appointmentPhotoSchema.createdAt));
 
     // Calculate stats
-    const completedAppointments = appointments.filter((a) => a.status === 'completed');
+    const completedAppointments = appointments.filter(a => a.status === 'completed');
     const totalSpent = completedAppointments.reduce((sum, a) => sum + a.totalPrice, 0);
+
+    // ==========================================================================
+    // REDACTION: Apply visibility policy for staff requests
+    // This is a staff-only endpoint, so always apply staff visibility rules
+    // ==========================================================================
+
+    // Build client object with redaction applied
+    const fullClient = {
+      id: normalizedPhone, // Use phone as ID for redaction
+      phone: normalizedPhone,
+      fullName: client?.firstName || appointments[0]?.clientName || null,
+      name: client?.firstName || appointments[0]?.clientName || null,
+      memberSince: client?.createdAt?.toISOString() || appointments[appointments.length - 1]?.createdAt.toISOString() || null,
+      // History fields (controlled by showClientHistory)
+      totalVisits: completedAppointments.length,
+      totalSpent,
+      lastVisitAt: completedAppointments[0]?.startTime.toISOString() || null,
+    };
+
+    // Apply redaction to client data
+    let redactedClient: Record<string, unknown>;
+    let redactedStats: Record<string, unknown>;
+
+    if (isFullAccess(visibility)) {
+      // This shouldn't happen for staff, but handle gracefully
+      redactedClient = {
+        phone: fullClient.phone,
+        name: fullClient.name,
+        memberSince: fullClient.memberSince,
+      };
+      redactedStats = {
+        totalVisits: fullClient.totalVisits,
+        totalSpent: fullClient.totalSpent,
+        lastVisit: fullClient.lastVisitAt,
+      };
+    } else {
+      // Apply staff visibility rules
+      const redacted = redactClientForStaff(fullClient, visibility);
+
+      // Build client response (only include allowed fields)
+      redactedClient = { id: fullClient.id };
+      if ('phone' in redacted) {
+        redactedClient.phone = redacted.phone;
+      }
+      if ('name' in redacted || 'fullName' in redacted) {
+        redactedClient.name = redacted.name ?? redacted.fullName;
+      }
+      if ('memberSince' in redacted) {
+        redactedClient.memberSince = redacted.memberSince;
+      }
+
+      // Build stats response (controlled by showClientHistory)
+      redactedStats = {};
+      if (visibility.showClientHistory) {
+        redactedStats.totalVisits = fullClient.totalVisits;
+        redactedStats.totalSpent = fullClient.totalSpent;
+        redactedStats.lastVisit = fullClient.lastVisitAt;
+      }
+    }
+
+    // Build preferences response (notes controlled by showClientNotes)
+    let preferencesResponse = null;
+    if (preferences) {
+      preferencesResponse = {
+        favoriteTechId: preferences.favoriteTechId,
+        favoriteTechName,
+        favoriteServices: preferences.favoriteServices,
+        nailShape: preferences.nailShape,
+        nailLength: preferences.nailLength,
+        finishes: preferences.finishes,
+        colorFamilies: preferences.colorFamilies,
+        preferredBrands: preferences.preferredBrands,
+        sensitivities: preferences.sensitivities,
+        musicPreference: preferences.musicPreference,
+        conversationLevel: preferences.conversationLevel,
+        beveragePreference: preferences.beveragePreference,
+      } as Record<string, unknown>;
+
+      // Only include notes if visibility allows
+      if (!isFullAccess(visibility) && visibility.showClientNotes) {
+        preferencesResponse.techNotes = preferences.techNotes;
+        preferencesResponse.appointmentNotes = preferences.appointmentNotes;
+      } else if (isFullAccess(visibility)) {
+        preferencesResponse.techNotes = preferences.techNotes;
+        preferencesResponse.appointmentNotes = preferences.appointmentNotes;
+      }
+    }
+
+    // Redact appointment prices if needed
+    let finalAppointments = appointmentsWithServices;
+    if (!isFullAccess(visibility) && !visibility.showAppointmentPrice) {
+      finalAppointments = appointmentsWithServices.map(({ totalPrice, ...rest }) => rest) as typeof appointmentsWithServices;
+    }
 
     // Build response
     return Response.json({
       data: {
-        client: {
-          phone: normalizedPhone,
-          name: client?.firstName || appointments[0]?.clientName || null,
-          memberSince: client?.createdAt?.toISOString() || appointments[appointments.length - 1]?.createdAt.toISOString() || null,
-        },
-        stats: {
-          totalVisits: completedAppointments.length,
-          totalSpent,
-          lastVisit: completedAppointments[0]?.startTime.toISOString() || null,
-        },
-        preferences: preferences
-          ? {
-              favoriteTechId: preferences.favoriteTechId,
-              favoriteTechName,
-              favoriteServices: preferences.favoriteServices,
-              nailShape: preferences.nailShape,
-              nailLength: preferences.nailLength,
-              finishes: preferences.finishes,
-              colorFamilies: preferences.colorFamilies,
-              preferredBrands: preferences.preferredBrands,
-              sensitivities: preferences.sensitivities,
-              musicPreference: preferences.musicPreference,
-              conversationLevel: preferences.conversationLevel,
-              beveragePreference: preferences.beveragePreference,
-              techNotes: preferences.techNotes,
-              appointmentNotes: preferences.appointmentNotes,
-            }
-          : null,
-        appointments: appointmentsWithServices,
-        photos: photos.map((p) => ({
+        client: redactedClient,
+        stats: redactedStats,
+        preferences: preferencesResponse,
+        appointments: finalAppointments,
+        photos: photos.map(p => ({
           id: p.id,
           appointmentId: p.appointmentId,
           photoType: p.photoType,
@@ -256,4 +339,3 @@ export async function GET(
     );
   }
 }
-

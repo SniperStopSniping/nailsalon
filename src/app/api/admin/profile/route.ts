@@ -5,12 +5,12 @@
  * Used during onboarding and profile management.
  */
 
-import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { db } from '@/libs/DB';
 import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import { adminUserSchema } from '@/models/Schema';
 
 // Force dynamic rendering

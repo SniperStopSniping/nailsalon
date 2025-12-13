@@ -1,13 +1,13 @@
 'use client';
 
+import { ChevronRight, GripVertical, Star } from 'lucide-react';
 import { forwardRef } from 'react';
-import { ChevronRight, Star, GripVertical } from 'lucide-react';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export interface StaffCardData {
+export type StaffCardData = {
   id: string;
   name: string;
   avatarUrl: string | null;
@@ -24,16 +24,16 @@ export interface StaffCardData {
       revenue: number;
     };
   };
-}
+};
 
-interface StaffCardProps {
+type StaffCardProps = {
   staff: StaffCardData;
   isLast: boolean;
   onClick: () => void;
   isDraggable?: boolean;
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
   isDragging?: boolean;
-}
+};
 
 // =============================================================================
 // Helpers
@@ -107,13 +107,13 @@ function getSkillBadge(skillLevel: string | null): { label: string; className: s
 // Component
 // =============================================================================
 
-export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>(function StaffCard(
+export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
   { staff, isLast, onClick, isDraggable = false, dragHandleProps, isDragging = false },
-  ref
-) {
+  ref,
+) => {
   const initials = staff.name
     .split(' ')
-    .map((n) => n[0])
+    .map(n => n[0])
     .join('')
     .toUpperCase()
     .slice(0, 2);
@@ -125,108 +125,114 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>(function Sta
     <div
       ref={ref}
       className={`
-        flex items-center min-h-[76px] transition-colors
+        flex min-h-[76px] items-center transition-colors
         ${!staff.isActive ? 'opacity-60' : ''}
-        ${isDragging ? 'bg-gray-50 shadow-lg rounded-lg z-50' : ''}
+        ${isDragging ? 'z-50 rounded-lg bg-gray-50 shadow-lg' : ''}
       `}
     >
       {/* Drag Handle */}
       {isDraggable && (
         <div
           {...dragHandleProps}
-          className="pl-2 pr-1 py-4 cursor-grab active:cursor-grabbing touch-none"
+          className="cursor-grab touch-none py-4 pl-2 pr-1 active:cursor-grabbing"
         >
-          <GripVertical className="w-5 h-5 text-[#C7C7CC]" />
+          <GripVertical className="size-5 text-[#C7C7CC]" />
         </div>
       )}
 
       {/* Clickable Content */}
       <div
-        className={`flex-1 flex items-center active:bg-gray-50 cursor-pointer ${isDraggable ? 'pl-1' : 'pl-4'}`}
+        className={`flex flex-1 cursor-pointer items-center active:bg-gray-50 ${isDraggable ? 'pl-1' : 'pl-4'}`}
         onClick={onClick}
       >
         {/* Avatar */}
-        <div className="relative flex-shrink-0">
-        {staff.avatarUrl ? (
-          <img
-            src={staff.avatarUrl}
-            alt={staff.name}
-            className="w-14 h-14 rounded-full object-cover mr-3"
+        <div className="relative shrink-0">
+          {staff.avatarUrl
+            ? (
+                <img
+                  src={staff.avatarUrl}
+                  alt={staff.name}
+                  className="mr-3 size-14 rounded-full object-cover"
+                />
+              )
+            : (
+                <div className="mr-3 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] text-[17px] font-bold text-white shadow-sm">
+                  {initials}
+                </div>
+              )}
+          {/* Status indicator dot */}
+          <div
+            className={`absolute bottom-0 right-2 size-4 rounded-full border-2 border-white ${getStatusColor(staff.currentStatus)}`}
           />
-        ) : (
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] flex items-center justify-center text-white text-[17px] font-bold mr-3 shadow-sm">
-            {initials}
-          </div>
-        )}
-        {/* Status indicator dot */}
-        <div
-          className={`absolute bottom-0 right-2 w-4 h-4 rounded-full border-2 border-white ${getStatusColor(staff.currentStatus)}`}
-        />
-      </div>
-
-      {/* Content */}
-      <div
-        className={`flex-1 flex items-center justify-between pr-4 py-3 ${!isLast ? 'border-b border-gray-100' : ''}`}
-      >
-        <div className="min-w-0 flex-1">
-          {/* Name + Role */}
-          <div className="flex items-center gap-2">
-            <span className="text-[17px] font-semibold text-[#1C1C1E] truncate">
-              {staff.name}
-            </span>
-            {!staff.isActive && (
-              <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] font-semibold rounded">
-                INACTIVE
-              </span>
-            )}
-          </div>
-
-          {/* Status + Skill */}
-          <div className="flex items-center gap-2 mt-1">
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getStatusPillClasses(staff.currentStatus)}`}
-            >
-              {getStatusLabel(staff.currentStatus)}
-            </span>
-            {skillBadge && (
-              <span
-                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${skillBadge.className}`}
-              >
-                {skillBadge.label}
-              </span>
-            )}
-            {!staff.acceptingNewClients && (
-              <span className="text-[10px] text-[#8E8E93]">Returning only</span>
-            )}
-          </div>
-
-          {/* Rating if exists */}
-          {staff.rating !== null && staff.reviewCount > 0 && (
-            <div className="flex items-center gap-1 mt-1">
-              <Star className="w-3 h-3 text-[#FFD60A] fill-[#FFD60A]" />
-              <span className="text-[11px] font-medium text-[#1C1C1E]">
-                {staff.rating.toFixed(1)}
-              </span>
-              <span className="text-[10px] text-[#8E8E93]">
-                ({staff.reviewCount})
-              </span>
-            </div>
-          )}
         </div>
 
+        {/* Content */}
+        <div
+          className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}
+        >
+          <div className="min-w-0 flex-1">
+            {/* Name + Role */}
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[17px] font-semibold text-[#1C1C1E]">
+                {staff.name}
+              </span>
+              {!staff.isActive && (
+                <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
+                  INACTIVE
+                </span>
+              )}
+            </div>
+
+            {/* Status + Skill */}
+            <div className="mt-1 flex items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${getStatusPillClasses(staff.currentStatus)}`}
+              >
+                {getStatusLabel(staff.currentStatus)}
+              </span>
+              {skillBadge && (
+                <span
+                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${skillBadge.className}`}
+                >
+                  {skillBadge.label}
+                </span>
+              )}
+              {!staff.acceptingNewClients && (
+                <span className="text-[10px] text-[#8E8E93]">Returning only</span>
+              )}
+            </div>
+
+            {/* Rating if exists */}
+            {staff.rating !== null && staff.reviewCount > 0 && (
+              <div className="mt-1 flex items-center gap-1">
+                <Star className="size-3 fill-[#FFD60A] text-[#FFD60A]" />
+                <span className="text-[11px] font-medium text-[#1C1C1E]">
+                  {staff.rating.toFixed(1)}
+                </span>
+                <span className="text-[10px] text-[#8E8E93]">
+                  (
+                  {staff.reviewCount}
+                  )
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Stats + Chevron */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             {hasStats && (
-              <div className="text-right mr-1">
+              <div className="mr-1 text-right">
                 <div className="text-[14px] font-semibold text-[#34C759]">
                   {formatCurrency(staff.stats.today.revenue)}
                 </div>
                 <div className="text-[11px] text-[#8E8E93]">
-                  {staff.stats.today.appointments} today
+                  {staff.stats.today.appointments}
+                  {' '}
+                  today
                 </div>
               </div>
             )}
-            <ChevronRight className="w-4 h-4 text-[#C7C7CC]" />
+            <ChevronRight className="size-4 text-[#C7C7CC]" />
           </div>
         </div>
       </div>

@@ -96,19 +96,19 @@ const StatsCard = ({
       <motion.div
         variants={meshVariant}
         animate="animate"
-        className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full opacity-50 blur-[80px] bg-[var(--n5-accent-soft)]"
+        className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-accent-soft)] opacity-50 blur-[80px]"
       />
       <motion.div
         variants={meshVariant}
         animate="animate"
         transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full opacity-30 blur-[60px] bg-[var(--n5-bg-highlight)]"
+        className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-30 blur-[60px]"
       />
     </div>
 
     {/* Glass Surface */}
     <div
-      className="absolute inset-0 bg-[var(--n5-bg-card)]/30 backdrop-blur-[20px]"
+      className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
       style={{ borderRadius: n5.radiusCard }}
     />
 
@@ -117,7 +117,7 @@ const StatsCard = ({
       {/* Header */}
       <div className="mb-4 flex items-center gap-2">
         <Camera className="size-5 text-[var(--n5-accent)]" strokeWidth={2} />
-        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--n5-ink-main)] opacity-80 font-body">
+        <span className="font-body text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--n5-ink-main)] opacity-80">
           Your Nail Journey
         </span>
       </div>
@@ -129,11 +129,11 @@ const StatsCard = ({
             initial={{ scale: 0.5, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.2, duration: 0.4 }}
-            className="text-2xl font-bold text-[var(--n5-accent)] font-body"
+            className="font-body text-2xl font-bold text-[var(--n5-accent)]"
           >
             {photoCount}
           </motion.div>
-          <div className="mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)] font-body">
+          <div className="font-body mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)]">
             Photos
           </div>
         </div>
@@ -142,22 +142,22 @@ const StatsCard = ({
             initial={{ scale: 0.5, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.3, duration: 0.4 }}
-            className="text-2xl font-bold text-[var(--n5-ink-main)] font-body"
+            className="font-body text-2xl font-bold text-[var(--n5-ink-main)]"
           >
             {totalVisits}
           </motion.div>
-          <div className="mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)] font-body">
+          <div className="font-body mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)]">
             Visits
           </div>
         </div>
         <div className="col-span-2 flex flex-col items-center justify-center border-l border-[var(--n5-border-muted)] pl-3">
           <div className="flex items-center gap-1.5">
             <Heart className="size-3.5 text-[var(--n5-accent)]" fill="currentColor" />
-            <span className="truncate text-sm font-bold text-[var(--n5-ink-main)] font-body">
+            <span className="font-body truncate text-sm font-bold text-[var(--n5-ink-main)]">
               {favoriteTech}
             </span>
           </div>
-          <div className="mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)] font-body">
+          <div className="font-body mt-0.5 text-[9px] uppercase tracking-wider text-[var(--n5-ink-muted)]">
             Favorite Tech
           </div>
         </div>
@@ -169,14 +169,14 @@ const StatsCard = ({
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="mt-4 flex items-center justify-center gap-2 border py-2 bg-[var(--n5-bg-surface)]/50"
+          className="bg-[var(--n5-bg-surface)]/50 mt-4 flex items-center justify-center gap-2 border py-2"
           style={{
             borderRadius: n5.radiusPill,
             borderColor: 'var(--n5-border)',
           }}
         >
           <Sparkles className="size-3.5 text-[var(--n5-accent)]" />
-          <span className="text-xs font-medium text-[var(--n5-ink-main)] font-body">
+          <span className="font-body text-xs font-medium text-[var(--n5-ink-main)]">
             Most loved:
             {' '}
             <span className="font-bold">{favoriteService}</span>
@@ -237,7 +237,7 @@ const PhotoCard = ({
         {/* Photo type badge */}
         {photo.photoType === 'before' && (
           <div
-            className="absolute left-3 top-3 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-lg backdrop-blur-md bg-white/80 text-[var(--n5-ink-main)] font-body"
+            className="font-body absolute left-3 top-3 bg-white/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--n5-ink-main)] shadow-lg backdrop-blur-md"
             style={{ borderRadius: n5.radiusPill }}
           >
             Before
@@ -246,7 +246,7 @@ const PhotoCard = ({
 
         {/* Date badge */}
         <div
-          className="absolute right-3 top-3 px-2.5 py-1 text-[10px] font-bold shadow-lg backdrop-blur-md bg-black/50 text-white font-body"
+          className="font-body absolute right-3 top-3 bg-black/50 px-2.5 py-1 text-[10px] font-bold text-white shadow-lg backdrop-blur-md"
           style={{ borderRadius: n5.radiusPill }}
         >
           {formatDate(photo.appointmentDate)}
@@ -264,14 +264,16 @@ const PhotoCard = ({
         {photo.technicianName && (
           <div className="mt-1.5 flex items-center gap-1.5">
             <Star className="size-3 text-[var(--n5-accent)]" fill="currentColor" />
-            <span className="text-xs font-medium text-[var(--n5-ink-muted)] font-body">
+            <span className="font-body text-xs font-medium text-[var(--n5-ink-muted)]">
               {photo.technicianName}
             </span>
           </div>
         )}
         {photo.caption && (
-          <p className="mt-2 text-xs italic text-[var(--n5-ink-muted)] font-body line-clamp-2">
-            "{photo.caption}"
+          <p className="font-body mt-2 line-clamp-2 text-xs italic text-[var(--n5-ink-muted)]">
+            "
+            {photo.caption}
+            "
           </p>
         )}
       </div>
@@ -304,16 +306,16 @@ const EmptyState = ({ onBook }: { onBook: () => void }) => (
         <ImageIcon className="size-10 text-[var(--n5-accent)]" strokeWidth={1.5} />
       </motion.div>
 
-      <h2 className="mb-2 font-heading text-xl font-semibold text-[var(--n5-ink-main)]">
+      <h2 className="font-heading mb-2 text-xl font-semibold text-[var(--n5-ink-main)]">
         Your Nail Journey Starts Here
       </h2>
-      <p className="mb-8 max-w-xs text-sm leading-relaxed text-[var(--n5-ink-muted)] font-body">
+      <p className="font-body mb-8 max-w-xs text-sm leading-relaxed text-[var(--n5-ink-muted)]">
         Photos from your appointments will appear here. Each visit adds to your beautiful nail collection!
       </p>
 
       {/* Placeholder Grid */}
       <div className="mb-6 grid w-full max-w-xs grid-cols-3 gap-2">
-        {[1, 2, 3].map((i) => (
+        {[1, 2, 3].map(i => (
           <motion.div
             key={i}
             initial={{ opacity: 0, scale: 0.8 }}
@@ -335,7 +337,7 @@ const EmptyState = ({ onBook }: { onBook: () => void }) => (
           triggerHaptic();
           onBook();
         }}
-        className="px-8 py-3.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] bg-[var(--n5-accent)] font-body"
+        className="font-body bg-[var(--n5-accent)] px-8 py-3.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
@@ -381,13 +383,13 @@ const PhotoModal = ({
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         className="relative max-h-[90vh] w-full max-w-lg overflow-hidden bg-[var(--n5-bg-card)]"
         style={{ borderRadius: n5.radiusCard }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-3 top-3 z-10 flex size-10 items-center justify-center shadow-lg backdrop-blur-md transition-transform active:scale-90 bg-black/50 text-white"
+          className="absolute right-3 top-3 z-10 flex size-10 items-center justify-center bg-black/50 text-white shadow-lg backdrop-blur-md transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
           aria-label="Close"
         >
@@ -414,19 +416,21 @@ const PhotoModal = ({
             {photo.technicianName && (
               <div className="flex items-center gap-1.5">
                 <Star className="size-4 text-[var(--n5-accent)]" fill="currentColor" />
-                <span className="text-sm font-medium text-[var(--n5-ink-main)] font-body">
+                <span className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
                   {photo.technicianName}
                 </span>
               </div>
             )}
-            <div className="text-sm text-[var(--n5-ink-muted)] font-body">
+            <div className="font-body text-sm text-[var(--n5-ink-muted)]">
               {formatDate(photo.appointmentDate)}
             </div>
           </div>
 
           {photo.caption && (
-            <p className="mt-4 text-sm italic leading-relaxed text-[var(--n5-ink-muted)] font-body">
-              "{photo.caption}"
+            <p className="font-body mt-4 text-sm italic leading-relaxed text-[var(--n5-ink-muted)]">
+              "
+              {photo.caption}
+              "
             </p>
           )}
         </div>
@@ -445,14 +449,14 @@ const GallerySkeleton = () => (
     className="space-y-6"
   >
     <div
-      className="h-40 w-full animate-pulse bg-[var(--n5-bg-card)]/50"
+      className="bg-[var(--n5-bg-card)]/50 h-40 w-full animate-pulse"
       style={{ borderRadius: n5.radiusCard }}
     />
     <div className="grid grid-cols-2 gap-4">
-      {[1, 2, 3, 4].map((i) => (
+      {[1, 2, 3, 4].map(i => (
         <div
           key={i}
-          className="aspect-[4/5] w-full animate-pulse bg-[var(--n5-bg-card)]/50"
+          className="bg-[var(--n5-bg-card)]/50 aspect-[4/5] w-full animate-pulse"
           style={{ borderRadius: n5.radiusCard }}
         />
       ))}
@@ -536,7 +540,7 @@ export default function GalleryContent() {
   const favoriteTech = Object.entries(techCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
   const serviceCounts = photos.reduce((acc, photo) => {
-    photo.services.forEach(service => {
+    photo.services.forEach((service) => {
       acc[service] = (acc[service] || 0) + 1;
     });
     return acc;
@@ -557,7 +561,7 @@ export default function GalleryContent() {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] shadow-sm transition-transform active:scale-90 text-[var(--n5-ink-main)]"
+          className="flex size-10 items-center justify-center bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] shadow-sm transition-transform active:scale-90"
           style={{ borderRadius: n5.radiusPill }}
         >
           <ChevronRight className="size-5 rotate-180" />
@@ -565,11 +569,13 @@ export default function GalleryContent() {
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
           My Gallery
         </span>
-        <div className="w-10" /> {/* Spacer for centering */}
+        <div className="w-10" />
+        {' '}
+        {/* Spacer for centering */}
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-6 px-5 pb-28 pt-28">
+      <main className="mx-auto max-w-lg space-y-6 px-5 py-28">
         <AnimatePresence mode="wait">
           {loading ? (
             <GallerySkeleton key="skeleton" />

@@ -8,14 +8,14 @@
  * - Only returns requests for salons the admin has access to
  */
 
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { db } from '@/libs/DB';
 import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import {
-  timeOffRequestSchema,
-  technicianSchema,
   salonSchema,
+  technicianSchema,
+  timeOffRequestSchema,
 } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -25,12 +25,12 @@ export const dynamic = 'force-dynamic';
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/time-off-requests
@@ -65,11 +65,11 @@ export async function GET(request: Request): Promise<Response> {
           .select({ id: salonSchema.id })
           .from(salonSchema)
           .limit(100);
-        salonIds = allSalons.map((s) => s.id);
+        salonIds = allSalons.map(s => s.id);
       }
     } else {
       // Regular admin: only their assigned salons
-      salonIds = admin.salons.map((s) => s.salonId);
+      salonIds = admin.salons.map(s => s.salonId);
 
       // If filtering by a specific salon, verify admin has access
       if (salonIdFilter) {
@@ -120,7 +120,7 @@ export async function GET(request: Request): Promise<Response> {
 
     return Response.json({
       data: {
-        requests: requests.map((r) => ({
+        requests: requests.map(r => ({
           id: r.id,
           salonId: r.salonId,
           salonName: r.salonName,

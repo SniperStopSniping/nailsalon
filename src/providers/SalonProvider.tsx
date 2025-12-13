@@ -2,9 +2,9 @@
 
 import {
   createContext,
+  type ReactNode,
   useContext,
   useMemo,
-  type ReactNode,
 } from 'react';
 
 import type { SalonStatus } from '@/models/Schema';
@@ -21,7 +21,7 @@ const DEFAULT_SALON = {
 /**
  * Salon context value - provides tenant information to all child components
  */
-export interface SalonContextValue {
+export type SalonContextValue = {
   /** Unique identifier for the salon (used for multi-tenant scoping) */
   salonId: string;
   /** The display name of the current salon/organization */
@@ -34,7 +34,7 @@ export interface SalonContextValue {
   status: SalonStatus | null;
   /** Whether the salon is accessible (true for active/trial, false for suspended/cancelled) */
   isAccessible: boolean;
-}
+};
 
 const SalonContext = createContext<SalonContextValue>({
   salonId: DEFAULT_SALON.id,
@@ -45,7 +45,7 @@ const SalonContext = createContext<SalonContextValue>({
   isAccessible: true,
 });
 
-export interface SalonProviderProps {
+export type SalonProviderProps = {
   children: ReactNode;
   /** Salon ID for multi-tenant data scoping */
   salonId?: string;
@@ -57,7 +57,7 @@ export interface SalonProviderProps {
   themeKey?: string;
   /** Current salon status */
   status?: SalonStatus | null;
-}
+};
 
 /**
  * SalonProvider - Provides the current salon/organization context to all child components.
@@ -95,7 +95,7 @@ export function SalonProvider({
     const currentStatus = status ?? DEFAULT_SALON.status;
     // Salon is accessible if status is active or trial (not suspended or cancelled)
     const isAccessible = currentStatus === 'active' || currentStatus === 'trial';
-    
+
     return {
       salonId: salonId || DEFAULT_SALON.id,
       salonName: salonName || DEFAULT_SALON.name,

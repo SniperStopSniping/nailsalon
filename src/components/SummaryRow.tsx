@@ -3,12 +3,12 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface SummaryRowProps {
+export type SummaryRowProps = {
   label: string;
   value: string | React.ReactNode;
   highlight?: boolean;
   className?: string;
-}
+};
 
 /**
  * SummaryRow Component
@@ -28,8 +28,8 @@ export const SummaryRow = React.forwardRef<HTMLDivElement, SummaryRowProps>(
         )}
         style={highlight ? { backgroundColor: themeVars.highlightBackground } : undefined}
       >
-        <div className="text-sm text-neutral-500 font-medium">{label}</div>
-        <div className="text-base font-semibold text-neutral-900 text-right">
+        <div className="text-sm font-medium text-neutral-500">{label}</div>
+        <div className="text-right text-base font-semibold text-neutral-900">
           {value}
         </div>
       </div>

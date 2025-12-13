@@ -7,7 +7,7 @@ import { ConfettiPopup } from '@/components/ConfettiPopup';
 
 type ClaimState = 'loading' | 'form' | 'verify' | 'success' | 'error' | 'already_claimed';
 
-interface ReferralInfo {
+type ReferralInfo = {
   referralId: string;
   referrerName: string | null;
   referrerPhoneMasked: string;
@@ -15,7 +15,7 @@ interface ReferralInfo {
   salonSlug: string;
   status: string;
   isClaimable: boolean;
-}
+};
 
 export default function ClaimReferralPage() {
   const router = useRouter();
@@ -85,7 +85,9 @@ export default function ClaimReferralPage() {
 
   // Send OTP code
   const handleSendCode = useCallback(async () => {
-    if (phone.length !== 10 || isLoading) return;
+    if (phone.length !== 10 || isLoading) {
+      return;
+    }
     if (!name.trim()) {
       setFormError('Please enter your name');
       return;
@@ -119,7 +121,9 @@ export default function ClaimReferralPage() {
 
   // Verify OTP and claim referral
   const handleVerifyCode = useCallback(async () => {
-    if (code.length !== 6 || isLoading) return;
+    if (code.length !== 6 || isLoading) {
+      return;
+    }
 
     setIsLoading(true);
     setFormError(null);
@@ -201,7 +205,7 @@ export default function ClaimReferralPage() {
 
   return (
     <div
-      className="flex min-h-screen justify-center py-4 bg-[var(--n5-bg-page)]"
+      className="flex min-h-screen justify-center bg-[var(--n5-bg-page)] py-4"
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
         {/* Loading State */}
@@ -219,14 +223,14 @@ export default function ClaimReferralPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="text-center">
               <div className="mb-4 text-4xl">😔</div>
-              <h1 className="mb-2 text-xl font-bold font-heading text-[var(--n5-ink-main)]">
+              <h1 className="font-heading mb-2 text-xl font-bold text-[var(--n5-ink-main)]">
                 Oops!
               </h1>
-              <p className="mb-6 font-body text-[var(--n5-ink-muted)]">{errorMessage}</p>
+              <p className="font-body mb-6 text-[var(--n5-ink-muted)]">{errorMessage}</p>
               <button
                 type="button"
                 onClick={() => router.push('/')}
-                className="px-6 py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                className="font-body bg-[var(--n5-button-primary-bg)] px-6 py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Go to Home
@@ -240,16 +244,16 @@ export default function ClaimReferralPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="text-center">
               <div className="mb-4 text-4xl">✅</div>
-              <h1 className="mb-2 text-xl font-bold font-heading text-[var(--n5-ink-main)]">
+              <h1 className="font-heading mb-2 text-xl font-bold text-[var(--n5-ink-main)]">
                 Already Claimed
               </h1>
-              <p className="mb-6 font-body text-[var(--n5-ink-muted)]">
+              <p className="font-body mb-6 text-[var(--n5-ink-muted)]">
                 This referral has already been claimed.
               </p>
               <button
                 type="button"
                 onClick={() => router.push('/profile')}
-                className="px-6 py-3 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+                className="font-body bg-[var(--n5-button-primary-bg)] px-6 py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
                 Go to Profile
@@ -271,13 +275,17 @@ export default function ClaimReferralPage() {
 
             {/* Referrer Info Card */}
             <div
-              className="p-4 text-center bg-[var(--n5-bg-selected)]"
+              className="bg-[var(--n5-bg-selected)] p-4 text-center"
               style={{ borderRadius: 'var(--n5-radius-md)' }}
             >
-              <p className="text-sm font-body text-[var(--n5-ink-main)]">
-                You&apos;ve been referred by{' '}
+              <p className="font-body text-sm text-[var(--n5-ink-main)]">
+                You&apos;ve been referred by
+                {' '}
                 <span className="font-semibold">{referrerDisplay}</span>
-                {' '}({referralInfo.referrerPhoneMasked}) 💅
+                {' '}
+                (
+                {referralInfo.referrerPhoneMasked}
+                ) 💅
               </p>
             </div>
 
@@ -286,8 +294,14 @@ export default function ClaimReferralPage() {
               {claimState === 'form' && (
                 <>
                   <p className="mb-6 text-center text-sm text-neutral-700">
-                    They gave you a <span className="font-semibold">FREE Gel Manicure</span> at{' '}
-                    <span className="font-semibold">{referralInfo.salonName}</span>.
+                    They gave you a
+                    {' '}
+                    <span className="font-semibold">FREE Gel Manicure</span>
+                    {' '}
+                    at
+                    {' '}
+                    <span className="font-semibold">{referralInfo.salonName}</span>
+                    .
                     Enter your name and phone number to claim it.
                   </p>
 
@@ -322,7 +336,7 @@ export default function ClaimReferralPage() {
                       Phone Number
                     </label>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center rounded-full bg-neutral-100 px-3 py-3 text-sm text-neutral-600">
+                      <div className="flex items-center rounded-full bg-neutral-100 p-3 text-sm text-neutral-600">
                         +1
                       </div>
                       <input
@@ -351,7 +365,7 @@ export default function ClaimReferralPage() {
                     type="button"
                     onClick={handleSendCode}
                     disabled={!name.trim() || phone.length !== 10 || isLoading}
-                    className="w-full py-3.5 text-sm font-semibold font-body bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="font-body w-full bg-[var(--n5-button-primary-bg)] py-3.5 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ borderRadius: 'var(--n5-radius-pill)' }}
                   >
                     {isLoading ? 'Sending code...' : 'Claim my free manicure'}
@@ -362,8 +376,12 @@ export default function ClaimReferralPage() {
               {claimState === 'verify' && (
                 <>
                   <p className="mb-6 text-center text-sm text-neutral-700">
-                    We sent a verification code to{' '}
-                    <span className="font-semibold">+1 {phone}</span>
+                    We sent a verification code to
+                    {' '}
+                    <span className="font-semibold">
+                      +1
+                      {phone}
+                    </span>
                   </p>
 
                   {/* Code Input */}

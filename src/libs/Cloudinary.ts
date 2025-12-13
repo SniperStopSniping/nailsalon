@@ -1,4 +1,5 @@
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import type { UploadApiResponse } from 'cloudinary';
+import { v2 as cloudinary } from 'cloudinary';
 
 // =============================================================================
 // CLOUDINARY CONFIGURATION
@@ -18,11 +19,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-export interface UploadResult {
+export type UploadResult = {
   publicId: string;
   imageUrl: string;
   thumbnailUrl: string;
-}
+};
 
 /**
  * Upload a photo for an appointment to Cloudinary
@@ -39,9 +40,9 @@ export async function uploadAppointmentPhoto(
 ): Promise<UploadResult> {
   // Validate Cloudinary is configured
   if (
-    !process.env.CLOUDINARY_CLOUD_NAME ||
-    !process.env.CLOUDINARY_API_KEY ||
-    !process.env.CLOUDINARY_API_SECRET
+    !process.env.CLOUDINARY_CLOUD_NAME
+    || !process.env.CLOUDINARY_API_KEY
+    || !process.env.CLOUDINARY_API_SECRET
   ) {
     throw new Error('Cloudinary is not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.');
   }
@@ -74,9 +75,9 @@ export async function uploadAppointmentPhoto(
           }
 
           // Get thumbnail URL from eager transformation
-          const thumbnailUrl =
-            result.eager?.[0]?.secure_url ||
-            cloudinary.url(result.public_id, {
+          const thumbnailUrl
+            = result.eager?.[0]?.secure_url
+            || cloudinary.url(result.public_id, {
               width: 200,
               height: 200,
               crop: 'fill',
@@ -101,9 +102,9 @@ export async function uploadAppointmentPhoto(
  */
 export async function deleteAppointmentPhoto(publicId: string): Promise<void> {
   if (
-    !process.env.CLOUDINARY_CLOUD_NAME ||
-    !process.env.CLOUDINARY_API_KEY ||
-    !process.env.CLOUDINARY_API_SECRET
+    !process.env.CLOUDINARY_CLOUD_NAME
+    || !process.env.CLOUDINARY_API_KEY
+    || !process.env.CLOUDINARY_API_SECRET
   ) {
     throw new Error('Cloudinary is not configured');
   }
@@ -116,9 +117,9 @@ export async function deleteAppointmentPhoto(publicId: string): Promise<void> {
  */
 export function isCloudinaryConfigured(): boolean {
   return !!(
-    process.env.CLOUDINARY_CLOUD_NAME &&
-    process.env.CLOUDINARY_API_KEY &&
-    process.env.CLOUDINARY_API_SECRET
+    process.env.CLOUDINARY_CLOUD_NAME
+    && process.env.CLOUDINARY_API_KEY
+    && process.env.CLOUDINARY_API_SECRET
   );
 }
 

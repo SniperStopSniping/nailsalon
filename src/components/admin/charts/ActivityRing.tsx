@@ -12,7 +12,7 @@
 
 import { motion } from 'framer-motion';
 
-interface ActivityRingProps {
+type ActivityRingProps = {
   /** Percentage filled (0-100) */
   percent: number;
   /** Ring color */
@@ -27,7 +27,7 @@ interface ActivityRingProps {
   delay?: number;
   /** Background track color */
   trackColor?: string;
-}
+};
 
 export function ActivityRing({
   percent,
@@ -47,7 +47,7 @@ export function ActivityRing({
       className="relative flex items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <svg className="w-full h-full -rotate-90">
+      <svg className="size-full -rotate-90">
         {/* Background Track */}
         <circle
           cx={size / 2}
@@ -80,7 +80,7 @@ export function ActivityRing({
 /**
  * Nested Activity Rings (like Apple Fitness)
  */
-interface NestedRingsProps {
+type NestedRingsProps = {
   rings: Array<{
     percent: number;
     color: string;
@@ -92,7 +92,7 @@ interface NestedRingsProps {
   stroke?: number;
   /** Gap between rings */
   gap?: number;
-}
+};
 
 export function NestedRings({
   rings,
@@ -132,12 +132,12 @@ export function NestedRings({
 /**
  * Ring Legend
  */
-interface RingLegendProps {
+type RingLegendProps = {
   items: Array<{
     color: string;
     label: string;
   }>;
-}
+};
 
 export function RingLegend({ items }: RingLegendProps) {
   return (
@@ -145,7 +145,7 @@ export function RingLegend({ items }: RingLegendProps) {
       {items.map((item, index) => (
         <span key={index} className="flex items-center gap-1">
           <div
-            className="w-2 h-2 rounded-full"
+            className="size-2 rounded-full"
             style={{ backgroundColor: item.color }}
           />
           {item.label}
@@ -154,4 +154,3 @@ export function RingLegend({ items }: RingLegendProps) {
     </div>
   );
 }
-

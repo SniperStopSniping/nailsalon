@@ -19,13 +19,13 @@ const querySchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/salon/services - Get all services for a salon
@@ -55,13 +55,15 @@ export async function GET(request: Request): Promise<Response> {
 
     // Verify user owns this salon (admin-only endpoint)
     const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) return error!;
+    if (error || !salon) {
+      return error!;
+    }
 
     // Get services for the salon
     const services = await getServicesBySalonId(salon.id);
 
     // Format response using shared type
-    const formattedServices: ServiceResponse[] = services.map((service) => ({
+    const formattedServices: ServiceResponse[] = services.map(service => ({
       id: service.id,
       name: service.name,
       description: service.description,

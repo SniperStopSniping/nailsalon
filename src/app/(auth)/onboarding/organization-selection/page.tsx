@@ -5,8 +5,8 @@ import { OrganizationList } from '@clerk/nextjs';
 const OrganizationSelectionPage = () => (
   <div className="flex min-h-screen items-center justify-center">
     <OrganizationList
-      afterSelectOrganizationUrl="/dashboard"
-      afterCreateOrganizationUrl="/dashboard"
+      afterSelectOrganizationUrl="/admin"
+      afterCreateOrganizationUrl="/admin"
       hidePersonal
       skipInvitationScreen
     />

@@ -1,20 +1,20 @@
 'use client';
 
-import { AlertTriangle, X, ExternalLink } from 'lucide-react';
+import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { useState } from 'react';
 
-interface SuspendedBannerProps {
+type SuspendedBannerProps = {
   /** Custom message to display */
   message?: string;
   /** Whether to show the dismiss button */
   dismissible?: boolean;
   /** Contact support URL */
   supportUrl?: string;
-}
+};
 
 /**
  * SuspendedBanner - Warning banner for suspended salon accounts
- * 
+ *
  * Shows at the top of the admin dashboard when a salon is suspended.
  * Owners can still view data but cannot make changes or accept bookings.
  */
@@ -25,34 +25,36 @@ export function SuspendedBanner({
 }: SuspendedBannerProps) {
   const [dismissed, setDismissed] = useState(false);
 
-  if (dismissed) return null;
+  if (dismissed) {
+    return null;
+  }
 
   return (
-    <div className="bg-amber-50 border-b border-amber-200">
+    <div className="border-b border-amber-200 bg-amber-50">
       <div className="px-4 py-3">
         <div className="flex items-start gap-3">
           {/* Icon */}
-          <div className="flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
+          <div className="shrink-0">
+            <div className="flex size-8 items-center justify-center rounded-full bg-amber-100">
+              <AlertTriangle className="size-4 text-amber-600" />
             </div>
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-amber-800">
               Account Suspended
             </p>
-            <p className="text-sm text-amber-700 mt-0.5">
+            <p className="mt-0.5 text-sm text-amber-700">
               {message}
             </p>
             {supportUrl && (
               <a
                 href={supportUrl}
-                className="inline-flex items-center gap-1 text-sm font-medium text-amber-800 hover:text-amber-900 mt-2"
+                className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-amber-800 hover:text-amber-900"
               >
                 Contact Support
-                <ExternalLink className="w-3 h-3" />
+                <ExternalLink className="size-3" />
               </a>
             )}
           </div>
@@ -62,10 +64,10 @@ export function SuspendedBanner({
             <button
               type="button"
               onClick={() => setDismissed(true)}
-              className="flex-shrink-0 p-1 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-100 transition-colors"
+              className="shrink-0 rounded-lg p-1 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-800"
               aria-label="Dismiss banner"
             >
-              <X className="w-4 h-4" />
+              <X className="size-4" />
             </button>
           )}
         </div>
@@ -76,7 +78,7 @@ export function SuspendedBanner({
 
 /**
  * CancelledBanner - Error banner for cancelled salon accounts
- * 
+ *
  * Shows when a salon account has been cancelled/terminated.
  * More severe styling than suspended banner.
  */
@@ -88,31 +90,31 @@ export function CancelledBanner({
   supportUrl?: string;
 }) {
   return (
-    <div className="bg-red-50 border-b border-red-200">
+    <div className="border-b border-red-200 bg-red-50">
       <div className="px-4 py-3">
         <div className="flex items-start gap-3">
           {/* Icon */}
-          <div className="flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
-              <AlertTriangle className="w-4 h-4 text-red-600" />
+          <div className="shrink-0">
+            <div className="flex size-8 items-center justify-center rounded-full bg-red-100">
+              <AlertTriangle className="size-4 text-red-600" />
             </div>
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-red-800">
               Account Cancelled
             </p>
-            <p className="text-sm text-red-700 mt-0.5">
+            <p className="mt-0.5 text-sm text-red-700">
               {message}
             </p>
             {supportUrl && (
               <a
                 href={supportUrl}
-                className="inline-flex items-center gap-1 text-sm font-medium text-red-800 hover:text-red-900 mt-2"
+                className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-red-800 hover:text-red-900"
               >
                 Contact Support
-                <ExternalLink className="w-3 h-3" />
+                <ExternalLink className="size-3" />
               </a>
             )}
           </div>
@@ -124,7 +126,7 @@ export function CancelledBanner({
 
 /**
  * TrialBanner - Info banner for trial accounts
- * 
+ *
  * Shows a gentle reminder about trial status with days remaining.
  */
 export function TrialBanner({
@@ -136,19 +138,28 @@ export function TrialBanner({
 }) {
   const [dismissed, setDismissed] = useState(false);
 
-  if (dismissed) return null;
+  if (dismissed) {
+    return null;
+  }
 
   const isUrgent = daysRemaining <= 3;
 
   return (
-    <div className={`${isUrgent ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'} border-b`}>
+    <div className={`${isUrgent ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'} border-b`}>
       <div className="px-4 py-2.5">
         <div className="flex items-center justify-between gap-4">
           <p className={`text-sm ${isUrgent ? 'text-amber-800' : 'text-blue-800'}`}>
             <span className="font-medium">
-              {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left
-            </span>{' '}
-            in your trial.{' '}
+              {daysRemaining}
+              {' '}
+              day
+              {daysRemaining !== 1 ? 's' : ''}
+              {' '}
+              left
+            </span>
+            {' '}
+            in your trial.
+            {' '}
             <a
               href={upgradeUrl}
               className="font-medium underline hover:no-underline"
@@ -159,14 +170,14 @@ export function TrialBanner({
           <button
             type="button"
             onClick={() => setDismissed(true)}
-            className={`flex-shrink-0 p-1 rounded-lg ${
-              isUrgent 
-                ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-100' 
-                : 'text-blue-600 hover:text-blue-800 hover:bg-blue-100'
+            className={`shrink-0 rounded-lg p-1 ${
+              isUrgent
+                ? 'text-amber-600 hover:bg-amber-100 hover:text-amber-800'
+                : 'text-blue-600 hover:bg-blue-100 hover:text-blue-800'
             } transition-colors`}
             aria-label="Dismiss banner"
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         </div>
       </div>

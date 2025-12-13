@@ -1,27 +1,27 @@
 'use client';
 
-import { DollarSign, Users, Calendar, TrendingUp, RefreshCw, UserCheck, XCircle } from 'lucide-react';
+import { Calendar, DollarSign, RefreshCw, TrendingUp, UserCheck, Users, XCircle } from 'lucide-react';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface TechnicianDetail {
+type TechnicianDetail = {
   id: string;
   name: string;
   bio: string | null;
   languages: string[] | null;
   specialties: string[] | null;
-}
+};
 
-interface PerformanceMetrics {
-  rebookingRate: number;  // 0-1 decimal
-  avgTicket: number;      // in cents
-  noShowRate: number;     // 0-1 decimal
-  cancelRate: number;     // 0-1 decimal
-}
+type PerformanceMetrics = {
+  rebookingRate: number; // 0-1 decimal
+  avgTicket: number; // in cents
+  noShowRate: number; // 0-1 decimal
+  cancelRate: number; // 0-1 decimal
+};
 
-interface TechnicianStats {
+type TechnicianStats = {
   today: {
     appointments: number;
     completed: number;
@@ -43,13 +43,13 @@ interface TechnicianStats {
   };
   totalClients: number;
   performance?: PerformanceMetrics;
-}
+};
 
-interface OverviewTabProps {
+type OverviewTabProps = {
   technician: TechnicianDetail;
   stats: TechnicianStats | null;
   onRefresh: () => void;
-}
+};
 
 // =============================================================================
 // Helpers
@@ -64,7 +64,9 @@ function formatCurrency(cents: number): string {
 }
 
 function formatPercent(rate: number | undefined | null): string {
-  if (rate === undefined || rate === null) return '—';
+  if (rate === undefined || rate === null) {
+    return '—';
+  }
   return `${Math.round(rate * 100)}%`;
 }
 
@@ -74,21 +76,21 @@ function formatPercent(rate: number | undefined | null): string {
 
 export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: OverviewTabProps) {
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 p-4">
       {/* Today's Stats */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Today
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <StatCard
-            icon={<DollarSign className="w-5 h-5" />}
+            icon={<DollarSign className="size-5" />}
             label="Revenue"
             value={formatCurrency(stats?.today.revenue ?? 0)}
             color="#34C759"
           />
           <StatCard
-            icon={<Calendar className="w-5 h-5" />}
+            icon={<Calendar className="size-5" />}
             label="Appointments"
             value={String(stats?.today.appointments ?? 0)}
             sublabel={`${stats?.today.completed ?? 0} completed`}
@@ -99,18 +101,18 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
 
       {/* This Month Stats */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           This Month
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <StatCard
-            icon={<TrendingUp className="w-5 h-5" />}
+            icon={<TrendingUp className="size-5" />}
             label="Total Revenue"
             value={formatCurrency(stats?.thisMonth.revenue ?? 0)}
             color="#FF9500"
           />
           <StatCard
-            icon={<Users className="w-5 h-5" />}
+            icon={<Users className="size-5" />}
             label="Total Clients"
             value={String(stats?.totalClients ?? 0)}
             color="#AF52DE"
@@ -120,33 +122,33 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
 
       {/* Performance Metrics */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Performance
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <StatCard
-            icon={<RefreshCw className="w-5 h-5" />}
+            icon={<RefreshCw className="size-5" />}
             label="Rebooking Rate"
             value={formatPercent(stats?.performance?.rebookingRate)}
             sublabel="clients who return"
             color="#34C759"
           />
           <StatCard
-            icon={<DollarSign className="w-5 h-5" />}
+            icon={<DollarSign className="size-5" />}
             label="Avg Ticket"
             value={formatCurrency(stats?.performance?.avgTicket ?? 0)}
             sublabel="per appointment"
             color="#007AFF"
           />
           <StatCard
-            icon={<UserCheck className="w-5 h-5" />}
+            icon={<UserCheck className="size-5" />}
             label="No-Show Rate"
             value={formatPercent(stats?.performance?.noShowRate)}
             sublabel="missed appointments"
             color={stats?.performance?.noShowRate && stats.performance.noShowRate > 0.1 ? '#FF3B30' : '#8E8E93'}
           />
           <StatCard
-            icon={<XCircle className="w-5 h-5" />}
+            icon={<XCircle className="size-5" />}
             label="Cancel Rate"
             value={formatPercent(stats?.performance?.cancelRate)}
             sublabel="cancelled bookings"
@@ -157,12 +159,12 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
 
       {/* Earnings Breakdown */}
       <div>
-        <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
           Earnings (This Month)
         </h3>
-        <div className="bg-white rounded-[12px] overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <div className="flex justify-between items-center">
+        <div className="overflow-hidden rounded-[12px] bg-white">
+          <div className="border-b border-gray-100 p-4">
+            <div className="flex items-center justify-between">
               <span className="text-[15px] text-[#1C1C1E]">They Earned</span>
               <span className="text-[17px] font-semibold text-[#34C759]">
                 {formatCurrency(stats?.thisMonth.techEarned ?? 0)}
@@ -170,7 +172,7 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
             </div>
           </div>
           <div className="p-4">
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
               <span className="text-[15px] text-[#1C1C1E]">They Made Us</span>
               <span className="text-[17px] font-semibold text-[#007AFF]">
                 {formatCurrency(stats?.thisMonth.salonEarned ?? 0)}
@@ -183,11 +185,11 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
       {/* Bio */}
       {technician.bio && (
         <div>
-          <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
             About
           </h3>
-          <div className="bg-white rounded-[12px] p-4">
-            <p className="text-[15px] text-[#1C1C1E] leading-relaxed">
+          <div className="rounded-[12px] bg-white p-4">
+            <p className="text-[15px] leading-relaxed text-[#1C1C1E]">
               {technician.bio}
             </p>
           </div>
@@ -197,15 +199,15 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
       {/* Languages */}
       {technician.languages && technician.languages.length > 0 && (
         <div>
-          <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
             Languages
           </h3>
-          <div className="bg-white rounded-[12px] p-4">
+          <div className="rounded-[12px] bg-white p-4">
             <div className="flex flex-wrap gap-2">
-              {technician.languages.map((lang) => (
+              {technician.languages.map(lang => (
                 <span
                   key={lang}
-                  className="px-3 py-1 bg-[#F2F2F7] rounded-full text-[13px] text-[#1C1C1E]"
+                  className="rounded-full bg-[#F2F2F7] px-3 py-1 text-[13px] text-[#1C1C1E]"
                 >
                   {lang}
                 </span>
@@ -218,15 +220,15 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
       {/* Specialties */}
       {technician.specialties && technician.specialties.length > 0 && (
         <div>
-          <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-1">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
             Specialties
           </h3>
-          <div className="bg-white rounded-[12px] p-4">
+          <div className="rounded-[12px] bg-white p-4">
             <div className="flex flex-wrap gap-2">
-              {technician.specialties.map((specialty) => (
+              {technician.specialties.map(specialty => (
                 <span
                   key={specialty}
-                  className="px-3 py-1 bg-[#E8F5E9] text-[#2E7D32] rounded-full text-[13px] font-medium"
+                  className="rounded-full bg-[#E8F5E9] px-3 py-1 text-[13px] font-medium text-[#2E7D32]"
                 >
                   {specialty}
                 </span>
@@ -257,10 +259,10 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="bg-white rounded-[12px] p-4">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="rounded-[12px] bg-white p-4">
+      <div className="mb-2 flex items-center gap-2">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          className="flex size-8 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${color}15`, color }}
         >
           {icon}
@@ -269,7 +271,7 @@ function StatCard({
       </div>
       <div className="text-[24px] font-bold text-[#1C1C1E]">{value}</div>
       {sublabel && (
-        <div className="text-[12px] text-[#8E8E93] mt-0.5">{sublabel}</div>
+        <div className="mt-0.5 text-[12px] text-[#8E8E93]">{sublabel}</div>
       )}
     </div>
   );

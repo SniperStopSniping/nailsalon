@@ -9,7 +9,7 @@
  * ```
  */
 
+export { AnimatedButton } from './AnimatedButton';
 export { AnimatedCard } from './AnimatedCard';
 export { AnimatedCheckmark } from './AnimatedCheckmark';
-export { AnimatedButton } from './AnimatedButton';
 export { ShakeWrapper } from './ShakeWrapper';

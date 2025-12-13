@@ -12,19 +12,19 @@
 
 import { motion } from 'framer-motion';
 
-interface ServiceItem {
+type ServiceItem = {
   label: string;
   percent: number;
   color: string;
-}
+};
 
-interface ServiceBarsProps {
+type ServiceBarsProps = {
   items: ServiceItem[];
   /** Animation base delay */
   baseDelay?: number;
   /** Stagger delay between items */
   staggerDelay?: number;
-}
+};
 
 export function ServiceBars({
   items,
@@ -36,13 +36,16 @@ export function ServiceBars({
       {items.map((item, index) => (
         <div key={index}>
           {/* Label Row */}
-          <div className="flex justify-between text-[12px] font-medium mb-1">
+          <div className="mb-1 flex justify-between text-[12px] font-medium">
             <span className="text-[#1C1C1E]">{item.label}</span>
-            <span className="text-[#8E8E93]">{item.percent}%</span>
+            <span className="text-[#8E8E93]">
+              {item.percent}
+              %
+            </span>
           </div>
 
           {/* Progress Bar */}
-          <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
             <motion.div
               className="h-full rounded-full"
               style={{ backgroundColor: item.color }}
@@ -70,4 +73,3 @@ export const defaultServiceItems: ServiceItem[] = [
   { label: 'Removal', percent: 15, color: '#9CA3AF' },
   { label: 'Other', percent: 10, color: '#E5E7EB' },
 ];
-

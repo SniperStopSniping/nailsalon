@@ -1,13 +1,13 @@
 'use client';
 
-import { X, AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface DeleteSalonModalProps {
+type DeleteSalonModalProps = {
   isOpen: boolean;
   onClose: () => void;
   salonId: string;
@@ -15,7 +15,7 @@ interface DeleteSalonModalProps {
   salonSlug: string;
   isDeleted: boolean; // true if already soft-deleted
   onSuccess: () => void;
-}
+};
 
 // =============================================================================
 // Component
@@ -39,7 +39,9 @@ export function DeleteSalonModal({
   const isConfirmed = confirmText === requiredConfirmText;
 
   const handleDelete = async () => {
-    if (!isConfirmed) return;
+    if (!isConfirmed) {
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -74,7 +76,9 @@ export function DeleteSalonModal({
     onClose();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 z-[60] overflow-hidden">
@@ -86,12 +90,12 @@ export function DeleteSalonModal({
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="flex size-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle className="size-5 text-red-600" />
               </div>
               <h2 className="text-lg font-semibold text-gray-900">Delete Salon</h2>
             </div>
@@ -99,20 +103,23 @@ export function DeleteSalonModal({
               type="button"
               onClick={handleClose}
               aria-label="Close modal"
-              className="p-2 -m-2 text-gray-400 hover:text-gray-600"
+              className="-m-2 p-2 text-gray-400 hover:text-gray-600"
             >
-              <X className="w-5 h-5" />
+              <X className="size-5" />
             </button>
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-4">
+          <div className="space-y-4 p-6">
             <p className="text-sm text-gray-600">
-              You are about to delete <strong>{salonName}</strong>. This is a destructive action.
+              You are about to delete
+              {' '}
+              <strong>{salonName}</strong>
+              . This is a destructive action.
             </p>
 
             {error && (
-              <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
+              <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -120,13 +127,13 @@ export function DeleteSalonModal({
             {/* Delete Type Selection */}
             <div className="space-y-3">
               {!isDeleted && (
-                <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
                   <input
                     type="radio"
                     name="deleteType"
                     checked={deleteType === 'soft'}
                     onChange={() => setDeleteType('soft')}
-                    className="mt-0.5 w-4 h-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    className="mt-0.5 size-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
                   />
                   <div>
                     <div className="font-medium text-gray-900">Soft Delete</div>
@@ -137,13 +144,13 @@ export function DeleteSalonModal({
                 </label>
               )}
 
-              <label className="flex items-start gap-3 p-3 rounded-lg border border-red-200 bg-red-50 cursor-pointer">
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3">
                 <input
                   type="radio"
                   name="deleteType"
                   checked={deleteType === 'hard'}
                   onChange={() => setDeleteType('hard')}
-                  className="mt-0.5 w-4 h-4 border-gray-300 text-red-600 focus:ring-red-500"
+                  className="mt-0.5 size-4 border-gray-300 text-red-600 focus:ring-red-500"
                 />
                 <div>
                   <div className="font-medium text-red-900">Permanent Delete</div>
@@ -156,31 +163,45 @@ export function DeleteSalonModal({
             </div>
 
             {/* Confirmation */}
-            <div className="pt-4 border-t border-gray-200">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {deleteType === 'hard' ? (
-                  <>Type <strong>{salonSlug}</strong> to confirm permanent deletion</>
-                ) : (
-                  <>Type <strong>DELETE</strong> to confirm</>
-                )}
+            <div className="border-t border-gray-200 pt-4">
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                {deleteType === 'hard'
+                  ? (
+                      <>
+                        Type
+                        <strong>{salonSlug}</strong>
+                        {' '}
+                        to confirm permanent deletion
+                      </>
+                    )
+                  : (
+                      <>
+                        Type
+                        <strong>DELETE</strong>
+                        {' '}
+                        to confirm
+                      </>
+                    )}
               </label>
               <input
                 type="text"
                 value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
+                onChange={e => setConfirmText(e.target.value)}
                 placeholder={requiredConfirmText}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
               />
             </div>
 
             {/* Warning for hard delete */}
             {deleteType === 'hard' && (
-              <div className="p-3 bg-red-100 border border-red-200 rounded-lg">
+              <div className="rounded-lg border border-red-200 bg-red-100 p-3">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
                   <div className="text-xs text-red-800">
-                    <strong>Warning:</strong> This will permanently delete:
-                    <ul className="mt-1 ml-4 list-disc">
+                    <strong>Warning:</strong>
+                    {' '}
+                    This will permanently delete:
+                    <ul className="ml-4 mt-1 list-disc">
                       <li>All appointments and booking history</li>
                       <li>All services and pricing</li>
                       <li>All technicians and schedules</li>
@@ -195,7 +216,7 @@ export function DeleteSalonModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
@@ -208,17 +229,19 @@ export function DeleteSalonModal({
               type="button"
               onClick={handleDelete}
               disabled={loading || !isConfirmed}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 deleteType === 'hard'
                   ? 'bg-red-600 hover:bg-red-700'
                   : 'bg-amber-600 hover:bg-amber-700'
               }`}
             >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Trash2 className="w-4 h-4" />
-              )}
+              {loading
+                ? (
+                    <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  )
+                : (
+                    <Trash2 className="size-4" />
+                  )}
               {deleteType === 'hard' ? 'Delete Permanently' : 'Soft Delete'}
             </button>
           </div>

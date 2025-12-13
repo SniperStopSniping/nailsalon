@@ -9,7 +9,7 @@
  * - Staff can only see their own notifications
  */
 
-import { eq, and, isNull, desc, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
@@ -33,12 +33,12 @@ const markReadSchema = z.union([
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // GET /api/staff/notifications
@@ -56,7 +56,7 @@ export async function GET(request: Request): Promise<Response> {
 
     // 2. Parse query params
     const url = new URL(request.url);
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100);
+    const limit = Math.min(Number.parseInt(url.searchParams.get('limit') || '50', 10), 100);
     const unreadOnly = url.searchParams.get('unreadOnly') === 'true';
 
     // 3. Build query conditions
@@ -103,7 +103,7 @@ export async function GET(request: Request): Promise<Response> {
 
     return Response.json({
       data: {
-        notifications: notifications.map((n) => ({
+        notifications: notifications.map(n => ({
           id: n.id,
           type: n.type,
           title: n.title,
@@ -175,7 +175,7 @@ export async function PATCH(request: Request): Promise<Response> {
             isNull(notificationSchema.readAt),
           ),
         )
-        .returning({ id: notificationSchema.id });
+        .returning();
 
       updatedCount = result.length;
     } else if ('id' in validated.data) {
@@ -190,7 +190,7 @@ export async function PATCH(request: Request): Promise<Response> {
             eq(notificationSchema.salonId, salonId),
           ),
         )
-        .returning({ id: notificationSchema.id });
+        .returning();
 
       updatedCount = result.length;
     } else if ('ids' in validated.data) {
@@ -205,7 +205,7 @@ export async function PATCH(request: Request): Promise<Response> {
             eq(notificationSchema.salonId, salonId),
           ),
         )
-        .returning({ id: notificationSchema.id });
+        .returning();
 
       updatedCount = result.length;
     }

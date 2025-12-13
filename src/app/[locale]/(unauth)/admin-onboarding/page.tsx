@@ -7,8 +7,8 @@
  * Required before they can access the admin dashboard.
  */
 
-import { useRouter, useParams } from 'next/navigation';
-import { useState, useEffect, Suspense } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 
 // =============================================================================
 // Phone Formatting
@@ -29,7 +29,7 @@ function formatPhoneDisplay(value: string): string {
 // Main Component
 // =============================================================================
 
-interface AdminUser {
+type AdminUser = {
   id: string;
   phone: string;
   name: string | null;
@@ -37,7 +37,7 @@ interface AdminUser {
   isSuperAdmin: boolean;
   profileComplete: boolean;
   salons: Array<{ id: string; slug: string; name: string; role: string }>;
-}
+};
 
 function AdminOnboardingContent() {
   const router = useRouter();
@@ -58,7 +58,7 @@ function AdminOnboardingContent() {
     async function fetchUser() {
       try {
         const response = await fetch('/api/admin/auth/me');
-        
+
         if (!response.ok) {
           // Not logged in, redirect to login
           router.push(`/${locale}/admin-login`);
@@ -70,8 +70,12 @@ function AdminOnboardingContent() {
         setUser(userData);
 
         // Pre-fill form with existing data
-        if (userData.name) setName(userData.name);
-        if (userData.email) setEmail(userData.email);
+        if (userData.name) {
+          setName(userData.name);
+        }
+        if (userData.email) {
+          setEmail(userData.email);
+        }
 
         // If profile is already complete, redirect to dashboard
         if (userData.profileComplete) {
@@ -111,7 +115,7 @@ function AdminOnboardingContent() {
     }
 
     // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       setError('Please enter a valid email address');
       return;
@@ -147,8 +151,8 @@ function AdminOnboardingContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-slate-700 border-t-transparent rounded-full" />
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100">
+        <div className="size-8 animate-spin rounded-full border-4 border-slate-700 border-t-transparent" />
       </div>
     );
   }
@@ -158,38 +162,40 @@ function AdminOnboardingContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex flex-col">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-50 to-slate-100">
       {/* Header */}
-      <div className="pt-12 pb-8 px-6 text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center shadow-lg">
+      <div className="px-6 pb-8 pt-12 text-center">
+        <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 shadow-lg">
           <span className="text-3xl">👤</span>
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Complete Your Profile</h1>
-        <p className="text-slate-600 mt-1">
+        <p className="mt-1 text-slate-600">
           Just a few more details before you get started
         </p>
       </div>
 
       {/* Form */}
       <div className="flex-1 px-6">
-        <form onSubmit={handleSubmit} className="max-w-sm mx-auto">
+        <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
           {/* Phone (Read-only) */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-slate-700">
               Phone Number
             </label>
-            <div className="w-full px-4 py-3 bg-slate-100 rounded-xl border border-slate-200 text-slate-600 text-lg">
+            <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-lg text-slate-600">
               {formatPhoneDisplay(user.phone)}
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 text-xs text-slate-500">
               Your phone number is verified and cannot be changed
             </p>
           </div>
 
           {/* Name */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Full Name <span className="text-red-500">*</span>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Full Name
+              {' '}
+              <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -200,14 +206,16 @@ function AdminOnboardingContent() {
               }}
               placeholder="John Smith"
               autoFocus
-              className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 text-slate-900 text-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg text-slate-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
             />
           </div>
 
           {/* Email */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Email Address <span className="text-red-500">*</span>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Email Address
+              {' '}
+              <span className="text-red-500">*</span>
             </label>
             <input
               type="email"
@@ -217,16 +225,16 @@ function AdminOnboardingContent() {
                 setError('');
               }}
               placeholder="john@example.com"
-              className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 text-slate-900 text-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg text-slate-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
             />
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 text-xs text-slate-500">
               We&apos;ll use this for important notifications
             </p>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="mb-4 px-4 py-3 bg-red-50 rounded-xl border border-red-200">
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
@@ -235,28 +243,31 @@ function AdminOnboardingContent() {
           <button
             type="submit"
             disabled={saving || !name.trim() || !email.trim()}
-            className="w-full py-3.5 bg-gradient-to-r from-slate-700 to-slate-900 text-white font-semibold rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg active:scale-[0.98]"
+            className="w-full rounded-xl bg-gradient-to-r from-slate-700 to-slate-900 py-3.5 font-semibold text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Saving...
-              </span>
-            ) : (
-              'Continue to Dashboard'
-            )}
+            {saving
+              ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="size-5 animate-spin" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Saving...
+                  </span>
+                )
+              : (
+                  'Continue to Dashboard'
+                )}
           </button>
         </form>
       </div>
 
       {/* Footer */}
-      <div className="py-8 px-6 text-center">
+      <div className="px-6 py-8 text-center">
         <p className="text-sm text-slate-500">
-          Need help?{' '}
-          <a href="mailto:support@example.com" className="text-slate-700 font-medium hover:underline">
+          Need help?
+          {' '}
+          <a href="mailto:support@example.com" className="font-medium text-slate-700 hover:underline">
             Contact support
           </a>
         </p>
@@ -271,11 +282,12 @@ function AdminOnboardingContent() {
 
 export default function AdminOnboardingPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-slate-700 border-t-transparent rounded-full" />
+    <Suspense fallback={(
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100">
+        <div className="size-8 animate-spin rounded-full border-4 border-slate-700 border-t-transparent" />
       </div>
-    }>
+    )}
+    >
       <AdminOnboardingContent />
     </Suspense>
   );

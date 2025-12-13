@@ -9,12 +9,12 @@ export const dynamic = 'force-dynamic';
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // GET /api/staff/me - Get the current staff member's technician profile
@@ -24,6 +24,27 @@ interface ErrorResponse {
 // =============================================================================
 
 export async function GET(): Promise<Response> {
+  // DEV ONLY: Check for role override
+  if (process.env.NODE_ENV !== 'production') {
+    const { isDevModeServer, readDevRoleFromCookies, getMockStaffMeResponse }
+      = await import('@/libs/devRole.server');
+    if (isDevModeServer()) {
+      const devRole = readDevRoleFromCookies();
+      if (devRole === 'staff') {
+        return Response.json(getMockStaffMeResponse(), {
+          headers: { 'Cache-Control': 'no-store' },
+        });
+      }
+      // If a different dev role is set, return unauthorized
+      if (devRole) {
+        return Response.json(
+          { error: { code: 'UNAUTHORIZED', message: 'Dev role mismatch' } },
+          { status: 401 },
+        );
+      }
+    }
+  }
+
   try {
     // 1. Read staff cookies
     const cookieStore = await cookies();

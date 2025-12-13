@@ -1,19 +1,20 @@
 'use client';
 
-import { Plus, Search, ChevronLeft, ChevronRight, Building2, UserPlus, LogOut } from 'lucide-react';
-import { useCallback, useEffect, useState, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { Building2, ChevronLeft, ChevronRight, LogOut, Plus, Search, UserPlus } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import type { SalonPlan, SalonStatus } from '@/models/Schema';
 
 import { CreateSalonModal } from './CreateSalonModal';
-import { SalonDetailPanel } from './SalonDetailPanel';
 import { InvitesModal } from './InvitesModal';
-import type { SalonPlan, SalonStatus } from '@/models/Schema';
+import { SalonDetailPanel } from './SalonDetailPanel';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface SalonItem {
+type SalonItem = {
   id: string;
   name: string;
   slug: string;
@@ -32,15 +33,15 @@ interface SalonItem {
   techsCount: number;
   clientsCount: number;
   appointmentsLast30d: number;
-}
+};
 
-interface ListResponse {
+type ListResponse = {
   items: SalonItem[];
   page: number;
   pageSize: number;
   total: number;
   totalPages: number;
-}
+};
 
 // =============================================================================
 // Constants
@@ -93,7 +94,6 @@ function formatPhoneDisplay(phone: string): string {
 // =============================================================================
 
 export function SuperAdminDashboard() {
-  const router = useRouter();
   const params = useParams();
   const locale = (params?.locale as string) || 'en';
 
@@ -125,8 +125,10 @@ export function SuperAdminDashboard() {
     const confirmMsg = action === 'remove'
       ? 'Remove this owner completely? They will lose access to the salon.'
       : 'Demote this owner to admin? They will keep access but not be listed as owner.';
-    
-    if (!window.confirm(confirmMsg)) return;
+
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
 
     setRemovingOwnerId(salonId);
     try {
@@ -157,7 +159,8 @@ export function SuperAdminDashboard() {
     } catch {
       // Ignore
     }
-    router.push(`/${locale}/admin-login`);
+    // Use hard redirect to ensure clean navigation after session clear
+    window.location.href = `/${locale}/super-admin-login`;
   };
 
   // Track if this is the initial mount
@@ -182,9 +185,15 @@ export function SuperAdminDashboard() {
 
     try {
       const params = new URLSearchParams();
-      if (debouncedSearch) params.set('q', debouncedSearch);
-      if (planFilter) params.set('plan', planFilter);
-      if (statusFilter) params.set('status', statusFilter);
+      if (debouncedSearch) {
+        params.set('q', debouncedSearch);
+      }
+      if (planFilter) {
+        params.set('plan', planFilter);
+      }
+      if (statusFilter) {
+        params.set('status', statusFilter);
+      }
       params.set('page', String(page));
       params.set('pageSize', '20');
 
@@ -223,12 +232,12 @@ export function SuperAdminDashboard() {
   return (
     <div className="min-h-screen bg-[#F2F2F7]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="border-b border-gray-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-white" />
+              <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
+                <Building2 className="size-5 text-white" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Super Admin</h1>
@@ -239,26 +248,26 @@ export function SuperAdminDashboard() {
               <button
                 type="button"
                 onClick={() => setShowInvitesModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
+                className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
               >
-                <UserPlus className="w-4 h-4" />
+                <UserPlus className="size-4" />
                 Invites
               </button>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="size-4" />
                 Create Salon
               </button>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                title="Log out"
+                className="inline-flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="size-4" />
+                Log Out
               </button>
             </div>
           </div>
@@ -266,18 +275,18 @@ export function SuperAdminDashboard() {
       </div>
 
       {/* Filters */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
+      <div className="mx-auto max-w-7xl p-4 sm:px-6 lg:px-8">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row">
             {/* Search */}
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search salons, slugs, or owner phones..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                onChange={e => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
@@ -289,9 +298,9 @@ export function SuperAdminDashboard() {
                 setPage(1);
               }}
               aria-label="Filter by plan"
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {PLAN_OPTIONS.map((opt) => (
+              {PLAN_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -306,9 +315,9 @@ export function SuperAdminDashboard() {
                 setPage(1);
               }}
               aria-label="Filter by status"
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {STATUS_OPTIONS.map((opt) => (
+              {STATUS_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -319,189 +328,217 @@ export function SuperAdminDashboard() {
       </div>
 
       {/* Table */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           {error && (
-            <div className="p-4 bg-red-50 border-b border-red-100 text-red-700 text-sm">
+            <div className="border-b border-red-100 bg-red-50 p-4 text-sm text-red-700">
               {error}
             </div>
           )}
 
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="border-b border-gray-200 bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Salon
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Owner
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Plan
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
                     Locs
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
                     Techs
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
                     Clients
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
                     Appts (30d)
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                     Action
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                        Loading...
-                      </div>
-                    </td>
-                  </tr>
-                ) : salons.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
-                      No salons found
-                    </td>
-                  </tr>
-                ) : (
-                  salons.map((salon) => (
-                    <tr key={salon.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-4">
-                        <div>
-                          <div className="font-medium text-gray-900">{salon.name}</div>
-                          <div className="text-sm text-gray-500">{salon.slug}</div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        {salon.ownerPhoneE164 ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1">
-                              <span className="text-sm text-gray-900">
-                                {formatPhoneDisplay(salon.ownerPhoneE164)}
+                {loading
+                  ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="size-5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                            Loading...
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  : salons.length === 0
+                    ? (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                            No salons found
+                          </td>
+                        </tr>
+                      )
+                    : (
+                        salons.map(salon => (
+                          <tr key={salon.id} className="hover:bg-gray-50">
+                            <td className="p-4">
+                              <div>
+                                <div className="font-medium text-gray-900">{salon.name}</div>
+                                <div className="text-sm text-gray-500">{salon.slug}</div>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              {salon.ownerPhoneE164
+                                ? (
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1">
+                                        <span className="text-sm text-gray-900">
+                                          {formatPhoneDisplay(salon.ownerPhoneE164)}
+                                        </span>
+                                        {salon.ownerName && (
+                                          <div className="text-xs text-gray-500">{salon.ownerName}</div>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveOwner(salon.id, 'demote')}
+                                          disabled={removingOwnerId === salon.id}
+                                          className="text-xs text-amber-600 hover:text-amber-800 disabled:opacity-50"
+                                          title="Demote to admin"
+                                        >
+                                          Demote
+                                        </button>
+                                        <span className="text-gray-300">|</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveOwner(salon.id, 'remove')}
+                                          disabled={removingOwnerId === salon.id}
+                                          className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                                          title="Remove access"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )
+                                : salon.pendingOwnerPhone
+                                  ? (
+                                      <div>
+                                        <span className="text-sm text-amber-600">
+                                          {formatPhoneDisplay(salon.pendingOwnerPhone)}
+                                        </span>
+                                        <div className="text-xs text-amber-500">Pending invite</div>
+                                      </div>
+                                    )
+                                  : salon.ownerEmail
+                                    ? (
+                                        <span className="text-sm text-gray-400" title="Legacy (Clerk)">
+                                          {salon.ownerEmail}
+                                        </span>
+                                      )
+                                    : (
+                                        <span className="text-sm text-gray-400">No owner</span>
+                                      )}
+                            </td>
+                            <td className="p-4">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${PLAN_COLORS[salon.plan]}`}
+                              >
+                                {salon.plan.replace('_', ' ')}
                               </span>
-                              {salon.ownerName && (
-                                <div className="text-xs text-gray-500">{salon.ownerName}</div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1">
+                            </td>
+                            <td className="p-4 text-center text-sm text-gray-600">
+                              {salon.locationsCount}
+                            </td>
+                            <td className="p-4 text-center text-sm text-gray-600">
+                              {salon.techsCount}
+                            </td>
+                            <td className="p-4 text-center text-sm text-gray-600">
+                              {salon.clientsCount}
+                            </td>
+                            <td className="p-4 text-center text-sm text-gray-600">
+                              {salon.appointmentsLast30d}
+                            </td>
+                            <td className="p-4">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${STATUS_COLORS[salon.status]}`}
+                              >
+                                {salon.status}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right">
                               <button
                                 type="button"
-                                onClick={() => handleRemoveOwner(salon.id, 'demote')}
-                                disabled={removingOwnerId === salon.id}
-                                className="text-xs text-amber-600 hover:text-amber-800 disabled:opacity-50"
-                                title="Demote to admin"
+                                onClick={() => setSelectedSalonId(salon.id)}
+                                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
                               >
-                                Demote
+                                View
                               </button>
-                              <span className="text-gray-300">|</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveOwner(salon.id, 'remove')}
-                                disabled={removingOwnerId === salon.id}
-                                className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-                                title="Remove access"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        ) : salon.pendingOwnerPhone ? (
-                          <div>
-                            <span className="text-sm text-amber-600">
-                              {formatPhoneDisplay(salon.pendingOwnerPhone)}
-                            </span>
-                            <div className="text-xs text-amber-500">Pending invite</div>
-                          </div>
-                        ) : salon.ownerEmail ? (
-                          <span className="text-sm text-gray-400" title="Legacy (Clerk)">
-                            {salon.ownerEmail}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-gray-400">No owner</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${PLAN_COLORS[salon.plan]}`}
-                        >
-                          {salon.plan.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-center text-sm text-gray-600">
-                        {salon.locationsCount}
-                      </td>
-                      <td className="px-4 py-4 text-center text-sm text-gray-600">
-                        {salon.techsCount}
-                      </td>
-                      <td className="px-4 py-4 text-center text-sm text-gray-600">
-                        {salon.clientsCount}
-                      </td>
-                      <td className="px-4 py-4 text-center text-sm text-gray-600">
-                        {salon.appointmentsLast30d}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[salon.status]}`}
-                        >
-                          {salon.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedSalonId(salon.id)}
-                          className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
               </tbody>
             </table>
           </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+            <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
               <div className="text-sm text-gray-500">
-                Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, total)} of {total} salons
+                Showing
+                {' '}
+                {(page - 1) * 20 + 1}
+                {' '}
+                to
+                {' '}
+                {Math.min(page * 20, total)}
+                {' '}
+                of
+                {' '}
+                {total}
+                {' '}
+                salons
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
                   aria-label="Previous page"
-                  className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <ChevronLeft className="size-4" />
                 </button>
                 <span className="text-sm text-gray-600">
-                  Page {page} of {totalPages}
+                  Page
+                  {' '}
+                  {page}
+                  {' '}
+                  of
+                  {' '}
+                  {totalPages}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
                   aria-label="Next page"
-                  className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="size-4" />
                 </button>
               </div>
             </div>

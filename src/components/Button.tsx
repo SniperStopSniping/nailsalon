@@ -6,13 +6,12 @@ import { cn } from '@/utils/Helpers';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
 export type ButtonSize = 'default' | 'sm';
 
-export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export type ButtonProps = {
   children: React.ReactNode;
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;
-}
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 /**
  * Unified Button Component
@@ -111,4 +110,3 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 
 Button.displayName = 'Button';
-

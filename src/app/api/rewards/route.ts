@@ -6,15 +6,15 @@
  * GET /api/rewards?phone=1234567890&salonSlug=nail-salon-no5
  */
 
-import { and, eq, desc } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-
-// Force dynamic rendering for this API route
-export const dynamic = 'force-dynamic';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
-import { rewardSchema, type Reward } from '@/models/Schema';
+import { type Reward, rewardSchema } from '@/models/Schema';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -29,12 +29,12 @@ const getRewardsSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface RewardWithExpiry extends Reward {
+type RewardWithExpiry = {
   isExpired: boolean;
   daysUntilExpiry: number | null;
-}
+} & Reward;
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     rewards: RewardWithExpiry[];
   };
@@ -45,15 +45,15 @@ interface SuccessResponse {
     totalPoints: number;
     activePoints: number;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/rewards - Get rewards for a client

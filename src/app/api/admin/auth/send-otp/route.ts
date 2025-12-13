@@ -13,9 +13,9 @@
 import { NextResponse } from 'next/server';
 
 import {
+  canReceiveAdminOtp,
   formatPhoneE164,
   isValidPhone,
-  canReceiveAdminOtp,
 } from '@/libs/adminAuth';
 import { checkOtpRateLimit, getClientIp } from '@/libs/rateLimit';
 
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+        'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
       },
       body: new URLSearchParams({
         To: phoneE164,

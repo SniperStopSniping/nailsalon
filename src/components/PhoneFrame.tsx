@@ -29,4 +29,3 @@ export const PhoneFrame = React.forwardRef<HTMLDivElement, PhoneFrameProps>(
   },
 );
 PhoneFrame.displayName = 'PhoneFrame';
-

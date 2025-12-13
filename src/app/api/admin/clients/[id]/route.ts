@@ -1,12 +1,12 @@
-import { and, eq, gte, inArray, desc, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import {
   getSalonClientById,
-  updateSalonClient,
   normalizePhone,
+  updateSalonClient,
 } from '@/libs/queries';
 import {
   appointmentSchema,
@@ -38,16 +38,20 @@ const updateSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/clients/[id] - Get client profile with appointment history
+// =============================================================================
+// VISIBILITY: Admin role = full_access (no redaction applied)
+// The getEffectiveVisibility(policy, 'admin') returns 'full_access' for admin role.
+// All client data is returned without redaction.
 // =============================================================================
 
 export async function GET(
@@ -78,7 +82,9 @@ export async function GET(
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) return error!;
+    if (error || !salon) {
+      return error!;
+    }
 
     // Get client (scoped to salon)
     const client = await getSalonClientById(salon.id, clientId);
@@ -162,13 +168,13 @@ export async function GET(
 
     // Get technician and service details for all appointments
     const allAppointmentIds = [
-      ...upcomingAppointments.map((a) => a.id),
-      ...pastAppointments.map((a) => a.id),
+      ...upcomingAppointments.map(a => a.id),
+      ...pastAppointments.map(a => a.id),
     ];
 
     const allTechIds = [
-      ...upcomingAppointments.map((a) => a.technicianId),
-      ...pastAppointments.map((a) => a.technicianId),
+      ...upcomingAppointments.map(a => a.technicianId),
+      ...pastAppointments.map(a => a.technicianId),
     ].filter((id): id is string => id !== null);
 
     // Get technicians
@@ -182,11 +188,11 @@ export async function GET(
         })
         .from(technicianSchema)
         .where(inArray(technicianSchema.id, allTechIds));
-      techMap = new Map(technicians.map((t) => [t.id, t]));
+      techMap = new Map(technicians.map(t => [t.id, t]));
     }
 
     // Get services for each appointment
-    let appointmentServicesMap = new Map<string, { name: string; price: number }[]>();
+    const appointmentServicesMap = new Map<string, { name: string; price: number }[]>();
     if (allAppointmentIds.length > 0) {
       const services = await db
         .select({
@@ -218,8 +224,8 @@ export async function GET(
     });
 
     // Calculate average spend
-    const averageSpend =
-      client.totalVisits && client.totalVisits > 0
+    const averageSpend
+      = client.totalVisits && client.totalVisits > 0
         ? Math.round((client.totalSpent ?? 0) / client.totalVisits)
         : 0;
 
@@ -289,7 +295,9 @@ export async function PATCH(
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) return error!;
+    if (error || !salon) {
+      return error!;
+    }
 
     // Verify client exists (scoped to salon)
     const existingClient = await getSalonClientById(salon.id, clientId);

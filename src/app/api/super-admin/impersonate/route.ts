@@ -1,9 +1,9 @@
-import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, getSuperAdminInfo, logAuditAction } from '@/libs/superAdmin';
+import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,9 @@ const impersonateSchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const body = await request.json();
@@ -83,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({
       success: true,
       message: 'Impersonation session started',
-      redirectUrl: `/${salon.slug}/dashboard`,
+      redirectUrl: `/admin?salon=${salon.slug}`,
       salon: {
         id: salon.id,
         name: salon.name,
@@ -105,11 +107,13 @@ export async function POST(request: Request): Promise<Response> {
 
 export async function DELETE(): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const cookieStore = await cookies();
-    
+
     // Get current impersonation data for logging
     const impersonateCookie = cookieStore.get(IMPERSONATE_COOKIE);
     if (impersonateCookie?.value) {
@@ -149,7 +153,9 @@ export async function DELETE(): Promise<Response> {
 
 export async function GET(): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const cookieStore = await cookies();

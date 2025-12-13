@@ -1,8 +1,6 @@
-import { eq, and, inArray, gte, asc } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-
-export const dynamic = 'force-dynamic';
 import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentSchema,
@@ -11,15 +9,17 @@ import {
   technicianSchema,
 } from '@/models/Schema';
 
+export const dynamic = 'force-dynamic';
+
 // Default salon slug - in production this would come from subdomain
 const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 /**
  * GET /api/client/next-appointment?phone=1234567890
@@ -104,9 +104,9 @@ export async function GET(request: Request): Promise<Response> {
     const serviceIds = appointmentServices.map(as => as.serviceId);
     const services = serviceIds.length > 0
       ? await db
-          .select()
-          .from(serviceSchema)
-          .where(inArray(serviceSchema.id, serviceIds))
+        .select()
+        .from(serviceSchema)
+        .where(inArray(serviceSchema.id, serviceIds))
       : [];
 
     // Get technician details if assigned
@@ -164,4 +164,3 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 }
-

@@ -6,12 +6,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { NotificationBell, StaffBottomNav } from '@/components/staff';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
 
-import { StaffAppointmentCard, type AppointmentData } from './components/StaffAppointmentCard';
 import { ActionBar } from './components/ActionBar';
-import { PhotoModal } from './components/PhotoModal';
 import { BottomSheet } from './components/BottomSheet';
-import { SwipeableCard } from './components/SwipeableCard';
 import { FloatingActionBar } from './components/FloatingActionBar';
+import { PhotoModal } from './components/PhotoModal';
+import { type AppointmentData, StaffAppointmentCard } from './components/StaffAppointmentCard';
+import { SwipeableCard } from './components/SwipeableCard';
 
 // =============================================================================
 // Cappuccino Design Tokens
@@ -31,16 +31,16 @@ const cappuccino = {
 // Types
 // =============================================================================
 
-interface TechnicianInfo {
+type TechnicianInfo = {
   id: string;
   name: string;
-}
+};
 
-interface SalonInfo {
+type SalonInfo = {
   id: string;
   name: string;
   slug: string;
-}
+};
 
 type TabId = 'today' | 'upcoming' | 'past';
 
@@ -49,10 +49,14 @@ type TabId = 'today' | 'upcoming' | 'past';
 // =============================================================================
 
 function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
+  if (typeof document === 'undefined') {
+    return null;
+  }
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+  if (parts.length === 2) {
+    return parts.pop()?.split(';').shift() || null;
+  }
   return null;
 }
 
@@ -105,8 +109,12 @@ function TabButton({
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
+  if (hour < 12) {
+    return 'Good morning';
+  }
+  if (hour < 17) {
+    return 'Good afternoon';
+  }
   return 'Good evening';
 }
 
@@ -142,7 +150,7 @@ export default function StaffDashboardPage() {
 
   // Loading state for gesture actions
   const [gestureLoadingId, setGestureLoadingId] = useState<string | null>(null);
-  
+
   // Module capabilities - for future feature gating (earnings, etc.)
   // Currently used for: none (all visible features are core)
   // Future: earnings tab, analytics widgets
@@ -312,8 +320,12 @@ export default function StaffDashboardPage() {
 
   const handleSwipeStart = async (appointment: AppointmentData) => {
     const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
-    if (canvasState !== 'waiting') return;
-    if (gestureLoadingId) return;
+    if (canvasState !== 'waiting') {
+      return;
+    }
+    if (gestureLoadingId) {
+      return;
+    }
 
     setGestureLoadingId(appointment.id);
     setActiveAppointment(appointment);
@@ -419,7 +431,7 @@ export default function StaffDashboardPage() {
   // =============================================================================
 
   const todayCount = appointments.filter(
-    (a) => a.status === 'confirmed' || a.status === 'in_progress'
+    a => a.status === 'confirmed' || a.status === 'in_progress',
   ).length;
 
   return (
@@ -443,7 +455,11 @@ export default function StaffDashboardPage() {
                 className="text-2xl font-semibold"
                 style={{ color: cappuccino.title }}
               >
-                {getGreeting()}, {technician.name.split(' ')[0]} ☕️
+                {getGreeting()}
+                ,
+                {technician.name.split(' ')[0]}
+                {' '}
+                ☕️
               </h1>
               <p className="text-sm text-neutral-600">{salon?.name}</p>
             </div>
@@ -516,75 +532,79 @@ export default function StaffDashboardPage() {
             transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
           }}
         >
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div
-                className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-                style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
-              />
-            </div>
-          ) : appointments.length === 0 ? (
-            <div
-              className="rounded-2xl p-8 text-center shadow-sm"
-              style={{
-                backgroundColor: cappuccino.cardBg,
-                borderColor: cappuccino.cardBorder,
-                borderWidth: 1,
-              }}
-            >
-              <div className="mb-2 text-4xl">☕️</div>
-              <p
-                className="text-lg font-medium"
-                style={{ color: cappuccino.title }}
-              >
-                All caught up
-              </p>
-              <p className="mt-1 text-sm text-neutral-500">
-                {activeTab === 'today'
-                  ? 'No appointments scheduled for today'
-                  : activeTab === 'upcoming'
-                    ? 'No upcoming appointments'
-                    : 'No past appointments to show'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4 pb-32">
-              {appointments.map((appointment, index) => {
-                const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
-                const isTerminal = ['complete', 'cancelled', 'no_show'].includes(canvasState);
-                const isLoading = gestureLoadingId === appointment.id;
-
-                return (
+          {loading
+            ? (
+                <div className="flex items-center justify-center py-12">
                   <div
-                    key={appointment.id}
+                    className="size-8 animate-spin rounded-full border-4 border-t-transparent"
+                    style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
+                  />
+                </div>
+              )
+            : appointments.length === 0
+              ? (
+                  <div
+                    className="rounded-2xl p-8 text-center shadow-sm"
                     style={{
-                      opacity: mounted ? 1 : 0,
-                      transform: mounted ? 'translateY(0)' : 'translateY(15px)',
-                      transition: `opacity 300ms ease-out ${250 + index * 50}ms, transform 300ms ease-out ${250 + index * 50}ms`,
+                      backgroundColor: cappuccino.cardBg,
+                      borderColor: cappuccino.cardBorder,
+                      borderWidth: 1,
                     }}
                   >
-                    <SwipeableCard
-                      onSwipeRight={() => handleSwipeStart(appointment)}
-                      onSwipeLeft={() => handleSwipePhotos(appointment)}
-                      onLongPress={() => handleOpenDrawer(appointment)}
-                      onTap={() => handleOpenActions(appointment)}
-                      swipeRightDisabled={canvasState !== 'waiting' || isLoading}
-                      swipeLeftDisabled={isTerminal || isLoading}
-                      swipeRightLabel="Start"
-                      swipeLeftLabel="Photos"
-                      isLoading={isLoading}
+                    <div className="mb-2 text-4xl">☕️</div>
+                    <p
+                      className="text-lg font-medium"
+                      style={{ color: cappuccino.title }}
                     >
-                      <StaffAppointmentCard
-                        appointment={appointment}
-                        onViewClient={handleViewClient}
-                        onOpenActions={handleOpenActions}
-                      />
-                    </SwipeableCard>
+                      All caught up
+                    </p>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      {activeTab === 'today'
+                        ? 'No appointments scheduled for today'
+                        : activeTab === 'upcoming'
+                          ? 'No upcoming appointments'
+                          : 'No past appointments to show'}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                )
+              : (
+                  <div className="space-y-4 pb-32">
+                    {appointments.map((appointment, index) => {
+                      const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
+                      const isTerminal = ['complete', 'cancelled', 'no_show'].includes(canvasState);
+                      const isLoading = gestureLoadingId === appointment.id;
+
+                      return (
+                        <div
+                          key={appointment.id}
+                          style={{
+                            opacity: mounted ? 1 : 0,
+                            transform: mounted ? 'translateY(0)' : 'translateY(15px)',
+                            transition: `opacity 300ms ease-out ${250 + index * 50}ms, transform 300ms ease-out ${250 + index * 50}ms`,
+                          }}
+                        >
+                          <SwipeableCard
+                            onSwipeRight={() => handleSwipeStart(appointment)}
+                            onSwipeLeft={() => handleSwipePhotos(appointment)}
+                            onLongPress={() => handleOpenDrawer(appointment)}
+                            onTap={() => handleOpenActions(appointment)}
+                            swipeRightDisabled={canvasState !== 'waiting' || isLoading}
+                            swipeLeftDisabled={isTerminal || isLoading}
+                            swipeRightLabel="Start"
+                            swipeLeftLabel="Photos"
+                            isLoading={isLoading}
+                          >
+                            <StaffAppointmentCard
+                              appointment={appointment}
+                              onViewClient={handleViewClient}
+                              onOpenActions={handleOpenActions}
+                            />
+                          </SwipeableCard>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
         </div>
       </div>
 
@@ -647,7 +667,7 @@ export default function StaffDashboardPage() {
                 className="mt-1 font-semibold"
                 style={{ color: cappuccino.primary }}
               >
-                {selectedAppointment.services.map((s) => s.name).join(', ')}
+                {selectedAppointment.services.map(s => s.name).join(', ')}
               </div>
             </div>
 
@@ -672,7 +692,8 @@ export default function StaffDashboardPage() {
               >
                 <div className="text-sm text-neutral-500">Total</div>
                 <div className="font-semibold" style={{ color: cappuccino.title }}>
-                  ${(selectedAppointment.totalPrice / 100).toFixed(0)}
+                  $
+                  {(selectedAppointment.totalPrice / 100).toFixed(0)}
                 </div>
               </div>
             </div>
@@ -681,21 +702,21 @@ export default function StaffDashboardPage() {
             <div className="flex gap-2">
               <div
                 className={`flex-1 rounded-xl p-3 text-center text-sm font-medium ${
-                  selectedAppointment.photos.some((p) => p.photoType === 'before')
+                  selectedAppointment.photos.some(p => p.photoType === 'before')
                     ? 'bg-green-100 text-green-700'
                     : 'bg-neutral-100 text-neutral-500'
                 }`}
               >
-                {selectedAppointment.photos.some((p) => p.photoType === 'before') ? '✓ Before' : '○ Before'}
+                {selectedAppointment.photos.some(p => p.photoType === 'before') ? '✓ Before' : '○ Before'}
               </div>
               <div
                 className={`flex-1 rounded-xl p-3 text-center text-sm font-medium ${
-                  selectedAppointment.photos.some((p) => p.photoType === 'after')
+                  selectedAppointment.photos.some(p => p.photoType === 'after')
                     ? 'bg-green-100 text-green-700'
                     : 'bg-neutral-100 text-neutral-500'
                 }`}
               >
-                {selectedAppointment.photos.some((p) => p.photoType === 'after') ? '✓ After' : '○ After'}
+                {selectedAppointment.photos.some(p => p.photoType === 'after') ? '✓ After' : '○ After'}
               </div>
             </div>
 

@@ -23,13 +23,13 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
-interface BookConfirmContentProps {
+type BookConfirmContentProps = {
   services: ServiceSummary[];
   technician: TechnicianSummary;
   salonSlug: string;
   dateStr: string;
   timeStr: string;
-}
+};
 
 function Confetti({ delay, color, left }: { delay: number; color: string; left: number }) {
   return (
@@ -88,10 +88,14 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
       setPhone(formatPhone(clientPhone));
     } else {
       const savedPhone = document.cookie.split('; ').find(row => row.startsWith('client_phone='))?.split('=')[1];
-      if (savedPhone) setPhone(decodeURIComponent(savedPhone));
+      if (savedPhone) {
+        setPhone(decodeURIComponent(savedPhone));
+      }
     }
     const savedName = document.cookie.split('; ').find(row => row.startsWith('client_name='))?.split('=')[1];
-    if (savedName) setName(decodeURIComponent(savedName));
+    if (savedName) {
+      setName(decodeURIComponent(savedName));
+    }
   }, [clientPhone]);
 
   const handleBack = useCallback(() => {
@@ -100,8 +104,12 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '');
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    if (digits.length <= 3) {
+      return digits;
+    }
+    if (digits.length <= 6) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    }
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
   };
 
@@ -180,21 +188,25 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
   const totalDuration = services.reduce((sum, s) => sum + s.duration, 0);
 
   // Format date for display
-  const displayDate = dateStr ? new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  }) : '';
+  const displayDate = dateStr
+    ? new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    })
+    : '';
 
   // Format time for display
-  const displayTime = timeStr ? (() => {
-    const parts = timeStr.split(':').map(Number);
-    const hours = parts[0] ?? 0;
-    const minutes = parts[1] ?? 0;
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const hour12 = hours % 12 || 12;
-    return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-  })() : '';
+  const displayTime = timeStr
+    ? (() => {
+        const parts = timeStr.split(':').map(Number);
+        const hours = parts[0] ?? 0;
+        const minutes = parts[1] ?? 0;
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const hour12 = hours % 12 || 12;
+        return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+      })()
+    : '';
 
   const isReadyToConfirm = phone && name;
 
@@ -205,7 +217,8 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
         background: `linear-gradient(to bottom, var(--n5-bg-page), color-mix(in srgb, var(--n5-bg-page) 95%, var(--n5-accent-hover)))`,
       }}
     >
-      <style jsx global>{`
+      <style jsx global>
+        {`
         @keyframes confetti-fall {
           0% { transform: translateY(0) rotate(0deg); opacity: 1; }
           100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
@@ -214,7 +227,8 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
           0%, 100% { opacity: 0; transform: scale(0); }
           50% { opacity: 1; transform: scale(1); }
         }
-      `}</style>
+      `}
+      </style>
 
       {showConfetti && (
         <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
@@ -252,7 +266,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             type="button"
             onClick={handleBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-[var(--n5-bg-card)]/60"
+            className="hover:bg-[var(--n5-bg-card)]/60 z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200"
             whileTap={{ scale: 0.95 }}
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
@@ -260,7 +274,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             </svg>
           </motion.button>
           <div
-            className="absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight font-heading text-[var(--n5-accent)]"
+            className="font-heading absolute left-1/2 -translate-x-1/2 text-lg font-semibold tracking-tight text-[var(--n5-accent)]"
           >
             {salonName}
           </div>
@@ -276,13 +290,13 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
           }}
         >
           <motion.h1
-            className="mb-1 text-2xl font-bold font-heading text-[var(--n5-ink-main)]"
+            className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]"
             animate={isConfirmed ? { scale: [1, 1.05, 1] } : {}}
             transition={{ duration: 0.3 }}
           >
             {isConfirmed ? 'Booking Confirmed!' : 'Confirm Your Booking'}
           </motion.h1>
-          <p className="text-sm font-body text-[var(--n5-ink-muted)]">
+          <p className="font-body text-sm text-[var(--n5-ink-muted)]">
             {isConfirmed ? 'See you soon!' : 'Review your appointment details'}
           </p>
           {/* Success checkmark */}
@@ -304,7 +318,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
         {/* Booking Summary Card */}
         <motion.div
-          className="mb-6 overflow-hidden p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
+          className="bg-[var(--n5-bg-card)]/80 mb-6 overflow-hidden border border-[var(--n5-border)] p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm"
           style={{
             borderRadius: 'var(--n5-radius-card)',
             opacity: mounted ? 1 : 0,
@@ -312,27 +326,34 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
             transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
           }}
           // Slide up animation on success
-          animate={isConfirmed ? {
-            y: [-ANIMATION.slideY, 0],
-            boxShadow: '0 8px 30px rgba(214, 162, 73, 0.2)',
-          } : {}}
+          animate={isConfirmed
+            ? {
+                y: [-ANIMATION.slideY, 0],
+                boxShadow: '0 8px 30px rgba(214, 162, 73, 0.2)',
+              }
+            : {}}
           transition={{ type: 'spring', ...ANIMATION.spring }}
         >
           {/* Service Info */}
           <div className="mb-4 flex items-start gap-4">
             <div
-              className="flex size-12 items-center justify-center text-xl bg-[var(--n5-bg-surface)]"
+              className="flex size-12 items-center justify-center bg-[var(--n5-bg-surface)] text-xl"
               style={{ borderRadius: 'var(--n5-radius-md)' }}
             >
               💅
             </div>
             <div className="flex-1">
-              <h3 className="text-base font-bold font-body text-[var(--n5-ink-main)]">{serviceNames || 'Service'}</h3>
-              <p className="text-sm font-body text-[var(--n5-ink-muted)]">{totalDuration} minutes</p>
+              <h3 className="font-body text-base font-bold text-[var(--n5-ink-main)]">{serviceNames || 'Service'}</h3>
+              <p className="font-body text-sm text-[var(--n5-ink-muted)]">
+                {totalDuration}
+                {' '}
+                minutes
+              </p>
             </div>
             <div className="text-right">
-              <span className="text-lg font-bold font-body text-[var(--n5-accent)]">
-                ${totalPrice.toFixed(0)}
+              <span className="font-body text-lg font-bold text-[var(--n5-accent)]">
+                $
+                {totalPrice.toFixed(0)}
               </span>
             </div>
           </div>
@@ -346,33 +367,41 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
               className="relative size-10 overflow-hidden"
               style={{ borderRadius: 'var(--n5-radius-pill)' }}
             >
-              {technician ? (
-                <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-              ) : (
-                <div
-                  className="flex size-full items-center justify-center text-lg bg-[var(--n5-bg-surface)]"
-                >
-                  🎲
-                </div>
-              )}
+              {technician
+                ? (
+                    <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
+                  )
+                : (
+                    <div
+                      className="flex size-full items-center justify-center bg-[var(--n5-bg-surface)] text-lg"
+                    >
+                      🎲
+                    </div>
+                  )}
             </div>
             <div>
-              <p className="text-xs font-body text-[var(--n5-ink-muted)]">Artist</p>
-              <p className="font-medium font-body text-[var(--n5-ink-main)]">{technician?.name || 'Any Available'}</p>
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">Artist</p>
+              <p className="font-body font-medium text-[var(--n5-ink-main)]">{technician?.name || 'Any Available'}</p>
             </div>
           </div>
 
           {/* Date & Time */}
           <div className="flex items-center gap-3">
             <div
-              className="flex size-10 items-center justify-center text-lg bg-[var(--n5-bg-surface)]"
+              className="flex size-10 items-center justify-center bg-[var(--n5-bg-surface)] text-lg"
               style={{ borderRadius: 'var(--n5-radius-pill)' }}
             >
               📅
             </div>
             <div>
-              <p className="text-xs font-body text-[var(--n5-ink-muted)]">Date & Time</p>
-              <p className="font-medium font-body text-[var(--n5-ink-main)]">{displayDate} at {displayTime}</p>
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">Date & Time</p>
+              <p className="font-body font-medium text-[var(--n5-ink-main)]">
+                {displayDate}
+                {' '}
+                at
+                {' '}
+                {displayTime}
+              </p>
             </div>
           </div>
         </motion.div>
@@ -381,7 +410,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
         {!isConfirmed && (
           <ShakeWrapper isShaking={isShaking} onShakeComplete={() => setIsShaking(false)}>
             <div
-              className="mb-6 overflow-hidden p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm bg-[var(--n5-bg-card)]/80 border border-[var(--n5-border)]"
+              className="bg-[var(--n5-bg-card)]/80 mb-6 overflow-hidden border border-[var(--n5-border)] p-5 shadow-[var(--n5-shadow-md)] backdrop-blur-sm"
               style={{
                 borderRadius: 'var(--n5-radius-card)',
                 opacity: mounted ? 1 : 0,
@@ -389,31 +418,31 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
                 transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
               }}
             >
-              <h3 className="mb-4 text-base font-bold font-body text-[var(--n5-ink-main)]">Your Information</h3>
-              
+              <h3 className="font-body mb-4 text-base font-bold text-[var(--n5-ink-main)]">Your Information</h3>
+
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Name</label>
+                  <label className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Name</label>
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={e => setName(e.target.value)}
                     placeholder="Your name"
-                    className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
+                    className="font-body w-full border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-base text-[var(--n5-ink-main)] outline-none transition-all"
                     style={{
                       borderRadius: 'var(--n5-radius-md)',
                     }}
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium font-body text-[var(--n5-ink-main)]">Phone Number</label>
+                  <label className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Phone Number</label>
                   <input
                     ref={phoneInputRef}
                     type="tel"
                     value={phone}
                     onChange={handlePhoneChange}
                     placeholder="(555) 123-4567"
-                    className="w-full px-4 py-3 text-base font-body outline-none transition-all bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] border border-[var(--n5-border)]"
+                    className="font-body w-full border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-base text-[var(--n5-ink-main)] outline-none transition-all"
                     style={{
                       borderRadius: 'var(--n5-radius-md)',
                     }}
@@ -426,7 +455,7 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
         {error && (
           <motion.p
-            className="mb-4 text-center text-sm font-body text-[var(--n5-error)]"
+            className="font-body mb-4 text-center text-sm text-[var(--n5-error)]"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
           >
@@ -437,13 +466,13 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
       {/* Fixed Bottom CTA */}
       {!isConfirmed && (
-        <div className="fixed inset-x-0 bottom-0 bg-[var(--n5-bg-card)]/80 px-4 pb-8 pt-4 backdrop-blur-md">
+        <div className="bg-[var(--n5-bg-card)]/80 fixed inset-x-0 bottom-0 px-4 pb-8 pt-4 backdrop-blur-md">
           <div className="mx-auto max-w-[430px]">
             <motion.button
               type="button"
               onClick={handleConfirm}
               disabled={isConfirming || !isReadyToConfirm}
-              className={`w-full py-4 text-base font-bold font-body transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`font-body w-full py-4 text-base font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 isReadyToConfirm ? 'text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)]' : 'bg-[var(--n5-border)] text-[var(--n5-ink-muted)]'
               }`}
               style={{
@@ -454,10 +483,12 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
               }}
               whileTap={isReadyToConfirm && !isConfirming ? { scale: 0.98 } : undefined}
               // Spring animation when button becomes enabled
-              animate={isReadyToConfirm ? {
-                y: [4, 0],
-                opacity: [0.8, 1],
-              } : {}}
+              animate={isReadyToConfirm
+                ? {
+                    y: [4, 0],
+                    opacity: [0.8, 1],
+                  }
+                : {}}
               transition={{ type: 'spring', ...ANIMATION.spring }}
             >
               {isConfirming ? 'Confirming...' : 'Confirm Booking'}

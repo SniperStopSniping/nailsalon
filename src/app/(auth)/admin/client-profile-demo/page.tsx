@@ -2,7 +2,7 @@
 
 /**
  * Client Profile Demo Page
- * 
+ *
  * Demonstrates the iOS-style Client Profile design mockup.
  */
 
@@ -15,4 +15,3 @@ export default function ClientProfileDemoPage() {
     </div>
   );
 }
-

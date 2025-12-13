@@ -115,7 +115,9 @@ export function BlockingLoginModal({
   }, [phone, code, isLoading]);
 
   const handleResendCode = useCallback(async () => {
-    if (isLoading) return;
+    if (isLoading) {
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -148,7 +150,7 @@ export function BlockingLoginModal({
       const timer = setTimeout(() => handleSendCode(), 150);
       return () => clearTimeout(timer);
     }
-    return;
+    return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone, authState]); // Intentionally exclude handleSendCode to prevent loops
 
@@ -159,7 +161,7 @@ export function BlockingLoginModal({
       const timer = setTimeout(() => handleVerifyCode(), 150);
       return () => clearTimeout(timer);
     }
-    return;
+    return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, authState]); // Intentionally exclude handleVerifyCode to prevent loops
 
@@ -204,7 +206,9 @@ export function BlockingLoginModal({
 
   // Check for existing session when modal opens
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
 
     const checkExistingSession = async () => {
       setAuthState('checking');

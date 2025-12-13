@@ -8,19 +8,19 @@
  */
 
 // Load environment variables from .env files
-import dotenv from 'dotenv';
 import path from 'node:path';
 
-// Load in order of precedence (later files override earlier)
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env.development.local') });
-
+import dotenv from 'dotenv';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client } from 'pg';
 
 import * as schema from '../src/models/Schema';
+
+// Load in order of precedence (later files override earlier)
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.development.local') });
 
 // =============================================================================
 // DATABASE CONNECTION
@@ -142,8 +142,8 @@ async function migrateClientsFromAppointments() {
         });
 
         console.log(
-          `  ✅ Created: ${row.client_name || 'Unknown'} (${normalizedPhone}) - ` +
-            `${row.total_visits} visits, $${(row.total_spent / 100).toFixed(2)} spent`,
+          `  ✅ Created: ${row.client_name || 'Unknown'} (${normalizedPhone}) - `
+          + `${row.total_visits} visits, $${(row.total_spent / 100).toFixed(2)} spent`,
         );
         created++;
       } catch (err) {
@@ -152,12 +152,12 @@ async function migrateClientsFromAppointments() {
       }
     }
 
-    console.log('\n' + '='.repeat(60));
+    console.log(`\n${'='.repeat(60)}`);
     console.log('📈 Migration Summary:');
     console.log(`   ✅ Created: ${created}`);
     console.log(`   ⏭️  Skipped: ${skipped}`);
     console.log(`   ❌ Errors:  ${errors}`);
-    console.log('='.repeat(60) + '\n');
+    console.log(`${'='.repeat(60)}\n`);
   } finally {
     await client.end();
     console.log('🔌 Database connection closed.\n');

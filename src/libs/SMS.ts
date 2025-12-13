@@ -431,7 +431,7 @@ export async function sendStaffInvite(
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
     || 'http://localhost:3000';
-  
+
   // URL-encode the phone number
   const encodedPhone = encodeURIComponent(phone);
   // Use /en/ locale prefix for staff login URL

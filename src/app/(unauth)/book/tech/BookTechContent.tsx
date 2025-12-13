@@ -291,10 +291,12 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
               }}
               whileTap={selectedTech ? { scale: 0.98 } : undefined}
               // Spring animation when button becomes enabled
-              animate={selectedTech ? {
-                y: [4, 0],
-                opacity: [0.8, 1],
-              } : {}}
+              animate={selectedTech
+                ? {
+                    y: [4, 0],
+                    opacity: [0.8, 1],
+                  }
+                : {}}
               transition={{ type: 'spring', ...ANIMATION.spring }}
             >
               Continue to Select Time

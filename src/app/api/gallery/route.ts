@@ -1,18 +1,18 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-// Force dynamic rendering for this API route
-export const dynamic = 'force-dynamic';
-
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentPhotoSchema,
   appointmentSchema,
+  appointmentServicesSchema,
   serviceSchema,
   technicianSchema,
-  appointmentServicesSchema,
 } from '@/models/Schema';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -27,15 +27,15 @@ const querySchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
-interface PhotoWithDetails {
+type PhotoWithDetails = {
   id: string;
   appointmentId: string;
   photoType: string;
@@ -48,14 +48,14 @@ interface PhotoWithDetails {
   appointmentDate: Date;
   services: string[];
   technicianName: string | null;
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     photos: PhotoWithDetails[];
     totalCount: number;
   };
-}
+};
 
 // =============================================================================
 // Helper: Normalize phone number to 10 digits
@@ -95,7 +95,7 @@ export async function GET(request: Request): Promise<Response> {
 
     // 3. Normalize and validate phone
     const normalizedClientPhone = normalizePhone(rawPhone);
-    
+
     const validated = querySchema.safeParse({
       phone: normalizedClientPhone,
       salonSlug,
@@ -163,10 +163,10 @@ export async function GET(request: Request): Promise<Response> {
       .orderBy(desc(appointmentPhotoSchema.createdAt));
 
     // 6. Fetch services for each appointment (separate query for simplicity)
-    const appointmentIds = [...new Set(photos.map((p) => p.appointmentId))];
-    
+    const appointmentIds = [...new Set(photos.map(p => p.appointmentId))];
+
     const appointmentServicesMap: Record<string, string[]> = {};
-    
+
     if (appointmentIds.length > 0) {
       for (const apptId of appointmentIds) {
         const services = await db
@@ -179,13 +179,13 @@ export async function GET(request: Request): Promise<Response> {
             eq(appointmentServicesSchema.serviceId, serviceSchema.id),
           )
           .where(eq(appointmentServicesSchema.appointmentId, apptId));
-        
-        appointmentServicesMap[apptId] = services.map((s) => s.serviceName);
+
+        appointmentServicesMap[apptId] = services.map(s => s.serviceName);
       }
     }
 
     // 7. Build response
-    const photosWithDetails: PhotoWithDetails[] = photos.map((photo) => ({
+    const photosWithDetails: PhotoWithDetails[] = photos.map(photo => ({
       id: photo.id,
       appointmentId: photo.appointmentId,
       photoType: photo.photoType,

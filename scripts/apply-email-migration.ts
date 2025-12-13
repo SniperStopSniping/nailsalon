@@ -1,11 +1,11 @@
 /**
  * Migration script to add email fields to admin_user
- * 
+ *
  * Run with: npx tsx scripts/apply-email-migration.ts
  */
 
-import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { Pool } from 'pg';
 
 // Load env from .env.development.local
 dotenv.config({ path: '.env.development.local' });
@@ -18,7 +18,7 @@ if (!DATABASE_URL) {
 }
 
 console.log('Connecting to database...');
-console.log('DATABASE_URL:', DATABASE_URL.substring(0, 50) + '...');
+console.log('DATABASE_URL:', `${DATABASE_URL.substring(0, 50)}...`);
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -43,7 +43,7 @@ async function main() {
     console.log('Running email migration...');
     await pool.query(migrationSQL);
     console.log('✅ Email migration applied successfully!');
-    
+
     // Verify columns exist
     const result = await pool.query(`
       SELECT column_name, data_type 
@@ -51,7 +51,7 @@ async function main() {
       WHERE table_name = 'admin_user'
       ORDER BY ordinal_position
     `);
-    
+
     console.log('\nadmin_user columns:');
     result.rows.forEach(row => console.log(`  - ${row.column_name}: ${row.data_type}`));
 
@@ -61,10 +61,9 @@ async function main() {
       FROM pg_indexes 
       WHERE tablename = 'admin_user'
     `);
-    
+
     console.log('\nadmin_user indexes:');
     indexResult.rows.forEach(row => console.log(`  - ${row.indexname}`));
-    
   } catch (error) {
     console.error('Migration failed:', error);
     process.exit(1);

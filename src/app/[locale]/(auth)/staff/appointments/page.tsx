@@ -12,7 +12,7 @@ import { themeVars } from '@/theme';
 // Types
 // =============================================================================
 
-interface AppointmentData {
+type AppointmentData = {
   id: string;
   clientName: string | null;
   clientPhone: string;
@@ -28,7 +28,7 @@ interface AppointmentData {
     thumbnailUrl: string | null;
     photoType: string;
   }>;
-}
+};
 
 type PaymentMethod = 'cash' | 'card' | 'e-transfer';
 
@@ -51,7 +51,7 @@ function PaymentMethodSelector({
 
   return (
     <div className="flex gap-2">
-      {methods.map((method) => (
+      {methods.map(method => (
         <button
           key={method.id}
           type="button"
@@ -95,7 +95,7 @@ function CancelReasonSelector({
     <div className="space-y-3">
       <div className="text-sm font-medium text-neutral-700">Select cancellation reason:</div>
       <div className="space-y-2">
-        {reasons.map((reason) => (
+        {reasons.map(reason => (
           <button
             key={reason.id}
             type="button"
@@ -156,7 +156,7 @@ function StaffAppointmentsContent() {
         const data = await response.json();
         const appts = data.data?.appointments || [];
         setAppointments(appts);
-        
+
         // Auto-select appointment if specified in URL
         if (appointmentIdParam) {
           const targetAppt = appts.find((a: AppointmentData) => a.id === appointmentIdParam);
@@ -184,7 +184,9 @@ function StaffAppointmentsContent() {
 
   // Handle photo upload
   const handlePhotoUpload = async (file: File, photoType: 'before' | 'after') => {
-    if (!selectedAppointment) return;
+    if (!selectedAppointment) {
+      return;
+    }
 
     setUploadingPhoto(true);
     setUploadError(null);
@@ -245,7 +247,9 @@ function StaffAppointmentsContent() {
 
   // Handle start appointment
   const handleStart = async () => {
-    if (!selectedAppointment) return;
+    if (!selectedAppointment) {
+      return;
+    }
 
     try {
       const response = await fetch(`/api/appointments/${selectedAppointment.id}/complete`, {
@@ -273,7 +277,9 @@ function StaffAppointmentsContent() {
 
   // Handle complete appointment
   const handleComplete = async () => {
-    if (!selectedAppointment) return;
+    if (!selectedAppointment) {
+      return;
+    }
 
     setCompleting(true);
     setUploadError(null);
@@ -303,7 +309,9 @@ function StaffAppointmentsContent() {
 
   // Handle cancel appointment
   const handleCancel = async (reason: string) => {
-    if (!selectedAppointment) return;
+    if (!selectedAppointment) {
+      return;
+    }
 
     setCancelling(true);
 
@@ -399,7 +407,9 @@ function StaffAppointmentsContent() {
                   Photo Upload
                 </h1>
                 <p className="text-sm text-neutral-600">
-                  Today&apos;s Appointments ({appointments.length})
+                  Today&apos;s Appointments (
+                  {appointments.length}
+                  )
                 </p>
               </div>
             </div>
@@ -449,10 +459,13 @@ function StaffAppointmentsContent() {
                         {appointment.clientName || 'Client'}
                       </div>
                       <div className="text-sm text-neutral-600">
-                        {formatTime(appointment.startTime)} - {formatTime(appointment.endTime)}
+                        {formatTime(appointment.startTime)}
+                        {' '}
+                        -
+                        {formatTime(appointment.endTime)}
                       </div>
                       <div className="mt-1 text-sm" style={{ color: themeVars.accent }}>
-                        {appointment.services.map((s) => s.name).join(', ')}
+                        {appointment.services.map(s => s.name).join(', ')}
                       </div>
                     </div>
                     <div className="text-right">
@@ -478,7 +491,7 @@ function StaffAppointmentsContent() {
                   {/* Photos preview */}
                   {appointment.photos.length > 0 && (
                     <div className="mt-3 flex gap-2">
-                      {appointment.photos.map((photo) => (
+                      {appointment.photos.map(photo => (
                         <div
                           key={photo.id}
                           className="relative size-16 overflow-hidden rounded-lg"
@@ -556,11 +569,14 @@ function StaffAppointmentsContent() {
                   {selectedAppointment.clientName || 'Client'}
                 </div>
                 <div className="text-sm text-neutral-500">
-                  {selectedAppointment.services.map((s) => s.name).join(', ')}
+                  {selectedAppointment.services.map(s => s.name).join(', ')}
                 </div>
                 <div className="mt-1 flex items-center justify-between">
                   <span className="text-sm text-neutral-500">
-                    {formatTime(selectedAppointment.startTime)} - {formatTime(selectedAppointment.endTime)}
+                    {formatTime(selectedAppointment.startTime)}
+                    {' '}
+                    -
+                    {formatTime(selectedAppointment.endTime)}
                   </span>
                   <span className="font-bold" style={{ color: themeVars.primary }}>
                     {formatPrice(selectedAppointment.totalPrice)}
@@ -590,10 +606,12 @@ function StaffAppointmentsContent() {
               {selectedAppointment.photos.length > 0 && (
                 <div className="mb-4">
                   <div className="mb-2 text-sm font-medium text-neutral-600">
-                    Photos ({selectedAppointment.photos.length})
+                    Photos (
+                    {selectedAppointment.photos.length}
+                    )
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {selectedAppointment.photos.map((photo) => (
+                    {selectedAppointment.photos.map(photo => (
                       <div
                         key={photo.id}
                         className="relative size-20 overflow-hidden rounded-lg"
@@ -605,7 +623,7 @@ function StaffAppointmentsContent() {
                           className="object-cover"
                         />
                         <div
-                          className="absolute bottom-0 left-0 right-0 py-0.5 text-center text-xs font-medium text-white"
+                          className="absolute inset-x-0 bottom-0 py-0.5 text-center text-xs font-medium text-white"
                           style={{ backgroundColor: photo.photoType === 'before' ? themeVars.accent : '#22c55e' }}
                         >
                           {photo.photoType}
@@ -657,18 +675,18 @@ function StaffAppointmentsContent() {
 
               {/* Action buttons */}
               <div className="mt-6 space-y-2">
-                {selectedAppointment.status === 'in_progress' &&
-                  selectedAppointment.photos.some((p) => p.photoType === 'after') && (
-                    <button
-                      type="button"
-                      onClick={() => setShowCompleteDialog(true)}
-                      disabled={completing || uploadingPhoto}
-                      className="w-full rounded-full py-3 text-center font-bold text-neutral-900 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-                      style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
-                    >
-                      ✓ Complete & Mark Paid
-                    </button>
-                  )}
+                {selectedAppointment.status === 'in_progress'
+                && selectedAppointment.photos.some(p => p.photoType === 'after') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleteDialog(true)}
+                    disabled={completing || uploadingPhoto}
+                    className="w-full rounded-full py-3 text-center font-bold text-neutral-900 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+                  >
+                    ✓ Complete & Mark Paid
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -773,14 +791,15 @@ function StaffAppointmentsContent() {
 // Wrap in Suspense for useSearchParams
 export default function StaffAppointmentsPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <Suspense fallback={(
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-t-transparent border-amber-500 rounded-full animate-spin mx-auto mb-2" />
+          <div className="mx-auto mb-2 size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
           <p className="text-gray-500">Loading...</p>
         </div>
       </div>
-    }>
+    )}
+    >
       <StaffAppointmentsContent />
     </Suspense>
   );

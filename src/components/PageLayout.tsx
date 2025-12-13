@@ -3,7 +3,7 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface PageLayoutProps {
+export type PageLayoutProps = {
   children: React.ReactNode;
   /**
    * Background color override. If not provided, uses theme background.
@@ -12,7 +12,7 @@ export interface PageLayoutProps {
   background?: string;
   verticalPadding?: 'sm' | 'md' | 'lg';
   className?: string;
-}
+};
 
 /**
  * PageLayout Component
@@ -41,7 +41,7 @@ export const PageLayout = React.forwardRef<HTMLDivElement, PageLayoutProps>(
         )}
         style={{ backgroundColor: bgColor }}
       >
-        <div className="mx-auto max-w-[430px] w-full px-4 flex flex-col gap-4">
+        <div className="mx-auto flex w-full max-w-[430px] flex-col gap-4 px-4">
           {children}
         </div>
       </div>
@@ -49,4 +49,3 @@ export const PageLayout = React.forwardRef<HTMLDivElement, PageLayoutProps>(
   },
 );
 PageLayout.displayName = 'PageLayout';
-

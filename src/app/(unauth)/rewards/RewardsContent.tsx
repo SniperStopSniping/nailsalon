@@ -355,7 +355,7 @@ const BalanceCard = ({ points = 0, nextReward = 2500, streak = 0 }: BalanceCardP
           rotateY: shouldReduceMotion ? 0 : rotateY,
           perspective: 1000,
         }}
-        className="relative z-10 aspect-[1.7/1] w-full max-h-[200px] select-none"
+        className="relative z-10 aspect-[1.7/1] max-h-[200px] w-full select-none"
       >
         <div
           className="absolute relative inset-0 overflow-hidden border border-white/10 bg-[var(--n5-ink-main)] shadow-[var(--n5-shadow-lg)]"
@@ -540,6 +540,83 @@ const TierHeader = ({ title, pts }: { title: string; pts: string }) => (
       PTS
     </span>
   </div>
+);
+
+/**
+ * 5. HOW POINTS WORK SECTION
+ */
+const HowPointsWork = () => (
+  <motion.div
+    initial={{ opacity: 0, y: 10 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true }}
+    className="border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-5"
+    style={{ borderRadius: 'var(--n5-radius-card)' }}
+  >
+    <h3 className="font-heading mb-4 text-base font-semibold text-[var(--n5-ink-main)]">
+      How Points Work
+    </h3>
+
+    {/* Earn Section */}
+    <div className="mb-4">
+      <p className="font-body mb-2 text-[10px] uppercase tracking-widest text-[var(--n5-ink-muted)]">
+        Earn Points
+      </p>
+      <ul className="space-y-2">
+        <li className="font-body flex items-center gap-3 text-[13px] text-[var(--n5-ink-main)]">
+          <span className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-accent-soft)] text-[var(--n5-accent)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span>
+            <strong>25,000 pts</strong>
+            {' '}
+            welcome bonus on first visit
+          </span>
+        </li>
+        <li className="font-body flex items-center gap-3 text-[13px] text-[var(--n5-ink-main)]">
+          <span className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-accent-soft)] text-[var(--n5-accent)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span>
+            <strong>20 pts</strong>
+            {' '}
+            for every $1 spent
+          </span>
+        </li>
+        <li className="font-body flex items-center gap-3 text-[13px] text-[var(--n5-ink-main)]">
+          <span className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-accent-soft)] text-[var(--n5-accent)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span>
+            <strong>2,500 pts</strong>
+            {' '}
+            for completing your profile
+          </span>
+        </li>
+        <li className="font-body flex items-center gap-3 text-[13px] text-[var(--n5-ink-main)]">
+          <span className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-accent-soft)] text-[var(--n5-accent)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span>
+            <strong>25,000 pts</strong>
+            {' '}
+            for each successful referral
+          </span>
+        </li>
+      </ul>
+    </div>
+
+    {/* Redeem Section */}
+    <div>
+      <p className="font-body mb-2 text-[10px] uppercase tracking-widest text-[var(--n5-ink-muted)]">
+        Redeem Rewards
+      </p>
+      <p className="font-body text-[13px] text-[var(--n5-ink-main)]">
+        Use your points to unlock discounts, free services, and exclusive add-ons.
+        Rewards are automatically available once you reach the required points.
+      </p>
+    </div>
+  </motion.div>
 );
 
 const FloatingDock = () => {
@@ -754,9 +831,8 @@ export default function RewardsContent() {
                 ))}
               </div>
 
-              <div className="pt-6 text-center tracking-wide opacity-60">
-                <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">Earn 20 pts for every $1 spent</p>
-              </div>
+              {/* How Points Work Section */}
+              <HowPointsWork />
             </>
           )}
         </main>

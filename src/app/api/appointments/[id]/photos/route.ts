@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { uploadAppointmentPhoto, isCloudinaryConfigured } from '@/libs/Cloudinary';
+import { isCloudinaryConfigured, uploadAppointmentPhoto } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
 import { getAppointmentById } from '@/libs/queries';
 import { appointmentPhotoSchema, PHOTO_TYPES } from '@/models/Schema';
@@ -21,15 +21,15 @@ const uploadPhotoSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
-interface PhotoData {
+type PhotoData = {
   id: string;
   appointmentId: string;
   photoType: string;
@@ -37,13 +37,13 @@ interface PhotoData {
   thumbnailUrl: string | null;
   caption: string | null;
   createdAt: Date;
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     photo: PhotoData;
   };
-}
+};
 
 // =============================================================================
 // Helper: Normalize phone number to 10 digits
@@ -255,7 +255,7 @@ export async function GET(
     // 3. Return photos
     return Response.json({
       data: {
-        photos: photos.map((p) => ({
+        photos: photos.map(p => ({
           id: p.id,
           appointmentId: p.appointmentId,
           photoType: p.photoType,

@@ -9,10 +9,10 @@ import type { SalonPlan } from '@/models/Schema';
 // Types
 // =============================================================================
 
-interface CreateSalonModalProps {
+type CreateSalonModalProps = {
   onClose: () => void;
   onSuccess: () => void;
-}
+};
 
 // =============================================================================
 // Component
@@ -21,6 +21,8 @@ interface CreateSalonModalProps {
 export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [ownerPhone, setOwnerPhone] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [plan, setPlan] = useState<SalonPlan>('single_salon');
   const [maxLocations, setMaxLocations] = useState(1);
@@ -56,7 +58,9 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
         body: JSON.stringify({
           name,
           slug,
-          ownerEmail: ownerEmail || null,
+          ownerName,
+          ownerPhone: ownerPhone.replace(/\D/g, ''),
+          ownerEmail,
           plan,
           maxLocations,
           isMultiLocationEnabled,
@@ -86,56 +90,60 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl">
+        <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-gray-900">Create Salon</h2>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close modal"
-              className="p-2 -m-2 text-gray-400 hover:text-gray-600"
+              className="-m-2 p-2 text-gray-400 hover:text-gray-600"
             >
-              <X className="w-5 h-5" />
+              <X className="size-5" />
             </button>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5 p-6">
             {error && (
-              <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
+              <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
                 {error}
               </div>
             )}
 
             {/* Name */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                Salon Name <span className="text-red-500">*</span>
+              <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
+                Salon Name
+                {' '}
+                <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 id="name"
                 value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
+                onChange={e => handleNameChange(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="e.g., Glow Nails"
               />
             </div>
 
             {/* Slug */}
             <div>
-              <label htmlFor="slug" className="block text-sm font-medium text-gray-700 mb-1">
-                Slug / Identifier <span className="text-red-500">*</span>
+              <label htmlFor="slug" className="mb-1 block text-sm font-medium text-gray-700">
+                Slug / Identifier
+                {' '}
+                <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 id="slug"
                 value={slug}
-                onChange={(e) => setSlug(e.target.value)}
+                onChange={e => setSlug(e.target.value)}
                 required
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="e.g., glow-nails"
               />
               <p className="mt-1 text-xs text-gray-500">
@@ -143,24 +151,63 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
               </p>
             </div>
 
+            {/* Owner Name */}
+            <div>
+              <label htmlFor="ownerName" className="mb-1 block text-sm font-medium text-gray-700">
+                Owner Name
+                {' '}
+                <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="ownerName"
+                value={ownerName}
+                onChange={e => setOwnerName(e.target.value)}
+                required
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., John Smith"
+              />
+            </div>
+
+            {/* Owner Phone */}
+            <div>
+              <label htmlFor="ownerPhone" className="mb-1 block text-sm font-medium text-gray-700">
+                Owner Phone
+                {' '}
+                <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                id="ownerPhone"
+                value={ownerPhone}
+                onChange={e => setOwnerPhone(e.target.value)}
+                required
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., (416) 555-1234"
+              />
+            </div>
+
             {/* Owner Email */}
             <div>
-              <label htmlFor="ownerEmail" className="block text-sm font-medium text-gray-700 mb-1">
-                Owner Email (optional)
+              <label htmlFor="ownerEmail" className="mb-1 block text-sm font-medium text-gray-700">
+                Owner Email
+                {' '}
+                <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
                 id="ownerEmail"
                 value={ownerEmail}
-                onChange={(e) => setOwnerEmail(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                onChange={e => setOwnerEmail(e.target.value)}
+                required
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="owner@example.com"
               />
             </div>
 
             {/* Plan */}
             <div>
-              <label htmlFor="plan" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="plan" className="mb-1 block text-sm font-medium text-gray-700">
                 Plan
               </label>
               <select
@@ -176,7 +223,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                     setMaxLocations(2);
                   }
                 }}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="free">Free</option>
                 <option value="single_salon">Single Salon</option>
@@ -187,17 +234,17 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
 
             {/* Max Locations */}
             <div>
-              <label htmlFor="maxLocations" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="maxLocations" className="mb-1 block text-sm font-medium text-gray-700">
                 Max Locations
               </label>
               <input
                 type="number"
                 id="maxLocations"
                 value={maxLocations}
-                onChange={(e) => setMaxLocations(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={e => setMaxLocations(Math.max(1, Number.parseInt(e.target.value) || 1))}
                 min={1}
                 disabled={plan === 'single_salon' || plan === 'free'}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
               />
             </div>
 
@@ -214,12 +261,12 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 onClick={() => setIsMultiLocationEnabled(!isMultiLocationEnabled)}
                 disabled={plan === 'single_salon' || plan === 'free'}
                 aria-label="Toggle multi-location features"
-                className={`relative w-11 h-6 rounded-full transition-colors ${
+                className={`relative h-6 w-11 rounded-full transition-colors ${
                   isMultiLocationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                } ${plan === 'single_salon' || plan === 'free' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${plan === 'single_salon' || plan === 'free' ? 'cursor-not-allowed opacity-50' : ''}`}
               >
                 <div
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
                     isMultiLocationEnabled ? 'translate-x-5' : ''
                   }`}
                 />
@@ -228,7 +275,7 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+          <div className="flex items-center justify-end gap-3 rounded-b-2xl border-t border-gray-200 bg-gray-50 px-6 py-4">
             <button
               type="button"
               onClick={onClose}
@@ -240,11 +287,11 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
             <button
               type="submit"
               onClick={handleSubmit}
-              disabled={loading || !name || !slug}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={loading || !name || !slug || !ownerName || !ownerPhone || !ownerEmail}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
               )}
               Create Salon
             </button>

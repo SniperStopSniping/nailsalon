@@ -12,12 +12,12 @@ import { and, eq, gte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
+import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/models/Schema';
+
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
-
-import { db } from '@/libs/DB';
-import { getAdminSession } from '@/libs/adminAuth';
-import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -39,13 +39,13 @@ const getTimeOffSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/staff/time-off - List time-off entries (ADMIN-ONLY)
@@ -109,7 +109,7 @@ export async function GET(request: Request): Promise<Response> {
 
     // 3. Enforce admin salon scope
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === technician.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === technician.salonId);
       if (!hasAccess) {
         return Response.json(
           {
@@ -141,7 +141,7 @@ export async function GET(request: Request): Promise<Response> {
 
     return Response.json({
       data: {
-        timeOff: timeOffEntries.map((entry) => ({
+        timeOff: timeOffEntries.map(entry => ({
           id: entry.id,
           startDate: entry.startDate.toISOString(),
           endDate: entry.endDate.toISOString(),
@@ -226,7 +226,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // 3. Enforce admin salon scope
     if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some((s) => s.salonId === technician.salonId);
+      const hasAccess = admin.salons.some(s => s.salonId === technician.salonId);
       if (!hasAccess) {
         return Response.json(
           {

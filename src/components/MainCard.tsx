@@ -3,12 +3,12 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface MainCardProps {
+export type MainCardProps = {
   children: React.ReactNode;
   showGoldBar?: boolean;
   animateGoldBar?: boolean;
   className?: string;
-}
+};
 
 /**
  * MainCard Component
@@ -56,4 +56,3 @@ export const MainCard = React.forwardRef<HTMLDivElement, MainCardProps>(
   },
 );
 MainCard.displayName = 'MainCard';
-

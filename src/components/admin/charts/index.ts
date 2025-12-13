@@ -5,7 +5,6 @@
  * Inspired by Apple Health/Stocks/Fitness visual language.
  */
 
-export { RevenueChart, ChartLabels } from './RevenueChart';
 export { ActivityRing, NestedRings, RingLegend } from './ActivityRing';
-export { ServiceBars, defaultServiceItems } from './ServiceBars';
-
+export { ChartLabels, RevenueChart } from './RevenueChart';
+export { defaultServiceItems, ServiceBars } from './ServiceBars';

@@ -1,28 +1,28 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Camera, Loader2 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Camera, Check, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
+import type { SkillLevel, StaffRole } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
-import type { StaffRole, SkillLevel } from '@/models/Schema';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface AddStaffModalProps {
+type AddStaffModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-}
+};
 
-interface ServiceOption {
+type ServiceOption = {
   id: string;
   name: string;
   category: string;
   selected: boolean;
-}
+};
 
 // =============================================================================
 // Constants
@@ -109,7 +109,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
     // Validate file
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -140,7 +142,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             name: s.name,
             category: s.category,
             selected: true, // Default all selected
-          }))
+          })),
         );
       }
     } catch (err) {
@@ -151,18 +153,18 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
   };
 
   const toggleService = (serviceId: string) => {
-    setServices((prev) =>
-      prev.map((s) =>
-        s.id === serviceId ? { ...s, selected: !s.selected } : s
-      )
+    setServices(prev =>
+      prev.map(s =>
+        s.id === serviceId ? { ...s, selected: !s.selected } : s,
+      ),
     );
   };
 
   const toggleLanguage = (language: string) => {
-    setLanguages((prev) =>
+    setLanguages(prev =>
       prev.includes(language)
-        ? prev.filter((l) => l !== language)
-        : [...prev, language]
+        ? prev.filter(l => l !== language)
+        : [...prev, language],
     );
   };
 
@@ -186,7 +188,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
           phone: phone.trim() || null,
           role,
           skillLevel,
-          commissionRate: parseFloat(commissionRate) / 100,
+          commissionRate: Number.parseFloat(commissionRate) / 100,
           languages: languages.length > 0 ? languages : null,
           acceptingNewClients,
           bio: bio.trim() || null,
@@ -204,7 +206,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
       // If we have services and a technician ID, update their services
       if (technicianId && services.length > 0) {
         const selectedServices = services
-          .filter((s) => s.selected)
+          .filter(s => s.selected)
           .map((s, index) => ({
             serviceId: s.id,
             enabled: true,
@@ -289,7 +291,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <AnimatePresence>
@@ -297,7 +301,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
         onClick={onClose}
       >
         <motion.div
@@ -305,15 +309,15 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="bg-[#F2F2F7] w-full max-w-lg rounded-t-[20px] max-h-[90vh] overflow-hidden flex flex-col"
-          onClick={(e) => e.stopPropagation()}
+          className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[20px] bg-[#F2F2F7]"
+          onClick={e => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
+          <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
             <button
               type="button"
               onClick={onClose}
-              className="text-[#007AFF] text-[17px]"
+              className="text-[17px] text-[#007AFF]"
             >
               Cancel
             </button>
@@ -333,13 +337,13 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
           {/* Form Content */}
           <div className="flex-1 overflow-y-auto">
             {error && (
-              <div className="mx-4 mt-4 p-3 bg-red-100 rounded-lg">
+              <div className="mx-4 mt-4 rounded-lg bg-red-100 p-3">
                 <p className="text-[13px] text-red-600">{error}</p>
               </div>
             )}
 
             {/* Avatar Upload */}
-            <div className="flex justify-center pt-6 pb-2">
+            <div className="flex justify-center pb-2 pt-6">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -352,83 +356,87 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 type="button"
                 onClick={handleAvatarClick}
                 disabled={uploadingAvatar}
-                className="relative group"
+                className="group relative"
               >
-                {avatarPreviewUrl ? (
-                  <img
-                    src={avatarPreviewUrl}
-                    alt="Avatar preview"
-                    className="w-24 h-24 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] flex items-center justify-center">
-                    <Camera className="w-8 h-8 text-white/80" />
-                  </div>
-                )}
+                {avatarPreviewUrl
+                  ? (
+                      <img
+                        src={avatarPreviewUrl}
+                        alt="Avatar preview"
+                        className="size-24 rounded-full object-cover"
+                      />
+                    )
+                  : (
+                      <div className="flex size-24 items-center justify-center rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb]">
+                        <Camera className="size-8 text-white/80" />
+                      </div>
+                    )}
                 {/* Hover/Loading Overlay */}
                 <div
                   className={`
-                    absolute inset-0 rounded-full flex items-center justify-center transition-opacity
+                    absolute inset-0 flex items-center justify-center rounded-full transition-opacity
                     ${uploadingAvatar ? 'bg-black/50' : 'bg-black/0 group-hover:bg-black/40'}
                   `}
                 >
-                  {uploadingAvatar ? (
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                  )}
+                  {uploadingAvatar
+                    ? (
+                        <Loader2 className="size-6 animate-spin text-white" />
+                      )
+                    : (
+                        <Camera className="size-6 text-white opacity-0 transition-opacity group-hover:opacity-100" />
+                      )}
                 </div>
               </button>
             </div>
-            <p className="text-center text-[13px] text-[#8E8E93] mb-2">
+            <p className="mb-2 text-center text-[13px] text-[#8E8E93]">
               {avatarPreviewUrl ? 'Tap to change photo' : 'Add photo'}
             </p>
 
             {/* Basic Info */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <label className="text-[13px] text-[#8E8E93] mb-1 block">Name *</label>
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+              <div className="border-b border-gray-100 p-4">
+                <label className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={e => setName(e.target.value)}
                   placeholder="Enter name"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
+                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
                 />
               </div>
-              <div className="p-4 border-b border-gray-100">
-                <label className="text-[13px] text-[#8E8E93] mb-1 block">Email</label>
+              <div className="border-b border-gray-100 p-4">
+                <label className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={e => setEmail(e.target.value)}
                   placeholder="Enter email"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
+                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
                 />
               </div>
               <div className="p-4">
-                <label className="text-[13px] text-[#8E8E93] mb-1 block">Phone</label>
+                <label className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={e => setPhone(e.target.value)}
                   placeholder="Enter phone"
-                  className="w-full text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none bg-white"
+                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
                 />
               </div>
             </div>
 
             {/* Role & Skill */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <label className="text-[13px] text-[#8E8E93] mb-2 block">Role</label>
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+              <div className="border-b border-gray-100 p-4">
+                <label className="mb-2 block text-[13px] text-[#8E8E93]">Role</label>
                 <div className="flex flex-wrap gap-2">
-                  {ROLE_OPTIONS.map((option) => (
+                  {ROLE_OPTIONS.map(option => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => setRole(option.value)}
-                      className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                         role === option.value
                           ? 'bg-[#007AFF] text-white'
                           : 'bg-[#E5E5EA] text-[#1C1C1E]'
@@ -440,14 +448,14 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 </div>
               </div>
               <div className="p-4">
-                <label className="text-[13px] text-[#8E8E93] mb-2 block">Skill Level</label>
+                <label className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</label>
                 <div className="flex flex-wrap gap-2">
-                  {SKILL_OPTIONS.map((option) => (
+                  {SKILL_OPTIONS.map(option => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => setSkillLevel(option.value)}
-                      className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                         skillLevel === option.value
                           ? 'bg-[#007AFF] text-white'
                           : 'bg-[#E5E5EA] text-[#1C1C1E]'
@@ -461,20 +469,23 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             </div>
 
             {/* Commission */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden p-4">
-              <label className="text-[13px] text-[#8E8E93] mb-2 block">
-                Commission Rate: {commissionRate}%
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+              <label className="mb-2 block text-[13px] text-[#8E8E93]">
+                Commission Rate:
+                {' '}
+                {commissionRate}
+                %
               </label>
               <input
                 type="range"
                 min="0"
                 max="100"
                 value={commissionRate}
-                onChange={(e) => setCommissionRate(e.target.value)}
+                onChange={e => setCommissionRate(e.target.value)}
                 className="w-full accent-[#007AFF]"
                 aria-label="Commission rate percentage"
               />
-              <div className="flex justify-between text-[11px] text-[#8E8E93] mt-1">
+              <div className="mt-1 flex justify-between text-[11px] text-[#8E8E93]">
                 <span>0%</span>
                 <span>50%</span>
                 <span>100%</span>
@@ -482,15 +493,15 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             </div>
 
             {/* Languages */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden p-4">
-              <label className="text-[13px] text-[#8E8E93] mb-2 block">Languages</label>
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+              <label className="mb-2 block text-[13px] text-[#8E8E93]">Languages</label>
               <div className="flex flex-wrap gap-2">
-                {LANGUAGE_OPTIONS.map((lang) => (
+                {LANGUAGE_OPTIONS.map(lang => (
                   <button
                     key={lang}
                     type="button"
                     onClick={() => toggleLanguage(lang)}
-                    className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+                    className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                       languages.includes(lang)
                         ? 'bg-[#34C759] text-white'
                         : 'bg-[#E5E5EA] text-[#1C1C1E]'
@@ -503,19 +514,19 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             </div>
 
             {/* Settings */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden">
-              <div className="p-4 flex items-center justify-between">
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+              <div className="flex items-center justify-between p-4">
                 <span className="text-[17px] text-[#1C1C1E]">Accept New Clients</span>
                 <button
                   type="button"
                   onClick={() => setAcceptingNewClients(!acceptingNewClients)}
                   aria-label={acceptingNewClients ? 'Disable accepting new clients' : 'Enable accepting new clients'}
-                  className={`w-[51px] h-[31px] rounded-full p-[2px] transition-colors ${
+                  className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
                     acceptingNewClients ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
                   }`}
                 >
                   <motion.div
-                    className="w-[27px] h-[27px] bg-white rounded-full shadow-sm"
+                    className="size-[27px] rounded-full bg-white shadow-sm"
                     animate={{ x: acceptingNewClients ? 20 : 0 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   />
@@ -524,55 +535,59 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             </div>
 
             {/* Bio */}
-            <div className="bg-white mx-4 mt-4 rounded-[12px] overflow-hidden p-4">
-              <label className="text-[13px] text-[#8E8E93] mb-1 block">Bio</label>
+            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+              <label className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
               <textarea
                 value={bio}
-                onChange={(e) => setBio(e.target.value)}
+                onChange={e => setBio(e.target.value)}
                 placeholder="Short bio or description..."
                 rows={3}
-                className="w-full text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none resize-none bg-white"
+                className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
               />
             </div>
 
             {/* Services */}
-            <div className="mx-4 mt-4 mb-8">
-              <h3 className="text-[13px] font-semibold text-[#8E8E93] uppercase mb-2 px-2">
+            <div className="mx-4 mb-8 mt-4">
+              <h3 className="mb-2 px-2 text-[13px] font-semibold uppercase text-[#8E8E93]">
                 Services They Can Perform
               </h3>
-              <div className="bg-white rounded-[12px] overflow-hidden">
-                {loadingServices ? (
-                  <div className="p-4 text-center text-[#8E8E93]">Loading services...</div>
-                ) : services.length === 0 ? (
-                  <div className="p-4 text-center text-[#8E8E93]">No services available</div>
-                ) : (
-                  services.map((service, index) => (
-                    <button
-                      key={service.id}
-                      type="button"
-                      onClick={() => toggleService(service.id)}
-                      className={`w-full flex items-center justify-between p-4 ${
-                        index !== services.length - 1 ? 'border-b border-gray-100' : ''
-                      }`}
-                    >
-                      <div>
-                        <span className="text-[17px] text-[#1C1C1E]">{service.name}</span>
-                        <span className="text-[13px] text-[#8E8E93] ml-2 capitalize">
-                          {service.category}
-                        </span>
-                      </div>
-                      <div
-                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                          service.selected
-                            ? 'bg-[#007AFF] border-[#007AFF]'
-                            : 'border-[#C7C7CC]'
-                        }`}
-                      >
-                        {service.selected && <Check className="w-4 h-4 text-white" />}
-                      </div>
-                    </button>
-                  ))
-                )}
+              <div className="overflow-hidden rounded-[12px] bg-white">
+                {loadingServices
+                  ? (
+                      <div className="p-4 text-center text-[#8E8E93]">Loading services...</div>
+                    )
+                  : services.length === 0
+                    ? (
+                        <div className="p-4 text-center text-[#8E8E93]">No services available</div>
+                      )
+                    : (
+                        services.map((service, index) => (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => toggleService(service.id)}
+                            className={`flex w-full items-center justify-between p-4 ${
+                              index !== services.length - 1 ? 'border-b border-gray-100' : ''
+                            }`}
+                          >
+                            <div>
+                              <span className="text-[17px] text-[#1C1C1E]">{service.name}</span>
+                              <span className="ml-2 text-[13px] capitalize text-[#8E8E93]">
+                                {service.category}
+                              </span>
+                            </div>
+                            <div
+                              className={`flex size-6 items-center justify-center rounded-full border-2 ${
+                                service.selected
+                                  ? 'border-[#007AFF] bg-[#007AFF]'
+                                  : 'border-[#C7C7CC]'
+                              }`}
+                            >
+                              {service.selected && <Check className="size-4 text-white" />}
+                            </div>
+                          </button>
+                        ))
+                      )}
               </div>
             </div>
           </div>

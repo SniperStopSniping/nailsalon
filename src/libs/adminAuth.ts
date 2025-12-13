@@ -103,6 +103,21 @@ export function isValidPhone(phone: string): boolean {
  * Returns null if not logged in or session expired
  */
 export async function getAdminSession(): Promise<AdminWithSalons | null> {
+  // DEV ONLY: Check for role override
+  if (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
+    const { isDevModeServer, readDevRoleFromCookies, getMockAdminSession } = await import('./devRole.server');
+    if (isDevModeServer()) {
+      const devRole = readDevRoleFromCookies();
+      if (devRole === 'super_admin' || devRole === 'admin') {
+        return getMockAdminSession(devRole);
+      }
+      // If a different dev role is set, return null (not authorized as admin)
+      if (devRole) {
+        return null;
+      }
+    }
+  }
+
   try {
     const cookieStore = await cookies();
     const sessionId = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;

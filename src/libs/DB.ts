@@ -54,7 +54,9 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
     })
     .returning();
 
-  if (!salon) return;
+  if (!salon) {
+    return;
+  }
 
   // Create services
   const services = [

@@ -2,21 +2,43 @@ import { eq, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import {
-  salonSchema,
-  technicianSchema,
   salonLocationSchema,
   type SalonPlan,
+  salonSchema,
+  technicianSchema,
 } from '@/models/Schema';
+
+import type { FeatureTier } from './featureTiers';
+
+// =============================================================================
+// Plan to Feature Tier Mapping
+// =============================================================================
+
+/**
+ * Maps billing plans to feature tiers.
+ * This bridges the plan system (limits) with the feature tier system (entitlements).
+ *
+ * - free → starter (basic features only)
+ * - single_salon → pro (marketing + client management)
+ * - multi_salon → elite (all features)
+ * - enterprise → elite (all features, unlimited limits)
+ */
+export const PLAN_TO_FEATURE_TIER: Record<SalonPlan, FeatureTier> = {
+  free: 'starter',
+  single_salon: 'pro',
+  multi_salon: 'elite',
+  enterprise: 'elite',
+} as const;
 
 // =============================================================================
 // Plan Limits Configuration
 // =============================================================================
 
-export interface PlanLimits {
+export type PlanLimits = {
   maxTechs: number; // -1 = unlimited
   maxLocations: number; // -1 = unlimited
   features: string[];
-}
+};
 
 export const PLAN_LIMITS: Record<SalonPlan, PlanLimits> = {
   free: {

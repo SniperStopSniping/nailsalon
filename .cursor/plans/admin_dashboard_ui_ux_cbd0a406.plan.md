@@ -48,7 +48,7 @@ todos:
 ```
 /admin                    → Admin Dashboard Home (widgets + app grid)
 /admin/appointments       → Appointment management
-/admin/team               → Staff management  
+/admin/team               → Staff management
 /admin/clients            → Client database
 /admin/analytics          → Revenue analytics
 /admin/referrals          → Referral program
@@ -124,7 +124,7 @@ Use **Lucide React icons** styled like SF Symbols:
 - 24px size inside 60x60 rounded rect
 - Gradient backgrounds per icon category:
   - Blue: Calendar, Clock
-  - Green: Revenue, Rewards  
+  - Green: Revenue, Rewards
   - Orange: Alerts, Reviews
   - Purple: Clients, Team
   - Pink: Marketing, Referrals

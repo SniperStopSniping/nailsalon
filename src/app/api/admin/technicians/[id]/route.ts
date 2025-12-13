@@ -1,18 +1,18 @@
-import { eq, and, sql, gte, lt, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import {
+  appointmentSchema,
+  ONBOARDING_STATUSES,
+  PAY_TYPES,
+  SKILL_LEVELS,
+  STAFF_ROLES,
+  STAFF_STATUSES,
   technicianSchema,
   technicianServicesSchema,
-  appointmentSchema,
   technicianTimeOffSchema,
-  STAFF_ROLES,
-  SKILL_LEVELS,
-  PAY_TYPES,
-  ONBOARDING_STATUSES,
-  STAFF_STATUSES,
 } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -64,13 +64,13 @@ const updateTechnicianSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/technicians/[id] - Get full technician detail
@@ -296,7 +296,7 @@ export async function GET(
     const rebookingRate = totalUniqueClients > 0 ? rebookedClients / totalUniqueClients : 0;
 
     // Calculate earnings
-    const commissionRate = technician.commissionRate ? parseFloat(technician.commissionRate) : 0;
+    const commissionRate = technician.commissionRate ? Number.parseFloat(technician.commissionRate) : 0;
     const todayRevenue = Number(todayAppts[0]?.revenue ?? 0);
     const weekRevenue = Number(weekAppts[0]?.revenue ?? 0);
     const monthRevenue = Number(monthAppts[0]?.revenue ?? 0);
@@ -317,12 +317,12 @@ export async function GET(
           currentStatus: technician.currentStatus,
           isActive: technician.isActive,
           acceptingNewClients: technician.acceptingNewClients,
-          rating: technician.rating ? parseFloat(technician.rating) : null,
+          rating: technician.rating ? Number.parseFloat(technician.rating) : null,
           reviewCount: technician.reviewCount,
           commissionRate,
           payType: technician.payType,
-          hourlyRate: technician.hourlyRate ? parseFloat(technician.hourlyRate) : null,
-          salaryAmount: technician.salaryAmount ? parseFloat(technician.salaryAmount) : null,
+          hourlyRate: technician.hourlyRate ? Number.parseFloat(technician.hourlyRate) : null,
+          salaryAmount: technician.salaryAmount ? Number.parseFloat(technician.salaryAmount) : null,
           displayOrder: technician.displayOrder,
           notes: technician.notes,
           userId: technician.userId,
@@ -369,10 +369,10 @@ export async function GET(
           totalClients: Number(clientsCount[0]?.count ?? 0),
           // Performance metrics (all rates are 0-1 decimals)
           performance: {
-            rebookingRate,  // clients who rebooked within 60 days / total unique clients
-            avgTicket,      // totalRevenue / completedAppointments (in cents)
-            noShowRate,     // no_show count / total booked
-            cancelRate,     // cancelled count / total booked
+            rebookingRate, // clients who rebooked within 60 days / total unique clients
+            avgTicket, // totalRevenue / completedAppointments (in cents)
+            noShowRate, // no_show count / total booked
+            cancelRate, // cancelled count / total booked
           },
         },
       },
@@ -488,26 +488,66 @@ export async function PUT(
       updatedAt: new Date(),
     };
 
-    if (updates.name !== undefined) updateData.name = updates.name;
-    if (updates.email !== undefined) updateData.email = updates.email;
-    if (updates.phone !== undefined) updateData.phone = updates.phone;
-    if (updates.bio !== undefined) updateData.bio = updates.bio;
-    if (updates.avatarUrl !== undefined) updateData.avatarUrl = updates.avatarUrl;
-    if (updates.role !== undefined) updateData.role = updates.role;
-    if (updates.commissionRate !== undefined) updateData.commissionRate = String(updates.commissionRate);
-    if (updates.payType !== undefined) updateData.payType = updates.payType;
-    if (updates.hourlyRate !== undefined) updateData.hourlyRate = updates.hourlyRate !== null ? String(updates.hourlyRate) : null;
-    if (updates.salaryAmount !== undefined) updateData.salaryAmount = updates.salaryAmount !== null ? String(updates.salaryAmount) : null;
-    if (updates.skillLevel !== undefined) updateData.skillLevel = updates.skillLevel;
-    if (updates.languages !== undefined) updateData.languages = updates.languages;
-    if (updates.specialties !== undefined) updateData.specialties = updates.specialties;
-    if (updates.acceptingNewClients !== undefined) updateData.acceptingNewClients = updates.acceptingNewClients;
-    if (updates.currentStatus !== undefined) updateData.currentStatus = updates.currentStatus;
-    if (updates.notes !== undefined) updateData.notes = updates.notes;
-    if (updates.displayOrder !== undefined) updateData.displayOrder = updates.displayOrder;
-    if (updates.onboardingStatus !== undefined) updateData.onboardingStatus = updates.onboardingStatus;
-    if (updates.weeklySchedule !== undefined) updateData.weeklySchedule = updates.weeklySchedule;
-    if (updates.userId !== undefined) updateData.userId = updates.userId;
+    if (updates.name !== undefined) {
+      updateData.name = updates.name;
+    }
+    if (updates.email !== undefined) {
+      updateData.email = updates.email;
+    }
+    if (updates.phone !== undefined) {
+      updateData.phone = updates.phone;
+    }
+    if (updates.bio !== undefined) {
+      updateData.bio = updates.bio;
+    }
+    if (updates.avatarUrl !== undefined) {
+      updateData.avatarUrl = updates.avatarUrl;
+    }
+    if (updates.role !== undefined) {
+      updateData.role = updates.role;
+    }
+    if (updates.commissionRate !== undefined) {
+      updateData.commissionRate = String(updates.commissionRate);
+    }
+    if (updates.payType !== undefined) {
+      updateData.payType = updates.payType;
+    }
+    if (updates.hourlyRate !== undefined) {
+      updateData.hourlyRate = updates.hourlyRate !== null ? String(updates.hourlyRate) : null;
+    }
+    if (updates.salaryAmount !== undefined) {
+      updateData.salaryAmount = updates.salaryAmount !== null ? String(updates.salaryAmount) : null;
+    }
+    if (updates.skillLevel !== undefined) {
+      updateData.skillLevel = updates.skillLevel;
+    }
+    if (updates.languages !== undefined) {
+      updateData.languages = updates.languages;
+    }
+    if (updates.specialties !== undefined) {
+      updateData.specialties = updates.specialties;
+    }
+    if (updates.acceptingNewClients !== undefined) {
+      updateData.acceptingNewClients = updates.acceptingNewClients;
+    }
+    if (updates.currentStatus !== undefined) {
+      updateData.currentStatus = updates.currentStatus;
+    }
+    if (updates.notes !== undefined) {
+      updateData.notes = updates.notes;
+    }
+    if (updates.displayOrder !== undefined) {
+      updateData.displayOrder = updates.displayOrder;
+    }
+    if (updates.onboardingStatus !== undefined) {
+      updateData.onboardingStatus = updates.onboardingStatus;
+    }
+    if (updates.weeklySchedule !== undefined) {
+      updateData.weeklySchedule = updates.weeklySchedule;
+    }
+    if (updates.userId !== undefined) {
+      updateData.userId = updates.userId;
+    }
 
     // Handle isActive changes (soft delete/restore)
     if (updates.isActive !== undefined) {
@@ -542,7 +582,7 @@ export async function PUT(
           currentStatus: updated!.currentStatus,
           isActive: updated!.isActive,
           acceptingNewClients: updated!.acceptingNewClients,
-          commissionRate: updated!.commissionRate ? parseFloat(updated!.commissionRate) : 0,
+          commissionRate: updated!.commissionRate ? Number.parseFloat(updated!.commissionRate) : 0,
           displayOrder: updated!.displayOrder,
           notes: updated!.notes,
           onboardingStatus: updated!.onboardingStatus,

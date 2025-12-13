@@ -13,7 +13,7 @@ export type { AppointmentStatus };
 /**
  * Response shape for GET /api/admin/analytics
  */
-export interface AnalyticsResponse {
+export type AnalyticsResponse = {
   period: 'daily' | 'weekly' | 'monthly' | 'yearly';
   revenue: {
     total: number; // cents
@@ -46,12 +46,12 @@ export interface AnalyticsResponse {
     start: string; // ISO date string
     end: string; // ISO date string
   };
-}
+};
 
 /**
  * Response shape for GET /api/salon/services (admin usage)
  */
-export interface ServiceResponse {
+export type ServiceResponse = {
   id: string;
   name: string;
   description?: string | null;
@@ -61,12 +61,12 @@ export interface ServiceResponse {
   imageUrl?: string | null;
   sortOrder?: number | null;
   isActive: boolean | null;
-}
+};
 
 /**
  * Response shape for GET /api/admin/clients
  */
-export interface SalonClientResponse {
+export type SalonClientResponse = {
   id: string;
   phone: string;
   fullName: string | null;
@@ -80,4 +80,4 @@ export interface SalonClientResponse {
   noShowCount: number;
   loyaltyPoints: number;
   createdAt: string; // ISO date
-}
+};

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, logAuditAction } from '@/libs/superAdmin';
+import { logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema, type SalonStatus } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id } = await params;

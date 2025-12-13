@@ -13,30 +13,31 @@
  */
 
 import { motion } from 'framer-motion';
-import {
-  Calendar,
-  Users,
-  BarChart3,
-  Star,
-  Bell,
-  Settings,
-  Scissors,
-  Gift,
-  Shield,
-} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import {
+  BarChart3,
+  Bell,
+  Calendar,
+  ClipboardList,
+  Gift,
+  Scissors,
+  Settings,
+  Shield,
+  Star,
+  Users,
+} from 'lucide-react';
 
 // Types
 type Theme = 'apple' | 'tesla' | 'luxury';
 
-interface AppItem {
+type AppItem = {
   id: string;
   name: string;
   icon: LucideIcon;
   gradient: string;
   shadowColor: string;
   badge?: number;
-}
+};
 
 // App definitions with gradients
 const APPS: AppItem[] = [
@@ -97,6 +98,13 @@ const APPS: AppItem[] = [
     shadowColor: '#a18cd1',
   },
   {
+    id: 'staff-ops',
+    name: 'Staff Ops',
+    icon: ClipboardList,
+    gradient: 'from-[#FF9500] to-[#FF5E3A]',
+    shadowColor: '#FF9500',
+  },
+  {
     id: 'settings',
     name: 'Settings',
     icon: Settings,
@@ -108,17 +116,17 @@ const APPS: AppItem[] = [
 /**
  * Single App Tile
  */
-interface AppTileProps {
+type AppTileProps = {
   app: AppItem;
   theme?: Theme;
   onTap?: (appId: string) => void;
-}
+};
 
 function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
   const Icon = app.icon;
 
   return (
-    <div className="flex flex-col items-center gap-2 group cursor-pointer">
+    <div className="group flex cursor-pointer flex-col items-center gap-2">
       {/* Icon Container */}
       <motion.button
         type="button"
@@ -127,8 +135,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         whileHover={{ scale: 1.05 }}
         transition={{ type: 'spring', stiffness: 400, damping: 17 }}
         className={`
-          relative w-[64px] h-[64px] rounded-[15px] flex items-center justify-center
-          bg-gradient-to-br ${app.gradient}
+          relative flex size-[64px] items-center justify-center rounded-[15px] bg-gradient-to-br ${app.gradient}
         `}
         style={{
           boxShadow:
@@ -139,12 +146,12 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       >
         {/* Gloss Effect (Apple Theme Only) */}
         {theme === 'apple' && (
-          <div className="absolute inset-0 rounded-[15px] bg-gradient-to-b from-white/30 to-transparent pointer-events-none" />
+          <div className="pointer-events-none absolute inset-0 rounded-[15px] bg-gradient-to-b from-white/30 to-transparent" />
         )}
 
         {/* Icon */}
         <Icon
-          className={`w-7 h-7 drop-shadow-md relative z-10 ${
+          className={`relative z-10 size-7 drop-shadow-md ${
             theme === 'tesla' ? 'text-black' : 'text-white'
           }`}
           strokeWidth={2.5}
@@ -157,8 +164,8 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
 
         {/* Badge */}
         {app.badge && app.badge > 0 && (
-          <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-[#FF3B30] rounded-full flex items-center justify-center px-1">
-            <span className="text-white text-[11px] font-bold">
+          <div className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
+            <span className="text-[11px] font-bold text-white">
               {app.badge > 99 ? '99+' : app.badge}
             </span>
           </div>
@@ -168,14 +175,14 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       {/* Label */}
       <span
         className={`
-          text-[12px] font-medium tracking-tight text-center leading-tight transition-colors
+          text-center text-[12px] font-medium leading-tight tracking-tight transition-colors
           ${
-            theme === 'apple'
-              ? 'text-gray-900'
-              : theme === 'tesla'
-                ? 'text-gray-300 group-hover:text-white'
-                : 'text-[#3F2B24]'
-          }
+    theme === 'apple'
+      ? 'text-gray-900'
+      : theme === 'tesla'
+        ? 'text-gray-300 group-hover:text-white'
+        : 'text-[#3F2B24]'
+    }
         `}
       >
         {app.name}
@@ -187,15 +194,15 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
 /**
  * App Grid Container
  */
-interface AppGridProps {
+type AppGridProps = {
   theme?: Theme;
   badges?: Record<string, number>;
   onAppTap?: (appId: string) => void;
-}
+};
 
 export function AppGrid({ theme = 'apple', badges = {}, onAppTap }: AppGridProps) {
   // Merge badges into apps
-  const appsWithBadges = APPS.map((app) => ({
+  const appsWithBadges = APPS.map(app => ({
     ...app,
     badge: badges[app.id] || 0,
   }));
@@ -203,13 +210,13 @@ export function AppGrid({ theme = 'apple', badges = {}, onAppTap }: AppGridProps
   return (
     <div
       className={`
-        w-full min-h-full px-6 pt-8 pb-20
+        min-h-full w-full px-6 pb-20 pt-8
         ${theme === 'tesla' ? 'bg-black' : 'bg-[#F2F2F7]'}
       `}
     >
       {/* Grid: 3 Columns */}
-      <div className="grid grid-cols-3 gap-x-6 gap-y-10 max-w-sm mx-auto">
-        {appsWithBadges.map((app) => (
+      <div className="mx-auto grid max-w-sm grid-cols-3 gap-x-6 gap-y-10">
+        {appsWithBadges.map(app => (
           <AppTile key={app.id} app={app} theme={theme} onTap={onAppTap} />
         ))}
       </div>
@@ -220,4 +227,3 @@ export function AppGrid({ theme = 'apple', badges = {}, onAppTap }: AppGridProps
 // Export app IDs for type safety
 export type AppId = (typeof APPS)[number]['id'];
 export { APPS };
-

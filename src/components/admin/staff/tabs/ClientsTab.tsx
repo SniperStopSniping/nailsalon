@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
 import { Search, User } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 
@@ -9,18 +9,18 @@ import { useSalon } from '@/providers/SalonProvider';
 // Types
 // =============================================================================
 
-interface ClientData {
+type ClientData = {
   clientPhone: string;
   clientName: string;
   totalVisits: number;
   totalSpent: number;
   lastVisit: string | null;
   firstVisit: string | null;
-}
+};
 
-interface ClientsTabProps {
+type ClientsTabProps = {
   technicianId: string;
-}
+};
 
 // =============================================================================
 // Helpers
@@ -35,7 +35,9 @@ function formatCurrency(cents: number): string {
 }
 
 function formatDate(dateString: string | null): string {
-  if (!dateString) return 'Never';
+  if (!dateString) {
+    return 'Never';
+  }
   const date = new Date(dateString);
   return date.toLocaleDateString('en-US', {
     month: 'short',
@@ -58,7 +60,9 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
   const [total, setTotal] = useState(0);
 
   const fetchClients = useCallback(async (resetPage = false) => {
-    if (!salonSlug) return;
+    if (!salonSlug) {
+      return;
+    }
 
     const currentPage = resetPage ? 1 : page;
 
@@ -72,7 +76,7 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
       });
 
       const response = await fetch(
-        `/api/admin/technicians/${technicianId}/clients?${params}`
+        `/api/admin/technicians/${technicianId}/clients?${params}`,
       );
 
       if (!response.ok) {
@@ -87,7 +91,7 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
         setClients(newClients);
         setPage(1);
       } else {
-        setClients((prev) => [...prev, ...newClients]);
+        setClients(prev => [...prev, ...newClients]);
       }
 
       setTotal(pagination.total ?? 0);
@@ -104,8 +108,10 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
   }, [salonSlug, technicianId, searchQuery]);
 
   const loadMore = () => {
-    if (!hasMore || loading) return;
-    setPage((prev) => prev + 1);
+    if (!hasMore || loading) {
+      return;
+    }
+    setPage(prev => prev + 1);
   };
 
   useEffect(() => {
@@ -115,22 +121,27 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
   }, [page]);
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 p-4">
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E8E93]" />
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E8E93]" />
         <input
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={e => setSearchQuery(e.target.value)}
           placeholder="Search clients..."
-          className="w-full pl-10 pr-4 py-2.5 bg-[#E5E5EA] rounded-xl text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none"
+          className="w-full rounded-xl bg-[#E5E5EA] py-2.5 pl-10 pr-4 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none"
         />
       </div>
 
       {/* Count */}
-      <p className="text-[13px] text-[#8E8E93] px-1">
-        {total} client{total !== 1 ? 's' : ''} served
+      <p className="px-1 text-[13px] text-[#8E8E93]">
+        {total}
+        {' '}
+        client
+        {total !== 1 ? 's' : ''}
+        {' '}
+        served
       </p>
 
       {/* Client List */}
@@ -139,7 +150,7 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
       ) : clients.length === 0 ? (
         <EmptyState searchQuery={searchQuery} />
       ) : (
-        <div className="bg-white rounded-[12px] overflow-hidden">
+        <div className="overflow-hidden rounded-[12px] bg-white">
           {clients.map((client, index) => (
             <div
               key={client.clientPhone}
@@ -148,17 +159,23 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
               }`}
             >
               {/* Avatar */}
-              <div className="w-12 h-12 rounded-full bg-[#F2F2F7] flex items-center justify-center text-[#8E8E93] mr-3">
-                <User className="w-6 h-6" />
+              <div className="mr-3 flex size-12 items-center justify-center rounded-full bg-[#F2F2F7] text-[#8E8E93]">
+                <User className="size-6" />
               </div>
 
               {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="text-[17px] font-medium text-[#1C1C1E] truncate">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[17px] font-medium text-[#1C1C1E]">
                   {client.clientName}
                 </div>
                 <div className="text-[13px] text-[#8E8E93]">
-                  {client.totalVisits} visit{client.totalVisits !== 1 ? 's' : ''} · Last: {formatDate(client.lastVisit)}
+                  {client.totalVisits}
+                  {' '}
+                  visit
+                  {client.totalVisits !== 1 ? 's' : ''}
+                  {' '}
+                  · Last:
+                  {formatDate(client.lastVisit)}
                 </div>
               </div>
 
@@ -178,7 +195,7 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
               type="button"
               onClick={loadMore}
               disabled={loading}
-              className="w-full py-3 text-[#007AFF] text-[15px] font-medium border-t border-gray-100"
+              className="w-full border-t border-gray-100 py-3 text-[15px] font-medium text-[#007AFF]"
             >
               {loading ? 'Loading...' : 'Load More'}
             </button>
@@ -195,13 +212,13 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
 
 function LoadingSkeleton() {
   return (
-    <div className="bg-white rounded-[12px] overflow-hidden animate-pulse">
-      {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="flex items-center p-4 border-b border-gray-100">
-          <div className="w-12 h-12 rounded-full bg-gray-200 mr-3" />
+    <div className="animate-pulse overflow-hidden rounded-[12px] bg-white">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="flex items-center border-b border-gray-100 p-4">
+          <div className="mr-3 size-12 rounded-full bg-gray-200" />
           <div className="flex-1">
-            <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
-            <div className="h-3 bg-gray-100 rounded w-24" />
+            <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
+            <div className="h-3 w-24 rounded bg-gray-100" />
           </div>
         </div>
       ))}
@@ -215,14 +232,14 @@ function LoadingSkeleton() {
 
 function EmptyState({ searchQuery }: { searchQuery: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-8">
-      <div className="w-16 h-16 rounded-full bg-[#F2F2F7] flex items-center justify-center mb-4">
-        <User className="w-8 h-8 text-[#8E8E93]" />
+    <div className="flex flex-col items-center justify-center px-8 py-12">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
+        <User className="size-8 text-[#8E8E93]" />
       </div>
-      <h3 className="text-[17px] font-semibold text-[#1C1C1E] mb-1">
+      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
         {searchQuery ? 'No Results' : 'No Clients Yet'}
       </h3>
-      <p className="text-[15px] text-[#8E8E93] text-center">
+      <p className="text-center text-[15px] text-[#8E8E93]">
         {searchQuery
           ? `No clients found matching "${searchQuery}"`
           : 'This staff member has not served any clients yet'}

@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireSuperAdmin, logAuditAction } from '@/libs/superAdmin';
+import { logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import { salonLocationSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +45,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string; locId: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id, locId } = await params;
@@ -57,8 +59,8 @@ export async function GET(
       .where(
         and(
           eq(salonLocationSchema.salonId, id),
-          eq(salonLocationSchema.id, locId)
-        )
+          eq(salonLocationSchema.id, locId),
+        ),
       )
       .limit(1);
 
@@ -104,7 +106,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string; locId: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id, locId } = await params;
@@ -125,8 +129,8 @@ export async function PUT(
       .where(
         and(
           eq(salonLocationSchema.salonId, id),
-          eq(salonLocationSchema.id, locId)
-        )
+          eq(salonLocationSchema.id, locId),
+        ),
       )
       .limit(1);
 
@@ -149,16 +153,36 @@ export async function PUT(
 
     // Build update object, filtering out undefined values
     const updates: Record<string, unknown> = {};
-    if (validatedData.name !== undefined) updates.name = validatedData.name;
-    if (validatedData.address !== undefined) updates.address = validatedData.address;
-    if (validatedData.city !== undefined) updates.city = validatedData.city;
-    if (validatedData.state !== undefined) updates.state = validatedData.state;
-    if (validatedData.zipCode !== undefined) updates.zipCode = validatedData.zipCode;
-    if (validatedData.phone !== undefined) updates.phone = validatedData.phone;
-    if (validatedData.email !== undefined) updates.email = validatedData.email;
-    if (validatedData.isPrimary !== undefined) updates.isPrimary = validatedData.isPrimary;
-    if (validatedData.isActive !== undefined) updates.isActive = validatedData.isActive;
-    if (validatedData.businessHours !== undefined) updates.businessHours = validatedData.businessHours;
+    if (validatedData.name !== undefined) {
+      updates.name = validatedData.name;
+    }
+    if (validatedData.address !== undefined) {
+      updates.address = validatedData.address;
+    }
+    if (validatedData.city !== undefined) {
+      updates.city = validatedData.city;
+    }
+    if (validatedData.state !== undefined) {
+      updates.state = validatedData.state;
+    }
+    if (validatedData.zipCode !== undefined) {
+      updates.zipCode = validatedData.zipCode;
+    }
+    if (validatedData.phone !== undefined) {
+      updates.phone = validatedData.phone;
+    }
+    if (validatedData.email !== undefined) {
+      updates.email = validatedData.email;
+    }
+    if (validatedData.isPrimary !== undefined) {
+      updates.isPrimary = validatedData.isPrimary;
+    }
+    if (validatedData.isActive !== undefined) {
+      updates.isActive = validatedData.isActive;
+    }
+    if (validatedData.businessHours !== undefined) {
+      updates.businessHours = validatedData.businessHours;
+    }
 
     // Update location
     const [updated] = await db
@@ -210,7 +234,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; locId: string }> },
 ): Promise<Response> {
   const guard = await requireSuperAdmin();
-  if (guard) return guard;
+  if (guard) {
+    return guard;
+  }
 
   try {
     const { id, locId } = await params;
@@ -222,8 +248,8 @@ export async function DELETE(
       .where(
         and(
           eq(salonLocationSchema.salonId, id),
-          eq(salonLocationSchema.id, locId)
-        )
+          eq(salonLocationSchema.id, locId),
+        ),
       )
       .limit(1);
 
@@ -242,8 +268,8 @@ export async function DELETE(
         .where(
           and(
             eq(salonLocationSchema.salonId, id),
-            eq(salonLocationSchema.id, locId)
-          )
+            eq(salonLocationSchema.id, locId),
+          ),
         );
 
       if (otherLocations.length > 1) {

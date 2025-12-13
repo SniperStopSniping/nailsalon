@@ -1,3 +1,4 @@
 export { ModuleDisabledState, ModuleSkeleton } from './ModuleDisabledState';
-export { StaffHeader, NotificationBell } from './StaffHeader';
 export { StaffBottomNav } from './StaffBottomNav';
+export { NotificationBell, StaffHeader } from './StaffHeader';
+export { UpgradeRequiredState } from './UpgradeRequiredState';

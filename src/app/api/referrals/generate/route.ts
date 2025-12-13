@@ -30,7 +30,7 @@ type GenerateReferralRequest = z.infer<typeof generateReferralSchema>;
 // RESPONSE TYPES
 // =============================================================================
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     referralId: string;
     referralUrl: string;
@@ -38,15 +38,15 @@ interface SuccessResponse {
   meta: {
     timestamp: string;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // HELPERS

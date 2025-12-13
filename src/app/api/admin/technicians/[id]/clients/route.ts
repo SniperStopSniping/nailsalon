@@ -1,9 +1,9 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
-import { technicianSchema, appointmentSchema, clientSchema } from '@/models/Schema';
+import { appointmentSchema, clientSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -23,13 +23,13 @@ const getClientsSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // GET /api/admin/technicians/[id]/clients - Get clients this tech has served
@@ -125,7 +125,7 @@ export async function GET(
     let filteredClients = allClientStats;
     if (search && search.trim()) {
       const searchLower = search.toLowerCase();
-      filteredClients = allClientStats.filter(client => {
+      filteredClients = allClientStats.filter((client) => {
         const name = client.clientName?.toLowerCase() ?? '';
         const phone = client.clientPhone?.toLowerCase() ?? '';
         return name.includes(searchLower) || phone.includes(searchLower);
@@ -148,15 +148,15 @@ export async function GET(
     const clientPhones = paginatedClients.map(c => c.clientPhone);
     const clientRecords = clientPhones.length > 0
       ? await db
-          .select()
-          .from(clientSchema)
-          .where(sql`${clientSchema.phone} = ANY(${clientPhones})`)
+        .select()
+        .from(clientSchema)
+        .where(sql`${clientSchema.phone} = ANY(${clientPhones})`)
       : [];
 
     const clientMap = new Map(clientRecords.map(c => [c.phone, c]));
 
     // Format response
-    const clients = paginatedClients.map(stat => {
+    const clients = paginatedClients.map((stat) => {
       const clientRecord = clientMap.get(stat.clientPhone);
       return {
         clientPhone: stat.clientPhone,

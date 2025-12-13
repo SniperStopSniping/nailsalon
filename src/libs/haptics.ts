@@ -52,9 +52,15 @@ export function isHapticsEnabled(): boolean {
  * - error: [50, 40] (double vibration for blocked actions)
  */
 export function triggerHaptic(type: HapticType): void {
-  if (!hapticsEnabled) return;
-  if (typeof window === 'undefined') return;
-  if (typeof window.navigator?.vibrate !== 'function') return;
+  if (!hapticsEnabled) {
+    return;
+  }
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (typeof window.navigator?.vibrate !== 'function') {
+    return;
+  }
 
   const patterns: Record<HapticType, number | number[]> = {
     select: 14,

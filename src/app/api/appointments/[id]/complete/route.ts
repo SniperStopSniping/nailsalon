@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getAppointmentById, updateSalonClientStats } from '@/libs/queries';
-import { appointmentSchema, appointmentPhotoSchema, PAYMENT_STATUSES } from '@/models/Schema';
+import { appointmentPhotoSchema, appointmentSchema, PAYMENT_STATUSES } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -19,15 +19,15 @@ const completeAppointmentSchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     appointment: {
       id: string;
@@ -36,7 +36,7 @@ interface SuccessResponse {
       completedAt: Date;
     };
   };
-}
+};
 
 // =============================================================================
 // PATCH /api/appointments/[id]/complete - Mark appointment as completed

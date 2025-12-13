@@ -3,11 +3,11 @@ import * as React from 'react';
 import { themeVars } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
-export interface SectionTitleProps {
+export type SectionTitleProps = {
   children: React.ReactNode;
   icon?: React.ReactNode;
   className?: string;
-}
+};
 
 /**
  * SectionTitle Component
@@ -31,4 +31,3 @@ export const SectionTitle = React.forwardRef<HTMLDivElement, SectionTitleProps>(
   },
 );
 SectionTitle.displayName = 'SectionTitle';
-

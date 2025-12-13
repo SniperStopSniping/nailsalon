@@ -1,8 +1,9 @@
-import { and, eq, gte, lt, sql, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -27,13 +28,13 @@ const querySchema = z.object({
 // RESPONSE TYPES
 // =============================================================================
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // HELPERS
@@ -59,7 +60,7 @@ function getDateRange(period: string): { start: Date; end: Date; previousStart: 
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   let start: Date;
-  let end: Date = tomorrow;
+  const end: Date = tomorrow;
   let previousStart: Date;
   let previousEnd: Date;
 
@@ -129,14 +130,22 @@ export async function GET(request: Request): Promise<Response> {
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) return error!;
+    if (error || !salon) {
+      return error!;
+    }
+
+    // Step 16.3: Check if analyticsDashboard module is enabled
+    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'analyticsDashboard' });
+    if (moduleGuard) {
+      return moduleGuard;
+    }
 
     const { start, end, previousStart, previousEnd } = getDateRange(period);
 
     // ==========================================================================
     // Revenue Stats
     // ==========================================================================
-    
+
     // Current period revenue
     const currentRevenueResult = await db
       .select({
@@ -170,14 +179,14 @@ export async function GET(request: Request): Promise<Response> {
 
     const currentRevenue = currentRevenueResult[0]?.total ?? 0;
     const previousRevenue = previousRevenueResult[0]?.total ?? 0;
-    const revenueTrend = previousRevenue > 0 
-      ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100) 
+    const revenueTrend = previousRevenue > 0
+      ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
       : currentRevenue > 0 ? 100 : 0;
 
     // ==========================================================================
     // Appointment Stats
     // ==========================================================================
-    
+
     const appointmentStats = await db
       .select({
         total: sql<number>`count(*)::int`,
@@ -197,7 +206,7 @@ export async function GET(request: Request): Promise<Response> {
     // ==========================================================================
     // Staff Performance (Top 3 by revenue)
     // ==========================================================================
-    
+
     const staffPerformance = await db
       .select({
         id: technicianSchema.id,
@@ -230,7 +239,7 @@ export async function GET(request: Request): Promise<Response> {
     // Calculate utilization (appointments as percentage of capacity)
     // Assume 8 hours per day, 1 appointment = 1 hour average
     const hoursInPeriod = period === 'daily' ? 8 : period === 'weekly' ? 40 : period === 'monthly' ? 160 : 1920;
-    
+
     const staffWithUtilization = staffPerformance.map((tech, index) => {
       const utilizationPercent = Math.min(Math.round((tech.appointmentCount / hoursInPeriod) * 100), 100);
       const colors = ['#fa709a', '#43e97b', '#66a6ff', '#f6d365', '#a18cd1'];
@@ -249,7 +258,7 @@ export async function GET(request: Request): Promise<Response> {
     // ==========================================================================
     // Service Mix (Top services by appointment count)
     // ==========================================================================
-    
+
     const serviceMix = await db
       .select({
         serviceId: serviceSchema.id,
@@ -279,7 +288,7 @@ export async function GET(request: Request): Promise<Response> {
       combo: '#8B5CF6',
     };
 
-    const formattedServiceMix = serviceMix.map((service) => ({
+    const formattedServiceMix = serviceMix.map(service => ({
       label: service.serviceName,
       percent: totalServiceCount > 0 ? Math.round((service.count / totalServiceCount) * 100) : 0,
       color: serviceColors[service.category] || '#9CA3AF',

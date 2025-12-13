@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 // Types
 // =============================================================================
 
-interface AuditLog {
+type AuditLog = {
   id: string;
   action: string;
   performedBy: string;
@@ -19,12 +19,12 @@ interface AuditLog {
     details?: string;
   } | null;
   createdAt: string;
-}
+};
 
-interface AuditLogTableProps {
+type AuditLogTableProps = {
   salonId: string;
   limit?: number;
-}
+};
 
 // =============================================================================
 // Helpers
@@ -73,7 +73,7 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
 
     try {
       const response = await fetch(
-        `/api/super-admin/organizations/${salonId}/logs?page=${page}&limit=${limit}`
+        `/api/super-admin/organizations/${salonId}/logs?page=${page}&limit=${limit}`,
       );
 
       if (!response.ok) {
@@ -97,15 +97,15 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
 
   if (loading && logs.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32">
-        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      <div className="flex h-32 items-center justify-center">
+        <div className="size-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
+      <div className="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">
         {error}
       </div>
     );
@@ -113,7 +113,7 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
 
   if (logs.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-500 text-sm">
+      <div className="py-8 text-center text-sm text-gray-500">
         No activity logs yet
       </div>
     );
@@ -132,31 +132,31 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
           return (
             <div
               key={log.id}
-              className="p-3 bg-gray-50 rounded-lg border border-gray-100"
+              className="rounded-lg border border-gray-100 bg-gray-50 p-3"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
+                <div className="flex min-w-0 items-start gap-3">
                   <span
-                    className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${actionConfig.color}`}
+                    className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${actionConfig.color}`}
                   >
                     {actionConfig.label}
                   </span>
                   <div className="min-w-0">
                     {log.metadata?.details && (
-                      <div className="text-sm text-gray-900 truncate">
+                      <div className="truncate text-sm text-gray-900">
                         {log.metadata.details}
                       </div>
                     )}
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                    <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
                       <div className="flex items-center gap-1">
-                        <User className="w-3 h-3" />
-                        <span className="truncate max-w-[150px]">
+                        <User className="size-3" />
+                        <span className="max-w-[150px] truncate">
                           {log.performedByEmail || 'Unknown'}
                         </span>
                       </div>
                       <span>•</span>
                       <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
+                        <Clock className="size-3" />
                         <span>{formatDate(log.createdAt)}</span>
                       </div>
                     </div>
@@ -170,9 +170,11 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
           <div className="text-xs text-gray-500">
-            {totalCount} total entries
+            {totalCount}
+            {' '}
+            total entries
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -180,21 +182,24 @@ export function AuditLogTable({ salonId, limit = 10 }: AuditLogTableProps) {
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1 || loading}
               aria-label="Previous page"
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="size-4" />
             </button>
             <span className="text-xs text-gray-600">
-              {page} / {totalPages}
+              {page}
+              {' '}
+              /
+              {totalPages}
             </span>
             <button
               type="button"
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page === totalPages || loading}
               aria-label="Next page"
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="size-4" />
             </button>
           </div>
         </div>

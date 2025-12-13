@@ -8,9 +8,9 @@
  * and selecting which theme to apply when in theme mode.
  */
 
+import { AnimatePresence, motion } from 'framer-motion';
+import { Check, ChevronDown, Loader2, Paintbrush } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Paintbrush, ChevronDown, Check, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 import { THEMEABLE_PAGES } from '@/models/Schema';
 
@@ -34,17 +34,17 @@ const PAGE_DISPLAY_NAMES: Record<string, string> = {
   'invite': 'Invite',
 };
 
-interface PageAppearance {
+type PageAppearance = {
   pageName: string;
   mode: 'custom' | 'theme';
   themeKey: string | null;
-}
+};
 
-interface ThemeDropdownProps {
+type ThemeDropdownProps = {
   themeKey: string | null;
   onChange: (themeKey: string) => void;
   disabled?: boolean;
-}
+};
 
 function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -57,16 +57,16 @@ function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={`
-          flex items-center justify-between w-full px-3 py-2 rounded-lg
+          flex w-full items-center justify-between rounded-lg px-3 py-2
           text-sm font-medium transition-all
-          ${disabled 
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-            : 'bg-white border border-gray-200 text-gray-900 hover:border-gray-300'
-          }
+          ${disabled
+      ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+      : 'border border-gray-200 bg-white text-gray-900 hover:border-gray-300'
+    }
         `}
       >
         <span>{selectedTheme?.name || 'Select Theme'}</span>
-        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       <AnimatePresence>
@@ -76,9 +76,9 @@ function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-lg z-50 overflow-hidden"
+            className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
           >
-            {AVAILABLE_THEMES.map((theme) => (
+            {AVAILABLE_THEMES.map(theme => (
               <button
                 key={theme.key}
                 type="button"
@@ -87,8 +87,8 @@ function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
                   setIsOpen(false);
                 }}
                 className={`
-                  flex items-center justify-between w-full px-3 py-2 text-left
-                  hover:bg-gray-50 transition-colors
+                  flex w-full items-center justify-between px-3 py-2 text-left
+                  transition-colors hover:bg-gray-50
                   ${themeKey === theme.key ? 'bg-gray-50' : ''}
                 `}
               >
@@ -97,7 +97,7 @@ function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
                   <div className="text-xs text-gray-500">{theme.description}</div>
                 </div>
                 {themeKey === theme.key && (
-                  <Check className="w-4 h-4 text-green-500" />
+                  <Check className="size-4 text-green-500" />
                 )}
               </button>
             ))}
@@ -108,12 +108,12 @@ function ThemeDropdown({ themeKey, onChange, disabled }: ThemeDropdownProps) {
   );
 }
 
-interface ToggleSwitchProps {
+type ToggleSwitchProps = {
   isOn: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
   label?: string;
-}
+};
 
 function ToggleSwitch({ isOn, onChange, disabled, label }: ToggleSwitchProps) {
   return (
@@ -123,23 +123,23 @@ function ToggleSwitch({ isOn, onChange, disabled, label }: ToggleSwitchProps) {
       disabled={disabled}
       aria-label={label || (isOn ? 'Disable' : 'Enable')}
       className={`
-        relative w-12 h-7 rounded-full p-0.5 transition-colors duration-300
-        ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        relative h-7 w-12 rounded-full p-0.5 transition-colors duration-300
+        ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         ${isOn ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}
       `}
     >
       <motion.div
         animate={{ x: isOn ? 20 : 0 }}
         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-        className="w-6 h-6 bg-white rounded-full shadow-md"
+        className="size-6 rounded-full bg-white shadow-md"
       />
     </button>
   );
 }
 
-interface PageThemesSettingsProps {
+type PageThemesSettingsProps = {
   className?: string;
-}
+};
 
 export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) {
   const [pages, setPages] = useState<PageAppearance[]>([]);
@@ -185,10 +185,10 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
 
       if (response.ok) {
         // Update local state
-        setPages(prev => prev.map(p => 
-          p.pageName === pageName 
+        setPages(prev => prev.map(p =>
+          p.pageName === pageName
             ? { ...p, mode, themeKey: mode === 'theme' ? (themeKey || 'espresso') : null }
-            : p
+            : p,
         ));
       } else {
         const data = await response.json();
@@ -217,7 +217,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
     return (
       <div className={`p-6 ${className}`}>
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <Loader2 className="size-6 animate-spin text-gray-400" />
         </div>
       </div>
     );
@@ -226,9 +226,9 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
   return (
     <div className={`${className}`}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-        <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
-          <Paintbrush className="w-4 h-4 text-white" />
+      <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-purple-500">
+          <Paintbrush className="size-4 text-white" />
         </div>
         <div>
           <h3 className="text-[16px] font-semibold text-gray-900">Page Themes</h3>
@@ -238,7 +238,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm">
+        <div className="mx-4 mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -255,14 +255,14 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
           const isSaving = saving === pageName;
 
           return (
-            <div key={pageName} className="px-4 py-4">
-              <div className="flex items-center justify-between mb-3">
+            <div key={pageName} className="p-4">
+              <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-[15px] font-medium text-gray-900">
                     {PAGE_DISPLAY_NAMES[pageName] || pageName}
                   </span>
                   {isSaving && (
-                    <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                    <Loader2 className="size-4 animate-spin text-gray-400" />
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -271,7 +271,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
                   </span>
                   <ToggleSwitch
                     isOn={isThemeMode}
-                    onChange={(value) => handleModeToggle(pageName, value)}
+                    onChange={value => handleModeToggle(pageName, value)}
                     disabled={isSaving}
                     label={`${isThemeMode ? 'Disable' : 'Enable'} theme for ${PAGE_DISPLAY_NAMES[pageName] || pageName}`}
                   />
@@ -290,7 +290,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
                     <div className="pt-2">
                       <ThemeDropdown
                         themeKey={page.themeKey}
-                        onChange={(themeKey) => handleThemeChange(pageName, themeKey)}
+                        onChange={themeKey => handleThemeChange(pageName, themeKey)}
                         disabled={isSaving}
                       />
                     </div>
@@ -303,7 +303,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
       </div>
 
       {/* Footer note */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+      <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
         <p className="text-[12px] text-gray-500">
           Pages set to "Custom" will use their existing hardcoded styles.
           Pages set to "Use Theme" will dynamically apply the selected theme.

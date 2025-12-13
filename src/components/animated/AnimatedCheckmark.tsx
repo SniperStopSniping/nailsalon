@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 
 import { ANIMATION } from '@/libs/animations';
 
-interface AnimatedCheckmarkProps {
+type AnimatedCheckmarkProps = {
   /** Size of the checkmark container */
   size?: number;
   /** Whether the checkmark is visible */
@@ -15,7 +15,7 @@ interface AnimatedCheckmarkProps {
   strokeColor?: string;
   /** Additional className for the container */
   className?: string;
-}
+};
 
 /**
  * AnimatedCheckmark

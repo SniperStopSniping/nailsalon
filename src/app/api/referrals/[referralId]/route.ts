@@ -15,7 +15,7 @@ import { referralSchema, salonSchema } from '@/models/Schema';
 // RESPONSE TYPES
 // =============================================================================
 
-interface ReferralInfoResponse {
+type ReferralInfoResponse = {
   data: {
     referralId: string;
     referrerName: string | null;
@@ -28,14 +28,14 @@ interface ReferralInfoResponse {
   meta: {
     timestamp: string;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
   };
-}
+};
 
 // =============================================================================
 // HELPERS
@@ -45,7 +45,9 @@ interface ErrorResponse {
  * Mask phone number: "4161234567" -> "XXX-XXX-4567"
  */
 function maskPhone(phone: string): string {
-  if (!phone || phone.length < 4) return 'XXX-XXX-XXXX';
+  if (!phone || phone.length < 4) {
+    return 'XXX-XXX-XXXX';
+  }
   const last4 = phone.slice(-4);
   return `XXX-XXX-${last4}`;
 }

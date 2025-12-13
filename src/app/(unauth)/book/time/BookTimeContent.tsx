@@ -121,7 +121,9 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
   }, [today]);
 
   const handleDateSelect = useCallback((date: Date | null) => {
-    if (!date) return;
+    if (!date) {
+      return;
+    }
 
     if (isDateDisabled(date)) {
       // Disabled date - trigger error haptic and shake
@@ -315,9 +317,11 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
                         backgroundColor: isSelected ? 'var(--n5-accent)' : 'transparent',
                       }}
                       whileTap={date && !isDisabled ? { scale: 0.9 } : undefined}
-                      animate={isSelected ? {
-                        scale: [1, 1.1, 1],
-                      } : {}}
+                      animate={isSelected
+                        ? {
+                            scale: [1, 1.1, 1],
+                          }
+                        : {}}
                       transition={{ duration: 0.2 }}
                     >
                       {date?.getDate()}
@@ -359,9 +363,11 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
                         color: isSelected ? 'var(--n5-button-primary-text)' : 'var(--n5-ink-main)',
                       }}
                       whileTap={{ scale: 0.95 }}
-                      animate={isSelected ? {
-                        scale: [1, 1.05, 1],
-                      } : {}}
+                      animate={isSelected
+                        ? {
+                            scale: [1, 1.05, 1],
+                          }
+                        : {}}
                       transition={{ duration: 0.15 }}
                     >
                       {slot.time}
@@ -422,10 +428,12 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
             }}
             whileTap={isReadyToContinue ? { scale: 0.98 } : undefined}
             // Spring animation when button becomes enabled
-            animate={isReadyToContinue ? {
-              y: [4, 0],
-              opacity: [0.8, 1],
-            } : {}}
+            animate={isReadyToContinue
+              ? {
+                  y: [4, 0],
+                  opacity: [0.8, 1],
+                }
+              : {}}
             transition={{ type: 'spring', ...ANIMATION.spring }}
           >
             Continue to Confirm

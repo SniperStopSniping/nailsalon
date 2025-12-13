@@ -29,14 +29,14 @@ function Confetti({ delay, color, left }: { delay: number; color: string; left: 
   );
 }
 
-interface ConfettiPopupProps {
+type ConfettiPopupProps = {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   message: string;
   emoji?: string;
   autoDismissMs?: number;
-}
+};
 
 export function ConfettiPopup({
   isOpen,
@@ -70,11 +70,14 @@ export function ConfettiPopup({
     return undefined;
   }, [isOpen, autoDismissMs, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <>
-      <style jsx>{`
+      <style jsx>
+        {`
         @keyframes confetti-fall {
           0% {
             transform: translateY(0) rotate(0deg) scale(1);
@@ -117,7 +120,8 @@ export function ConfettiPopup({
             transform: scale(1.2) rotate(-5deg);
           }
         }
-      `}</style>
+      `}
+      </style>
 
       {/* Confetti Layer */}
       {showConfetti && (
@@ -202,4 +206,3 @@ export function ConfettiPopup({
     </>
   );
 }
-
