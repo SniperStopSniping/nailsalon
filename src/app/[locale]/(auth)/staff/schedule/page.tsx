@@ -1,11 +1,26 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
+/**
+ * Staff Schedule Page
+ *
+ * Allows staff to:
+ * - View/edit weekly schedule
+ * - Request time off (submit requests for admin approval)
+ * - View/edit schedule overrides (if module enabled)
+ *
+ * EDIT 2: Staff cannot directly write time off - must submit requests only.
+ */
+
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ModuleSkeleton, StaffHeader, StaffBottomNav } from '@/components/staff';
+import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
+
+// Staff auth state (cookie-based, NOT Clerk)
+type StaffAuthState = 'loading' | 'authed' | 'unauthed';
 
 // =============================================================================
 // Types
@@ -23,12 +38,23 @@ interface WeeklySchedule {
   saturday?: DaySchedule;
 }
 
-interface TimeOffEntry {
+interface TimeOffRequest {
   id: string;
   startDate: string;
   endDate: string;
-  reason: string | null;
-  notes: string | null;
+  note: string | null;
+  status: 'PENDING' | 'APPROVED' | 'DENIED';
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+interface ScheduleOverride {
+  id: string;
+  date: string;
+  type: 'off' | 'hours';
+  startTime: string | null;
+  endTime: string | null;
+  note: string | null;
 }
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
@@ -107,30 +133,22 @@ function DayScheduleEditor({
 }
 
 // =============================================================================
-// Time Off Card
+// Time Off Request Card (Request-based, not direct write)
 // =============================================================================
 
-function TimeOffCard({
-  entry,
-  onDelete,
-  isDeleting,
-}: {
-  entry: TimeOffEntry;
-  onDelete: (id: string) => void;
-  isDeleting: boolean;
-}) {
+function TimeOffRequestCard({ request }: { request: TimeOffRequest }) {
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = new Date(dateStr + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const reasonLabels: Record<string, string> = {
-    vacation: '🏖️ Vacation',
-    sick: '🤒 Sick Day',
-    personal: '👤 Personal',
-    training: '📚 Training',
-    other: '📝 Other',
+  const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
+    PENDING: { bg: '#FEF3C7', text: '#D97706', label: 'Pending' },
+    APPROVED: { bg: '#D1FAE5', text: '#059669', label: 'Approved' },
+    DENIED: { bg: '#FEE2E2', text: '#DC2626', label: 'Denied' },
   };
+
+  const style = statusStyles[request.status] || statusStyles.PENDING;
 
   return (
     <div
@@ -139,121 +157,593 @@ function TimeOffCard({
     >
       <div>
         <div className="font-medium text-neutral-900">
-          {formatDate(entry.startDate)} – {formatDate(entry.endDate)}
+          {formatDate(request.startDate)} – {formatDate(request.endDate)}
         </div>
-        <div className="text-sm text-neutral-500">
-          {entry.reason ? reasonLabels[entry.reason] || entry.reason : 'Time Off'}
-        </div>
-        {entry.notes && (
-          <div className="mt-1 text-xs text-neutral-400">{entry.notes}</div>
+        {request.note && (
+          <div className="mt-0.5 text-xs text-neutral-500">{request.note}</div>
         )}
       </div>
+      <span
+        className="rounded-full px-2.5 py-1 text-xs font-semibold"
+        style={{ backgroundColor: style.bg, color: style.text }}
+      >
+        {style.label}
+      </span>
+    </div>
+  );
+}
+
+// =============================================================================
+// Mini Calendar Component
+// =============================================================================
+
+function MiniCalendar({
+  selectedDate,
+  onSelect,
+  minDate,
+  onClose,
+}: {
+  selectedDate: string;
+  onSelect: (date: string) => void;
+  minDate?: string;
+  onClose: () => void;
+}) {
+  const [viewDate, setViewDate] = useState(() => {
+    if (selectedDate) return new Date(selectedDate + 'T00:00:00');
+    return new Date();
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const minDateObj = minDate ? new Date(minDate + 'T00:00:00') : today;
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDay = firstDay.getDay();
+
+    const days: (Date | null)[] = [];
+    for (let i = 0; i < startingDay; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const days = getDaysInMonth(viewDate);
+
+  const goToPrevMonth = () => {
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+  };
+
+  const formatDateString = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const isDisabled = (date: Date) => date < minDateObj;
+  const isSelected = (date: Date) => selectedDate === formatDateString(date);
+  const isToday = (date: Date) => formatDateString(date) === formatDateString(today);
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 shadow-lg">
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={goToPrevMonth}
+          className="flex size-8 items-center justify-center rounded-full text-neutral-600 transition-colors hover:bg-neutral-100"
+        >
+          ←
+        </button>
+        <span className="text-sm font-semibold text-neutral-900">
+          {monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}
+        </span>
+        <button
+          type="button"
+          onClick={goToNextMonth}
+          className="flex size-8 items-center justify-center rounded-full text-neutral-600 transition-colors hover:bg-neutral-100"
+        >
+          →
+        </button>
+      </div>
+
+      <div className="mb-2 grid grid-cols-7 gap-1">
+        {dayNames.map((day) => (
+          <div key={day} className="py-1 text-center text-xs font-medium text-neutral-400">
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((date, index) => {
+          if (!date) {
+            return <div key={`empty-${index}`} className="aspect-square" />;
+          }
+
+          const disabled = isDisabled(date);
+          const selected = isSelected(date);
+          const todayDate = isToday(date);
+
+          return (
+            <button
+              key={formatDateString(date)}
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                onSelect(formatDateString(date));
+                onClose();
+              }}
+              className={`
+                flex aspect-square items-center justify-center rounded-full text-sm font-medium transition-all
+                ${disabled ? 'cursor-not-allowed text-neutral-300' : 'cursor-pointer hover:bg-amber-100'}
+                ${selected ? 'bg-amber-500 text-white hover:bg-amber-600' : ''}
+                ${todayDate && !selected ? 'border-2 border-amber-400' : ''}
+              `}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+
       <button
         type="button"
-        onClick={() => onDelete(entry.id)}
-        disabled={isDeleting}
-        className="rounded-lg px-2 py-1 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+        onClick={onClose}
+        className="mt-3 w-full rounded-lg bg-neutral-100 py-2 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-200"
       >
-        Remove
+        Close
       </button>
     </div>
   );
 }
 
 // =============================================================================
-// Add Time Off Form
+// Schedule Override Card
 // =============================================================================
 
-function AddTimeOffForm({
-  onAdd,
+function OverrideCard({
+  override,
+  onEdit,
+  onDelete,
+  isDeleting,
+}: {
+  override: ScheduleOverride;
+  onEdit: (override: ScheduleOverride) => void;
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
+}) {
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':').map(Number);
+    const ampm = hours! >= 12 ? 'pm' : 'am';
+    const displayHours = hours! % 12 || 12;
+    return `${displayHours}:${String(minutes).padStart(2, '0')}${ampm}`;
+  };
+
+  return (
+    <div
+      className="flex items-center justify-between rounded-xl p-3"
+      style={{ backgroundColor: themeVars.surfaceAlt }}
+    >
+      <div className="flex-1">
+        <div className="font-medium text-neutral-900">
+          {formatDate(override.date)}
+        </div>
+        <div className="flex items-center gap-2">
+          {override.type === 'off' ? (
+            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+              OFF
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+              {formatTime(override.startTime!)} – {formatTime(override.endTime!)}
+            </span>
+          )}
+        </div>
+        {override.note && (
+          <div className="mt-1 text-xs text-neutral-500">{override.note}</div>
+        )}
+      </div>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={() => onEdit(override)}
+          className="rounded-lg px-2 py-1 text-sm text-neutral-600 transition-colors hover:bg-neutral-100"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(override.id)}
+          disabled={isDeleting}
+          className="rounded-lg px-2 py-1 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Add Override Form
+// =============================================================================
+
+function AddOverrideForm({
+  editingOverride,
+  onSave,
   onCancel,
   isSubmitting,
 }: {
-  onAdd: (startDate: string, endDate: string, reason: string, notes: string) => void;
+  editingOverride: ScheduleOverride | null;
+  onSave: (data: {
+    startDate: string;
+    endDate: string;
+    type: 'off' | 'hours';
+    startTime?: string;
+    endTime?: string;
+    note?: string;
+  }) => void;
+  onCancel: () => void;
+  isSubmitting: boolean;
+}) {
+  const [startDate, setStartDate] = useState(editingOverride?.date || '');
+  const [endDate, setEndDate] = useState(editingOverride?.date || '');
+  const [type, setType] = useState<'off' | 'hours'>(editingOverride?.type || 'off');
+  const [startTime, setStartTime] = useState(editingOverride?.startTime || '09:00');
+  const [endTime, setEndTime] = useState(editingOverride?.endTime || '17:00');
+  const [note, setNote] = useState(editingOverride?.note || '');
+  const [showStartCalendar, setShowStartCalendar] = useState(false);
+  const [showEndCalendar, setShowEndCalendar] = useState(false);
+
+  const isEditing = !!editingOverride;
+
+  const handleSubmit = () => {
+    if (!startDate) return;
+    const effectiveEndDate = isEditing ? startDate : (endDate || startDate);
+    
+    onSave({
+      startDate,
+      endDate: effectiveEndDate,
+      type,
+      ...(type === 'hours' && { startTime, endTime }),
+      ...(note && { note }),
+    });
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const formatDisplayDate = (dateStr: string) => {
+    if (!dateStr) return 'Tap to select';
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 rounded-xl bg-neutral-100 p-1">
+        <button
+          type="button"
+          onClick={() => setType('off')}
+          className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+            type === 'off'
+              ? 'bg-white text-neutral-900 shadow-sm'
+              : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          Day Off
+        </button>
+        <button
+          type="button"
+          onClick={() => setType('hours')}
+          className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+            type === 'hours'
+              ? 'bg-white text-neutral-900 shadow-sm'
+              : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          Custom Hours
+        </button>
+      </div>
+
+      <div className={isEditing ? '' : 'grid grid-cols-2 gap-3'}>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            {isEditing ? 'Date' : 'Start Date'}
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setShowStartCalendar(!showStartCalendar);
+              setShowEndCalendar(false);
+            }}
+            className={`
+              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
+              ${startDate 
+                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
+                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+            `}
+          >
+            <div className="flex items-center justify-between">
+              <span>{formatDisplayDate(startDate)}</span>
+              <span className="text-lg">📅</span>
+            </div>
+          </button>
+          {showStartCalendar && (
+            <div className="mt-2">
+              <MiniCalendar
+                selectedDate={startDate}
+                onSelect={(date) => {
+                  setStartDate(date);
+                  if (!isEditing && endDate && date > endDate) {
+                    setEndDate('');
+                  }
+                }}
+                minDate={today}
+                onClose={() => setShowStartCalendar(false)}
+              />
+            </div>
+          )}
+        </div>
+        {!isEditing && (
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              End Date
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setShowEndCalendar(!showEndCalendar);
+                setShowStartCalendar(false);
+              }}
+              className={`
+                w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
+                ${endDate 
+                  ? 'border-amber-400 bg-amber-50 text-neutral-900' 
+                  : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+              `}
+            >
+              <div className="flex items-center justify-between">
+                <span>{formatDisplayDate(endDate)}</span>
+                <span className="text-lg">📅</span>
+              </div>
+            </button>
+            {showEndCalendar && (
+              <div className="mt-2">
+                <MiniCalendar
+                  selectedDate={endDate}
+                  onSelect={setEndDate}
+                  minDate={startDate || today}
+                  onClose={() => setShowEndCalendar(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {type === 'hours' && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Start Time
+            </label>
+            <select
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
+            >
+              {TIME_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              End Time
+            </label>
+            <select
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
+            >
+              {TIME_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Note (optional)
+        </label>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g., Doctor appointment"
+          className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
+        />
+      </div>
+
+      <div className="flex gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSubmitting}
+          className="flex-1 rounded-xl border-2 border-neutral-200 py-3 text-sm font-semibold text-neutral-600 transition-all hover:bg-neutral-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!startDate || isSubmitting}
+          className="flex-1 rounded-xl py-3 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: themeVars.accent }}
+        >
+          {isSubmitting ? 'Saving...' : isEditing ? 'Update' : 'Add Override'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Request Time Off Form (EDIT 2: Request-based, not direct write)
+// =============================================================================
+
+function RequestTimeOffForm({
+  onSubmit,
+  onCancel,
+  isSubmitting,
+}: {
+  onSubmit: (startDate: string, endDate: string, note: string) => void;
   onCancel: () => void;
   isSubmitting: boolean;
 }) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('personal');
-  const [notes, setNotes] = useState('');
+  const [note, setNote] = useState('');
+  const [showStartCalendar, setShowStartCalendar] = useState(false);
+  const [showEndCalendar, setShowEndCalendar] = useState(false);
 
   const handleSubmit = () => {
     if (!startDate || !endDate) return;
-    onAdd(startDate, endDate, reason, notes);
+    onSubmit(startDate, endDate, note);
   };
 
   const today = new Date().toISOString().split('T')[0];
 
+  const formatDisplayDate = (dateStr: string) => {
+    if (!dateStr) return 'Tap to select';
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+        <strong>Note:</strong> Time off requests require admin approval. You&apos;ll receive a notification when your request is reviewed.
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label htmlFor="start-date" className="mb-1 block text-xs font-medium text-neutral-600">
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             Start Date
           </label>
-          <input
-            id="start-date"
-            type="date"
-            value={startDate}
-            min={today}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="w-full rounded-lg border-0 bg-neutral-100 px-3 py-2 text-sm"
-          />
+          <button
+            type="button"
+            onClick={() => {
+              setShowStartCalendar(!showStartCalendar);
+              setShowEndCalendar(false);
+            }}
+            className={`
+              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
+              ${startDate 
+                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
+                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+            `}
+          >
+            <div className="flex items-center justify-between">
+              <span>{formatDisplayDate(startDate)}</span>
+              <span className="text-lg">📅</span>
+            </div>
+          </button>
+          {showStartCalendar && (
+            <div className="mt-2">
+              <MiniCalendar
+                selectedDate={startDate}
+                onSelect={(date) => {
+                  setStartDate(date);
+                  if (endDate && date > endDate) {
+                    setEndDate('');
+                  }
+                }}
+                minDate={today}
+                onClose={() => setShowStartCalendar(false)}
+              />
+            </div>
+          )}
         </div>
         <div>
-          <label htmlFor="end-date" className="mb-1 block text-xs font-medium text-neutral-600">
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             End Date
           </label>
-          <input
-            id="end-date"
-            type="date"
-            value={endDate}
-            min={startDate || today}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="w-full rounded-lg border-0 bg-neutral-100 px-3 py-2 text-sm"
-          />
+          <button
+            type="button"
+            onClick={() => {
+              setShowEndCalendar(!showEndCalendar);
+              setShowStartCalendar(false);
+            }}
+            className={`
+              w-full rounded-xl border-2 px-3 py-3 text-left text-sm font-medium transition-all
+              ${endDate 
+                ? 'border-amber-400 bg-amber-50 text-neutral-900' 
+                : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
+            `}
+          >
+            <div className="flex items-center justify-between">
+              <span>{formatDisplayDate(endDate)}</span>
+              <span className="text-lg">📅</span>
+            </div>
+          </button>
+          {showEndCalendar && (
+            <div className="mt-2">
+              <MiniCalendar
+                selectedDate={endDate}
+                onSelect={setEndDate}
+                minDate={startDate || today}
+                onClose={() => setShowEndCalendar(false)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
       <div>
-        <label htmlFor="reason-select" className="mb-1 block text-xs font-medium text-neutral-600">
-          Reason
-        </label>
-        <select
-          id="reason-select"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          className="w-full rounded-lg border-0 bg-neutral-100 px-3 py-2 text-sm"
-        >
-          <option value="vacation">🏖️ Vacation</option>
-          <option value="sick">🤒 Sick Day</option>
-          <option value="personal">👤 Personal</option>
-          <option value="training">📚 Training</option>
-          <option value="other">📝 Other</option>
-        </select>
-      </div>
-
-      <div>
-        <label htmlFor="notes-input" className="mb-1 block text-xs font-medium text-neutral-600">
-          Notes (optional)
+        <label htmlFor="request-note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Note (optional)
         </label>
         <input
-          id="notes-input"
+          id="request-note"
           type="text"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Any additional notes..."
-          className="w-full rounded-lg border-0 bg-neutral-100 px-3 py-2 text-sm"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g., Family vacation"
+          className="w-full rounded-xl border-2 border-neutral-200 bg-white px-3 py-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
         />
       </div>
 
-      <div className="flex gap-2 pt-2">
+      <div className="flex gap-3 pt-2">
         <button
           type="button"
           onClick={onCancel}
           disabled={isSubmitting}
-          className="flex-1 rounded-full py-2 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100"
+          className="flex-1 rounded-xl border-2 border-neutral-200 py-3 text-sm font-semibold text-neutral-600 transition-all hover:bg-neutral-50 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -261,10 +751,10 @@ function AddTimeOffForm({
           type="button"
           onClick={handleSubmit}
           disabled={!startDate || !endDate || isSubmitting}
-          className="flex-1 rounded-full py-2 text-sm font-bold text-neutral-900 transition-all hover:opacity-90 disabled:opacity-50"
-          style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
+          className="flex-1 rounded-xl py-3 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+          style={{ backgroundColor: themeVars.accent }}
         >
-          {isSubmitting ? 'Adding...' : 'Add Time Off'}
+          {isSubmitting ? 'Submitting...' : 'Submit Request'}
         </button>
       </div>
     </div>
@@ -276,28 +766,72 @@ function AddTimeOffForm({
 // =============================================================================
 
 export default function StaffSchedulePage() {
-  const { user, isLoaded } = useUser();
   const router = useRouter();
   const params = useParams();
-  const { salonName, salonSlug } = useSalon();
+  const { salonName: providerSalonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
 
+  // Staff auth state
+  const [authState, setAuthState] = useState<StaffAuthState>('loading');
+  
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
-  const [timeOffEntries, setTimeOffEntries] = useState<TimeOffEntry[]>([]);
-  const [showAddTimeOff, setShowAddTimeOff] = useState(false);
-  const [addingTimeOff, setAddingTimeOff] = useState(false);
-  const [deletingTimeOffId, setDeletingTimeOffId] = useState<string | null>(null);
+  const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
+  const [showRequestTimeOff, setShowRequestTimeOff] = useState(false);
+  const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [technicianId, setTechnicianId] = useState<string | null>(null);
+  const [salonSlug, setSalonSlug] = useState<string | null>(null);
+  const [salonName, setSalonName] = useState<string>(providerSalonName);
+  
+  // Schedule overrides state
+  const [overrides, setOverrides] = useState<ScheduleOverride[]>([]);
+  const [showAddOverride, setShowAddOverride] = useState(false);
+  const [editingOverride, setEditingOverride] = useState<ScheduleOverride | null>(null);
+  const [savingOverride, setSavingOverride] = useState(false);
+  const [deletingOverrideId, setDeletingOverrideId] = useState<string | null>(null);
+  
+  // Module capabilities
+  const { modules, loading: capabilitiesLoading } = useStaffCapabilities();
+  const scheduleOverridesEnabled = modules?.scheduleOverrides ?? false;
 
-  // For demo purposes, use a fixed technician ID
-  // In production, this would come from the authenticated user's profile
-  const technicianId = 'tech_daniela';
+  // Fetch staff info from session
+  useEffect(() => {
+    const fetchStaffInfo = async () => {
+      try {
+        const response = await fetch('/api/staff/me');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data?.technician?.id) {
+            setTechnicianId(data.data.technician.id);
+          }
+          if (data.data?.salon?.slug) {
+            setSalonSlug(data.data.salon.slug);
+          }
+          if (data.data?.salon?.name) {
+            setSalonName(data.data.salon.name);
+          }
+          setAuthState('authed');
+        } else if (response.status === 401) {
+          setAuthState('unauthed');
+          router.replace(`/${locale}/staff-login`);
+        } else {
+          setAuthState('unauthed');
+          router.replace(`/${locale}/staff-login`);
+        }
+      } catch (error) {
+        console.error('Failed to fetch staff info:', error);
+        setAuthState('unauthed');
+        router.replace(`/${locale}/staff-login`);
+      }
+    };
+    fetchStaffInfo();
+  }, [locale, router]);
 
-  // Fetch schedule and time-off
+  // Fetch schedule data
   const fetchData = useCallback(async () => {
-    if (!salonSlug) return;
+    if (!salonSlug || !technicianId) return;
 
     setLoading(true);
     try {
@@ -310,34 +844,48 @@ export default function StaffSchedulePage() {
         setWeeklySchedule(data.data?.weeklySchedule || {});
       }
 
-      // Fetch time-off
-      const timeOffResponse = await fetch(
-        `/api/staff/time-off?technicianId=${technicianId}&salonSlug=${salonSlug}`,
-      );
-      if (timeOffResponse.ok) {
-        const data = await timeOffResponse.json();
-        setTimeOffEntries(data.data?.timeOff || []);
+      // Fetch time-off requests (new endpoint)
+      const requestsResponse = await fetch('/api/staff/time-off-requests');
+      if (requestsResponse.ok) {
+        const data = await requestsResponse.json();
+        setTimeOffRequests(data.data?.requests || []);
+      }
+
+      // Fetch schedule overrides if module enabled
+      if (scheduleOverridesEnabled) {
+        const overridesResponse = await fetch('/api/staff/overrides');
+        if (overridesResponse.ok) {
+          const data = await overridesResponse.json();
+          setOverrides(data.data?.overrides || []);
+        } else {
+          const errorData = await overridesResponse.json().catch(() => ({}));
+          if (errorData.error?.code === 'MODULE_DISABLED') {
+            setOverrides([]);
+          }
+        }
+      } else {
+        setOverrides([]);
       }
     } catch (error) {
       console.error('Failed to fetch schedule:', error);
     } finally {
       setLoading(false);
     }
-  }, [salonSlug]);
+  }, [salonSlug, technicianId, scheduleOverridesEnabled]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (isLoaded && user && salonSlug) {
+    if (authState === 'authed' && salonSlug && technicianId) {
       fetchData();
     }
-  }, [isLoaded, user, salonSlug, fetchData]);
+  }, [authState, salonSlug, technicianId, fetchData]);
 
-  // Save schedule
+  // Save weekly schedule
   const handleSaveSchedule = async () => {
-    if (!salonSlug) return;
+    if (!salonSlug || !technicianId) return;
 
     setSaving(true);
     try {
@@ -352,7 +900,7 @@ export default function StaffSchedulePage() {
       });
 
       if (response.ok) {
-        // Show success feedback
+        // Success feedback could be added here
       }
     } catch (error) {
       console.error('Failed to save schedule:', error);
@@ -369,57 +917,106 @@ export default function StaffSchedulePage() {
     }));
   };
 
-  // Add time-off
-  const handleAddTimeOff = async (startDate: string, endDate: string, reason: string, notes: string) => {
-    if (!salonSlug) return;
-
-    setAddingTimeOff(true);
+  // Submit time off request (EDIT 2: Request-based)
+  const handleSubmitTimeOffRequest = async (startDate: string, endDate: string, note: string) => {
+    setSubmittingRequest(true);
     try {
-      const response = await fetch('/api/staff/time-off', {
+      const response = await fetch('/api/staff/time-off-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          technicianId,
-          salonSlug,
-          startDate: new Date(startDate).toISOString(),
-          endDate: new Date(endDate).toISOString(),
-          reason,
-          notes,
-        }),
+        body: JSON.stringify({ startDate, endDate, note: note || undefined }),
       });
 
       if (response.ok) {
         await fetchData();
-        setShowAddTimeOff(false);
+        setShowRequestTimeOff(false);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to submit request:', errorData);
       }
     } catch (error) {
-      console.error('Failed to add time-off:', error);
+      console.error('Failed to submit time-off request:', error);
     } finally {
-      setAddingTimeOff(false);
+      setSubmittingRequest(false);
     }
   };
 
-  // Delete time-off
-  const handleDeleteTimeOff = async (id: string) => {
-    if (!salonSlug) return;
-
-    setDeletingTimeOffId(id);
+  // Save schedule override
+  const handleSaveOverride = async (data: {
+    startDate: string;
+    endDate: string;
+    type: 'off' | 'hours';
+    startTime?: string;
+    endTime?: string;
+    note?: string;
+  }) => {
+    setSavingOverride(true);
     try {
-      const response = await fetch(`/api/staff/time-off/${id}?salonSlug=${salonSlug}`, {
+      if (editingOverride) {
+        const response = await fetch(`/api/staff/overrides/${editingOverride.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: data.type,
+            startTime: data.startTime,
+            endTime: data.endTime,
+            note: data.note,
+          }),
+        });
+
+        if (response.ok) {
+          await fetchData();
+          setEditingOverride(null);
+          setShowAddOverride(false);
+        }
+      } else {
+        const response = await fetch('/api/staff/overrides', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+
+        if (response.ok) {
+          await fetchData();
+          setShowAddOverride(false);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save override:', error);
+    } finally {
+      setSavingOverride(false);
+    }
+  };
+
+  // Delete schedule override
+  const handleDeleteOverride = async (id: string) => {
+    setDeletingOverrideId(id);
+    try {
+      const response = await fetch(`/api/staff/overrides/${id}`, {
         method: 'DELETE',
       });
 
       if (response.ok) {
-        setTimeOffEntries((prev) => prev.filter((e) => e.id !== id));
+        setOverrides((prev) => prev.filter((o) => o.id !== id));
       }
     } catch (error) {
-      console.error('Failed to delete time-off:', error);
+      console.error('Failed to delete override:', error);
     } finally {
-      setDeletingTimeOffId(null);
+      setDeletingOverrideId(null);
     }
   };
 
-  if (!isLoaded) {
+  // Edit override
+  const handleEditOverride = (override: ScheduleOverride) => {
+    setEditingOverride(override);
+    setShowAddOverride(true);
+  };
+
+  // Get approved time off for display
+  const approvedTimeOff = timeOffRequests.filter((r) => r.status === 'APPROVED');
+
+  // Auth loading state
+  if (authState === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
         <div
@@ -430,18 +1027,8 @@ export default function StaffSchedulePage() {
     );
   }
 
-  if (!user) {
-    return (
-      <div
-        className="flex min-h-screen flex-col items-center justify-center p-4"
-        style={{ backgroundColor: themeVars.background }}
-      >
-        <h1 className="mb-4 text-2xl font-bold" style={{ color: themeVars.titleText }}>
-          Staff Access Required
-        </h1>
-        <p className="text-neutral-600">Please sign in to access this page.</p>
-      </div>
-    );
+  if (authState === 'unauthed') {
+    return null;
   }
 
   return (
@@ -452,33 +1039,32 @@ export default function StaffSchedulePage() {
       }}
     >
       <div className="mx-auto max-w-2xl px-4">
-        {/* Header */}
-        <div
-          className="pb-4 pt-6"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
-            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.push(`/${locale}/staff`)}
-              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-xl font-bold" style={{ color: themeVars.titleText }}>
-                My Schedule
-              </h1>
-              <p className="text-sm text-neutral-600">{salonName}</p>
-            </div>
+        {/* Header with notification bell */}
+        <StaffHeader
+          title="My Schedule"
+          subtitle={salonName}
+          showBack
+          onBack={() => router.push(`/${locale}/staff`)}
+        />
+
+        {/* Approved Time Off Banner */}
+        {approvedTimeOff.length > 0 && (
+          <div
+            className="mb-4 rounded-xl bg-green-50 p-3"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
+            }}
+          >
+            <div className="text-sm font-medium text-green-800">Upcoming Approved Time Off</div>
+            {approvedTimeOff.slice(0, 3).map((r) => (
+              <div key={r.id} className="mt-1 text-xs text-green-700">
+                {new Date(r.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(r.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </div>
+            ))}
           </div>
-        </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -530,48 +1116,111 @@ export default function StaffSchedulePage() {
               </div>
             </div>
 
-            {/* Time Off */}
+            {/* Upcoming Changes (Schedule Overrides) - Only show if module enabled */}
+            {capabilitiesLoading ? (
+              <ModuleSkeleton />
+            ) : scheduleOverridesEnabled ? (
+              <div
+                className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+              >
+                <div className="p-4">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                        Upcoming Changes
+                      </h2>
+                      <p className="text-xs text-neutral-500">One-time schedule adjustments</p>
+                    </div>
+                    {!showAddOverride && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingOverride(null);
+                          setShowAddOverride(true);
+                        }}
+                        className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
+                        style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                      >
+                        + Add
+                      </button>
+                    )}
+                  </div>
+
+                  {showAddOverride ? (
+                    <AddOverrideForm
+                      editingOverride={editingOverride}
+                      onSave={handleSaveOverride}
+                      onCancel={() => {
+                        setShowAddOverride(false);
+                        setEditingOverride(null);
+                      }}
+                      isSubmitting={savingOverride}
+                    />
+                  ) : overrides.length === 0 ? (
+                    <div className="py-6 text-center text-neutral-500">
+                      <div className="mb-2 text-2xl">✨</div>
+                      <p>No upcoming changes</p>
+                      <p className="mt-1 text-xs">Add a day off or custom hours</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {overrides.map((override) => (
+                        <OverrideCard
+                          key={override.id}
+                          override={override}
+                          onEdit={handleEditOverride}
+                          onDelete={handleDeleteOverride}
+                          isDeleting={deletingOverrideId === override.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Time Off Requests (EDIT 2: Request-based) */}
             <div
               className="overflow-hidden rounded-2xl bg-white shadow-lg"
               style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
             >
               <div className="p-4">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-bold" style={{ color: themeVars.titleText }}>
-                    Time Off
-                  </h2>
-                  {!showAddTimeOff && (
+                  <div>
+                    <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                      Time Off Requests
+                    </h2>
+                    <p className="text-xs text-neutral-500">Requires admin approval</p>
+                  </div>
+                  {!showRequestTimeOff && (
                     <button
                       type="button"
-                      onClick={() => setShowAddTimeOff(true)}
+                      onClick={() => setShowRequestTimeOff(true)}
                       className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
                       style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
                     >
-                      + Add
+                      + Request
                     </button>
                   )}
                 </div>
 
-                {showAddTimeOff ? (
-                  <AddTimeOffForm
-                    onAdd={handleAddTimeOff}
-                    onCancel={() => setShowAddTimeOff(false)}
-                    isSubmitting={addingTimeOff}
+                {showRequestTimeOff ? (
+                  <RequestTimeOffForm
+                    onSubmit={handleSubmitTimeOffRequest}
+                    onCancel={() => setShowRequestTimeOff(false)}
+                    isSubmitting={submittingRequest}
                   />
-                ) : timeOffEntries.length === 0 ? (
+                ) : timeOffRequests.length === 0 ? (
                   <div className="py-6 text-center text-neutral-500">
                     <div className="mb-2 text-2xl">📅</div>
-                    <p>No time off scheduled</p>
+                    <p>No time off requests</p>
+                    <p className="mt-1 text-xs">Submit a request for admin approval</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {timeOffEntries.map((entry) => (
-                      <TimeOffCard
-                        key={entry.id}
-                        entry={entry}
-                        onDelete={handleDeleteTimeOff}
-                        isDeleting={deletingTimeOffId === entry.id}
-                      />
+                    {timeOffRequests.map((request) => (
+                      <TimeOffRequestCard key={request.id} request={request} />
                     ))}
                   </div>
                 )}
@@ -581,40 +1230,7 @@ export default function StaffSchedulePage() {
         )}
       </div>
 
-      {/* Bottom Navigation */}
-      <div
-        className="fixed bottom-0 left-0 right-0 border-t bg-white/95 px-4 py-3 backdrop-blur-sm"
-        style={{ borderColor: themeVars.cardBorder }}
-      >
-        <div className="mx-auto flex max-w-2xl items-center justify-around">
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">🏠</span>
-            <span className="text-xs font-medium">Home</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/appointments`)}
-            className="flex flex-col items-center gap-0.5 text-center text-neutral-500"
-          >
-            <span className="text-xl">📸</span>
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push(`/${locale}/staff/schedule`)}
-            className="flex flex-col items-center gap-0.5 text-center"
-            style={{ color: themeVars.accent }}
-          >
-            <span className="text-xl">⏰</span>
-            <span className="text-xs font-medium">Schedule</span>
-          </button>
-        </div>
-      </div>
+      <StaffBottomNav activeItem="schedule" />
     </div>
   );
 }
-

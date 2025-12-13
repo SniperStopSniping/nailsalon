@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgEnum,
   pgTable,
   primaryKey,
   serial,
@@ -25,6 +26,33 @@ import {
 
 // Need a database for production? Check out https://www.prisma.io/?via=saasboilerplatesrc
 // Tested and compatible with Next.js Boilerplate
+
+// =============================================================================
+// ENUMS (Canvas Flow OS + Policies)
+// =============================================================================
+
+export const canvasStateEnum = pgEnum('canvas_state', [
+  'waiting',
+  'working',
+  'wrap_up',
+  'complete',
+  'cancelled',
+  'no_show',
+]);
+
+export const photoRequirementModeEnum = pgEnum('photo_requirement_mode', [
+  'off',
+  'optional',
+  'required',
+]);
+
+export const autopostStatusEnum = pgEnum('autopost_status', [
+  'queued',
+  'processing',
+  'posted',
+  'failed',
+]);
+
 export const organizationSchema = pgTable(
   'organization',
   {
@@ -145,10 +173,23 @@ export const salonSchema = pgTable(
 
     // Owner tracking (nullable for existing rows)
     ownerEmail: text('owner_email'),
+    ownerName: text('owner_name'),
+    ownerPhone: text('owner_phone'),
     ownerClerkUserId: text('owner_clerk_user_id'),
 
     // Internal (super admin only, nullable)
     internalNotes: text('internal_notes'),
+
+    // Operational settings (Step 16A)
+    graceWindowMinutes: integer('grace_window_minutes').default(10), // Late arrival grace period
+
+    // Admin settings + visibility policy (Step 16)
+    settings: jsonb('settings').$type<import('@/types/salonPolicy').SalonSettings>(),
+    visibility: jsonb('visibility').$type<import('@/types/salonPolicy').SalonVisibilityPolicy>(),
+
+    // Feature entitlements (Step 16.1 - Super Admin controlled)
+    // Note: This supplements the existing boolean columns for future extensibility
+    features: jsonb('features').$type<import('@/types/salonPolicy').SalonFeatures>(),
 
     // Soft delete (super admin)
     deletedAt: timestamp('deleted_at', { mode: 'date' }),
@@ -350,6 +391,13 @@ export const appointmentSchema = pgTable(
     cancelReason: text('cancel_reason'),
     // 'rescheduled' | 'client_request' | 'no_show' | null
 
+    // Canvas Flow OS state (parallel to legacy status)
+    canvasState: canvasStateEnum('canvas_state').default('waiting'),
+    canvasStateUpdatedAt: timestamp('canvas_state_updated_at', { mode: 'date', withTimezone: true }),
+
+    // Soft delete
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
+
     // Totals (computed from linked services at booking time)
     totalPrice: integer('total_price').notNull(), // Sum of all service prices
     totalDurationMinutes: integer('total_duration_minutes').notNull(), // Sum of durations
@@ -360,6 +408,17 @@ export const appointmentSchema = pgTable(
     // Lifecycle timestamps (for staff workflow)
     startedAt: timestamp('started_at', { mode: 'date' }), // When tech starts the appointment
     completedAt: timestamp('completed_at', { mode: 'date' }), // When appointment is finished
+
+    // Appointment locking (Step 16A - prevents edits once service starts)
+    lockedAt: timestamp('locked_at', { mode: 'date' }), // Set when canvas_state -> 'working'
+    lockedBy: text('locked_by'), // technician ID who locked it
+
+    // Arrival tracking (Step 16A - grace window handling)
+    arrivedAt: timestamp('arrived_at', { mode: 'date' }),
+    wasLate: boolean('was_late').default(false),
+
+    // Staff private notes (Step 16A - only visible to assigned tech)
+    techNotes: text('tech_notes'),
 
     // Payment
     paymentStatus: text('payment_status').default('pending'), // 'pending' | 'paid'
@@ -376,6 +435,8 @@ export const appointmentSchema = pgTable(
     clientIdx: index('appointment_client_idx').on(table.clientPhone),
     dateIdx: index('appointment_date_idx').on(table.salonId, table.startTime),
     statusIdx: index('appointment_status_idx').on(table.salonId, table.status),
+    techStartTimeIdx: index('appointment_tech_start_time_idx').on(table.technicianId, table.startTime),
+    deletedAtIdx: index('appointment_deleted_at_idx').on(table.deletedAt),
   }),
 );
 
@@ -509,6 +570,20 @@ export const salonClientSchema = pgTable(
     totalSpent: integer('total_spent').default(0), // in cents
     noShowCount: integer('no_show_count').default(0),
     loyaltyPoints: integer('loyalty_points').default(0),
+
+    // Late cancellation tracking (Step 16A - client accountability)
+    lateCancelCount: integer('late_cancel_count').default(0),
+    lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date' }),
+
+    // Admin-only client flags (Step 16A - problem client management)
+    adminFlags: jsonb('admin_flags').$type<{
+      isProblemClient?: boolean;
+      flagReason?: string;
+      flaggedAt?: string;
+      flaggedBy?: string;
+    }>(),
+    isBlocked: boolean('is_blocked').default(false),
+    blockedReason: text('blocked_reason'),
 
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
@@ -762,6 +837,49 @@ export const technicianBlockedSlotSchema = pgTable(
     technicianIdx: index('blocked_slot_technician_idx').on(table.technicianId),
     salonIdx: index('blocked_slot_salon_idx').on(table.salonId),
     dayIdx: index('blocked_slot_day_idx').on(table.technicianId, table.dayOfWeek),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// TechnicianScheduleOverride - Per-date availability overrides
+// Overrides weekly schedule for specific dates (off days or custom hours)
+// -----------------------------------------------------------------------------
+export const technicianScheduleOverrideSchema = pgTable(
+  'technician_schedule_override',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+    technicianId: text('technician_id')
+      .notNull()
+      .references(() => technicianSchema.id, { onDelete: 'cascade' }),
+
+    // Single date for this override
+    date: text('date').notNull(), // YYYY-MM-DD format
+
+    // Type: 'off' = day off, 'hours' = custom working hours
+    type: text('type').notNull(), // 'off' | 'hours'
+
+    // Custom hours (required when type='hours')
+    startTime: text('start_time'), // "HH:mm" format
+    endTime: text('end_time'), // "HH:mm" format
+
+    // Optional note
+    note: text('note'),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    // One override per technician per day
+    uniqueTechDate: uniqueIndex('schedule_override_tech_date_idx').on(table.technicianId, table.date),
+    salonIdx: index('schedule_override_salon_idx').on(table.salonId),
+    dateIdx: index('schedule_override_date_idx').on(table.technicianId, table.date),
   }),
 );
 
@@ -1037,6 +1155,9 @@ export type NewTechnicianTimeOff = typeof technicianTimeOffSchema.$inferInsert;
 export type TechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferSelect;
 export type NewTechnicianBlockedSlot = typeof technicianBlockedSlotSchema.$inferInsert;
 
+export type TechnicianScheduleOverride = typeof technicianScheduleOverrideSchema.$inferSelect;
+export type NewTechnicianScheduleOverride = typeof technicianScheduleOverrideSchema.$inferInsert;
+
 export type SalonPageAppearance = typeof salonPageAppearanceSchema.$inferSelect;
 export type NewSalonPageAppearance = typeof salonPageAppearanceSchema.$inferInsert;
 
@@ -1129,6 +1250,9 @@ export const BLOCKED_SLOT_LABELS = [
 ] as const;
 export type BlockedSlotLabel = (typeof BLOCKED_SLOT_LABELS)[number];
 
+export const SCHEDULE_OVERRIDE_TYPES = ['off', 'hours'] as const;
+export type ScheduleOverrideType = (typeof SCHEDULE_OVERRIDE_TYPES)[number];
+
 export const PAGE_APPEARANCE_MODES = ['custom', 'theme'] as const;
 export type PageAppearanceMode = (typeof PAGE_APPEARANCE_MODES)[number];
 
@@ -1189,3 +1313,343 @@ export type AdminInviteRole = (typeof ADMIN_INVITE_ROLES)[number];
 
 export const ADMIN_MEMBERSHIP_ROLES = ['admin', 'owner'] as const;
 export type AdminMembershipRole = (typeof ADMIN_MEMBERSHIP_ROLES)[number];
+
+// =============================================================================
+// CANVAS FLOW OS SCHEMAS (Step 9.1)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// AppointmentArtifacts - 1:1 photo artifacts for appointments
+// -----------------------------------------------------------------------------
+export const appointmentArtifactsSchema = pgTable(
+  'appointment_artifacts',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .unique()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+
+    // Photo URLs (null by default, never empty string)
+    beforePhotoUrl: text('before_photo_url'),
+    afterPhotoUrl: text('after_photo_url'),
+
+    // Upload timestamps (timezone-aware)
+    beforePhotoUploadedAt: timestamp('before_photo_uploaded_at', { mode: 'date', withTimezone: true }),
+    afterPhotoUploadedAt: timestamp('after_photo_uploaded_at', { mode: 'date', withTimezone: true }),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    appointmentIdx: uniqueIndex('artifacts_appointment_idx').on(table.appointmentId),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// SalonPolicies - One row per salon (photo + auto-post policies)
+// -----------------------------------------------------------------------------
+export const salonPoliciesSchema = pgTable(
+  'salon_policies',
+  {
+    salonId: text('salon_id')
+      .primaryKey()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    // Photo requirements
+    requireBeforePhotoToStart: photoRequirementModeEnum('require_before_photo_to_start').default('off').notNull(),
+    requireAfterPhotoToFinish: photoRequirementModeEnum('require_after_photo_to_finish').default('off').notNull(),
+    requireAfterPhotoToPay: photoRequirementModeEnum('require_after_photo_to_pay').default('off').notNull(),
+
+    // Auto-post settings
+    autoPostEnabled: boolean('auto_post_enabled').default(false).notNull(),
+    autoPostPlatforms: text('auto_post_platforms').array().default([]).notNull(),
+    autoPostIncludePrice: boolean('auto_post_include_price').default(false).notNull(),
+    autoPostIncludeColor: boolean('auto_post_include_color').default(false).notNull(),
+    autoPostIncludeBrand: boolean('auto_post_include_brand').default(false).notNull(),
+    autoPostAiCaptionEnabled: boolean('auto_post_ai_caption_enabled').default(false).notNull(),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+);
+
+// -----------------------------------------------------------------------------
+// SuperAdminPolicies - TRUE SINGLETON (exactly one row, id = 'singleton')
+// -----------------------------------------------------------------------------
+export const superAdminPoliciesSchema = pgTable(
+  'super_admin_policies',
+  {
+    id: text('id').primaryKey().default('singleton'),
+
+    // Photo requirements (nullable = salon decides)
+    requireBeforePhotoToStart: photoRequirementModeEnum('require_before_photo_to_start'),
+    requireAfterPhotoToFinish: photoRequirementModeEnum('require_after_photo_to_finish'),
+    requireAfterPhotoToPay: photoRequirementModeEnum('require_after_photo_to_pay'),
+
+    // Auto-post overrides (nullable = salon decides)
+    autoPostEnabled: boolean('auto_post_enabled'),
+    autoPostAiCaptionEnabled: boolean('auto_post_ai_caption_enabled'),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+);
+
+// -----------------------------------------------------------------------------
+// AutopostQueue - Queue for auto-posting photos to social platforms
+// -----------------------------------------------------------------------------
+export const autopostQueueSchema = pgTable(
+  'autopost_queue',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+
+    // Status
+    status: autopostStatusEnum('status').default('queued').notNull(),
+    platform: text('platform').notNull(),
+
+    // Payload
+    payloadJson: jsonb('payload_json'),
+
+    // Error tracking
+    error: text('error'),
+    retryCount: integer('retry_count').default(0).notNull(),
+
+    // Scheduling
+    scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }),
+    processedAt: timestamp('processed_at', { mode: 'date', withTimezone: true }),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    salonIdx: index('autopost_queue_salon_idx').on(table.salonId),
+    appointmentIdx: index('autopost_queue_appointment_idx').on(table.appointmentId),
+    statusScheduledIdx: index('autopost_queue_status_scheduled_idx').on(table.status, table.scheduledFor),
+  }),
+);
+
+// =============================================================================
+// CANVAS FLOW OS TYPE EXPORTS
+// =============================================================================
+
+export type AppointmentArtifacts = typeof appointmentArtifactsSchema.$inferSelect;
+export type NewAppointmentArtifacts = typeof appointmentArtifactsSchema.$inferInsert;
+
+export type SalonPolicies = typeof salonPoliciesSchema.$inferSelect;
+export type NewSalonPolicies = typeof salonPoliciesSchema.$inferInsert;
+
+export type SuperAdminPolicies = typeof superAdminPoliciesSchema.$inferSelect;
+export type NewSuperAdminPolicies = typeof superAdminPoliciesSchema.$inferInsert;
+
+export type AutopostQueue = typeof autopostQueueSchema.$inferSelect;
+export type NewAutopostQueue = typeof autopostQueueSchema.$inferInsert;
+
+// Canvas state enum values (matches Step 7 policyTypes.ts)
+export const CANVAS_STATES = [
+  'waiting',
+  'working',
+  'wrap_up',
+  'complete',
+  'cancelled',
+  'no_show',
+] as const;
+export type CanvasState = (typeof CANVAS_STATES)[number];
+
+export const PHOTO_REQUIREMENT_MODES = ['off', 'optional', 'required'] as const;
+export type PhotoRequirementMode = (typeof PHOTO_REQUIREMENT_MODES)[number];
+
+export const AUTOPOST_STATUSES = ['queued', 'processing', 'posted', 'failed'] as const;
+export type AutopostStatus = (typeof AUTOPOST_STATUSES)[number];
+
+export const AUTOPOST_PLATFORMS = ['instagram', 'facebook', 'tiktok'] as const;
+export type AutopostPlatform = (typeof AUTOPOST_PLATFORMS)[number];
+
+// =============================================================================
+// STEP 16A - APPOINTMENT AUDIT LOG
+// =============================================================================
+
+export const APPOINTMENT_AUDIT_ACTIONS = [
+  'created',
+  'status_changed',
+  'tech_reassigned',
+  'time_changed',
+  'price_adjusted',
+  'locked',
+  'unlocked',
+  'notes_updated',
+  'cancelled',
+  'completed',
+  'arrived',
+  'admin_override',
+] as const;
+export type AppointmentAuditAction = (typeof APPOINTMENT_AUDIT_ACTIONS)[number];
+
+export const AUDIT_PERFORMER_ROLES = ['admin', 'staff', 'system', 'client'] as const;
+export type AuditPerformerRole = (typeof AUDIT_PERFORMER_ROLES)[number];
+
+// -----------------------------------------------------------------------------
+// AppointmentAuditLog - Immutable log of all appointment changes
+// -----------------------------------------------------------------------------
+export const appointmentAuditLogSchema = pgTable(
+  'appointment_audit_log',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Action performed
+    action: text('action').notNull(), // AppointmentAuditAction
+
+    // Who performed the action
+    performedBy: text('performed_by').notNull(), // clerk user ID, 'staff:{techId}', or 'system'
+    performedByRole: text('performed_by_role').notNull(), // 'admin' | 'staff' | 'system' | 'client'
+    performedByName: text('performed_by_name'), // Human-readable name for display
+
+    // Change details
+    previousValue: jsonb('previous_value').$type<Record<string, unknown>>(),
+    newValue: jsonb('new_value').$type<Record<string, unknown>>(),
+    reason: text('reason'), // Optional explanation for the change
+
+    // Timestamp (immutable)
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  (table) => ({
+    appointmentIdx: index('appt_audit_appointment_idx').on(table.appointmentId),
+    salonIdx: index('appt_audit_salon_idx').on(table.salonId),
+    actionIdx: index('appt_audit_action_idx').on(table.action),
+    createdIdx: index('appt_audit_created_idx').on(table.createdAt),
+    performerIdx: index('appt_audit_performer_idx').on(table.performedBy),
+  }),
+);
+
+export type AppointmentAuditLog = typeof appointmentAuditLogSchema.$inferSelect;
+export type NewAppointmentAuditLog = typeof appointmentAuditLogSchema.$inferInsert;
+
+// =============================================================================
+// STEP 17 - TIME OFF REQUESTS & NOTIFICATIONS
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// TimeOffRequest - Staff submit, Admin approves/denies
+// -----------------------------------------------------------------------------
+export const timeOffRequestSchema = pgTable(
+  'time_off_request',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    technicianId: text('technician_id')
+      .notNull()
+      .references(() => technicianSchema.id, { onDelete: 'cascade' }),
+
+    // Request details
+    startDate: timestamp('start_date', { mode: 'date' }).notNull(),
+    endDate: timestamp('end_date', { mode: 'date' }).notNull(),
+    note: text('note'),
+
+    // Status: PENDING | APPROVED | DENIED
+    status: text('status').notNull().default('PENDING'),
+
+    // Decision tracking
+    decidedByAdminId: text('decided_by_admin_id').references(() => adminUserSchema.id),
+    decidedAt: timestamp('decided_at', { mode: 'date', withTimezone: true }),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    salonIdx: index('time_off_request_salon_idx').on(table.salonId),
+    techIdx: index('time_off_request_tech_idx').on(table.technicianId),
+    statusIdx: index('time_off_request_status_idx').on(table.salonId, table.status),
+    techStatusIdx: index('time_off_request_tech_status_idx').on(table.technicianId, table.status),
+  }),
+);
+
+export const TIME_OFF_REQUEST_STATUSES = ['PENDING', 'APPROVED', 'DENIED'] as const;
+export type TimeOffRequestStatus = (typeof TIME_OFF_REQUEST_STATUSES)[number];
+
+export type TimeOffRequest = typeof timeOffRequestSchema.$inferSelect;
+export type NewTimeOffRequest = typeof timeOffRequestSchema.$inferInsert;
+
+// -----------------------------------------------------------------------------
+// Notification - In-app notifications for staff
+// -----------------------------------------------------------------------------
+export const notificationSchema = pgTable(
+  'notification',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    // Recipient targeting
+    recipientRole: text('recipient_role').notNull(), // 'STAFF' | 'ADMIN'
+    recipientTechnicianId: text('recipient_technician_id').references(
+      () => technicianSchema.id,
+      { onDelete: 'cascade' },
+    ),
+
+    // Notification content
+    type: text('type').notNull(), // 'TIME_OFF_DECISION', 'OVERRIDE_DECISION', etc.
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    metadata: jsonb('metadata').$type<{
+      timeOffRequestId?: string;
+      overrideId?: string;
+      appointmentId?: string;
+      [key: string]: unknown;
+    }>(),
+
+    // Read tracking
+    readAt: timestamp('read_at', { mode: 'date', withTimezone: true }),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    salonIdx: index('notification_salon_idx').on(table.salonId),
+    recipientTechIdx: index('notification_recipient_tech_idx').on(table.recipientTechnicianId),
+    createdIdx: index('notification_created_idx').on(table.recipientTechnicianId, table.createdAt),
+  }),
+);
+
+export const NOTIFICATION_TYPES = [
+  'TIME_OFF_DECISION',
+  'OVERRIDE_DECISION',
+  'APPOINTMENT_REMINDER',
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const NOTIFICATION_RECIPIENT_ROLES = ['STAFF', 'ADMIN'] as const;
+export type NotificationRecipientRole = (typeof NOTIFICATION_RECIPIENT_ROLES)[number];
+
+export type Notification = typeof notificationSchema.$inferSelect;
+export type NewNotification = typeof notificationSchema.$inferInsert;
