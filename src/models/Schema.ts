@@ -152,6 +152,12 @@ export const salonSchema = pgTable(
     stripeCustomerId: text('stripe_customer_id'),
     stripeSubscriptionId: text('stripe_subscription_id'),
     stripeSubscriptionStatus: text('stripe_subscription_status'),
+    stripePriceId: text('stripe_price_id'),
+    stripeCurrentPeriodEnd: bigint('stripe_current_period_end', { mode: 'number' }),
+    stripeCustomerEmail: text('stripe_customer_email'),
+
+    // Billing Mode: 'NONE' = cash/manual, 'STRIPE' = Stripe subscription
+    billingMode: text('billing_mode').default('NONE'),
 
     // Plan & Billing (Super Admin controlled)
     plan: text('plan').default('single_salon'),
@@ -166,6 +172,13 @@ export const salonSchema = pgTable(
     smsRemindersEnabled: boolean('sms_reminders_enabled').default(true),
     rewardsEnabled: boolean('rewards_enabled').default(true),
     profilePageEnabled: boolean('profile_page_enabled').default(true),
+    reviewsEnabled: boolean('reviews_enabled').default(true),
+
+    // Per-salon loyalty points overrides (Super Admin only, null = use default)
+    welcomeBonusPointsOverride: integer('welcome_bonus_points_override'),
+    profileCompletionPointsOverride: integer('profile_completion_points_override'),
+    referralRefereePointsOverride: integer('referral_referee_points_override'),
+    referralReferrerPointsOverride: integer('referral_referrer_points_override'),
 
     // Booking flow customization (Super Admin controlled)
     bookingFlowCustomizationEnabled: boolean('booking_flow_customization_enabled').default(false),
@@ -203,7 +216,7 @@ export const salonSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     slugIdx: uniqueIndex('salon_slug_idx').on(table.slug),
     customDomainIdx: uniqueIndex('salon_custom_domain_idx').on(table.customDomain),
     deletedAtIdx: index('salon_deleted_at_idx').on(table.deletedAt),
@@ -244,7 +257,7 @@ export const serviceSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('service_salon_idx').on(table.salonId),
     categoryIdx: index('service_category_idx').on(table.salonId, table.category),
   }),
@@ -336,7 +349,7 @@ export const technicianSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('technician_salon_idx').on(table.salonId),
   }),
 );
@@ -358,7 +371,7 @@ export const technicianServicesSchema = pgTable(
     // Toggle service without removing the relationship
     enabled: boolean('enabled').default(true),
   },
-  (table) => ({
+  table => ({
     pk: primaryKey({ columns: [table.technicianId, table.serviceId] }),
   }),
 );
@@ -430,7 +443,7 @@ export const appointmentSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('appointment_salon_idx').on(table.salonId),
     clientIdx: index('appointment_client_idx').on(table.clientPhone),
     dateIdx: index('appointment_date_idx').on(table.salonId, table.startTime),
@@ -460,7 +473,7 @@ export const appointmentServicesSchema = pgTable(
     // Duration snapshot (in case service duration changes later)
     durationAtBooking: integer('duration_at_booking').notNull(),
   },
-  (table) => ({
+  table => ({
     appointmentIdx: index('appt_services_appointment_idx').on(table.appointmentId),
     serviceIdx: index('appt_services_service_idx').on(table.serviceId),
     // Prevent duplicate service in same appointment
@@ -508,7 +521,7 @@ export const appointmentPhotoSchema = pgTable(
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     appointmentIdx: index('photo_appointment_idx').on(table.appointmentId),
     clientIdx: index('photo_client_phone_idx').on(table.normalizedClientPhone),
     salonIdx: index('photo_salon_idx').on(table.salonId),
@@ -533,7 +546,7 @@ export const clientSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     phoneIdx: uniqueIndex('client_phone_idx').on(table.phone),
   }),
 );
@@ -571,6 +584,9 @@ export const salonClientSchema = pgTable(
     noShowCount: integer('no_show_count').default(0),
     loyaltyPoints: integer('loyalty_points').default(0),
 
+    // Welcome bonus tracking (Step 21A - one-time 25,000 points)
+    welcomeBonusGrantedAt: timestamp('welcome_bonus_granted_at', { mode: 'date' }),
+
     // Late cancellation tracking (Step 16A - client accountability)
     lateCancelCount: integer('late_cancel_count').default(0),
     lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date' }),
@@ -592,7 +608,7 @@ export const salonClientSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     // Unique constraint: one profile per client per salon
     uniqueSalonClient: uniqueIndex('salon_client_salon_client_idx').on(
       table.salonId,
@@ -652,7 +668,7 @@ export const referralSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('referral_salon_idx').on(table.salonId),
     referrerIdx: index('referral_referrer_idx').on(table.salonId, table.referrerPhone),
     refereeIdx: index('referral_referee_idx').on(table.refereePhone),
@@ -702,11 +718,63 @@ export const rewardSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('reward_salon_idx').on(table.salonId),
     clientIdx: index('reward_client_idx').on(table.clientPhone),
     referralIdx: index('reward_referral_idx').on(table.referralId),
     statusIdx: index('reward_status_idx').on(table.clientPhone, table.status),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// Review - Post-appointment reviews from clients (Step 21B)
+// -----------------------------------------------------------------------------
+export const reviewSchema = pgTable(
+  'review',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+
+    // Link to appointment (one review per appointment - enforced by unique index)
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id),
+
+    // Who wrote the review (linked to salon client for proper identity)
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id),
+
+    // Snapshot of client name at time of review (for display even if client changes name)
+    clientNameSnapshot: text('client_name_snapshot'),
+
+    // Optional: which technician was reviewed
+    technicianId: text('technician_id').references(() => technicianSchema.id),
+
+    // Review content
+    rating: integer('rating').notNull(), // 1-5 stars
+    comment: text('comment'), // Optional text feedback
+
+    // Admin moderation
+    isPublic: boolean('is_public').default(true),
+    adminHidden: boolean('admin_hidden').default(false),
+
+    // Metadata
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('review_salon_idx').on(table.salonId),
+    // UNIQUE constraint: one review per appointment (prevents duplicates)
+    appointmentIdx: uniqueIndex('review_appointment_idx').on(table.appointmentId),
+    technicianIdx: index('review_technician_idx').on(table.technicianId),
+    salonClientIdx: index('review_salon_client_idx').on(table.salonClientId),
+    ratingIdx: index('review_rating_idx').on(table.salonId, table.rating),
   }),
 );
 
@@ -753,7 +821,7 @@ export const clientPreferencesSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     // Unique constraint: one preferences row per client per salon
     uniqueClientSalon: uniqueIndex('client_prefs_salon_phone_idx').on(
       table.salonId,
@@ -793,7 +861,7 @@ export const technicianTimeOffSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     technicianIdx: index('time_off_technician_idx').on(table.technicianId),
     salonIdx: index('time_off_salon_idx').on(table.salonId),
     dateRangeIdx: index('time_off_date_range_idx').on(table.technicianId, table.startDate, table.endDate),
@@ -833,7 +901,7 @@ export const technicianBlockedSlotSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     technicianIdx: index('blocked_slot_technician_idx').on(table.technicianId),
     salonIdx: index('blocked_slot_salon_idx').on(table.salonId),
     dayIdx: index('blocked_slot_day_idx').on(table.technicianId, table.dayOfWeek),
@@ -875,7 +943,7 @@ export const technicianScheduleOverrideSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     // One override per technician per day
     uniqueTechDate: uniqueIndex('schedule_override_tech_date_idx').on(table.technicianId, table.date),
     salonIdx: index('schedule_override_salon_idx').on(table.salonId),
@@ -910,7 +978,7 @@ export const salonPageAppearanceSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     uniqueSalonPage: uniqueIndex('salon_page_appearance_unique').on(table.salonId, table.pageName),
     salonIdx: index('salon_page_appearance_salon_idx').on(table.salonId),
   }),
@@ -945,7 +1013,7 @@ export const salonAuditLogSchema = pgTable(
     // Timestamp
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('audit_log_salon_idx').on(table.salonId),
     actionIdx: index('audit_log_action_idx').on(table.action),
     createdIdx: index('audit_log_created_idx').on(table.createdAt),
@@ -994,7 +1062,7 @@ export const salonLocationSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('location_salon_idx').on(table.salonId),
     primaryIdx: index('location_primary_idx').on(table.salonId, table.isPrimary),
   }),
@@ -1022,7 +1090,7 @@ export const adminUserSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     phoneIdx: uniqueIndex('admin_user_phone_idx').on(table.phoneE164),
     emailIdx: uniqueIndex('admin_user_email_idx').on(table.email),
   }),
@@ -1042,7 +1110,7 @@ export const adminSessionSchema = pgTable(
     lastSeenAt: timestamp('last_seen_at', { mode: 'date' }), // Optional: for cleanup
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     adminIdx: index('admin_session_admin_idx').on(table.adminId),
     expiresIdx: index('admin_session_expires_idx').on(table.expiresAt),
   }),
@@ -1064,7 +1132,7 @@ export const adminInviteSchema = pgTable(
     createdBy: text('created_by').references(() => adminUserSchema.id), // adminId who created
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     phoneIdx: index('admin_invite_phone_idx').on(table.phoneE164),
     expiresIdx: index('admin_invite_expires_idx').on(table.expiresAt),
     phoneUsedIdx: index('admin_invite_phone_used_idx').on(
@@ -1091,7 +1159,7 @@ export const adminSalonMembershipSchema = pgTable(
     role: text('role').default('admin').notNull(), // 'admin' | 'owner'
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     pk: primaryKey({ columns: [table.adminId, table.salonId] }),
     salonIdx: index('admin_membership_salon_idx').on(table.salonId),
   }),
@@ -1145,6 +1213,9 @@ export type NewReferral = typeof referralSchema.$inferInsert;
 
 export type Reward = typeof rewardSchema.$inferSelect;
 export type NewReward = typeof rewardSchema.$inferInsert;
+
+export type Review = typeof reviewSchema.$inferSelect;
+export type NewReview = typeof reviewSchema.$inferInsert;
 
 export type ClientPreferences = typeof clientPreferencesSchema.$inferSelect;
 export type NewClientPreferences = typeof clientPreferencesSchema.$inferInsert;
@@ -1345,7 +1416,7 @@ export const appointmentArtifactsSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     appointmentIdx: uniqueIndex('artifacts_appointment_idx').on(table.appointmentId),
   }),
 );
@@ -1440,7 +1511,7 @@ export const autopostQueueSchema = pgTable(
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('autopost_queue_salon_idx').on(table.salonId),
     appointmentIdx: index('autopost_queue_appointment_idx').on(table.appointmentId),
     statusScheduledIdx: index('autopost_queue_status_scheduled_idx').on(table.status, table.scheduledFor),
@@ -1536,7 +1607,7 @@ export const appointmentAuditLogSchema = pgTable(
     // Timestamp (immutable)
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     appointmentIdx: index('appt_audit_appointment_idx').on(table.appointmentId),
     salonIdx: index('appt_audit_salon_idx').on(table.salonId),
     actionIdx: index('appt_audit_action_idx').on(table.action),
@@ -1585,7 +1656,7 @@ export const timeOffRequestSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('time_off_request_salon_idx').on(table.salonId),
     techIdx: index('time_off_request_tech_idx').on(table.technicianId),
     statusIdx: index('time_off_request_status_idx').on(table.salonId, table.status),
@@ -1634,7 +1705,7 @@ export const notificationSchema = pgTable(
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => ({
+  table => ({
     salonIdx: index('notification_salon_idx').on(table.salonId),
     recipientTechIdx: index('notification_recipient_tech_idx').on(table.recipientTechnicianId),
     createdIdx: index('notification_created_idx').on(table.recipientTechnicianId, table.createdAt),
@@ -1653,3 +1724,74 @@ export type NotificationRecipientRole = (typeof NOTIFICATION_RECIPIENT_ROLES)[nu
 
 export type Notification = typeof notificationSchema.$inferSelect;
 export type NewNotification = typeof notificationSchema.$inferInsert;
+
+// -----------------------------------------------------------------------------
+// AuditLog - Critical action tracking for debugging and compliance (Step 21D)
+// -----------------------------------------------------------------------------
+export const auditLogSchema = pgTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(),
+    // Nullable for system/auth events not tied to a salon
+    salonId: text('salon_id').references(() => salonSchema.id),
+
+    // Who performed the action
+    actorType: text('actor_type').notNull(), // 'admin' | 'staff' | 'client' | 'system' | 'webhook'
+    actorId: text('actor_id'), // Technician ID, admin session ID, etc.
+    actorPhone: text('actor_phone'), // For client actions
+
+    // What happened
+    action: text('action').notNull(), // e.g., 'billing_mode_changed', 'review_created', 'reward_granted'
+    entityType: text('entity_type'), // e.g., 'salon', 'appointment', 'reward', 'review'
+    entityId: text('entity_id'), // ID of the affected entity
+
+    // Additional context (JSON)
+    metadata: jsonb('metadata'), // { oldValue, newValue, reason, etc. }
+
+    // Request info for forensics
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+
+    // Timestamp
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    salonIdx: index('audit_log_salon_idx').on(table.salonId),
+    actionIdx: index('audit_log_action_idx').on(table.action),
+    entityIdx: index('audit_log_entity_idx').on(table.entityType, table.entityId),
+    createdAtIdx: index('audit_log_created_at_idx').on(table.createdAt),
+  }),
+);
+
+export const AUDIT_LOG_ACTIONS = [
+  // Billing
+  'billing_mode_changed',
+  'subscription_status_changed',
+  'checkout_session_created',
+  // Staff/Permissions
+  'staff_role_changed',
+  'staff_permission_changed',
+  'staff_created',
+  'staff_deactivated',
+  // Rewards/Loyalty
+  'reward_granted',
+  'reward_used',
+  'referral_claimed',
+  'referral_completed',
+  // Reviews
+  'review_created',
+  'review_hidden',
+  'review_unhidden',
+  // Appointments
+  'appointment_completed',
+  'appointment_cancelled',
+  // Super-admin actions (merge from existing)
+  'updated',
+  'owner_changed',
+  // Settings updates
+  'settings_updated',
+] as const;
+export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
+
+export type AuditLog = typeof auditLogSchema.$inferSelect;
+export type NewAuditLog = typeof auditLogSchema.$inferInsert;

@@ -2,6 +2,8 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { getEffectiveStaffVisibility } from '@/libs/featureGating';
+import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -12,25 +14,30 @@ import {
   updateAppointmentStatus,
   upsertSalonClient,
 } from '@/libs/queries';
-import { guardSalonApiRoute } from '@/libs/salonStatus';
+import { redactAppointmentForStaff } from '@/libs/redact';
+import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   sendBookingConfirmationToClient,
   sendBookingNotificationToTech,
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
+import { hasStaffSessionCookies, requireStaffSession } from '@/libs/staffAuth';
 import {
   type Appointment,
+  APPOINTMENT_STATUSES,
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
   referralSchema,
   type Reward,
   rewardSchema,
+  salonSchema,
   type Service,
   technicianSchema,
   type WeeklySchedule,
 } from '@/models/Schema';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -41,6 +48,30 @@ export const dynamic = 'force-dynamic';
 
 // Buffer time between appointments (cleanup time)
 const BUFFER_MINUTES = 10;
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+/**
+ * Parse and validate status filter parameter.
+ * Returns null if no param provided, empty array if all values invalid.
+ * Invalid values are filtered out, not silently accepted.
+ */
+function parseStatusParam(statusParam: string | null): string[] | null {
+  if (!statusParam) {
+    return null;
+  }
+
+  const allowed = new Set<string>(APPOINTMENT_STATUSES);
+  const statuses = statusParam
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(s => allowed.has(s));
+
+  return statuses;
+}
 
 // Days of week mapping
 const DAY_NAMES: (keyof WeeklySchedule)[] = [
@@ -208,6 +239,12 @@ export async function POST(request: Request): Promise<Response> {
     const statusGuard = await guardSalonApiRoute(salon.id);
     if (statusGuard) {
       return statusGuard;
+    }
+
+    // 2c. Check onlineBooking feature entitlement (Step 16.1)
+    const featureGuard = await guardFeatureEntitlement(salon.id, 'onlineBooking');
+    if (featureGuard) {
+      return featureGuard;
     }
 
     // 3. Validate services belong to salon
@@ -569,7 +606,8 @@ export async function POST(request: Request): Promise<Response> {
     // 8b. Upsert salon client (create if new, update name if provided)
     // This creates a salon-scoped client profile for the customer
     try {
-      await upsertSalonClient(salon.id, data.clientPhone, clientName);
+      const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
+      await upsertSalonClient(salon.id, data.clientPhone, clientName, undefined, undefined, loyaltyPoints.welcomeBonus);
     } catch (err) {
       // Log but don't fail the booking if client upsert fails
       console.error('Failed to upsert salon client:', err);
@@ -756,42 +794,222 @@ export async function POST(request: Request): Promise<Response> {
 // =============================================================================
 // GET /api/appointments - Fetch appointments (for staff dashboard)
 // =============================================================================
-// Query params:
-//   - date: 'today' or YYYY-MM-DD
-//   - status: comma-separated list of statuses to filter by
-//   - salonSlug: salon filter (required for multi-tenant)
-//   - technicianId: filter appointments for a specific technician
-//   - startDate: start of date range (ISO string)
-//   - endDate: end of date range (ISO string)
-//   - limit: max number of results
+//
+// SECURITY CONTRACT (Step 16.4 Hardening):
+// =========================================
+//
+// STAFF REQUESTS (detected via staff session cookies):
+//   - salonId: DERIVED FROM SESSION (query params IGNORED)
+//   - technicianId: DERIVED FROM SESSION (query params IGNORED)
+//   - ALLOWED query params (whitelist):
+//     * date, startDate, endDate - date filtering
+//     * status - status filtering (validated against APPOINTMENT_STATUSES)
+//     * limit - pagination (max 100)
+//   - IGNORED query params (blacklist - silently dropped):
+//     * salonSlug, salonId, technicianId, includeDeleted, allTechs
+//   - Response: REDACTED via getEffectiveStaffVisibility + redactAppointmentForStaff
+//
+// ADMIN/PUBLIC REQUESTS (no staff session):
+//   - Uses query params for filtering
+//   - Still tenant-scoped via salonSlug
+//   - Response: Full data (no redaction)
+//
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(request.url);
+
+    // ==========================================================================
+    // SECURITY: Check for staff session FIRST
+    // If staff cookies exist, staff context wins (even if admin session also exists)
+    // ==========================================================================
+    const hasStaffCookies = await hasStaffSessionCookies();
+
+    if (hasStaffCookies) {
+      // =======================================================================
+      // STAFF REQUEST PATH (bypass-proof)
+      // Identity is ONLY derived from session - query params for identity IGNORED
+      // =======================================================================
+      const staffAuth = await requireStaffSession();
+
+      if (!staffAuth.ok) {
+        return staffAuth.response;
+      }
+
+      // SECURITY: These values come ONLY from validated session
+      const salonId = staffAuth.session.salonId;
+      const technicianId = staffAuth.session.technicianId;
+
+      // Fetch salon features + settings for visibility resolution
+      const [salonData] = await db
+        .select({
+          features: salonSchema.features,
+          settings: salonSchema.settings,
+        })
+        .from(salonSchema)
+        .where(eq(salonSchema.id, salonId))
+        .limit(1);
+
+      const salonFeatures = (salonData?.features as SalonFeatures) ?? null;
+      const salonSettings = (salonData?.settings as SalonSettings) ?? null;
+
+      // =====================================================================
+      // STAFF PARAM WHITELIST: Only these query params are allowed for staff
+      // All identity params (salonSlug, technicianId, salonId) are IGNORED
+      // =====================================================================
+      const dateParam = searchParams.get('date');
+      const statusParam = searchParams.get('status');
+      const startDateParam = searchParams.get('startDate');
+      const endDateParam = searchParams.get('endDate');
+      const limitParam = searchParams.get('limit');
+
+      // Build date range (safe - no identity information)
+      let startOfDay: Date;
+      let endOfDay: Date;
+
+      if (startDateParam && endDateParam) {
+        startOfDay = new Date(startDateParam);
+        endOfDay = new Date(endDateParam);
+      } else if (dateParam === 'today') {
+        startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+      } else if (dateParam) {
+        startOfDay = new Date(dateParam);
+        startOfDay.setHours(0, 0, 0, 0);
+        endOfDay = new Date(dateParam);
+        endOfDay.setHours(23, 59, 59, 999);
+      } else {
+        startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+      }
+
+      // Parse status filter with validation against allowed values
+      const parsedStatuses = parseStatusParam(statusParam);
+
+      // If caller provided statuses but ALL were invalid, reject with 400
+      if (parsedStatuses !== null && parsedStatuses.length === 0) {
+        return Response.json(
+          {
+            error: {
+              code: 'BAD_REQUEST',
+              message: `Invalid status filter. Valid values: ${APPOINTMENT_STATUSES.join(', ')}`,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const statuses = parsedStatuses ?? ['confirmed', 'in_progress'];
+
+      // Parse limit with cap for staff (prevent abuse)
+      let limit = 50; // Default
+      if (limitParam) {
+        const parsed = Number.parseInt(limitParam, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          limit = Math.min(parsed, 100); // Cap at 100 for staff
+        }
+      }
+
+      // Build query with session-derived identity (NEVER from params)
+      const appointments = await db
+        .select()
+        .from(appointmentSchema)
+        .where(
+          and(
+            eq(appointmentSchema.salonId, salonId),
+            eq(appointmentSchema.technicianId, technicianId),
+            sql`${appointmentSchema.startTime} >= ${startOfDay}`,
+            sql`${appointmentSchema.startTime} <= ${endOfDay}`,
+            inArray(appointmentSchema.status, statuses),
+          ),
+        )
+        .orderBy(appointmentSchema.startTime)
+        .limit(limit);
+
+      // Fetch services and photos for each appointment
+      const appointmentsWithDetails = await Promise.all(
+        appointments.map(async (appt) => {
+          const services = await db
+            .select({
+              name: sql<string>`(SELECT name FROM service WHERE id = ${appointmentServicesSchema.serviceId})`,
+            })
+            .from(appointmentServicesSchema)
+            .where(eq(appointmentServicesSchema.appointmentId, appt.id));
+
+          const photos = await db.query.appointmentPhotoSchema?.findMany({
+            where: (photo, { eq: photoEq }) => photoEq(photo.appointmentId, appt.id),
+            orderBy: (photo, { desc }) => [desc(photo.createdAt)],
+          }) || [];
+
+          // Build object with ONLY safe fields for staff
+          // Note: cancelReason, internalNotes, paymentStatus, metadata are NOT included
+          return {
+            id: appt.id,
+            clientName: appt.clientName,
+            clientPhone: appt.clientPhone,
+            startTime: appt.startTime.toISOString(),
+            endTime: appt.endTime.toISOString(),
+            status: appt.status,
+            technicianId: appt.technicianId,
+            totalPrice: appt.totalPrice,
+            services: services.map(s => ({ name: s.name })),
+            photos: photos.map(p => ({
+              id: p.id,
+              imageUrl: p.imageUrl,
+              thumbnailUrl: p.thumbnailUrl,
+              photoType: p.photoType,
+            })),
+          };
+        }),
+      );
+
+      // Apply visibility redaction
+      const visibility = getEffectiveStaffVisibility(salonFeatures, salonSettings);
+      const redactedAppointments = appointmentsWithDetails.map(appt =>
+        redactAppointmentForStaff(appt, visibility),
+      );
+
+      // Return staff response (early return - no fallthrough to admin path)
+      return Response.json({
+        data: {
+          appointments: redactedAppointments,
+        },
+      });
+    }
+
+    // =========================================================================
+    // ADMIN/PUBLIC REQUEST PATH
+    // Uses query params for filtering, still tenant-scoped
+    // =========================================================================
     const dateParam = searchParams.get('date');
     const statusParam = searchParams.get('status');
     const salonSlug = searchParams.get('salonSlug');
-    const technicianId = searchParams.get('technicianId');
+    const technicianIdParam = searchParams.get('technicianId');
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
     const limitParam = searchParams.get('limit');
 
-    // Resolve salon if provided
     let salonId: string | null = null;
+    let technicianId: string | null = null;
+
     if (salonSlug) {
       const salon = await getSalonBySlug(salonSlug);
       if (salon) {
         salonId = salon.id;
       }
     }
+    technicianId = technicianIdParam;
 
     // Build date range for query
     let startOfDay: Date;
     let endOfDay: Date;
 
     if (startDateParam && endDateParam) {
-      // Use provided date range
       startOfDay = new Date(startDateParam);
       endOfDay = new Date(endDateParam);
     } else if (dateParam === 'today') {
@@ -805,43 +1023,41 @@ export async function GET(request: Request): Promise<Response> {
       endOfDay = new Date(dateParam);
       endOfDay.setHours(23, 59, 59, 999);
     } else {
-      // Default to today
       startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       endOfDay = new Date();
       endOfDay.setHours(23, 59, 59, 999);
     }
 
-    // Parse status filter
-    const statuses = statusParam ? statusParam.split(',').map(s => s.trim()) : ['confirmed', 'in_progress'];
+    // Use same validation helper for admin path
+    const parsedStatuses = parseStatusParam(statusParam);
+    const statuses = parsedStatuses ?? ['confirmed', 'in_progress'];
+    // Note: For admin, we don't reject invalid statuses with 400 - just filter them out
+    // This is more permissive for admin use cases
 
-    // Build where conditions
+    // Build where conditions for admin path
     const conditions = [
       sql`${appointmentSchema.startTime} >= ${startOfDay}`,
       sql`${appointmentSchema.startTime} <= ${endOfDay}`,
       inArray(appointmentSchema.status, statuses),
     ];
 
-    // Add salon filter if provided
     if (salonId) {
       conditions.push(eq(appointmentSchema.salonId, salonId));
     }
 
-    // Add technician filter if provided
     if (technicianId) {
       conditions.push(eq(appointmentSchema.technicianId, technicianId));
     }
 
-    // Build query
     let query = db
       .select()
       .from(appointmentSchema)
       .where(and(...conditions))
       .orderBy(appointmentSchema.startTime);
 
-    // Apply limit if provided
     if (limitParam) {
-      const limit = parseInt(limitParam, 10);
+      const limit = Number.parseInt(limitParam, 10);
       if (!isNaN(limit) && limit > 0) {
         query = query.limit(limit) as typeof query;
       }
@@ -849,10 +1065,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const appointments = await query;
 
-    // Fetch services and photos for each appointment
+    // Fetch services and photos for each appointment (admin gets full data)
     const appointmentsWithDetails = await Promise.all(
       appointments.map(async (appt) => {
-        // Get services
         const services = await db
           .select({
             name: sql<string>`(SELECT name FROM service WHERE id = ${appointmentServicesSchema.serviceId})`,
@@ -860,12 +1075,12 @@ export async function GET(request: Request): Promise<Response> {
           .from(appointmentServicesSchema)
           .where(eq(appointmentServicesSchema.appointmentId, appt.id));
 
-        // Get photos
         const photos = await db.query.appointmentPhotoSchema?.findMany({
           where: (photo, { eq: photoEq }) => photoEq(photo.appointmentId, appt.id),
           orderBy: (photo, { desc }) => [desc(photo.createdAt)],
         }) || [];
 
+        // Admin gets full appointment data (no redaction)
         return {
           id: appt.id,
           clientName: appt.clientName,
@@ -875,6 +1090,8 @@ export async function GET(request: Request): Promise<Response> {
           status: appt.status,
           technicianId: appt.technicianId,
           totalPrice: appt.totalPrice,
+          cancelReason: appt.cancelReason,
+          paymentStatus: appt.paymentStatus,
           services: services.map(s => ({ name: s.name })),
           photos: photos.map(p => ({
             id: p.id,

@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getAppointmentById, getSalonById, getTechnicianById, updateAppointmentStatus } from '@/libs/queries';
 import { sendCancellationConfirmation, sendCancellationNotificationToTech } from '@/libs/SMS';
 import {
@@ -10,6 +11,7 @@ import {
   CANCEL_REASONS,
   referralSchema,
   rewardSchema,
+  salonSchema,
   serviceSchema,
 } from '@/models/Schema';
 
@@ -188,20 +190,33 @@ export async function PATCH(
             .limit(1);
 
           if (referral) {
-            // Create a reward for the referrer (2500 points = free gel manicure)
-            await db.insert(rewardSchema).values({
-              id: `reward_${crypto.randomUUID()}`,
-              salonId: referral.salonId,
-              clientPhone: referral.referrerPhone,
-              clientName: referral.referrerName,
-              referralId: referral.id,
-              type: 'referral_referrer',
-              points: 2500,
-              eligibleServiceName: 'Gel Manicure',
-              status: 'active',
-              // Referrer reward doesn't expire (or give them 30 days)
-              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            });
+            // Fetch salon to resolve loyalty points
+            const [referralSalon] = await db
+              .select()
+              .from(salonSchema)
+              .where(eq(salonSchema.id, referral.salonId))
+              .limit(1);
+
+            // Skip referrer bonus if salon was deleted (shouldn't happen, but safe)
+            if (referralSalon) {
+              // Resolve effective loyalty points for this salon
+              const loyaltyPoints = resolveSalonLoyaltyPoints(referralSalon);
+
+              // Create a reward for the referrer (uses salon-resolved points)
+              await db.insert(rewardSchema).values({
+                id: `reward_${crypto.randomUUID()}`,
+                salonId: referral.salonId,
+                clientPhone: referral.referrerPhone,
+                clientName: referral.referrerName,
+                referralId: referral.id,
+                type: 'referral_referrer',
+                points: loyaltyPoints.referralReferrer,
+                eligibleServiceName: 'Gel Manicure',
+                status: 'active',
+                // Referrer reward expires in 1 year
+                expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+              });
+            }
           }
         }
       }
