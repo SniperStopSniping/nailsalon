@@ -1,21 +1,22 @@
 /**
  * Complete Profile API Route
  *
- * Updates client profile with name and email, granting a one-time $5 reward
- * for profile completion.
+ * Updates client profile with name and email, granting a one-time points reward
+ * for profile completion. Uses atomic conditional update to prevent race conditions.
  *
  * POST /api/client/complete-profile
  * Body: { phone: string, firstName: string, email: string, salonSlug: string }
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
-import { clientSchema, rewardSchema } from '@/models/Schema';
+import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
+import { getSalonBySlug, upsertSalonClient } from '@/libs/queries';
+import { clientSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -23,17 +24,16 @@ import { clientSchema, rewardSchema } from '@/models/Schema';
 
 const completeProfileSchema = z.object({
   phone: z.string().min(10, 'Phone number is required'),
-  firstName: z.string().min(1, 'First name is required').max(50, 'Name too long'),
-  email: z.string().email('Please enter a valid email address'),
+  firstName: z.string()
+    .min(1, 'First name is required')
+    .max(50, 'Name too long')
+    .transform(s => s.trim())
+    .refine(s => s.length > 0, 'First name cannot be empty'),
+  email: z.string()
+    .email('Please enter a valid email address')
+    .transform(s => s.trim().toLowerCase()),
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
-
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-// $5 reward = 500 points (based on 2500 pts = $5 tier, so 100 pts = $1)
-const PROFILE_COMPLETION_REWARD_POINTS = 500;
 
 // =============================================================================
 // ROUTE HANDLER
@@ -91,7 +91,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Upsert client with name and email
+    // Resolve effective loyalty points for this salon
+    const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
+
+    // 2. Ensure salonClient exists (creates with welcome bonus if new)
+    await upsertSalonClient(salon.id, normalizedPhone, firstName, email, undefined, loyaltyPoints.welcomeBonus);
+
+    // 3. Upsert global client with name and email
     const clientId = `client_${crypto.randomUUID()}`;
     const [client] = await db
       .insert(clientSchema)
@@ -115,39 +121,77 @@ export async function POST(request: Request) {
       throw new Error('Failed to upsert client');
     }
 
-    // 3. Check if profile completion reward was already granted
+    // 4. ATOMIC: Grant profile completion reward only if not already granted
+    // This uses a conditional UPDATE that only affects rows where the flag is false
+    // If 0 rows affected = already granted, if 1 row affected = just granted
     let rewardGranted = false;
-    if (!client.profileCompletionRewardGranted) {
-      // Grant the one-time $5 reward
+
+    const rewardResult = await db.transaction(async (tx) => {
+      // Atomic conditional update: only flip flag if currently false
+      const updateResult = await tx
+        .update(clientSchema)
+        .set({
+          profileCompletionRewardGranted: true,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(clientSchema.id, client.id),
+            eq(clientSchema.profileCompletionRewardGranted, false),
+          ),
+        )
+        .returning();
+
+      // If no rows updated, reward was already granted (race condition or repeat call)
+      if (updateResult.length === 0) {
+        return { granted: false, points: 0 };
+      }
+
+      // Flag was flipped - now grant the reward within same transaction
       const rewardId = `reward_${crypto.randomUUID()}`;
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 90); // 90-day expiration
 
-      await db.insert(rewardSchema).values({
+      // Insert reward record
+      await tx.insert(rewardSchema).values({
         id: rewardId,
         salonId: salon.id,
         clientPhone: normalizedPhone,
         clientName: firstName,
-        type: 'referral_referee', // Using existing type for profile completion bonus
-        points: PROFILE_COMPLETION_REWARD_POINTS,
+        type: 'profile_completion',
+        points: loyaltyPoints.profileCompletion,
         eligibleServiceName: 'Any Service',
         status: 'active',
         expiresAt,
       });
 
-      // Mark profile completion reward as granted
-      await db
-        .update(clientSchema)
-        .set({ profileCompletionRewardGranted: true })
-        .where(eq(clientSchema.id, client.id));
+      // Increment salonClient loyalty points
+      await tx
+        .update(salonClientSchema)
+        .set({
+          loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${loyaltyPoints.profileCompletion}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(salonClientSchema.salonId, salon.id),
+            eq(salonClientSchema.phone, normalizedPhone),
+          ),
+        );
 
-      rewardGranted = true;
-      console.log(`[Profile] Granted $5 profile completion reward to ${phoneForDb}`);
+      return { granted: true, points: loyaltyPoints.profileCompletion };
+    });
+
+    rewardGranted = rewardResult.granted;
+
+    if (rewardGranted) {
+      // eslint-disable-next-line no-console
+      console.log(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
     }
 
-    // 4. Set cookies for client-side access
+    // 5. Set cookies for client-side access
     const cookieStore = await cookies();
-    
+
     cookieStore.set('client_name', firstName, {
       httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
@@ -164,6 +208,7 @@ export async function POST(request: Request) {
       path: '/',
     });
 
+    // eslint-disable-next-line no-console
     console.log(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
 
     return NextResponse.json({
@@ -176,7 +221,7 @@ export async function POST(request: Request) {
           email,
         },
         rewardGranted,
-        rewardPoints: rewardGranted ? PROFILE_COMPLETION_REWARD_POINTS : 0,
+        rewardPoints: rewardResult.points,
       },
     });
   } catch (error) {

@@ -1,25 +1,30 @@
 import 'server-only';
 
-import { eq, and, inArray, gte, lt, gt, ne, desc, asc, or, ilike, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import {
-  appointmentSchema,
-  clientSchema,
-  salonSchema,
-  salonClientSchema,
-  serviceSchema,
-  technicianSchema,
-  technicianServicesSchema,
   type Appointment,
+  appointmentSchema,
   type CancelReason,
   type Client,
+  clientSchema,
+  rewardSchema,
   type Salon,
   type SalonClient,
+  salonClientSchema,
+  salonSchema,
   type Service,
+  serviceSchema,
   type Technician,
+  technicianSchema,
+  technicianServicesSchema,
 } from '@/models/Schema';
+import { LOYALTY_POINTS } from '@/utils/AppConfig';
 
 import { db } from './DB';
+
+// Re-export for backwards compatibility
+export const WELCOME_BONUS_POINTS = LOYALTY_POINTS.WELCOME_BONUS;
 
 // =============================================================================
 // SALON QUERIES
@@ -195,7 +200,7 @@ export async function getTechniciansBySalonId(
     const existing = techServiceMap.get(assoc.technicianId) ?? [];
     existing.push(assoc.serviceId);
     techServiceMap.set(assoc.technicianId, existing);
-    
+
     // Only add to enabled map if enabled is true
     if (assoc.enabled) {
       const enabledExisting = techEnabledServiceMap.get(assoc.technicianId) ?? [];
@@ -226,12 +231,12 @@ export async function getTechniciansForService(
 ): Promise<TechnicianWithServices[]> {
   // Get all active technicians
   const allTechnicians = await getTechniciansBySalonId(salonId);
-  
+
   // Filter to those who have this service enabled
   let eligibleTechnicians = allTechnicians.filter(
-    tech => tech.enabledServiceIds.includes(serviceId)
+    tech => tech.enabledServiceIds.includes(serviceId),
   );
-  
+
   // If client phone provided, filter by acceptingNewClients
   if (clientPhone) {
     // Check which technicians have seen this client before
@@ -245,21 +250,23 @@ export async function getTechniciansForService(
           eq(appointmentSchema.status, 'completed'),
         ),
       );
-    
+
     const returningTechIds = new Set(
-      clientAppointments.map(a => a.technicianId).filter(Boolean) as string[]
+      clientAppointments.map(a => a.technicianId).filter(Boolean) as string[],
     );
-    
+
     // Filter: if tech doesn't accept new clients, only include if client is returning
-    eligibleTechnicians = eligibleTechnicians.filter(tech => {
-      if (tech.acceptingNewClients) return true;
+    eligibleTechnicians = eligibleTechnicians.filter((tech) => {
+      if (tech.acceptingNewClients) {
+        return true;
+      }
       return returningTechIds.has(tech.id);
     });
   } else {
     // No client phone - only show techs accepting new clients
     eligibleTechnicians = eligibleTechnicians.filter(tech => tech.acceptingNewClients);
   }
-  
+
   return eligibleTechnicians;
 }
 
@@ -302,12 +309,12 @@ export async function getTechnicianByPhone(
 ): Promise<Technician | null> {
   // Normalize phone to 10 digits
   const normalizedPhone = normalizePhone(phone);
-  
+
   // Build phone variants to handle different stored formats
   const phoneVariants = [
-    normalizedPhone,                    // "4165551234"
-    `+1${normalizedPhone}`,             // "+14165551234"
-    `1${normalizedPhone}`,              // "14165551234"
+    normalizedPhone, // "4165551234"
+    `+1${normalizedPhone}`, // "+14165551234"
+    `1${normalizedPhone}`, // "14165551234"
   ];
 
   const results = await db
@@ -571,20 +578,24 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
- * Upsert a salon client - create if doesn't exist, update if exists
+ * Upsert a salon-scoped client profile
  * Called automatically when a client books or logs in
- * 
+ *
  * Conflict resolution strategy:
  * - If globalClientId is provided: use (salonId, clientId) as conflict target
  *   This links the salon profile to the authenticated global client
  * - Otherwise: use (salonId, phone) as conflict target
  *   This handles guest bookings or phone-only identification
- * 
+ *
+ * Welcome bonus is granted atomically on first creation OR for legacy clients
+ * who were created before the welcome bonus feature (welcomeBonusGrantedAt IS NULL).
+ *
  * @param salonId - The salon's unique ID
  * @param phone - The client's phone number (will be normalized to 10 digits)
  * @param fullName - Optional name
  * @param email - Optional email
  * @param globalClientId - Optional link to global client table
+ * @param welcomeBonusPoints - Resolved welcome bonus points (use resolveSalonLoyaltyPoints)
  * @returns The upserted salon client
  */
 export async function upsertSalonClient(
@@ -593,6 +604,7 @@ export async function upsertSalonClient(
   fullName?: string,
   email?: string,
   globalClientId?: string,
+  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
 ): Promise<SalonClient> {
   const normalizedPhone = normalizePhone(phone);
   const salonClientId = `sc_${crypto.randomUUID()}`;
@@ -613,18 +625,22 @@ export async function upsertSalonClient(
       .limit(1);
 
     if (existingByClientId.length > 0) {
-      // Update existing record linked to this global client
+      const existing = existingByClientId[0]!;
+      // Update existing record + maybe grant welcome bonus (legacy clients)
       const [updated] = await db
         .update(salonClientSchema)
         .set({
           ...(fullName && { fullName }),
           ...(email && { email }),
-          // Update phone if it changed (e.g., user updated their number)
           phone: normalizedPhone,
           updatedAt: new Date(),
         })
-        .where(eq(salonClientSchema.id, existingByClientId[0]!.id))
+        .where(eq(salonClientSchema.id, existing.id))
         .returning();
+
+      // Grant welcome bonus for legacy clients (created before this feature)
+      await grantWelcomeBonusIfEligible(existing.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
+
       return updated!;
     }
 
@@ -641,6 +657,7 @@ export async function upsertSalonClient(
       .limit(1);
 
     if (existingByPhone.length > 0) {
+      const existing = existingByPhone[0]!;
       // Link existing phone-based record to global client
       const [updated] = await db
         .update(salonClientSchema)
@@ -650,48 +667,198 @@ export async function upsertSalonClient(
           ...(email && { email }),
           updatedAt: new Date(),
         })
-        .where(eq(salonClientSchema.id, existingByPhone[0]!.id))
+        .where(eq(salonClientSchema.id, existing.id))
         .returning();
+
+      // Grant welcome bonus for legacy clients (created before this feature)
+      await grantWelcomeBonusIfEligible(existing.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
+
       return updated!;
     }
 
-    // Create new record with global client link
-    const [newClient] = await db
+    // Create new record with global client link + welcome bonus (atomic)
+    return await createSalonClientWithWelcomeBonus(
+      salonClientId,
+      salonId,
+      normalizedPhone,
+      fullName,
+      email,
+      globalClientId,
+      welcomeBonusPoints,
+    );
+  }
+
+  // No globalClientId - use phone-based conflict resolution
+  // First check if the record exists (to determine if this is a new client)
+  const [existingClient] = await db
+    .select({ id: salonClientSchema.id })
+    .from(salonClientSchema)
+    .where(
+      and(
+        eq(salonClientSchema.salonId, salonId),
+        eq(salonClientSchema.phone, normalizedPhone),
+      ),
+    )
+    .limit(1);
+
+  if (existingClient) {
+    // Existing client - update + maybe grant welcome bonus (legacy clients)
+    const [updated] = await db
+      .update(salonClientSchema)
+      .set({
+        ...(fullName && { fullName }),
+        ...(email && { email }),
+        updatedAt: new Date(),
+      })
+      .where(eq(salonClientSchema.id, existingClient.id))
+      .returning();
+
+    // Grant welcome bonus for legacy clients (created before this feature)
+    await grantWelcomeBonusIfEligible(existingClient.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
+
+    return updated!;
+  }
+
+  // New client - create with welcome bonus (atomic)
+  return await createSalonClientWithWelcomeBonus(
+    salonClientId,
+    salonId,
+    normalizedPhone,
+    fullName,
+    email,
+    null,
+    welcomeBonusPoints,
+  );
+}
+
+/**
+ * Create a new salon client with welcome bonus in a single atomic transaction.
+ * This ensures the welcome bonus is only granted once even under race conditions.
+ *
+ * @param welcomeBonusPoints - Resolved welcome bonus points for this salon
+ */
+async function createSalonClientWithWelcomeBonus(
+  salonClientId: string,
+  salonId: string,
+  phone: string,
+  fullName?: string,
+  email?: string,
+  globalClientId?: string | null,
+  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
+): Promise<SalonClient> {
+  return await db.transaction(async (tx) => {
+    // Insert new salon client with welcome bonus
+    const [newClient] = await tx
       .insert(salonClientSchema)
       .values({
         id: salonClientId,
         salonId,
-        phone: normalizedPhone,
+        phone,
         fullName,
         email,
-        clientId: globalClientId,
+        clientId: globalClientId ?? null,
+        loyaltyPoints: welcomeBonusPoints,
+        welcomeBonusGrantedAt: new Date(),
       })
       .returning();
-    return newClient!;
-  }
 
-  // No globalClientId - use phone-based conflict resolution
-  const [salonClient] = await db
-    .insert(salonClientSchema)
-    .values({
-      id: salonClientId,
+    if (!newClient) {
+      throw new Error('Failed to create salon client');
+    }
+
+    // Create welcome bonus reward record for visibility
+    const rewardId = `reward_${crypto.randomUUID()}`;
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+    await tx.insert(rewardSchema).values({
+      id: rewardId,
       salonId,
-      phone: normalizedPhone,
-      fullName,
-      email,
-      clientId: null,
-    })
-    .onConflictDoUpdate({
-      target: [salonClientSchema.salonId, salonClientSchema.phone],
-      set: {
-        ...(fullName && { fullName }),
-        ...(email && { email }),
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+      clientPhone: phone,
+      clientName: fullName ?? null,
+      type: 'welcome_bonus',
+      points: welcomeBonusPoints,
+      eligibleServiceName: 'Free Gel Manicure',
+      status: 'active',
+      expiresAt,
+    });
 
-  return salonClient!;
+    // eslint-disable-next-line no-console
+    console.log(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to ${phone} at salon ${salonId}`);
+
+    return newClient;
+  });
+}
+
+/**
+ * Grant welcome bonus to existing salon client if not already granted.
+ * Uses atomic conditional update to prevent race conditions.
+ * This handles legacy clients created before the welcome bonus feature.
+ *
+ * @param salonClientId - The salon client's ID
+ * @param salonId - The salon's ID (for reward record)
+ * @param phone - Client phone (for reward record)
+ * @param fullName - Client name (for reward record)
+ * @param welcomeBonusPoints - Resolved welcome bonus points for this salon
+ */
+async function grantWelcomeBonusIfEligible(
+  salonClientId: string,
+  salonId: string,
+  phone: string,
+  fullName?: string,
+  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
+): Promise<boolean> {
+  try {
+    return await db.transaction(async (tx) => {
+      // Atomic conditional update: only set welcomeBonusGrantedAt if currently NULL
+      // and increment points in the same update
+      const updateResult = await tx
+        .update(salonClientSchema)
+        .set({
+          welcomeBonusGrantedAt: new Date(),
+          loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${welcomeBonusPoints}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(salonClientSchema.id, salonClientId),
+            isNull(salonClientSchema.welcomeBonusGrantedAt),
+          ),
+        )
+        .returning();
+
+      // If no rows updated, bonus was already granted
+      if (updateResult.length === 0) {
+        return false;
+      }
+
+      // Create welcome bonus reward record for visibility
+      const rewardId = `reward_${crypto.randomUUID()}`;
+      const expiresAt = new Date();
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+      await tx.insert(rewardSchema).values({
+        id: rewardId,
+        salonId,
+        clientPhone: phone,
+        clientName: fullName ?? null,
+        type: 'welcome_bonus',
+        points: welcomeBonusPoints,
+        eligibleServiceName: 'Free Gel Manicure',
+        status: 'active',
+        expiresAt,
+      });
+
+      // eslint-disable-next-line no-console
+      console.log(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to legacy client ${phone}`);
+
+      return true;
+    });
+  } catch (error) {
+    // Log but don't fail - this is best-effort for legacy clients
+    console.error('Failed to grant welcome bonus:', error);
+    return false;
+  }
 }
 
 /**
@@ -837,7 +1004,7 @@ export async function getSalonClients(
 
   // Fetch preferred technicians for clients that have one
   const techIds = clients
-    .map((c) => c.preferredTechnicianId)
+    .map(c => c.preferredTechnicianId)
     .filter((id): id is string => id !== null);
 
   let techMap = new Map<string, { id: string; name: string; avatarUrl: string | null }>();
@@ -851,11 +1018,11 @@ export async function getSalonClients(
       .from(technicianSchema)
       .where(inArray(technicianSchema.id, techIds));
 
-    techMap = new Map(technicians.map((t) => [t.id, t]));
+    techMap = new Map(technicians.map(t => [t.id, t]));
   }
 
   // Combine clients with technician info
-  const clientsWithTech: SalonClientWithTech[] = clients.map((client) => ({
+  const clientsWithTech: SalonClientWithTech[] = clients.map(client => ({
     ...client,
     preferredTechnician: client.preferredTechnicianId
       ? techMap.get(client.preferredTechnicianId) ?? null
@@ -897,15 +1064,15 @@ export async function updateSalonClient(
 /**
  * Update salon client stats based on their appointment history
  * Call this after appointment completion, cancellation, or no-show
- * 
+ *
  * This function is IDEMPOTENT - it recalculates all stats from scratch
  * based on the current appointment data, so calling it multiple times
  * is safe and will always produce correct results.
- * 
+ *
  * Stats are SALON-SCOPED - only appointments from this salon are counted.
- * 
+ *
  * Loyalty points rule: 1 point per $1 spent (100 cents = 1 point)
- * 
+ *
  * @param salonId - The salon's unique ID
  * @param phone - The client's phone number (any format)
  */
@@ -926,11 +1093,11 @@ export async function updateSalonClientStats(
   // Build comprehensive phone variants for matching appointments
   // Appointments may store phone in various formats
   const phoneVariants = [
-    normalizedPhone,                    // "4165551234"
-    `+1${normalizedPhone}`,             // "+14165551234"
-    `1${normalizedPhone}`,              // "14165551234"
-    phone,                               // original format passed in
-    phone.replace(/\D/g, ''),           // digits only from original
+    normalizedPhone, // "4165551234"
+    `+1${normalizedPhone}`, // "+14165551234"
+    `1${normalizedPhone}`, // "14165551234"
+    phone, // original format passed in
+    phone.replace(/\D/g, ''), // digits only from original
   ];
   // Deduplicate
   const uniquePhoneVariants = [...new Set(phoneVariants)];
@@ -953,11 +1120,11 @@ export async function updateSalonClientStats(
     );
 
   const clientStats = stats[0];
-  
+
   // Calculate loyalty points: 1 point per $1 spent (totalSpent is in cents)
   // Example: $125.00 spent = 12500 cents = 125 points
   const loyaltyPoints = Math.floor((clientStats?.totalSpent ?? 0) / 100);
-  
+
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety
   await db
@@ -977,4 +1144,3 @@ export async function updateSalonClientStats(
       ),
     );
 }
-

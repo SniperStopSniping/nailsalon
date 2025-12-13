@@ -15,8 +15,9 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { upsertClient } from '@/libs/queries';
-import { appointmentSchema, referralSchema, rewardSchema } from '@/models/Schema';
+import { appointmentSchema, referralSchema, rewardSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -33,7 +34,7 @@ type ClaimReferralRequest = z.infer<typeof claimReferralSchema>;
 // RESPONSE TYPES
 // =============================================================================
 
-interface SuccessResponse {
+type SuccessResponse = {
   data: {
     referralId: string;
     rewardId: string;
@@ -43,15 +44,15 @@ interface SuccessResponse {
   meta: {
     timestamp: string;
   };
-}
+};
 
-interface ErrorResponse {
+type ErrorResponse = {
   error: {
     code: string;
     message: string;
     details?: unknown;
   };
-}
+};
 
 // =============================================================================
 // HELPERS
@@ -130,6 +131,28 @@ export async function POST(
         { status: 404 },
       );
     }
+
+    // 2b. Fetch salon to resolve loyalty points
+    const [salon] = await db
+      .select()
+      .from(salonSchema)
+      .where(eq(salonSchema.id, referral.salonId))
+      .limit(1);
+
+    if (!salon) {
+      return Response.json(
+        {
+          error: {
+            code: 'SALON_NOT_FOUND',
+            message: 'The salon for this referral no longer exists',
+          },
+        } satisfies ErrorResponse,
+        { status: 404 },
+      );
+    }
+
+    // Resolve effective loyalty points for this salon
+    const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
 
     // 3. Check if referral is still claimable
     if (referral.status !== 'sent') {
@@ -250,7 +273,7 @@ export async function POST(
     // 9. Create/update client record for the referee
     await upsertClient(`+1${normalizedPhone}`, data.refereeName);
 
-    // 10. Create a reward for the referee (2500 points = free gel manicure)
+    // 10. Create a reward for the referee (uses salon-resolved points)
     const rewardId = `reward_${crypto.randomUUID()}`;
     await db.insert(rewardSchema).values({
       id: rewardId,
@@ -259,7 +282,7 @@ export async function POST(
       clientName: data.refereeName,
       referralId,
       type: 'referral_referee',
-      points: 2500,
+      points: loyaltyPoints.referralReferee,
       eligibleServiceName: 'Gel Manicure',
       status: 'active',
       expiresAt,
