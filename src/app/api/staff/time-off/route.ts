@@ -1,3 +1,13 @@
+/**
+ * Legacy Time-Off API (Admin-Only)
+ *
+ * SECURITY NOTICE: This endpoint is now ADMIN-ONLY.
+ * Staff must use /api/staff/time-off-requests (request-based workflow).
+ *
+ * GET /api/staff/time-off - List time-off entries (admin reads by technicianId)
+ * POST /api/staff/time-off - Create time-off entry (admin direct write)
+ */
+
 import { and, eq, gte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -6,7 +16,7 @@ import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
+import { getAdminSession } from '@/libs/adminAuth';
 import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/models/Schema';
 
 // =============================================================================
@@ -15,7 +25,6 @@ import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/m
 
 const createTimeOffSchema = z.object({
   technicianId: z.string().min(1, 'Technician ID is required'),
-  salonSlug: z.string().min(1, 'Salon slug is required'),
   startDate: z.string().datetime({ message: 'Invalid start date format' }),
   endDate: z.string().datetime({ message: 'Invalid end date format' }),
   reason: z.enum(TIME_OFF_REASONS).optional(),
@@ -24,7 +33,6 @@ const createTimeOffSchema = z.object({
 
 const getTimeOffSchema = z.object({
   technicianId: z.string().min(1, 'Technician ID is required'),
-  salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
 // =============================================================================
@@ -40,17 +48,30 @@ interface ErrorResponse {
 }
 
 // =============================================================================
-// GET /api/staff/time-off - List time-off entries for a technician
+// GET /api/staff/time-off - List time-off entries (ADMIN-ONLY)
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    // 1. Require admin session
+    const admin = await getAdminSession();
+    if (!admin) {
+      return Response.json(
+        {
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
+          },
+        } satisfies ErrorResponse,
+        { status: 401 },
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const technicianId = searchParams.get('technicianId');
-    const salonSlug = searchParams.get('salonSlug');
 
     // Validate query params
-    const validated = getTimeOffSchema.safeParse({ technicianId, salonSlug });
+    const validated = getTimeOffSchema.safeParse({ technicianId });
     if (!validated.success) {
       return Response.json(
         {
@@ -64,30 +85,14 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // Verify technician belongs to this salon
+    // 2. Get technician and verify admin has access to their salon
     const [technician] = await db
-      .select()
+      .select({
+        id: technicianSchema.id,
+        salonId: technicianSchema.salonId,
+      })
       .from(technicianSchema)
-      .where(
-        and(
-          eq(technicianSchema.id, validated.data.technicianId),
-          eq(technicianSchema.salonId, salon.id),
-        ),
-      )
+      .where(eq(technicianSchema.id, validated.data.technicianId))
       .limit(1);
 
     if (!technician) {
@@ -95,14 +100,30 @@ export async function GET(request: Request): Promise<Response> {
         {
           error: {
             code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician not found in this salon',
+            message: 'Technician not found',
           },
         } satisfies ErrorResponse,
         { status: 404 },
       );
     }
 
-    // Get time-off entries (only future or current)
+    // 3. Enforce admin salon scope
+    if (!admin.isSuperAdmin) {
+      const hasAccess = admin.salons.some((s) => s.salonId === technician.salonId);
+      if (!hasAccess) {
+        return Response.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'No access to this salon',
+            },
+          } satisfies ErrorResponse,
+          { status: 403 },
+        );
+      }
+    }
+
+    // 4. Get time-off entries (only future or current)
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
@@ -112,7 +133,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(technicianTimeOffSchema.technicianId, validated.data.technicianId),
-          eq(technicianTimeOffSchema.salonId, salon.id),
+          eq(technicianTimeOffSchema.salonId, technician.salonId),
           gte(technicianTimeOffSchema.endDate, now),
         ),
       )
@@ -145,11 +166,25 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // =============================================================================
-// POST /api/staff/time-off - Create a new time-off entry
+// POST /api/staff/time-off - Create time-off entry (ADMIN-ONLY)
 // =============================================================================
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    // 1. Require admin session
+    const admin = await getAdminSession();
+    if (!admin) {
+      return Response.json(
+        {
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
+          },
+        } satisfies ErrorResponse,
+        { status: 401 },
+      );
+    }
+
     const body = await request.json();
     const validated = createTimeOffSchema.safeParse(body);
 
@@ -166,30 +201,15 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // Verify technician belongs to this salon
+    // 2. Get technician and verify admin has access to their salon
     const [technician] = await db
-      .select()
+      .select({
+        id: technicianSchema.id,
+        salonId: technicianSchema.salonId,
+        name: technicianSchema.name,
+      })
       .from(technicianSchema)
-      .where(
-        and(
-          eq(technicianSchema.id, validated.data.technicianId),
-          eq(technicianSchema.salonId, salon.id),
-        ),
-      )
+      .where(eq(technicianSchema.id, validated.data.technicianId))
       .limit(1);
 
     if (!technician) {
@@ -197,14 +217,30 @@ export async function POST(request: Request): Promise<Response> {
         {
           error: {
             code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician not found in this salon',
+            message: 'Technician not found',
           },
         } satisfies ErrorResponse,
         { status: 404 },
       );
     }
 
-    // Validate dates
+    // 3. Enforce admin salon scope
+    if (!admin.isSuperAdmin) {
+      const hasAccess = admin.salons.some((s) => s.salonId === technician.salonId);
+      if (!hasAccess) {
+        return Response.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'No access to this salon',
+            },
+          } satisfies ErrorResponse,
+          { status: 403 },
+        );
+      }
+    }
+
+    // 4. Validate dates
     const startDate = new Date(validated.data.startDate);
     const endDate = new Date(validated.data.endDate);
 
@@ -220,7 +256,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Create time-off entry
+    // 5. Create time-off entry
     const timeOffId = `timeoff_${nanoid()}`;
 
     const [newEntry] = await db
@@ -228,13 +264,17 @@ export async function POST(request: Request): Promise<Response> {
       .values({
         id: timeOffId,
         technicianId: validated.data.technicianId,
-        salonId: salon.id,
+        salonId: technician.salonId,
         startDate,
         endDate,
         reason: validated.data.reason || null,
         notes: validated.data.notes || null,
       })
       .returning();
+
+    console.log(
+      `[TimeOff] Admin ${admin.name || admin.id} created time-off ${timeOffId} for ${technician.name} (${technician.id})`,
+    );
 
     return Response.json(
       {
@@ -264,4 +304,3 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
-

@@ -56,12 +56,45 @@ function NotificationBell() {
     }
   }, []);
 
-  // Initial fetch
+  // Initial fetch + polling with pause-on-hidden
   useEffect(() => {
     fetchNotifications();
-    // Poll every 60 seconds for new notifications
-    const interval = setInterval(fetchNotifications, 60000);
-    return () => clearInterval(interval);
+
+    let interval: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (!interval) {
+        interval = setInterval(fetchNotifications, 60000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchNotifications(); // Refresh immediately when tab becomes visible
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    // Start polling only if tab is visible
+    if (document.visibilityState === 'visible') {
+      startPolling();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetchNotifications]);
 
   // Mark all as read when panel opens
@@ -223,6 +256,7 @@ export function StaffHeader({
               type="button"
               onClick={onBack}
               className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
+              aria-label="Go back"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path
