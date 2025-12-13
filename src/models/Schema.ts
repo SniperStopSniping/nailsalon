@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -390,9 +391,17 @@ export const appointmentSchema = pgTable(
     // Technician (services are linked via junction table)
     technicianId: text('technician_id').references(() => technicianSchema.id),
 
+    // Location (multi-location support)
+    // Note: FK reference added at DB level, not ORM level due to schema order
+    locationId: text('location_id'),
+
     // Client (phone-based identification)
     clientPhone: text('client_phone').notNull(),
     clientName: text('client_name'),
+
+    // Stable client identity (Phase 1: nullable for migration, Phase 1.5: NOT NULL after backfill)
+    // onDelete: 'restrict' - can't delete salonClient with appointments (use soft-delete if needed)
+    salonClientId: text('salon_client_id').references(() => salonClientSchema.id, { onDelete: 'restrict' }),
 
     // Timing
     startTime: timestamp('start_time', { mode: 'date' }).notNull(),
@@ -450,6 +459,13 @@ export const appointmentSchema = pgTable(
     statusIdx: index('appointment_status_idx').on(table.salonId, table.status),
     techStartTimeIdx: index('appointment_tech_start_time_idx').on(table.technicianId, table.startTime),
     deletedAtIdx: index('appointment_deleted_at_idx').on(table.deletedAt),
+    // Fraud detection: basic composite for salonClientId lookups
+    salonClientIdx: index('appointment_salon_client_idx').on(table.salonId, table.salonClientId),
+    // NOTE: For fraud queries, use PARTIAL INDEX via raw SQL migration (most efficient):
+    // CREATE INDEX appt_fraud_lookup_idx
+    // ON appointment (salon_id, salon_client_id, completed_at)
+    // WHERE status = 'completed' AND payment_status = 'paid';
+    // (Drizzle doesn't support partial indexes - add via migration only)
   }),
 );
 
@@ -1756,10 +1772,10 @@ export const auditLogSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => ({
-    salonIdx: index('audit_log_salon_idx').on(table.salonId),
-    actionIdx: index('audit_log_action_idx').on(table.action),
-    entityIdx: index('audit_log_entity_idx').on(table.entityType, table.entityId),
-    createdAtIdx: index('audit_log_created_at_idx').on(table.createdAt),
+    salonIdx: index('general_audit_log_salon_idx').on(table.salonId),
+    actionIdx: index('general_audit_log_action_idx').on(table.action),
+    entityIdx: index('general_audit_log_entity_idx').on(table.entityType, table.entityId),
+    createdAtIdx: index('general_audit_log_created_at_idx').on(table.createdAt),
   }),
 );
 
@@ -1795,3 +1811,77 @@ export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
 export type AuditLog = typeof auditLogSchema.$inferSelect;
 export type NewAuditLog = typeof auditLogSchema.$inferInsert;
+
+// =============================================================================
+// FRAUD SIGNAL SYSTEM (v1)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Fraud Signal Enums - PG enums for type safety (not free text)
+// -----------------------------------------------------------------------------
+export const fraudSignalTypeEnum = pgEnum('fraud_signal_type', [
+  'HIGH_APPOINTMENT_FREQUENCY',  // 3+ in 7 days OR 5+ in 14 days
+  'HIGH_REWARD_VELOCITY',        // Points >= 5000 in 7 days
+]);
+
+export const fraudSignalSeverityEnum = pgEnum('fraud_signal_severity', [
+  'LOW',
+  'MEDIUM',
+  'HIGH',
+]);
+
+// -----------------------------------------------------------------------------
+// FraudSignal - Non-blocking fraud detection flags for human review
+// -----------------------------------------------------------------------------
+export const fraudSignalSchema = pgTable(
+  'fraud_signal',
+  {
+    id: text('id').primaryKey(),  // Generated via crypto.randomUUID()
+    salonId: text('salon_id').notNull().references(() => salonSchema.id),
+    // Both NOT NULL - fraud without client or appointment is useless
+    // ON DELETE RESTRICT - never cascade-delete fraud history
+    salonClientId: text('salon_client_id').notNull().references(() => salonClientSchema.id, { onDelete: 'restrict' }),
+    appointmentId: text('appointment_id').notNull().references(() => appointmentSchema.id, { onDelete: 'restrict' }),
+
+    type: fraudSignalTypeEnum('type').notNull(),
+    severity: fraudSignalSeverityEnum('severity').notNull().default('MEDIUM'),
+    reason: text('reason').notNull(),  // Human-readable, deterministic format
+
+    metadata: jsonb('metadata').$type<{
+      appointmentsInPeriod?: number;
+      pointsInPeriod?: number;
+      periodDays?: number;
+      threshold?: number;
+      clientPhone?: string;  // For reference only
+    }>().notNull().default(sql`'{}'::jsonb`),
+
+    // Resolution tracking (full timestamp precision - NO mode: 'date')
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: text('resolved_by'),  // adminUserId from session
+    resolutionNote: text('resolution_note'),
+
+    // Full timestamp precision for accurate 7d/14d throttle calculations
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    salonIdx: index('fraud_signal_salon_idx').on(table.salonId),
+    clientIdx: index('fraud_signal_client_idx').on(table.salonClientId),
+    appointmentIdx: index('fraud_signal_appointment_idx').on(table.appointmentId),
+    // UNIQUE constraint: one signal per type per appointment (regardless of resolved status)
+    uniqueApptType: uniqueIndex('fraud_signal_appt_type_unique').on(table.appointmentId, table.type),
+    // NOTE: Add partial index via raw SQL migration for unresolved queries:
+    // CREATE INDEX fraud_signal_unresolved_idx
+    // ON fraud_signal (salon_id, created_at DESC, id DESC)
+    // WHERE resolved_at IS NULL;
+  }),
+);
+
+// Fraud Signal Types
+export const FRAUD_SIGNAL_TYPES = ['HIGH_APPOINTMENT_FREQUENCY', 'HIGH_REWARD_VELOCITY'] as const;
+export type FraudSignalType = (typeof FRAUD_SIGNAL_TYPES)[number];
+
+export const FRAUD_SIGNAL_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
+export type FraudSignalSeverity = (typeof FRAUD_SIGNAL_SEVERITIES)[number];
+
+export type FraudSignal = typeof fraudSignalSchema.$inferSelect;
+export type NewFraudSignal = typeof fraudSignalSchema.$inferInsert;

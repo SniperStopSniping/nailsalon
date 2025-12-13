@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatedCheckmark, ShakeWrapper } from '@/components/animated';
@@ -102,6 +102,8 @@ const CATEGORY_LABELS: { id: Category; label: string }[] = [
 
 export default function BookServiceContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const locationId = searchParams.get('locationId') || '';
   const [authState, setAuthState] = useState<AuthState>('loggedOut');
   const [selectedCategory, setSelectedCategory] = useState<Category>('hands');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
@@ -257,9 +259,13 @@ export default function BookServiceContent() {
     }
     // Valid selection - trigger confirm haptic and navigate
     triggerHaptic('confirm');
-    const query = selectedServiceIds.join(',');
-    router.push(`/book/tech?serviceIds=${query}`);
-  }, [selectedServiceIds, router]);
+    const params = new URLSearchParams();
+    params.set('serviceIds', selectedServiceIds.join(','));
+    if (locationId) {
+      params.set('locationId', locationId);
+    }
+    router.push(`/book/tech?${params.toString()}`);
+  }, [selectedServiceIds, locationId, router]);
 
   return (
     <div

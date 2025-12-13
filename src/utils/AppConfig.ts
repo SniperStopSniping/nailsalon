@@ -43,6 +43,25 @@ export const LOYALTY_POINTS = {
   REFERRAL_REFERRER_BONUS: 25_000,
 } as const;
 
+// =============================================================================
+// FRAUD DETECTION CONFIGURATION (v1)
+// =============================================================================
+
+export const FRAUD_DETECTION = {
+  /** Flag if client has 3+ completed appointments in 7 days */
+  APPT_FREQ_7D: 3,
+  /** Flag if client has 5+ completed appointments in 14 days (HIGH severity) */
+  APPT_FREQ_14D: 5,
+  /** Flag if client earns >= 5000 points in 7 days (MEDIUM severity) */
+  POINTS_7D_CAP: 5000,
+  /** HIGH severity threshold for points velocity */
+  POINTS_7D_HIGH: 8000,
+  /** Throttle window for frequency signals (days) - don't create new signal if unresolved exists */
+  THROTTLE_FREQUENCY_DAYS: 14,
+  /** Throttle window for velocity signals (days) */
+  THROTTLE_VELOCITY_DAYS: 7,
+} as const;
+
 export const PricingPlanList: Record<string, PricingPlan> = {
   [PLAN_ID.FREE]: {
     id: PLAN_ID.FREE,

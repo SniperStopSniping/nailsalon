@@ -39,6 +39,7 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
   const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
   const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const locationId = searchParams.get('locationId') || '';
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
@@ -80,8 +81,11 @@ export function BookTechContent({ technicians, services }: BookTechContentProps)
     if (originalAppointmentId) {
       params.set('originalAppointmentId', originalAppointmentId);
     }
+    if (locationId) {
+      params.set('locationId', locationId);
+    }
     router.push(`/book/time?${params.toString()}`);
-  }, [selectedTech, serviceIds, clientPhone, originalAppointmentId, router]);
+  }, [selectedTech, serviceIds, clientPhone, originalAppointmentId, locationId, router]);
 
   return (
     <div

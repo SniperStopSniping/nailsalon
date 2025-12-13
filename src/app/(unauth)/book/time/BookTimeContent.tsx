@@ -68,6 +68,7 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
   const techId = searchParams.get('techId') || '';
   const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const locationId = searchParams.get('locationId') || '';
 
   const [mounted, setMounted] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -163,8 +164,11 @@ export function BookTimeContent({ services, technician }: BookTimeContentProps) 
     if (originalAppointmentId) {
       params.set('originalAppointmentId', originalAppointmentId);
     }
+    if (locationId) {
+      params.set('locationId', locationId);
+    }
     router.push(`/book/confirm?${params.toString()}`);
-  }, [selectedDate, selectedTime, serviceIds, techId, clientPhone, originalAppointmentId, router]);
+  }, [selectedDate, selectedTime, serviceIds, techId, clientPhone, originalAppointmentId, locationId, router]);
 
   const serviceNames = services.map(s => s.name).join(' + ');
   const totalPrice = services.reduce((sum, s) => sum + s.price, 0);

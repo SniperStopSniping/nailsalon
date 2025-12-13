@@ -145,9 +145,9 @@ export function getMockAdminMeResponse(role: 'super_admin' | 'admin') {
       profileComplete: true,
       salons: [
         {
-          id: 'demo',
-          slug: 'demo-salon',
-          name: 'Demo Salon',
+          id: 'salon_nail-salon-no5',
+          slug: 'nail-salon-no5',
+          name: 'Nail Salon No.5',
           role: 'owner',
         },
       ],
@@ -172,9 +172,9 @@ export function getMockStaffMeResponse() {
         currentStatus: 'available',
       },
       salon: {
-        id: 'demo',
-        slug: 'demo-salon',
-        name: 'Demo Salon',
+        id: 'salon_nail-salon-no5',
+        slug: 'nail-salon-no5',
+        name: 'Nail Salon No.5',
       },
     },
   };
@@ -224,9 +224,9 @@ export function getMockAdminSession(
     updatedAt: new Date(),
     salons: [
       {
-        salonId: 'demo',
-        salonSlug: 'demo-salon',
-        salonName: 'Demo Salon',
+        salonId: 'salon_nail-salon-no5',
+        salonSlug: 'nail-salon-no5',
+        salonName: 'Nail Salon No.5',
         role: 'owner',
       },
     ],

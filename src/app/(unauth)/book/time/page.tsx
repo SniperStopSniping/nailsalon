@@ -3,8 +3,9 @@ import { Suspense } from 'react';
 
 import { PageThemeWrapper } from '@/components/PageThemeWrapper';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getPageAppearance } from '@/libs/pageAppearance';
-import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { getLocationById, getPrimaryLocation, getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
 import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 
 import { BookTimeClient } from './BookTimeClient';
@@ -22,7 +23,7 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 export default async function BookTimePage({
   searchParams,
 }: {
-  searchParams: { serviceIds?: string; techId?: string };
+  searchParams: { serviceIds?: string; techId?: string; locationId?: string };
 }) {
   const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'book-datetime');
 
@@ -47,6 +48,25 @@ export default async function BookTimePage({
   const featureCheck = await checkFeatureEnabled(salon.id, 'onlineBooking');
   if (featureCheck.redirectPath) {
     redirect(featureCheck.redirectPath);
+  }
+
+  // Deep-link repair: validate locationId and redirect if missing or invalid
+  // Uses shouldRepairBookingUrl() to prevent redirect loops
+  // getLocationById validates: exists + belongs to salonId + isActive (explicit filter)
+  const primaryLocation = await getPrimaryLocation(salon.id);
+
+  // NOTE: If salon has no locations (primaryLocation is null), we don't redirect.
+  // The booking flow will proceed with locationId=null (valid for single-address salons).
+  if (searchParams.locationId && primaryLocation) {
+    // Validate provided locationId exists, belongs to salon, and is active
+    const validLocation = await getLocationById(searchParams.locationId, salon.id);
+    if (!validLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
+      // Invalid locationId - redirect with primary (preserves all other params)
+      redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id));
+    }
+  } else if (primaryLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
+    // Missing locationId - inject primary (preserves all other params)
+    redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id));
   }
 
   // Fetch the selected services

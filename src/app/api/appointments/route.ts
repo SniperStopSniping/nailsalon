@@ -1,6 +1,17 @@
+import { createHash } from 'crypto';
+
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  BOOKING_LOCK_MS,
+  BOOKING_POLL_WINDOW_MS,
+  EXTEND_IF_OWNER_LUA,
+  getBookingIdempotencyKey,
+  getBookingLockKey,
+  TTL,
+} from '@/core/redis/keys';
+import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
@@ -8,9 +19,13 @@ import {
   getActiveAppointmentsForClient,
   getAppointmentById,
   getClientByPhone,
+  getLocationById,
+  getOrCreateSalonClient,
+  getPrimaryLocation,
   getSalonBySlug,
   getServicesByIds,
   getTechnicianById,
+  normalizePhone,
   updateAppointmentStatus,
   upsertSalonClient,
 } from '@/libs/queries';
@@ -152,6 +167,8 @@ const createAppointmentSchema = z.object({
   clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
   clientName: z.string().optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
+  // Optional: Location for multi-location salons
+  locationId: z.string().optional(),
   // Optional: If provided, this is a reschedule - bypass duplicate check and cancel the original
   originalAppointmentId: z.string().optional(),
 });
@@ -221,6 +238,54 @@ export async function POST(request: Request): Promise<Response> {
 
     const data: CreateAppointmentRequest = parsed.data;
 
+    // 1b. NORMALIZE ALL INPUTS ONCE - reuse everywhere (hash, DB, lookups)
+    // This ensures consistency between idempotency hash and actual data stored
+
+    // Normalize technicianId: treat "any", "", whitespace-only as null
+    // This ensures we NEVER store "any" string in the database
+    const rawTechId = typeof data.technicianId === 'string' ? data.technicianId.trim() : '';
+    const normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
+
+    // Normalize phone for early validation and hash computation
+    // NOTE: getOrCreateSalonClient also normalizes internally (single source of truth for DB)
+    // We normalize here too for: (1) early fail-fast, (2) hash consistency, (3) duplicate checks
+    const normalizedPhone = normalizePhone(data.clientPhone);
+    if (!normalizedPhone || normalizedPhone.length !== 10) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_PHONE',
+            message: 'Phone number must be a valid 10-digit US number',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    // Normalize clientName: trim + empty→null
+    const normalizedClientName = data.clientName?.trim() || null;
+
+    // Normalize locationId: trim + empty→null
+    const normalizedLocationId = data.locationId?.trim() || null;
+
+    // Normalize originalAppointmentId: trim + empty→null
+    const normalizedOriginalApptId = data.originalAppointmentId?.trim() || null;
+
+    // Validate and canonicalize startTime: must be valid ISO, convert to UTC
+    const parsedStartTime = new Date(data.startTime);
+    if (Number.isNaN(parsedStartTime.getTime())) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_START_TIME',
+            message: 'startTime must be a valid ISO 8601 date string',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+    const canonicalStartTime = parsedStartTime.toISOString(); // UTC ISO
+
     // 2. Resolve salon from slug
     const salon = await getSalonBySlug(data.salonSlug);
     if (!salon) {
@@ -247,6 +312,151 @@ export async function POST(request: Request): Promise<Response> {
       return featureGuard;
     }
 
+    // 2d. IDEMPOTENCY CHECK: Prevent double-submit on booking confirmation
+    // Client should send Idempotency-Key header with a UUID generated on page load
+    const idempotencyKey = request.headers.get('Idempotency-Key');
+    let idempotencyCacheKey: string | null = null;
+    let requestBodyHash: string | null = null;
+    let redisAvailable = false;
+    let lockKey: string | null = null;
+    let lockOwnerToken: string | null = null;
+    let idempotencyEnabled = false; // Master flag - if false, skip ALL idempotency codepaths
+    let ownsLock = false; // Track if we successfully acquired and still own the lock
+
+    // Check Redis availability ONCE upfront - if down, skip idempotency entirely
+    if (idempotencyKey && redis) {
+      try {
+        redisAvailable = await isRedisAvailable();
+      } catch {
+        redisAvailable = false;
+      }
+    }
+
+    if (idempotencyKey && redisAvailable && redis) {
+      // Generate hash using ALREADY NORMALIZED values (computed once above)
+      // This ensures hash matches DB canonicalization exactly
+      requestBodyHash = createHash('sha256')
+        .update(JSON.stringify({
+          salonId: salon.id, // Use resolved salonId, not slug
+          serviceIds: [...data.serviceIds].sort(), // Sorted for consistency
+          technicianId: normalizedTechnicianId, // Already normalized (null or valid ID, NOT lowercased)
+          clientPhone: normalizedPhone, // 10-digit normalized (same as DB)
+          clientName: normalizedClientName, // Trimmed + empty→null
+          startTime: canonicalStartTime, // UTC ISO (validated above)
+          locationId: normalizedLocationId, // Trimmed + empty→null
+          originalAppointmentId: normalizedOriginalApptId, // Trimmed + empty→null
+        }))
+        .digest('hex')
+        .substring(0, 16); // Short hash is sufficient
+
+      idempotencyCacheKey = getBookingIdempotencyKey(salon.id, idempotencyKey);
+      lockKey = getBookingLockKey(salon.id, idempotencyKey);
+
+      try {
+        // First check if result is already cached
+        const cachedResultJson = await redis.get(idempotencyCacheKey);
+
+        if (cachedResultJson) {
+          const cachedResult = JSON.parse(cachedResultJson);
+
+          // Check if payload hash matches (same key, different payload = error)
+          if (cachedResult.payloadHash && cachedResult.payloadHash !== requestBodyHash) {
+            return Response.json(
+              {
+                error: {
+                  code: 'IDEMPOTENCY_KEY_REUSE',
+                  message: 'This idempotency key was already used with a different request payload',
+                },
+              } satisfies ErrorResponse,
+              { status: 409 },
+            );
+          }
+
+          // Same key, same payload - return cached response with SAME status code
+          return Response.json(
+            {
+              ...cachedResult.responseBody,
+              meta: {
+                ...cachedResult.responseBody.meta,
+                cached: true,
+              },
+            },
+            { status: cachedResult.statusCode },
+          );
+        }
+
+        // No cached result - try to acquire lock with ownership token
+        // Token allows us to atomically verify we still own the lock before DB insert
+        lockOwnerToken = crypto.randomUUID();
+        const lockAcquired = await redis.set(lockKey, lockOwnerToken, 'PX', BOOKING_LOCK_MS, 'NX');
+
+        if (lockAcquired) {
+          // We own the lock - idempotency is active for this request
+          idempotencyEnabled = true;
+          ownsLock = true;
+        } else {
+          // Another request is processing this idempotency key
+          // Poll for cached result - window derived from TTL (not hardcoded)
+          const maxPollMs = BOOKING_POLL_WINDOW_MS; // TTL - 2s buffer
+          const baseDelayMs = 300;
+          const maxDelayMs = 2000;
+          let elapsedMs = 0;
+
+          while (elapsedMs < maxPollMs) {
+            const delay = Math.min(baseDelayMs * Math.pow(1.5, elapsedMs / 1000), maxDelayMs);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            elapsedMs += delay;
+
+            const retryCache = await redis.get(idempotencyCacheKey);
+            if (retryCache) {
+              const cachedResult = JSON.parse(retryCache);
+
+              // Validate payload hash even on retry
+              if (cachedResult.payloadHash && cachedResult.payloadHash !== requestBodyHash) {
+                return Response.json(
+                  {
+                    error: {
+                      code: 'IDEMPOTENCY_KEY_REUSE',
+                      message: 'This idempotency key was already used with a different request payload',
+                    },
+                  } satisfies ErrorResponse,
+                  { status: 409 },
+                );
+              }
+
+              // Return cached response with SAME status code as winner
+              return Response.json(
+                {
+                  ...cachedResult.responseBody,
+                  meta: {
+                    ...cachedResult.responseBody.meta,
+                    cached: true,
+                  },
+                },
+                { status: cachedResult.statusCode },
+              );
+            }
+          }
+
+          // Still no result after polling window - return 409 so client can retry
+          return Response.json(
+            {
+              error: {
+                code: 'BOOKING_IN_PROGRESS',
+                message: 'A booking with this idempotency key is currently being processed. Please retry.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
+      } catch (cacheReadError) {
+        // Redis read failed - proceed without idempotency (booking must still work)
+        console.warn('Idempotency cache read failed, proceeding without:', cacheReadError);
+        idempotencyCacheKey = null; // Disable cache write too
+        lockKey = null;
+      }
+    }
+
     // 3. Validate services belong to salon
     const services = await getServicesByIds(data.serviceIds, salon.id);
 
@@ -266,15 +476,16 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 4. Validate technician (if provided) belongs to salon
+    // Uses normalizedTechnicianId which has already converted "any"/""/whitespace to null
     let technician = null;
-    if (data.technicianId && data.technicianId !== 'any') {
-      technician = await getTechnicianById(data.technicianId, salon.id);
+    if (normalizedTechnicianId) {
+      technician = await getTechnicianById(normalizedTechnicianId, salon.id);
       if (!technician) {
         return Response.json(
           {
             error: {
               code: 'INVALID_TECHNICIAN',
-              message: `Technician "${data.technicianId}" not found for this salon`,
+              message: `Technician "${normalizedTechnicianId}" not found for this salon`,
             },
           } satisfies ErrorResponse,
           { status: 400 },
@@ -282,11 +493,35 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // 4a. Validate location (if provided) belongs to salon, else use primary
+    // Use normalizedLocationId (already trimmed/empty→null above)
+    let validatedLocationId: string | null = null;
+    if (normalizedLocationId) {
+      const location = await getLocationById(normalizedLocationId, salon.id);
+      if (!location) {
+        return Response.json(
+          {
+            error: {
+              code: 'INVALID_LOCATION',
+              message: `Location "${normalizedLocationId}" not found for this salon`,
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
+      }
+      validatedLocationId = location.id;
+    } else {
+      // No locationId provided - use primary location if exists
+      const primaryLocation = await getPrimaryLocation(salon.id);
+      validatedLocationId = primaryLocation?.id ?? null;
+    }
+
     // 4b. Check for existing active appointment (duplicate booking prevention)
     // Skip this check if this is a reschedule (originalAppointmentId provided)
-    if (!data.originalAppointmentId) {
+    // Use normalizedPhone for DB lookups (same as will be stored)
+    if (!normalizedOriginalApptId) {
       const existingAppointments = await getActiveAppointmentsForClient(
-        data.clientPhone,
+        normalizedPhone,
         salon.id,
       );
 
@@ -308,8 +543,8 @@ export async function POST(request: Request): Promise<Response> {
 
     // 4c. If this is a reschedule, validate that the original appointment exists and belongs to this client
     let originalAppointment = null;
-    if (data.originalAppointmentId) {
-      originalAppointment = await getAppointmentById(data.originalAppointmentId);
+    if (normalizedOriginalApptId) {
+      originalAppointment = await getAppointmentById(normalizedOriginalApptId);
       if (!originalAppointment) {
         return Response.json(
           {
@@ -322,10 +557,10 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
 
-      // Verify the original appointment belongs to this client (normalize phone for comparison)
-      const normalizedClientPhone = data.clientPhone.replace(/\D/g, '');
-      const normalizedOriginalPhone = originalAppointment.clientPhone.replace(/\D/g, '');
-      if (normalizedClientPhone !== normalizedOriginalPhone) {
+      // Verify the original appointment belongs to this client
+      // Compare normalized phones (both 10-digit)
+      const normalizedOriginalPhone = normalizePhone(originalAppointment.clientPhone);
+      if (normalizedPhone !== normalizedOriginalPhone) {
         return Response.json(
           {
             error: {
@@ -352,9 +587,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 4d. Look up existing client by phone to get their name
-    let clientName = data.clientName;
+    // Use normalizedClientName (already trimmed/empty→null above)
+    let clientName = normalizedClientName;
     if (!clientName) {
-      const existingClient = await getClientByPhone(data.clientPhone);
+      const existingClient = await getClientByPhone(normalizedPhone);
       if (existingClient?.firstName) {
         clientName = existingClient.firstName;
       }
@@ -366,13 +602,14 @@ export async function POST(request: Request): Promise<Response> {
     let discountAmount = 0;
 
     // Look for active rewards for this client that aren't expired
+    // Use normalizedPhone for DB lookups
     const activeRewards = await db
       .select()
       .from(rewardSchema)
       .where(
         and(
           eq(rewardSchema.salonId, salon.id),
-          eq(rewardSchema.clientPhone, data.clientPhone),
+          eq(rewardSchema.clientPhone, normalizedPhone),
           eq(rewardSchema.status, 'active'),
         ),
       );
@@ -412,7 +649,8 @@ export async function POST(request: Request): Promise<Response> {
     const totalDurationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
 
     // 6. Compute endTime from startTime + total duration
-    const startTime = new Date(data.startTime);
+    // Use parsedStartTime (already validated above - not Invalid Date)
+    const startTime = parsedStartTime;
     const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
 
     // 6b. Validate that start time is in the future with 30-minute minimum lead time
@@ -579,18 +817,127 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 7. Generate appointment ID
+    // 7. ATOMIC LOCK OWNERSHIP CHECK: Before any writes, verify we still own the lock
+    // Uses Lua script to atomically check ownership AND extend TTL in one operation
+    // This prevents the race: GET token → TTL expires → another acquires → both proceed
+    if (idempotencyEnabled && ownsLock && lockKey && lockOwnerToken && redis) {
+      try {
+        // Atomic: if we own the lock, extend TTL and return 1; else return 0
+        const stillOwner = await redis.eval(
+          EXTEND_IF_OWNER_LUA,
+          1, // number of keys
+          lockKey,
+          lockOwnerToken,
+          String(BOOKING_LOCK_MS), // extend by full TTL
+        );
+
+        if (stillOwner !== 1) {
+          // Lock expired or was taken - we no longer own it
+          ownsLock = false;
+
+          // Check if a cached result appeared (winner may have completed)
+          if (idempotencyCacheKey) {
+            const cachedResult = await redis.get(idempotencyCacheKey);
+            if (cachedResult) {
+              const parsed = JSON.parse(cachedResult);
+              // Validate payload hash before returning cached result
+              if (parsed.payloadHash && parsed.payloadHash !== requestBodyHash) {
+                return Response.json(
+                  {
+                    error: {
+                      code: 'IDEMPOTENCY_KEY_REUSE',
+                      message: 'This idempotency key was already used with a different request payload',
+                    },
+                  } satisfies ErrorResponse,
+                  { status: 409 },
+                );
+              }
+              return Response.json(
+                {
+                  ...parsed.responseBody,
+                  meta: { ...parsed.responseBody.meta, cached: true },
+                },
+                { status: parsed.statusCode },
+              );
+            }
+          }
+          // No cached result - return 409 so client can retry
+          return Response.json(
+            {
+              error: {
+                code: 'BOOKING_IN_PROGRESS',
+                message: 'Lock expired during processing. Please retry your booking.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
+        // stillOwner === 1: we still own the lock, proceed with insert
+      } catch (lockCheckError) {
+        // Lua script or Redis failed - FAIL OPEN (disable idempotency, proceed with booking)
+        // Rationale: booking availability is more important than double-submit prevention
+        console.error('[Idempotency] Lock ownership check failed, disabling idempotency:', {
+          lockKey,
+          error: lockCheckError instanceof Error ? lockCheckError.message : String(lockCheckError),
+        });
+        // Disable ALL idempotency for this request - no cache read/write, no lock checks
+        idempotencyEnabled = false;
+        ownsLock = false;
+        idempotencyCacheKey = null;
+        lockKey = null;
+        lockOwnerToken = null;
+      }
+    }
+
+    // 7b. GUARD: If idempotency is enabled, we MUST own the lock to proceed with insert
+    // This is a hard invariant - if we don't own the lock, someone else is processing
+    if (idempotencyEnabled && !ownsLock) {
+      // This should be unreachable (loser path returns above), but enforce anyway
+      return Response.json(
+        {
+          error: {
+            code: 'BOOKING_IN_PROGRESS',
+            message: 'Another request is processing this booking. Please retry.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    // 7b. Resolve salonClientId BEFORE appointment insert (required for fraud detection)
+    // This ensures stable client identity and enables fraud queries by salonClientId
+    // getOrCreateSalonClient normalizes phone internally - pass raw phone
+    const salonClient = await getOrCreateSalonClient(salon.id, data.clientPhone, clientName ?? undefined);
+
+    if (!salonClient) {
+      // Phone was invalid (getOrCreateSalonClient returns null for invalid phones)
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_PHONE',
+            message: 'Invalid phone number format. Please provide a valid 10-digit phone number.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
 
-    // 8. Insert appointment
+    // 8. Insert appointment with salonClientId
+    // Use salonClient.phone as source of truth (what getOrCreateSalonClient actually stored)
+    // This guarantees appointment.clientPhone === salonClient.phone (same normalization)
     const [appointment] = await db
       .insert(appointmentSchema)
       .values({
         id: appointmentId,
         salonId: salon.id,
         technicianId: technician?.id ?? null,
-        clientPhone: data.clientPhone,
+        locationId: validatedLocationId,
+        clientPhone: salonClient.phone, // Source of truth from salonClient
         clientName,
+        salonClientId: salonClient.id, // Always set for new appointments
         startTime,
         endTime,
         status: 'pending',
@@ -603,11 +950,12 @@ export async function POST(request: Request): Promise<Response> {
       throw new Error('Failed to create appointment');
     }
 
-    // 8b. Upsert salon client (create if new, update name if provided)
-    // This creates a salon-scoped client profile for the customer
+    // 8b. Grant welcome bonus if this is a new client (handled by upsertSalonClient)
+    // getOrCreateSalonClient doesn't grant bonuses, so we still call upsertSalonClient for that
+    // Use salonClient.phone as source of truth
     try {
       const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
-      await upsertSalonClient(salon.id, data.clientPhone, clientName, undefined, undefined, loyaltyPoints.welcomeBonus);
+      await upsertSalonClient(salon.id, salonClient.phone, clientName ?? undefined, undefined, undefined, loyaltyPoints.welcomeBonus);
     } catch (err) {
       // Log but don't fail the booking if client upsert fails
       console.error('Failed to upsert salon client:', err);
@@ -639,17 +987,18 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
-    if (originalAppointment && data.originalAppointmentId) {
+    if (originalAppointment && normalizedOriginalApptId) {
       await updateAppointmentStatus(
-        data.originalAppointmentId,
+        normalizedOriginalApptId,
         'cancelled',
         'rescheduled',
       );
 
       // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
+      // Use salonClient.phone as source of truth
       await sendRescheduleConfirmation(salon.id, {
-        phone: data.clientPhone,
-        clientName,
+        phone: salonClient.phone,
+        clientName: clientName ?? undefined,
         salonName: salon.name,
         oldStartTime: originalAppointment.startTime.toISOString(),
         newStartTime: startTime.toISOString(),
@@ -686,10 +1035,11 @@ export async function POST(request: Request): Promise<Response> {
 
     // 9d. Check for claimed referrals for this client and update status to 'booked'
     // This handles the case where a referee (person who claimed a referral) books their first appointment
+    // Use salonClient.phone and variants for lookup (source of truth)
     const phoneVariants = [
-      data.clientPhone,
-      `+1${data.clientPhone}`,
-      `+${data.clientPhone}`,
+      salonClient.phone,
+      `+1${salonClient.phone}`,
+      `+${salonClient.phone}`,
     ];
 
     const claimedReferrals = await db
@@ -720,10 +1070,64 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 10. Send SMS notifications (gated by smsRemindersEnabled toggle)
+    // =========================================================================
+    // 10. BUILD RESPONSE (single definition, used for cache AND return)
+    // =========================================================================
+    // Build response ONCE to guarantee cache and return are byte-for-byte identical
+    const response: SuccessResponse = {
+      data: {
+        appointment,
+        services: services.map((service) => {
+          const apptService = appointmentServices.find(as => as.serviceId === service.id);
+          return {
+            service,
+            priceAtBooking: apptService?.priceAtBooking ?? service.price,
+            durationAtBooking: apptService?.durationAtBooking ?? service.durationMinutes,
+          };
+        }),
+        technician: technician
+          ? { id: technician.id, name: technician.name, avatarUrl: technician.avatarUrl }
+          : null,
+        salon: {
+          id: salon.id,
+          name: salon.name,
+          slug: salon.slug,
+        },
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    // =========================================================================
+    // 11. CACHE WRITE - Only if idempotency is enabled and we own the lock
+    // DB insert is ALREADY COMMITTED at this point (line ~931 .returning() confirms)
+    // =========================================================================
+    if (idempotencyEnabled && ownsLock && idempotencyCacheKey && redis && requestBodyHash) {
+      try {
+        await redis.set(
+          idempotencyCacheKey,
+          JSON.stringify({
+            payloadHash: requestBodyHash,
+            createdAt: new Date().toISOString(),
+            statusCode: 201,
+            responseBody: response, // Same object returned to client
+          }),
+          'PX',
+          TTL.BOOKING_IDEMPOTENCY * 1000,
+        );
+      } catch (cacheError) {
+        console.error('[Idempotency] Cache write failed:', cacheError);
+      }
+    }
+
+    // =========================================================================
+    // 12. SLOW WORK - SMS notifications (OUTSIDE lock window, after cache write)
+    // =========================================================================
+    // Use salonClient.phone as source of truth for all SMS
     await sendBookingConfirmationToClient(salon.id, {
-      phone: data.clientPhone,
-      clientName,
+      phone: salonClient.phone,
+      clientName: clientName ?? undefined,
       appointmentId: appointment.id,
       salonName: salon.name,
       services: services.map(s => s.name),
@@ -738,43 +1142,14 @@ export async function POST(request: Request): Promise<Response> {
         technicianName: technician.name,
         appointmentId: appointment.id,
         clientName: clientName ?? 'Guest',
-        clientPhone: data.clientPhone,
+        clientPhone: salonClient.phone,
         services: services.map(s => s.name),
         startTime: startTime.toISOString(),
         totalDurationMinutes,
       });
     }
 
-    // 11. Build and return response
-    const response: SuccessResponse = {
-      data: {
-        appointment,
-        services: services.map((service) => {
-          const apptService = appointmentServices.find(as => as.serviceId === service.id);
-          return {
-            service,
-            priceAtBooking: apptService?.priceAtBooking ?? service.price,
-            durationAtBooking: apptService?.durationAtBooking ?? service.durationMinutes,
-          };
-        }),
-        technician: technician
-          ? {
-              id: technician.id,
-              name: technician.name,
-              avatarUrl: technician.avatarUrl,
-            }
-          : null,
-        salon: {
-          id: salon.id,
-          name: salon.name,
-          slug: salon.slug,
-        },
-      },
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
-
+    // 13. Return response (same object that was cached, if caching was enabled)
     return Response.json(response, { status: 201 });
   } catch (error) {
     console.error('Error creating appointment:', error);

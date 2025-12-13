@@ -25,9 +25,21 @@ export type ServiceData = {
   imageUrl: string;
 };
 
+export type LocationData = {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+  phone: string | null;
+  isPrimary: boolean;
+};
+
 type BookServiceClientProps = {
   services: ServiceData[];
   bookingFlow: BookingStep[];
+  locations: LocationData[];
 };
 
 const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
@@ -36,7 +48,7 @@ const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
   { id: 'combo', label: 'Combo', icon: '✨' },
 ];
 
-export function BookServiceClient({ services, bookingFlow }: BookServiceClientProps) {
+export function BookServiceClient({ services, bookingFlow, locations }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -49,9 +61,40 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
   // Get reschedule params from URL (passed from change-appointment page)
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const urlClientPhone = searchParams.get('clientPhone') || '';
+  const urlLocationId = searchParams.get('locationId') || '';
 
   // Use shared auth hook
   const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(urlClientPhone || undefined);
+
+  // Multi-location: show picker only when 2+ locations
+  const showLocationPicker = locations.length >= 2;
+  const primaryLocation = locations.find(l => l.isPrimary) || locations[0];
+
+  // Check if URL locationId is valid
+  const urlLocationValid = urlLocationId && locations.some(l => l.id === urlLocationId);
+  const hadInvalidLocation = !!(urlLocationId && !urlLocationValid && showLocationPicker);
+
+  // Initialize selectedLocationId from URL or primary
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(() => {
+    if (urlLocationValid) {
+      return urlLocationId;
+    }
+    return primaryLocation?.id || null;
+  });
+
+  // Show toast if multi-location salon had invalid locationId in URL
+  const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
+
+  // Repair URL if locationId was invalid - replace with primary
+  // This ensures later steps don't carry garbage locationId
+  useEffect(() => {
+    if (hadInvalidLocation && primaryLocation?.id) {
+      const newParams = new URLSearchParams(searchParams.toString());
+      newParams.set('locationId', primaryLocation.id);
+      // Replace URL without adding to history
+      window.history.replaceState(null, '', `?${newParams.toString()}`);
+    }
+  }, [hadInvalidLocation, primaryLocation?.id, searchParams]);
 
   const [selectedCategory, setSelectedCategory] = useState<Category>('hands');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
@@ -100,6 +143,11 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
     // Pass through originalAppointmentId for reschedule flow
     if (originalAppointmentId) {
       url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
+    }
+
+    // Pass through locationId for multi-location support
+    if (selectedLocationId) {
+      url += `&locationId=${encodeURIComponent(selectedLocationId)}`;
     }
 
     router.push(url);
@@ -264,6 +312,118 @@ export function BookServiceClient({ services, bookingFlow }: BookServiceClientPr
             )}
           </div>
         </div>
+
+        {/* Location Fallback Toast - shown when URL had invalid locationId for multi-location salon */}
+        {showLocationFallbackToast && (
+          <div
+            className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
+            style={{
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderColor: '#fbbf24',
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 110ms, transform 300ms ease-out 110ms',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-amber-600">⚠️</span>
+              <span className="text-sm text-amber-800">
+                Location not found, defaulted to {primaryLocation?.name || 'primary location'}.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLocationFallbackToast(false)}
+              className="ml-2 text-amber-600 hover:text-amber-800"
+              aria-label="Dismiss"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Location Picker - shown only when 2+ locations */}
+        {showLocationPicker && (
+          <div
+            className="mb-4"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 120ms, transform 300ms ease-out 120ms',
+            }}
+          >
+            <div className="mb-2 text-center text-sm font-medium text-neutral-600">
+              📍 Choose a location
+            </div>
+            <div className="flex flex-col gap-2">
+              {locations.map((location) => {
+                const isSelected = selectedLocationId === location.id;
+                return (
+                  <button
+                    key={location.id}
+                    type="button"
+                    onClick={() => {
+                      if (selectedLocationId !== location.id) {
+                        setSelectedLocationId(location.id);
+                        triggerHaptic('select');
+                      }
+                    }}
+                    className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200"
+                    style={{
+                      backgroundColor: isSelected ? `color-mix(in srgb, ${themeVars.primary} 15%, white)` : 'white',
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                      boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-neutral-900">{location.name}</span>
+                          {location.isPrimary && (
+                            <span
+                              className="rounded-full px-2 py-0.5 text-xs font-medium"
+                              style={{ backgroundColor: `color-mix(in srgb, ${themeVars.accent} 15%, white)`, color: themeVars.accent }}
+                            >
+                              Primary
+                            </span>
+                          )}
+                        </div>
+                        {location.address && (
+                          <div className="mt-0.5 text-sm text-neutral-500">
+                            {location.address}
+                            {location.city && `, ${location.city}`}
+                            {location.state && ` ${location.state}`}
+                          </div>
+                        )}
+                      </div>
+                      {/* Selection indicator */}
+                      <div
+                        className="flex size-6 shrink-0 items-center justify-center rounded-full transition-all"
+                        style={{
+                          backgroundColor: isSelected ? themeVars.primary : 'transparent',
+                          borderWidth: isSelected ? 0 : '2px',
+                          borderStyle: 'solid',
+                          borderColor: isSelected ? 'transparent' : '#d4d4d4',
+                        }}
+                      >
+                        {isSelected && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
+                            <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Category Tabs */}
         <div

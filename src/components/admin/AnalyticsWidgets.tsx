@@ -183,11 +183,11 @@ function formatCurrency(cents: number): string {
 }
 
 export function AnalyticsWidgets({
-  revenue = 1248000,
-  revenueTrend = 12,
-  staffData = DEFAULT_STAFF,
-  utilization = DEFAULT_UTILIZATION,
-  services = DEFAULT_SERVICES,
+  revenue = 0,
+  revenueTrend = 0,
+  staffData = [],
+  utilization = [],
+  services = [],
   dateRange,
   onQuickAction,
   onTimePeriodChange,
@@ -299,15 +299,23 @@ export function AnalyticsWidgets({
             <div className="w-full text-left text-[13px] font-semibold uppercase text-[#8E8E93]">
               Utilization
             </div>
-            <NestedRings
-              rings={utilization.map(u => ({ percent: u.percent, color: u.color }))}
-              baseSize={100}
-              stroke={8}
-              gap={4}
-            />
-            <RingLegend
-              items={utilization.map(u => ({ color: u.color, label: u.name }))}
-            />
+            {utilization.length > 0 ? (
+              <>
+                <NestedRings
+                  rings={utilization.map(u => ({ percent: u.percent, color: u.color }))}
+                  baseSize={100}
+                  stroke={8}
+                  gap={4}
+                />
+                <RingLegend
+                  items={utilization.map(u => ({ color: u.color, label: u.name }))}
+                />
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-center">
+                <p className="text-[13px] text-[#8E8E93]">No utilization data yet</p>
+              </div>
+            )}
           </div>
 
           {/* Service Mix */}
@@ -316,7 +324,13 @@ export function AnalyticsWidgets({
               Top Services
             </div>
             <div className="flex-1">
-              <ServiceBars items={services} />
+              {services.length > 0 ? (
+                <ServiceBars items={services} />
+              ) : (
+                <div className="flex h-full items-center justify-center text-center">
+                  <p className="text-[13px] text-[#8E8E93]">No services data available</p>
+                </div>
+              )}
             </div>
           </div>
         </motion.div>
@@ -331,34 +345,40 @@ export function AnalyticsWidgets({
             <MoreHorizontal className="size-5 text-gray-400" />
           </div>
           <div className="divide-y divide-gray-100">
-            {staffData.map((staff, index) => (
-              <div
-                key={staff.id}
-                className="flex cursor-pointer items-center justify-between px-5 py-3 transition-colors active:bg-gray-50"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-3 text-[13px] font-bold text-gray-400">
-                    {index + 1}
-                  </span>
-                  <div
-                    className={`flex size-10 items-center justify-center rounded-full text-[13px] font-bold ${staff.avatarColor}`}
-                  >
-                    {staff.name.substring(0, 2)}
-                  </div>
-                  <div>
-                    <div className="text-[15px] font-semibold text-[#1C1C1E]">
-                      {staff.name}
+            {staffData.length > 0 ? (
+              staffData.map((staff, index) => (
+                <div
+                  key={staff.id}
+                  className="flex cursor-pointer items-center justify-between px-5 py-3 transition-colors active:bg-gray-50"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-3 text-[13px] font-bold text-gray-400">
+                      {index + 1}
+                    </span>
+                    <div
+                      className={`flex size-10 items-center justify-center rounded-full text-[13px] font-bold ${staff.avatarColor}`}
+                    >
+                      {staff.name.substring(0, 2)}
                     </div>
-                    <div className="text-[12px] text-[#8E8E93]">{staff.role}</div>
+                    <div>
+                      <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                        {staff.name}
+                      </div>
+                      <div className="text-[12px] text-[#8E8E93]">{staff.role}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-[15px] font-medium text-[#1C1C1E]">
+                      {staff.revenue}
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-mono text-[15px] font-medium text-[#1C1C1E]">
-                    {staff.revenue}
-                  </div>
-                </div>
+              ))
+            ) : (
+              <div className="px-5 py-8 text-center">
+                <p className="text-[13px] text-[#8E8E93]">No staff data available</p>
               </div>
-            ))}
+            )}
           </div>
           <div className="border-t border-gray-100 p-3 text-center">
             <button

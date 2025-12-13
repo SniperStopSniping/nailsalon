@@ -19,6 +19,7 @@ import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
 import { ClientsModal } from '@/components/admin/ClientsModal';
+import { FraudSignalsModal } from '@/components/admin/FraudSignalsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
@@ -175,6 +176,15 @@ function AdminDashboardContent() {
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showFraudSignals, setShowFraudSignals] = useState(false);
+
+  // Fraud signals - parent owns state
+  const [fraudSignals, setFraudSignals] = useState<import('@/components/admin/FraudSignalsModal').FraudSignal[]>([]);
+  const [fraudSignalsTotalCount, setFraudSignalsTotalCount] = useState(0); // Total from API (for pagination)
+  const [fraudSignalsLoading, setFraudSignalsLoading] = useState(true);
+  const [fraudSignalsError, setFraudSignalsError] = useState<string | null>(null);
+  // Badge count: use total from API, decrement optimistically on resolve
+  const fraudSignalCount = fraudSignalsTotalCount;
 
   // Notification count (in production, this would come from API)
   const notificationCount = data.badges.alerts + data.badges.reviews;
@@ -235,10 +245,31 @@ function AdminDashboardContent() {
     router.push(`/${locale}/admin-login`);
   };
 
+  // Fetch fraud signals - parent owns this state
+  const fetchFraudSignals = useCallback(async () => {
+    try {
+      setFraudSignalsError(null);
+      // API returns signals + unresolvedCount for total
+      const response = await fetch('/api/admin/fraud-signals');
+      if (!response.ok) throw new Error('Failed to load');
+      const result = await response.json();
+      setFraudSignals(result.data.signals);
+      // Use unresolvedCount from API for badge (accurate even with pagination)
+      setFraudSignalsTotalCount(result.data.unresolvedCount ?? result.data.signals.length);
+    } catch {
+      setFraudSignalsError('Failed to load fraud signals');
+    } finally {
+      setFraudSignalsLoading(false);
+    }
+  }, []);
+
   // Fetch dashboard data from analytics API
   const fetchData = useCallback(async () => {
     try {
       setError(null);
+
+      // Fetch fraud signals in parallel with analytics
+      fetchFraudSignals();
 
       // Fetch from analytics API
       const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${salonSlug}&period=monthly`);
@@ -511,6 +542,24 @@ function AdminDashboardContent() {
       {status === 'trial' && (
         <TrialBanner daysRemaining={14} />
       )}
+      {/* Fraud Signals Banner */}
+      {fraudSignalCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowFraudSignals(true)}
+          className="mx-4 mt-2 flex items-center justify-between rounded-xl bg-amber-50 p-3 border border-amber-200 transition-colors hover:bg-amber-100"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex size-8 items-center justify-center rounded-full bg-amber-100">
+              <span className="text-amber-600">⚠️</span>
+            </div>
+            <span className="text-sm font-medium text-amber-800">
+              {fraudSignalCount} {fraudSignalCount === 1 ? 'activity' : 'activities'} flagged for review
+            </span>
+          </div>
+          <span className="text-xs text-amber-600">Review →</span>
+        </button>
+      )}
 
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
@@ -541,8 +590,8 @@ function AdminDashboardContent() {
           >
             {/* Page 1: Analytics Widgets */}
             <AnalyticsWidgets
-              revenue={data.revenue.today || 1248000}
-              revenueTrend={data.revenue.trend}
+              revenue={data.revenue.today ?? 0}
+              revenueTrend={data.revenue.trend ?? 0}
               staffData={staffData}
               utilization={utilization}
               services={services}
@@ -592,8 +641,8 @@ function AdminDashboardContent() {
         onClose={handleCloseModal}
       >
         <AnalyticsWidgets
-          revenue={data.revenue.today || 1248000}
-          revenueTrend={data.revenue.trend}
+          revenue={data.revenue.today ?? 0}
+          revenueTrend={data.revenue.trend ?? 0}
           staffData={staffData}
           utilization={utilization}
           services={services}
@@ -655,6 +704,28 @@ function AdminDashboardContent() {
         onClose={() => setShowNotifications(false)}
       >
         <NotificationsModal onClose={() => setShowNotifications(false)} />
+      </AppModal>
+
+      {/* Fraud Signals Modal */}
+      <AppModal
+        isOpen={showFraudSignals}
+        onClose={() => setShowFraudSignals(false)}
+      >
+        <FraudSignalsModal
+          signals={fraudSignals}
+          totalCount={fraudSignalsTotalCount}
+          loading={fraudSignalsLoading}
+          error={fraudSignalsError}
+          onClose={() => setShowFraudSignals(false)}
+          onResolved={(signalId) => {
+            // Called ONLY after PATCH succeeds (not optimistic)
+            // Remove signal from local list (for current page display)
+            setFraudSignals(prev => prev.filter(s => s.id !== signalId));
+            // Decrement total count (for badge) - server truth was totalCount, now -1
+            setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
+          }}
+          onRefetch={fetchFraudSignals}
+        />
       </AppModal>
     </div>
   );

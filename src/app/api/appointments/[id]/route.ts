@@ -197,7 +197,7 @@ export async function PATCH(
               .where(eq(salonSchema.id, referral.salonId))
               .limit(1);
 
-            // Skip referrer bonus if salon was deleted (shouldn't happen, but safe)
+            // Skip referrer bonus if salon no longer exists (FK allows orphaned referrals)
             if (referralSalon) {
               // Resolve effective loyalty points for this salon
               const loyaltyPoints = resolveSalonLoyaltyPoints(referralSalon);

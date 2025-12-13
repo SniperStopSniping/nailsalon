@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BookingStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
+import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 
@@ -39,6 +40,15 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
+export type LocationSummary = {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+} | null;
+
 type BookConfirmClientProps = {
   services: ServiceSummary[];
   technician: TechnicianSummary;
@@ -46,6 +56,7 @@ type BookConfirmClientProps = {
   dateStr: string;
   timeStr: string;
   bookingFlow: BookingStep[];
+  location: LocationSummary;
 };
 
 // --- Helpers ---
@@ -113,6 +124,7 @@ const BookingCard = ({
   dateStr,
   timeStr,
   pointsEarned,
+  location,
 }: {
   services: ServiceSummary[];
   technician: TechnicianSummary;
@@ -121,6 +133,7 @@ const BookingCard = ({
   dateStr: string;
   timeStr: string;
   pointsEarned: number;
+  location: LocationSummary;
 }) => {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -218,7 +231,7 @@ const BookingCard = ({
                 )}
             <div className="flex-1">
               <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Your Artist</p>
-              <p className="font-heading text-lg font-semibold">{technician?.name || 'Any Available'}</p>
+              <p className="font-heading text-lg font-semibold">{technician?.name ?? 'Any Available'}</p>
             </div>
             <div className="text-right">
               <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Total</p>
@@ -271,6 +284,30 @@ const BookingCard = ({
             </div>
           </div>
 
+          {/* Location */}
+          {location && (
+            <div className="mb-4 flex items-center gap-3">
+              <div
+                className="flex size-10 items-center justify-center bg-white/10 text-lg"
+                style={{ borderRadius: n5.radiusMd }}
+              >
+                📍
+              </div>
+              <div className="flex-1">
+                <p className="font-body text-xs opacity-70">Location</p>
+                <p className="font-body font-semibold">
+                  {location.name}
+                </p>
+                {location.address && (
+                  <p className="font-body text-xs opacity-70">
+                    {location.address}
+                    {location.city && `, ${location.city}`}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Points Earned */}
           <div
             className="flex items-center gap-3 border-t border-white/10 pt-4"
@@ -282,10 +319,10 @@ const BookingCard = ({
               ⭐
             </div>
             <div className="flex-1">
-              <p className="font-body text-xs opacity-70">You'll earn</p>
+              <p className="font-body text-xs opacity-70">Estimated points after completion</p>
               <p className="font-body font-semibold text-[var(--n5-accent)]">
                 +
-                {pointsEarned}
+                {pointsEarned.toLocaleString()}
                 {' '}
                 points
               </p>
@@ -481,6 +518,7 @@ const SuccessContent = ({
   onPayNow,
   onViewAppointment,
   onGoToProfile,
+  location,
 }: {
   services: ServiceSummary[];
   technician: TechnicianSummary;
@@ -494,6 +532,7 @@ const SuccessContent = ({
   onPayNow: () => void;
   onViewAppointment: () => void;
   onGoToProfile: () => void;
+  location: LocationSummary;
 }) => {
   const router = useRouter();
 
@@ -553,6 +592,7 @@ const SuccessContent = ({
             dateStr={dateStr}
             timeStr={timeStr}
             pointsEarned={pointsEarned}
+            location={location}
           />
         </motion.div>
 
@@ -835,6 +875,7 @@ export function BookConfirmClient({
   // bookingFlow is passed for consistency but not used in confirm step
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   bookingFlow: _bookingFlow,
+  location,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -852,6 +893,8 @@ export function BookConfirmClient({
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
 
   const bookingInitiatedRef = useRef(false);
+  // Stable idempotency key for this booking session - prevents double-submit
+  const idempotencyKeyRef = useRef<string>(crypto.randomUUID());
 
   const [showNameModal, setShowNameModal] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -860,7 +903,8 @@ export function BookConfirmClient({
 
   const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
   const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
-  const pointsEarned = Math.round(totalPrice * 0.1);
+  // totalPrice is in dollars, convert to cents for points calculation
+  const pointsEarned = computeEarnedPointsFromCents(Math.round(totalPrice * 100));
 
   const createBooking = useCallback(async () => {
     if (bookingInitiatedRef.current) {
@@ -882,12 +926,16 @@ export function BookConfirmClient({
         technicianId: techId === 'any' ? null : techId,
         clientPhone,
         startTime: startTime.toISOString(),
+        ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
       };
 
       const response = await fetch('/api/appointments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKeyRef.current,
+        },
         body: JSON.stringify(requestBody),
       });
 
@@ -918,7 +966,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [dateStr, timeStr, salonSlug, services, techId, clientPhone, originalAppointmentId]);
+  }, [dateStr, timeStr, salonSlug, services, techId, clientPhone, originalAppointmentId, location]);
 
   useEffect(() => {
     if (services.length > 0 && dateStr && timeStr) {
@@ -1021,6 +1069,7 @@ export function BookConfirmClient({
           onPayNow={() => router.push(`/${locale}/payment?amount=${totalPrice}`)}
           onViewAppointment={handleViewAppointment}
           onGoToProfile={() => router.push(`/${locale}/profile`)}
+          location={location}
         />
         <NameCaptureModal
           isOpen={showNameModal}

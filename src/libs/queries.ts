@@ -12,6 +12,8 @@ import {
   type Salon,
   type SalonClient,
   salonClientSchema,
+  type SalonLocation,
+  salonLocationSchema,
   salonSchema,
   type Service,
   serviceSchema,
@@ -22,6 +24,8 @@ import {
 import { LOYALTY_POINTS } from '@/utils/AppConfig';
 
 import { db } from './DB';
+import { normalizePhone } from './phone';
+import { computeEarnedPointsFromCents } from './pointsCalculation';
 
 // Re-export for backwards compatibility
 export const WELCOME_BONUS_POINTS = LOYALTY_POINTS.WELCOME_BONUS;
@@ -547,6 +551,8 @@ export async function getActiveAppointmentsForClient(
     `+${normalizedPhone}`,
   ];
 
+  // Block booking if client has pending, confirmed, OR in_progress appointments
+  // in_progress = currently being served, can't book another simultaneously
   return db
     .select()
     .from(appointmentSchema)
@@ -554,7 +560,7 @@ export async function getActiveAppointmentsForClient(
       and(
         inArray(appointmentSchema.clientPhone, phoneVariants),
         eq(appointmentSchema.salonId, salonId),
-        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
         gte(appointmentSchema.startTime, now),
       ),
     );
@@ -565,16 +571,62 @@ export async function getActiveAppointmentsForClient(
 // =============================================================================
 
 /**
- * Normalize phone number to 10 digits
- * Strips country code and non-digit characters
+ * @deprecated Import from '@/libs/phone' instead to avoid DB module deps.
+ * This re-export exists only for backwards compatibility with existing code.
+ * TODO: Remove in next major version after migrating all imports.
  */
-export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  // If 11 digits starting with 1, strip the leading 1
-  if (digits.length === 11 && digits.startsWith('1')) {
-    return digits.slice(1);
+export { normalizePhone } from './phone';
+
+/**
+ * Get or create a salon client by phone (concurrency-safe).
+ * Used by booking flow to ensure salonClientId is always set.
+ *
+ * CALLERS: Pass RAW phone. This function normalizes internally.
+ *
+ * Returns null if phone is invalid (caller should return 400).
+ * Uses INSERT ... ON CONFLICT to handle concurrent requests atomically.
+ * Only updates fullName if provided and non-empty (don't overwrite good names).
+ *
+ * @param salonId - Salon ID
+ * @param phone - Raw phone number (will be normalized)
+ * @param name - Optional client name
+ * @returns SalonClient or null if phone is invalid
+ */
+export async function getOrCreateSalonClient(
+  salonId: string,
+  phone: string,
+  name?: string,
+): Promise<SalonClient | null> {
+  // Normalize phone HERE - single point of normalization
+  const normalizedPhone = normalizePhone(phone);
+
+  // FAIL FAST: invalid phone must not create DB records
+  if (!normalizedPhone || normalizedPhone.length !== 10) {
+    return null; // Caller checks and returns 400 INVALID_PHONE
   }
-  return digits;
+
+  // Only update name if provided and non-empty (don't overwrite good names)
+  const trimmedName = name?.trim() || undefined;
+
+  // INSERT ... ON CONFLICT DO UPDATE RETURNING ensures atomicity
+  // Two concurrent requests for same phone will not create duplicate rows
+  const [client] = await db
+    .insert(salonClientSchema)
+    .values({
+      id: `sc_${crypto.randomUUID()}`,
+      salonId,
+      phone: normalizedPhone,
+      fullName: trimmedName,
+    })
+    .onConflictDoUpdate({
+      target: [salonClientSchema.salonId, salonClientSchema.phone],
+      set: trimmedName
+        ? { fullName: trimmedName, updatedAt: new Date() } // Only update if name changed
+        : {}, // Don't update updatedAt if nothing changed - avoids noisy writes
+    })
+    .returning();
+
+  return client ?? null;
 }
 
 /**
@@ -1121,9 +1173,10 @@ export async function updateSalonClientStats(
 
   const clientStats = stats[0];
 
-  // Calculate loyalty points: 1 point per $1 spent (totalSpent is in cents)
-  // Example: $125.00 spent = 12500 cents = 125 points
-  const loyaltyPoints = Math.floor((clientStats?.totalSpent ?? 0) / 100);
+  // Calculate loyalty points using centralized formula (totalSpent is in cents)
+  // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
+  const totalSpentCents = clientStats?.totalSpent ?? 0;
+  const loyaltyPoints = computeEarnedPointsFromCents(totalSpentCents);
 
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety
@@ -1143,4 +1196,96 @@ export async function updateSalonClientStats(
         eq(salonClientSchema.salonId, salonId),
       ),
     );
+}
+
+// =============================================================================
+// LOCATION QUERIES
+// =============================================================================
+
+/**
+ * Get a location by ID (scoped to salon for security)
+ * @param locationId - The location's unique ID
+ * @param salonId - The salon's ID (for multi-tenant security)
+ * @returns The location or null if not found
+ */
+export async function getLocationById(
+  locationId: string,
+  salonId: string,
+): Promise<SalonLocation | null> {
+  const results = await db
+    .select()
+    .from(salonLocationSchema)
+    .where(
+      and(
+        eq(salonLocationSchema.id, locationId),
+        eq(salonLocationSchema.salonId, salonId),
+        eq(salonLocationSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  return results[0] ?? null;
+}
+
+/**
+ * Get all active locations for a salon
+ * @param salonId - The salon's ID
+ * @returns Array of active locations (ordered: primary first, then by name)
+ */
+export async function getActiveLocationsBySalonId(
+  salonId: string,
+): Promise<SalonLocation[]> {
+  const results = await db
+    .select()
+    .from(salonLocationSchema)
+    .where(
+      and(
+        eq(salonLocationSchema.salonId, salonId),
+        eq(salonLocationSchema.isActive, true),
+      ),
+    )
+    .orderBy(salonLocationSchema.isPrimary, salonLocationSchema.name);
+
+  return results;
+}
+
+/**
+ * Get the primary (default) location for a salon
+ * Falls back to first active location if no primary is set
+ * @param salonId - The salon's ID
+ * @returns The primary location or null if none exists
+ */
+export async function getPrimaryLocation(
+  salonId: string,
+): Promise<SalonLocation | null> {
+  // First try to get the primary location
+  const primary = await db
+    .select()
+    .from(salonLocationSchema)
+    .where(
+      and(
+        eq(salonLocationSchema.salonId, salonId),
+        eq(salonLocationSchema.isPrimary, true),
+        eq(salonLocationSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (primary[0]) {
+    return primary[0];
+  }
+
+  // Fallback to first active location
+  const fallback = await db
+    .select()
+    .from(salonLocationSchema)
+    .where(
+      and(
+        eq(salonLocationSchema.salonId, salonId),
+        eq(salonLocationSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  return fallback[0] ?? null;
 }
