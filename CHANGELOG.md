@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.2.0...v1.3.0) (2025-12-13)
+
+
+### Features
+
+* **step-21e:** complete admin dashboard UI/UX overhaul ([0072b4b](https://github.com/SniperStopSniping/nailsalon/commit/0072b4bb015db06461092c5c4e8f1c1613e1ad71))
+
 # [1.2.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.1.2...v1.2.0) (2025-12-13)
 
 
