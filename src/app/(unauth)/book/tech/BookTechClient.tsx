@@ -35,7 +35,7 @@ type BookTechClientProps = {
   bookingFlow: BookingStep[];
 };
 
-export function BookTechClient({ technicians, services, bookingFlow }: BookTechClientProps) {
+export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -72,10 +72,6 @@ export function BookTechClient({ technicians, services, bookingFlow }: BookTechC
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
-
-  // Use services passed from server, fallback to URL params for service names
-  const serviceNames = services.map(s => s.name).join(' + ');
-  const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
 
   const goToNextStep = (techId: string, clientPhoneToUse: string) => {
     // Save to global state first
