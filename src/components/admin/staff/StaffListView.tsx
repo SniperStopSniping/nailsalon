@@ -116,6 +116,43 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
   // Only allow dragging in active staff views (not inactive, not searching)
   const isDraggable = activeFilter !== 'inactive' && !searchQuery;
 
+  // Fetch staff data
+  const fetchStaff = useCallback(async () => {
+    if (!salonSlug) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Determine status filter
+      const status = activeFilter === 'inactive' ? 'inactive' : 'active';
+      const currentStatus = ['available', 'busy', 'break', 'off'].includes(activeFilter)
+        ? activeFilter
+        : undefined;
+
+      const params = new URLSearchParams({
+        salonSlug,
+        status,
+        ...(currentStatus && { currentStatus }),
+        ...(searchQuery && { search: searchQuery }),
+      });
+
+      const response = await fetch(`/api/admin/technicians?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch staff');
+      }
+
+      const result = await response.json();
+      setStaff(result.data?.technicians ?? []);
+    } catch {
+      setError('Failed to load staff');
+    } finally {
+      setLoading(false);
+    }
+  }, [salonSlug, activeFilter, searchQuery]);
+
   // Handle drag end
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -154,50 +191,11 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
       if (!response.ok) {
         throw new Error('Failed to save order');
       }
-    } catch (err) {
-      console.error('Error saving order:', err);
+    } catch {
       // Revert on failure
       fetchStaff();
     }
   };
-
-  // Fetch staff data
-  const fetchStaff = useCallback(async () => {
-    if (!salonSlug) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Determine status filter
-      const status = activeFilter === 'inactive' ? 'inactive' : 'active';
-      const currentStatus = ['available', 'busy', 'break', 'off'].includes(activeFilter)
-        ? activeFilter
-        : undefined;
-
-      const params = new URLSearchParams({
-        salonSlug,
-        status,
-        ...(currentStatus && { currentStatus }),
-        ...(searchQuery && { search: searchQuery }),
-      });
-
-      const response = await fetch(`/api/admin/technicians?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch staff');
-      }
-
-      const result = await response.json();
-      setStaff(result.data?.technicians ?? []);
-    } catch (err) {
-      console.error('Error fetching staff:', err);
-      setError('Failed to load staff');
-    } finally {
-      setLoading(false);
-    }
-  }, [salonSlug, activeFilter, searchQuery]);
 
   useEffect(() => {
     fetchStaff();

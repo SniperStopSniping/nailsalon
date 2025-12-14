@@ -145,7 +145,7 @@ export async function POST(request: Request): Promise<Response> {
         processedAt: updatedJob.processedAt,
       },
     });
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: {

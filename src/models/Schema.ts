@@ -401,6 +401,7 @@ export const appointmentSchema = pgTable(
 
     // Stable client identity (Phase 1: nullable for migration, Phase 1.5: NOT NULL after backfill)
     // onDelete: 'restrict' - can't delete salonClient with appointments (use soft-delete if needed)
+    // eslint-disable-next-line ts/no-use-before-define -- Drizzle ORM intentional forward reference via callback
     salonClientId: text('salon_client_id').references(() => salonClientSchema.id, { onDelete: 'restrict' }),
 
     // Timing

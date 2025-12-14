@@ -87,6 +87,29 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchServices = async () => {
+    setLoadingServices(true);
+    try {
+      const response = await fetch(`/api/salon/services?salonSlug=${salonSlug}`);
+      if (response.ok) {
+        const result = await response.json();
+        const serviceList = result.data?.services ?? [];
+        setServices(
+          serviceList.map((s: { id: string; name: string; category: string }) => ({
+            id: s.id,
+            name: s.name,
+            category: s.category,
+            selected: true, // Default all selected
+          })),
+        );
+      }
+    } catch {
+      // Service fetch failed silently
+    } finally {
+      setLoadingServices(false);
+    }
+  };
+
   // Reset avatar state when modal closes
   useEffect(() => {
     if (!isOpen) {
@@ -100,6 +123,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
     if (isOpen && salonSlug) {
       fetchServices();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, salonSlug]);
 
   // Handle avatar selection
@@ -129,29 +153,6 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
     setError(null);
   };
 
-  const fetchServices = async () => {
-    setLoadingServices(true);
-    try {
-      const response = await fetch(`/api/salon/services?salonSlug=${salonSlug}`);
-      if (response.ok) {
-        const result = await response.json();
-        const serviceList = result.data?.services ?? [];
-        setServices(
-          serviceList.map((s: { id: string; name: string; category: string }) => ({
-            id: s.id,
-            name: s.name,
-            category: s.category,
-            selected: true, // Default all selected
-          })),
-        );
-      }
-    } catch (err) {
-      console.error('Failed to fetch services:', err);
-    } finally {
-      setLoadingServices(false);
-    }
-  };
-
   const toggleService = (serviceId: string) => {
     setServices(prev =>
       prev.map(s =>
@@ -166,6 +167,25 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
         ? prev.filter(l => l !== language)
         : [...prev, language],
     );
+  };
+
+  const resetForm = () => {
+    setName('');
+    setEmail('');
+    setPhone('');
+    setRole('tech');
+    setSkillLevel('standard');
+    setCommissionRate('40');
+    setLanguages(['English']);
+    setAcceptingNewClients(true);
+    setBio('');
+    setServices([]);
+    setAvatarFile(null);
+    setAvatarPreviewUrl(null);
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = async () => {
@@ -269,25 +289,6 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
       setError(err instanceof Error ? err.message : 'Failed to create staff member');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const resetForm = () => {
-    setName('');
-    setEmail('');
-    setPhone('');
-    setRole('tech');
-    setSkillLevel('standard');
-    setCommissionRate('40');
-    setLanguages(['English']);
-    setAcceptingNewClients(true);
-    setBio('');
-    setServices([]);
-    setAvatarFile(null);
-    setAvatarPreviewUrl(null);
-    setError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
     }
   };
 

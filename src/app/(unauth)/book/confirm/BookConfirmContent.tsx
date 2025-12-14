@@ -81,6 +81,17 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
   const [isShaking, setIsShaking] = useState(false);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
+  const formatPhone = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length <= 3) {
+      return digits;
+    }
+    if (digits.length <= 6) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    }
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
   useEffect(() => {
     setMounted(true);
     // Use clientPhone from URL if provided (e.g., for rescheduling), otherwise load from cookie
@@ -101,17 +112,6 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
   const handleBack = useCallback(() => {
     router.back();
   }, [router]);
-
-  const formatPhone = (value: string) => {
-    const digits = value.replace(/\D/g, '');
-    if (digits.length <= 3) {
-      return digits;
-    }
-    if (digits.length <= 6) {
-      return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    }
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-  };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhone(e.target.value);

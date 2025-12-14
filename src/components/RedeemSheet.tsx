@@ -78,6 +78,24 @@ export default function RedeemSheet({
     setSliderValue(value);
   }, [isDragging, isConfirmed, calculateValue]);
 
+  const handleConfirm = useCallback(() => {
+    setIsConfirmed(true);
+    setSliderValue(100);
+
+    // 1. TRIGGER THE DOPAMINE
+    triggerLuxuryConfetti();
+
+    // 2. Call the onConfirm callback after a short delay for the animation
+    setTimeout(() => {
+      onConfirm?.();
+    }, 1200);
+
+    // 3. Close gracefully after animation
+    setTimeout(() => {
+      onClose();
+    }, 1500);
+  }, [onConfirm, onClose]);
+
   const handleEnd = useCallback(() => {
     if (!isDragging) {
       return;
@@ -91,7 +109,7 @@ export default function RedeemSheet({
       // Spring back to start
       setSliderValue(0);
     }
-  }, [isDragging, sliderValue, isConfirmed]);
+  }, [isDragging, sliderValue, isConfirmed, handleConfirm]);
 
   // Mouse events
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -142,24 +160,6 @@ export default function RedeemSheet({
       window.removeEventListener('touchend', handleGlobalTouchEnd);
     };
   }, [isDragging, handleMove, handleEnd]);
-
-  const handleConfirm = () => {
-    setIsConfirmed(true);
-    setSliderValue(100);
-
-    // 1. TRIGGER THE DOPAMINE
-    triggerLuxuryConfetti();
-
-    // 2. Call the onConfirm callback after a short delay for the animation
-    setTimeout(() => {
-      onConfirm?.();
-    }, 1200);
-
-    // 3. Close gracefully after animation
-    setTimeout(() => {
-      onClose();
-    }, 1500);
-  };
 
   if (!isOpen) {
     return null;

@@ -120,6 +120,56 @@ export function SuperAdminDashboard() {
   // Owner management
   const [removingOwnerId, setRemovingOwnerId] = useState<string | null>(null);
 
+  // Track if this is the initial mount
+  const isInitialMount = useRef(true);
+
+  // Debounce search input - only update debouncedSearch after 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      // Reset to page 1 when search changes (but not on initial mount)
+      if (!isInitialMount.current) {
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Fetch salons - uses debouncedSearch instead of search
+  const fetchSalons = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (debouncedSearch) {
+        params.set('q', debouncedSearch);
+      }
+      if (planFilter !== 'all') {
+        params.set('plan', planFilter);
+      }
+      if (statusFilter !== 'all') {
+        params.set('status', statusFilter);
+      }
+      params.set('page', String(page));
+      params.set('pageSize', '20');
+
+      const response = await fetch(`/api/super-admin/organizations?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch salons');
+      }
+
+      const data: ListResponse = await response.json();
+      setSalons(data.items);
+      setTotalPages(data.totalPages);
+      setTotal(data.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch, planFilter, statusFilter, page]);
+
   // Handle remove/demote owner
   const handleRemoveOwner = async (salonId: string, action: 'demote' | 'remove') => {
     const confirmMsg = action === 'remove'
@@ -162,56 +212,6 @@ export function SuperAdminDashboard() {
     // Use hard redirect to ensure clean navigation after session clear
     window.location.href = `/${locale}/super-admin-login`;
   };
-
-  // Track if this is the initial mount
-  const isInitialMount = useRef(true);
-
-  // Debounce search input - only update debouncedSearch after 300ms
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      // Reset to page 1 when search changes (but not on initial mount)
-      if (!isInitialMount.current) {
-        setPage(1);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  // Fetch salons - uses debouncedSearch instead of search
-  const fetchSalons = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams();
-      if (debouncedSearch) {
-        params.set('q', debouncedSearch);
-      }
-      if (planFilter) {
-        params.set('plan', planFilter);
-      }
-      if (statusFilter) {
-        params.set('status', statusFilter);
-      }
-      params.set('page', String(page));
-      params.set('pageSize', '20');
-
-      const response = await fetch(`/api/super-admin/organizations?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch salons');
-      }
-
-      const data: ListResponse = await response.json();
-      setSalons(data.items);
-      setTotalPages(data.totalPages);
-      setTotal(data.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, planFilter, statusFilter, page]);
 
   // Fetch when filters change
   useEffect(() => {

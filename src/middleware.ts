@@ -62,7 +62,7 @@ export default function middleware(
     // But NOT for super-admin-login (that's a public login page)
     const isSuperAdminPage
       = (p === '/super-admin' || p.startsWith('/super-admin/'))
-      || /^\/[a-z]{2}\/super-admin(\/|$)/.test(p);
+      || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(p);
     const isSuperAdminLogin
       = p.includes('super-admin-login');
 
@@ -109,7 +109,7 @@ export default function middleware(
       // Super admin routes → super-admin-login, others → admin-login
       const isSuperAdminRoute
         = req.nextUrl.pathname.startsWith('/super-admin')
-        || /^\/[a-z]{2}\/super-admin(\/|$)/.test(req.nextUrl.pathname);
+        || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(req.nextUrl.pathname);
       const loginPath = isSuperAdminRoute ? 'super-admin-login' : 'admin-login';
       const loginUrl = new URL(`/${locale}/${loginPath}`, req.url);
 

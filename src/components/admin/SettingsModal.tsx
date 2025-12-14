@@ -524,7 +524,6 @@ export function SettingsModal({
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [rewardsEnabledProgram, setRewardsEnabledProgram] = useState(true);
   const [effectivePoints, setEffectivePoints] = useState<ResolvedLoyaltyPoints | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_defaultPoints, setDefaultPoints] = useState<ResolvedLoyaltyPoints | null>(null);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);

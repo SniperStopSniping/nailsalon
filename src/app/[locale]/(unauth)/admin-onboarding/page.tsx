@@ -53,6 +53,16 @@ function AdminOnboardingContent() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
 
+  const redirectToDashboard = (userData: AdminUser) => {
+    if (userData.isSuperAdmin) {
+      router.push(`/${locale}/super-admin`);
+    } else if (userData.salons.length > 0) {
+      router.push(`/${locale}/admin?salon=${userData.salons[0]?.slug}`);
+    } else {
+      router.push(`/${locale}/admin`);
+    }
+  };
+
   // Fetch current user on mount
   useEffect(() => {
     async function fetchUser() {
@@ -89,17 +99,7 @@ function AdminOnboardingContent() {
     }
 
     fetchUser();
-  }, [locale, router]);
-
-  const redirectToDashboard = (userData: AdminUser) => {
-    if (userData.isSuperAdmin) {
-      router.push(`/${locale}/super-admin`);
-    } else if (userData.salons.length > 0) {
-      router.push(`/${locale}/admin?salon=${userData.salons[0]?.slug}`);
-    } else {
-      router.push(`/${locale}/admin`);
-    }
-  };
+  }, [locale, router, redirectToDashboard]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

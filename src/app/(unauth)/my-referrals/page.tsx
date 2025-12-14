@@ -84,14 +84,6 @@ export default function MyReferralsPage() {
   // Helper to check if phone is valid (exactly 10 digits)
   const isValidPhone = normalizedPhone.length === 10;
 
-  // Auto-fetch referrals when phone is stored in cookie
-  useEffect(() => {
-    if (hasStoredPhone && isValidPhone && !hasFetched) {
-      fetchReferrals();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStoredPhone, isValidPhone]);
-
   const fetchReferrals = useCallback(async () => {
     if (!normalizedPhone || normalizedPhone.length !== 10) {
       return;
@@ -110,12 +102,19 @@ export default function MyReferralsPage() {
       setReferrals(data.data?.referrals || []);
       setHasFetched(true);
     } catch (err) {
-      console.error('Error fetching referrals:', err);
       setError(err instanceof Error ? err.message : 'Failed to load referrals');
     } finally {
       setLoading(false);
     }
   }, [normalizedPhone, salonSlug]);
+
+  // Auto-fetch referrals when phone is stored in cookie
+  useEffect(() => {
+    if (hasStoredPhone && isValidPhone && !hasFetched) {
+      fetchReferrals();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasStoredPhone, isValidPhone]);
 
   const handleLookup = () => {
     if (isValidPhone) {

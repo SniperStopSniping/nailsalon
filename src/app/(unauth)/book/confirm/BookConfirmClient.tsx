@@ -897,7 +897,6 @@ export function BookConfirmClient({
   dateStr,
   timeStr,
   // bookingFlow is passed for consistency but not used in confirm step
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   bookingFlow: _bookingFlow,
   location,
 }: BookConfirmClientProps) {

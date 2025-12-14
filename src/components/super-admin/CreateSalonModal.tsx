@@ -31,19 +31,19 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const generateSlug = (value: string) => {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
   // Auto-generate slug from name
   const handleNameChange = (value: string) => {
     setName(value);
     if (!slug || slug === generateSlug(name)) {
       setSlug(generateSlug(value));
     }
-  };
-
-  const generateSlug = (value: string) => {
-    return value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
