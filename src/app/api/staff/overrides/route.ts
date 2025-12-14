@@ -31,7 +31,7 @@ type ErrorResponse = {
 
 // Validate HH:mm format
 function isValidTimeFormat(time: string): boolean {
-  return /^(?:[01]\d|2[0-3]):(?:[0-5]\d)$/.test(time);
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
 }
 
 // Compare times (returns true if start < end)

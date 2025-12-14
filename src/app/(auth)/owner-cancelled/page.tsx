@@ -72,13 +72,13 @@ export default function OwnerCancelledPage() {
 
         {/* FAQ Link */}
         <div className="mt-6 border-t border-gray-100 pt-6">
-          <a
-            href="#"
+          <button
+            type="button"
             className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700"
           >
             View Account Cancellation FAQ
             <ExternalLink className="size-3" />
-          </a>
+          </button>
         </div>
 
         {/* Footer */}

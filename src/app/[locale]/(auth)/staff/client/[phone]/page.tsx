@@ -521,8 +521,15 @@ export default function StaffClientProfilePage() {
       {/* Photo Lightbox */}
       {selectedPhoto && (
         <div
+          role="button"
+          tabIndex={0}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
           onClick={() => setSelectedPhoto(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setSelectedPhoto(null);
+            }
+          }}
         >
           <div className="relative max-h-[90vh] max-w-[90vw]">
             <Image

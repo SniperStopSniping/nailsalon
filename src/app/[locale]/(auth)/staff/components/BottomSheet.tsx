@@ -229,12 +229,19 @@ export function BottomSheet({
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
+        role="button"
+        tabIndex={0}
         className="absolute inset-0 bg-black transition-opacity duration-300"
         style={{
           opacity: isOpen ? 0.5 : 0,
           pointerEvents: isOpen ? 'auto' : 'none',
         }}
         onClick={handleBackdropClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            handleBackdropClick();
+          }
+        }}
       />
 
       {/* Sheet */}
@@ -251,6 +258,11 @@ export function BottomSheet({
       >
         {/* Drag Handle */}
         <div
+          role="slider"
+          tabIndex={0}
+          aria-label="Drag to resize"
+          aria-valuemin={0}
+          aria-valuemax={100}
           className="flex h-8 cursor-grab items-center justify-center active:cursor-grabbing"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}

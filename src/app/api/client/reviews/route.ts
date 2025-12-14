@@ -34,7 +34,6 @@ export const dynamic = 'force-dynamic';
  */
 function decodeSessionToken(token: string): string | null {
   try {
-    // eslint-disable-next-line node/prefer-global/buffer -- Node.js API route
     const decoded = Buffer.from(token, 'base64').toString('utf-8');
     const [phone, timestamp] = decoded.split(':');
 

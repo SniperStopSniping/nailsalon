@@ -837,7 +837,6 @@ async function createSalonClientWithWelcomeBonus(
       expiresAt,
     });
 
-    // eslint-disable-next-line no-console
     console.warn(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to ${phone} at salon ${salonId}`);
 
     return newClient;
@@ -903,7 +902,6 @@ async function grantWelcomeBonusIfEligible(
         expiresAt,
       });
 
-      // eslint-disable-next-line no-console
       console.warn(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to legacy client ${phone}`);
 
       return true;

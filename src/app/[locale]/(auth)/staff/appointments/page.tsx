@@ -535,9 +535,17 @@ function StaffAppointmentsContent() {
       {/* Photo Upload Modal */}
       {selectedAppointment && !showCancelDialog && !showCompleteDialog && (
         <div
+          role="button"
+          tabIndex={0}
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
           onClick={(e) => {
             if (e.target === e.currentTarget && !uploadingPhoto) {
+              setSelectedAppointment(null);
+              setUploadError(null);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !uploadingPhoto) {
               setSelectedAppointment(null);
               setUploadError(null);
             }
@@ -704,9 +712,16 @@ function StaffAppointmentsContent() {
       {/* Complete Dialog */}
       {showCompleteDialog && selectedAppointment && (
         <div
+          role="button"
+          tabIndex={0}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget && !completing) {
+              setShowCompleteDialog(false);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !completing) {
               setShowCompleteDialog(false);
             }
           }}
@@ -762,9 +777,16 @@ function StaffAppointmentsContent() {
       {/* Cancel Dialog */}
       {showCancelDialog && selectedAppointment && (
         <div
+          role="button"
+          tabIndex={0}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget && !cancelling) {
+              setShowCancelDialog(false);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !cancelling) {
               setShowCancelDialog(false);
             }
           }}

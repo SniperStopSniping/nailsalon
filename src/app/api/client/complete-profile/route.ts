@@ -185,7 +185,6 @@ export async function POST(request: Request) {
     rewardGranted = rewardResult.granted;
 
     if (rewardGranted) {
-      // eslint-disable-next-line no-console
       console.warn(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
     }
 
@@ -208,7 +207,6 @@ export async function POST(request: Request) {
       path: '/',
     });
 
-    // eslint-disable-next-line no-console
     console.warn(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
 
     return NextResponse.json({

@@ -12,7 +12,7 @@
  * CRITICAL: Uses raw body + signature verification for security.
  * Single source of truth: syncSubscription() handles all subscription updates.
  */
-/* eslint-disable no-console -- Webhook logging is intentional for operational visibility */
+
 import * as Sentry from '@sentry/nextjs';
 import { eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';

@@ -422,8 +422,9 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
 
               <div className="space-y-4">
                 <div>
-                  <label className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Name</label>
+                  <label htmlFor="confirm-name" className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Name</label>
                   <input
+                    id="confirm-name"
                     type="text"
                     value={name}
                     onChange={e => setName(e.target.value)}
@@ -435,8 +436,9 @@ export function BookConfirmContent({ services, technician, salonSlug, dateStr, t
                   />
                 </div>
                 <div>
-                  <label className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Phone Number</label>
+                  <label htmlFor="confirm-phone" className="font-body mb-1 block text-sm font-medium text-[var(--n5-ink-main)]">Phone Number</label>
                   <input
+                    id="confirm-phone"
                     ref={phoneInputRef}
                     type="tel"
                     value={phone}

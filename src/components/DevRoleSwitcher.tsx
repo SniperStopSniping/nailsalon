@@ -250,12 +250,20 @@ export default function DevRoleSwitcher() {
       {/* Click outside to close */}
       {isOpen && (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close menu"
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: -1,
           }}
           onClick={() => setIsOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setIsOpen(false);
+            }
+          }}
         />
       )}
     </div>

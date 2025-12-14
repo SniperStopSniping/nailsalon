@@ -139,19 +139,28 @@ export function ConfettiPopup({
 
       {/* Backdrop */}
       <div
+        role="button"
+        tabIndex={0}
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
         style={{
           animation: 'modal-backdrop-fade 200ms ease-out forwards',
         }}
         onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            onClose();
+          }
+        }}
       >
         {/* Modal */}
         <div
+          role="dialog"
           className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white p-8 text-center shadow-2xl"
           style={{
             animation: mounted ? 'modal-fade-in 300ms ease-out forwards' : undefined,
           }}
           onClick={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}
         >
           {/* Emoji with animation */}
           <div

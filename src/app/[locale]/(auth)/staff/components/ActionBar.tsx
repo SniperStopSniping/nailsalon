@@ -119,9 +119,16 @@ export function ActionBar({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isTransitioning) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !isTransitioning) {
           onClose();
         }
       }}

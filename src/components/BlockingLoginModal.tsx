@@ -435,10 +435,17 @@ export function BlockingLoginModal({
 
                   {/* Phone input - tap to focus */}
                   <div
+                    role="button"
+                    tabIndex={0}
                     className="cursor-text"
                     onClick={() => phoneInputRef.current?.focus()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        phoneInputRef.current?.focus();
+                      }
+                    }}
                   >
-                    <label className="mb-2 block text-sm font-medium text-neutral-600">
+                    <label htmlFor="blocking-phone" className="mb-2 block text-sm font-medium text-neutral-600">
                       Your phone number
                     </label>
                     <div className="flex items-center gap-2">
@@ -553,10 +560,17 @@ export function BlockingLoginModal({
 
                   {/* Code input - tap to focus */}
                   <div
+                    role="button"
+                    tabIndex={0}
                     className="cursor-text"
                     onClick={() => codeInputRef.current?.focus()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        codeInputRef.current?.focus();
+                      }
+                    }}
                   >
-                    <label className="mb-2 block text-sm font-medium text-neutral-600">
+                    <label htmlFor="blocking-code" className="mb-2 block text-sm font-medium text-neutral-600">
                       Enter verification code
                     </label>
                     <div className="relative">
