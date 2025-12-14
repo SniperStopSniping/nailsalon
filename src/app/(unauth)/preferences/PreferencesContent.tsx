@@ -26,11 +26,12 @@ type PreferencesData = {
   appointmentNotes: string | null;
 };
 
-const TECHNICIANS = [
-  { id: 'daniela', name: 'Daniela', image: '/assets/images/tech-daniela.jpeg' },
-  { id: 'tiffany', name: 'Tiffany', image: '/assets/images/tech-tiffany.jpeg' },
-  { id: 'jenny', name: 'Jenny', image: '/assets/images/tech-jenny.jpeg' },
-];
+// Type for technician data passed from server
+type TechnicianData = {
+  id: string;
+  name: string;
+  image: string;
+};
 
 const SERVICES = [
   { id: 'biab', name: 'BIAB', icon: '💅' },
@@ -126,7 +127,11 @@ function Section({
   );
 }
 
-export default function PreferencesContent() {
+type PreferencesContentProps = {
+  technicians: TechnicianData[];
+};
+
+export default function PreferencesContent({ technicians }: PreferencesContentProps) {
   const router = useRouter();
   const { salonName, salonSlug } = useSalon();
 
@@ -357,7 +362,7 @@ export default function PreferencesContent() {
         <div className="space-y-5" style={{ display: loading ? 'none' : 'block' }}>
           <Section title="Your Favorite Artist" icon="👩‍🎨" delay={100} mounted={mounted}>
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
-              {TECHNICIANS.map(tech => (
+              {technicians.map(tech => (
                 <button
                   key={tech.id}
                   type="button"

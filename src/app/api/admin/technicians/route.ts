@@ -257,6 +257,7 @@ export async function GET(request: Request): Promise<Response> {
         displayOrder: tech.displayOrder,
         hiredAt: tech.hiredAt,
         onboardingStatus: tech.onboardingStatus,
+        weeklySchedule: tech.weeklySchedule,
         stats: {
           today: {
             appointments: todayStat?.count ?? 0,

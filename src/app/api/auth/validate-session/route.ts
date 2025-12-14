@@ -62,29 +62,10 @@ function generateSessionToken(phone: string): string {
 // =============================================================================
 
 export async function GET() {
-  // DEV ONLY: Check for role override
-  if (process.env.NODE_ENV !== 'production') {
-    const {
-      isDevModeServer,
-      readDevRoleFromCookies,
-      getMockValidateSessionResponse,
-    } = await import('@/libs/devRole.server');
-    if (isDevModeServer()) {
-      const devRole = readDevRoleFromCookies();
-      if (devRole === 'client') {
-        return NextResponse.json(getMockValidateSessionResponse(), {
-          headers: { 'Cache-Control': 'no-store' },
-        });
-      }
-      // If a different dev role is set, return invalid session
-      if (devRole) {
-        return NextResponse.json({
-          valid: false,
-          reason: 'Dev role mismatch',
-        });
-      }
-    }
-  }
+  // DEV ONLY: In dev mode, always proceed to normal session validation
+  // regardless of dev role. This allows testing client flows even when
+  // viewing as admin/super_admin. The dev role switcher is for admin
+  // dashboards, not for blocking client session validation.
 
   try {
     const cookieStore = await cookies();

@@ -562,6 +562,7 @@ export async function getActiveAppointmentsForClient(
         eq(appointmentSchema.salonId, salonId),
         inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
         gte(appointmentSchema.startTime, now),
+        isNull(appointmentSchema.deletedAt),
       ),
     );
 }
@@ -610,6 +611,7 @@ export async function getOrCreateSalonClient(
 
   // INSERT ... ON CONFLICT DO UPDATE RETURNING ensures atomicity
   // Two concurrent requests for same phone will not create duplicate rows
+  // Note: Drizzle requires at least one field in `set`, so we always update `updatedAt`
   const [client] = await db
     .insert(salonClientSchema)
     .values({
@@ -621,8 +623,8 @@ export async function getOrCreateSalonClient(
     .onConflictDoUpdate({
       target: [salonClientSchema.salonId, salonClientSchema.phone],
       set: trimmedName
-        ? { fullName: trimmedName, updatedAt: new Date() } // Only update if name changed
-        : {}, // Don't update updatedAt if nothing changed - avoids noisy writes
+        ? { fullName: trimmedName, updatedAt: new Date() }
+        : { updatedAt: new Date() }, // Always set updatedAt to satisfy Drizzle's requirement
     })
     .returning();
 

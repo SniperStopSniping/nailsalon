@@ -8,6 +8,7 @@ import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepLabel } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
@@ -65,6 +66,9 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
 
   // Use shared auth hook
   const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(urlClientPhone || undefined);
+
+  // Use global booking state to persist technician selection
+  const { technicianId } = useBookingState();
 
   // Multi-location: show picker only when 2+ locations
   const showLocationPicker = locations.length >= 2;
@@ -139,6 +143,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
     }
 
     let url = `/${locale}/book/${nextStep}?serviceIds=${query}&clientPhone=${encodeURIComponent(normalizedPhone)}`;
+
+    // Include technicianId from state if it exists (persists selection across flow reorder)
+    if (technicianId) {
+      url += `&techId=${encodeURIComponent(technicianId)}`;
+    }
 
     // Pass through originalAppointmentId for reschedule flow
     if (originalAppointmentId) {

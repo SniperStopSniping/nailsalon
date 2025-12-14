@@ -9,16 +9,15 @@
  * - Floating appointment cards
  * - Current time indicator (red line)
  * - Day selector header
- * - Fetches real data from /api/appointments
+ * - Fetches real data from /api/admin/appointments
  */
 
 import { motion } from 'framer-motion';
 import { Calendar, Plus, Search } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
-
 import { BackButton, ModalHeader } from './AppModal';
+import { NewAppointmentModal } from './NewAppointmentModal';
 
 // Generate hours from 8 AM to 8 PM
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
@@ -35,6 +34,7 @@ type Appointment = {
   borderColor: string;
   avatar: string;
   status: string;
+  technician: string | null; // Tech name or null if unassigned
 };
 
 // Color schemes for different appointment statuses
@@ -164,11 +164,11 @@ function EmptyState() {
 }
 
 export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
-  const { salonSlug } = useSalon();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
 
   const { top: currentTimeTop, time: currentTime } = getCurrentTimePosition();
   const dayName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
@@ -202,7 +202,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       const dateStr = selectedDate.toISOString().split('T')[0];
 
       const response = await fetch(
-        `/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed&salonSlug=${salonSlug}`,
+        `/api/admin/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`,
       );
 
       if (!response.ok) {
@@ -220,6 +220,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         endTime: string;
         status: string;
         services?: { name: string }[];
+        technician?: { id: string; name: string } | null;
       }) => {
         const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed;
         const serviceNames = appt.services?.map(s => s.name).join(', ') || 'Service';
@@ -235,6 +236,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
           borderColor: statusColors!.borderColor,
           avatar: getInitials(appt.clientName),
           status: appt.status,
+          technician: appt.technician?.name ?? null,
         };
       });
 
@@ -250,7 +252,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, salonSlug]);
+  }, [selectedDate]);
 
   useEffect(() => {
     fetchAppointments();
@@ -386,7 +388,15 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
                       <div className="truncate text-[13px] font-semibold leading-tight">
                         {appt.service}
                       </div>
-                      <div className="mt-0.5 truncate text-[11px] opacity-80">{appt.client}</div>
+                      <div className="mt-0.5 truncate text-[11px] opacity-80">
+                        {appt.client}
+                        {appt.technician && (
+                          <span className="ml-1.5 text-[10px] opacity-70">· {appt.technician}</span>
+                        )}
+                        {!appt.technician && (
+                          <span className="ml-1.5 text-[10px] italic opacity-50">· Unassigned</span>
+                        )}
+                      </div>
                     </div>
                     <div className="ml-2 shrink-0 text-[10px] font-semibold opacity-70">
                       {appt.time.split('-')[0]}
@@ -402,11 +412,23 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       {/* Floating Action Button */}
       <button
         type="button"
+        onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
         className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
       >
         <Plus className="size-8" />
       </button>
+      
+      {/* New Appointment Modal */}
+      <NewAppointmentModal
+        isOpen={showNewAppointmentModal}
+        onClose={() => setShowNewAppointmentModal(false)}
+        onSuccess={() => {
+          // Refresh appointments after creating a new one
+          fetchAppointments();
+        }}
+        preselectedDate={selectedDate}
+      />
     </div>
   );
 }

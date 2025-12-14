@@ -6,12 +6,12 @@
  * GET /api/rewards?phone=1234567890&salonSlug=nail-salon-no5
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
-import { type Reward, rewardSchema } from '@/models/Schema';
+import { type Reward, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,8 @@ type SuccessResponse = {
     count: number;
     activeCount: number;
     totalPoints: number;
-    activePoints: number;
+    activePoints: number; // The client's actual loyalty points balance
+    totalVisits?: number;
   };
 };
 
@@ -105,7 +106,31 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 4. Fetch rewards for this phone and salon
+    // 4. Fetch the client's loyalty points balance from salonClient
+    // Try multiple phone formats
+    const phoneVariants = [
+      parsed.data.phone,
+      `+1${parsed.data.phone}`,
+    ];
+
+    const salonClients = await db
+      .select({
+        loyaltyPoints: salonClientSchema.loyaltyPoints,
+        totalVisits: salonClientSchema.totalVisits,
+      })
+      .from(salonClientSchema)
+      .where(
+        and(
+          eq(salonClientSchema.salonId, salon.id),
+          inArray(salonClientSchema.phone, phoneVariants),
+        ),
+      )
+      .limit(1);
+
+    const clientLoyaltyPoints = salonClients[0]?.loyaltyPoints ?? 0;
+    const totalVisits = salonClients[0]?.totalVisits ?? 0;
+
+    // 5. Fetch rewards for this phone and salon
     const rewards = await db
       .select()
       .from(rewardSchema)
@@ -157,13 +182,18 @@ export async function GET(request: Request): Promise<Response> {
       ).catch(err => console.error('Error updating expired rewards:', err));
     }
 
-    // 7. Calculate counts and points totals
-    const activeRewards = enrichedRewards.filter(r => r.status === 'active' && !r.isExpired);
+    // 8. Calculate counts
+    // Active rewards = rewards that can still be redeemed (not linked to an appointment yet)
+    const activeRewards = enrichedRewards.filter(r =>
+      r.status === 'active' && !r.isExpired && !r.usedInAppointmentId,
+    );
     const activeCount = activeRewards.length;
-    const totalPoints = enrichedRewards.reduce((sum, r) => sum + (r.points || 0), 0);
-    const activePoints = activeRewards.reduce((sum, r) => sum + (r.points || 0), 0);
 
-    // 8. Return response
+    // Points from rewards (for reference, but clientLoyaltyPoints is the real balance)
+    const rewardPoints = enrichedRewards.reduce((sum, r) => sum + (r.points || 0), 0);
+
+    // 9. Return response
+    // Use clientLoyaltyPoints as the actual points balance (from salonClient table)
     const response: SuccessResponse = {
       data: {
         rewards: enrichedRewards,
@@ -172,8 +202,9 @@ export async function GET(request: Request): Promise<Response> {
         timestamp: new Date().toISOString(),
         count: enrichedRewards.length,
         activeCount,
-        totalPoints,
-        activePoints,
+        totalPoints: rewardPoints,
+        activePoints: clientLoyaltyPoints, // This is the real points balance!
+        totalVisits,
       },
     };
 

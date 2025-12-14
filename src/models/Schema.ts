@@ -807,7 +807,6 @@ export const clientPreferencesSchema = pgTable(
 
     // Client identification (normalized 10-digit phone)
     normalizedClientPhone: text('normalized_client_phone').notNull(),
-    clientId: text('client_id').references(() => clientSchema.id),
 
     // Favorite technician (FK to technician within this salon)
     favoriteTechId: text('favorite_tech_id').references(() => technicianSchema.id),
@@ -824,7 +823,7 @@ export const clientPreferencesSchema = pgTable(
     // Salon experience preferences
     musicPreference: text('music_preference'),
     conversationLevel: text('conversation_level'),
-    beveragePreference: jsonb('beverage_preference').$type<string[]>(),
+    beveragePreference: jsonb('beverage_preferences').$type<string[]>(),
 
     // Notes
     techNotes: text('tech_notes'),

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
@@ -74,8 +74,9 @@ export async function GET(request: Request): Promise<Response> {
         and(
           inArray(appointmentSchema.clientPhone, phoneVariants),
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
           gte(appointmentSchema.startTime, now),
+          isNull(appointmentSchema.deletedAt),
         ),
       )
       .orderBy(asc(appointmentSchema.startTime))

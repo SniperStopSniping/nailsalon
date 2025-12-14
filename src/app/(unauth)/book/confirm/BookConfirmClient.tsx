@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BookingStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
+import { useBookingState } from '@/hooks/useBookingState';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
@@ -60,6 +61,29 @@ type BookConfirmClientProps = {
 };
 
 // --- Helpers ---
+
+/**
+ * Normalize phone number to 10 digits.
+ * - Strips all non-digit characters
+ * - Drops leading '1' if 11 digits (US country code)
+ * - Returns null if result is not exactly 10 digits
+ */
+const normalizePhone = (phone: string): string | null => {
+  // Strip all non-digit characters
+  let digits = phone.replace(/\D/g, '');
+
+  // If 11 digits starting with '1', drop the leading '1' (US country code)
+  if (digits.length === 11 && digits.startsWith('1')) {
+    digits = digits.slice(1);
+  }
+
+  // Must be exactly 10 digits
+  if (digits.length !== 10) {
+    return null;
+  }
+
+  return digits;
+};
 
 const triggerLuxuryConfetti = () => {
   if (typeof window !== 'undefined') {
@@ -886,6 +910,15 @@ export function BookConfirmClient({
   const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
 
+  // Sync booking state from URL on mount (for consistency)
+  const { syncFromUrl } = useBookingState();
+  useEffect(() => {
+    if (techId) {
+      syncFromUrl({ techId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
@@ -916,6 +949,12 @@ export function BookConfirmClient({
     setBookingError(null);
 
     try {
+      // Normalize phone number (strip formatting, handle +1 country code)
+      const normalizedPhone = normalizePhone(clientPhone);
+      if (!normalizedPhone) {
+        throw new Error('Invalid phone number. Please go back and enter a valid 10-digit phone number.');
+      }
+
       const [hours, minutes] = timeStr.split(':').map(Number);
       const startTime = new Date(`${dateStr}T00:00:00`);
       startTime.setHours(hours || 9, minutes || 0, 0, 0);
@@ -924,7 +963,7 @@ export function BookConfirmClient({
         salonSlug,
         serviceIds: services.map(s => s.id),
         technicianId: techId === 'any' ? null : techId,
-        clientPhone,
+        clientPhone: normalizedPhone,
         startTime: startTime.toISOString(),
         ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
@@ -940,7 +979,21 @@ export function BookConfirmClient({
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        // Log response for debugging (cap body to avoid console flooding)
+        const responseText = await response.text();
+        console.error('Booking API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: responseText.slice(0, 2000),
+        });
+
+        // Try to parse as JSON for error message
+        let errorData;
+        try {
+          errorData = JSON.parse(responseText);
+        } catch {
+          throw new Error(`Server error (${response.status}): ${responseText.slice(0, 200)}`);
+        }
 
         if (errorData.error?.code === 'EXISTING_APPOINTMENT') {
           setHasExistingAppointment(true);
@@ -948,7 +1001,7 @@ export function BookConfirmClient({
           return;
         }
 
-        throw new Error(errorData.error?.message || 'Failed to create booking');
+        throw new Error(errorData.error?.message || `Failed to create booking (${response.status})`);
       }
 
       const data = await response.json();

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -138,6 +139,18 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   // Use shared auth hook
   const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
 
+  // Use global booking state - this is the single source of truth
+  const { technicianId: stateTechId, syncFromUrl } = useBookingState();
+
+  // Sync from URL params on mount (for deep links and reschedule flows)
+  useEffect(() => {
+    const urlTechId = searchParams.get('techId');
+    if (urlTechId) {
+      syncFromUrl({ techId: urlTechId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
   // Use services passed from server
   const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
   const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
@@ -153,8 +166,23 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Ref for smooth scrolling to morning time slots
+  // Refs for smooth scrolling to time slot sections
   const morningSlotsRef = useRef<HTMLDivElement>(null);
+  const afternoonSlotsRef = useRef<HTMLDivElement>(null);
+
+  // Scroll state refs - pendingScroll triggers scroll when slots load
+  const pendingScrollRef = useRef(false);
+  const scrollRequestIdRef = useRef(0);
+  const scrollTargetDateRef = useRef<string | null>(null); // Track which date the scroll is for
+  const isMountedRef = useRef(true);
+
+  // Track mount/unmount for cleanup
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Custom smooth scroll with adjustable duration
   const smoothScrollTo = useCallback((targetY: number, duration: number): Promise<void> => {
@@ -196,7 +224,9 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     setLoadingSlots(true);
     try {
       const dateStr = date.toISOString().split('T')[0];
-      const techParam = techId && techId !== 'any' ? `&technicianId=${techId}` : '';
+      // Use stateTechId if available, otherwise fall back to URL techId
+      const effectiveTechId = stateTechId || techId;
+      const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
       const response = await fetch(
         `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}`,
         { cache: 'no-store' },
@@ -214,7 +244,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     } finally {
       setLoadingSlots(false);
     }
-  }, [salonSlug, techId]);
+  }, [salonSlug, techId, stateTechId]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -269,6 +299,66 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     }
   }, [selectedDate, mounted, fetchBookedSlots]);
 
+  // Scroll to time slots when loading completes and we have a pending scroll request
+  useEffect(() => {
+    // Only proceed if: pending scroll requested and not loading
+    if (!pendingScrollRef.current || loadingSlots) {
+      return;
+    }
+
+    // Capture current request ID and target date to detect stale scrolls
+    const thisRequestId = scrollRequestIdRef.current;
+    const thisTargetDate = scrollTargetDateRef.current;
+
+    // Verify the scroll is for the currently selected date (prevents stale scroll from previous fetch)
+    const currentDateKey = selectedDate?.toISOString().split('T')[0] ?? null;
+    if (thisTargetDate !== currentDateKey) {
+      // Stale scroll request - clear and bail
+      pendingScrollRef.current = false;
+      return;
+    }
+
+    // Hard timeout - if scroll doesn't happen within 3s, give up quietly
+    const SCROLL_TIMEOUT_MS = 3000;
+    let hasTimedOut = false;
+    const hardTimeoutId = setTimeout(() => {
+      hasTimedOut = true;
+      pendingScrollRef.current = false;
+    }, SCROLL_TIMEOUT_MS);
+
+    // Small delay to ensure DOM has updated after loadingSlots changed
+    const scrollTimeoutId = setTimeout(async () => {
+      // Bail if unmounted, superseded, or timed out
+      if (!isMountedRef.current || scrollRequestIdRef.current !== thisRequestId || hasTimedOut) {
+        return;
+      }
+
+      // Clear pending flag
+      pendingScrollRef.current = false;
+      clearTimeout(hardTimeoutId);
+
+      // Find the first available section ref (morning preferred, then afternoon)
+      const targetRef = morningSlotsRef.current ?? afternoonSlotsRef.current;
+      if (!targetRef) {
+        // No slots rendered - don't scroll
+        return;
+      }
+
+      // Scroll to TOP of the section (with 20px padding from top)
+      const rect = targetRef.getBoundingClientRect();
+      const targetY = window.scrollY + rect.top - 20;
+
+      // Single smooth scroll to the time slots section (800ms)
+      await smoothScrollTo(Math.max(0, targetY), 800);
+    }, 50); // Small delay for DOM update
+
+    // Cleanup: if effect re-runs or component unmounts, cancel pending scroll
+    return () => {
+      clearTimeout(scrollTimeoutId);
+      clearTimeout(hardTimeoutId);
+    };
+  }, [loadingSlots, selectedDate, smoothScrollTo]);
+
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
@@ -314,29 +404,23 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     }
   };
 
-  const handleDateSelect = async (date: Date) => {
-    if (date >= today) {
+  const handleDateSelect = (date: Date) => {
+    // Use start-of-day comparison to avoid time-of-day issues
+    const dateAtMidnight = new Date(date);
+    dateAtMidnight.setHours(0, 0, 0, 0);
+    const todayAtMidnight = new Date(today);
+    todayAtMidnight.setHours(0, 0, 0, 0);
+
+    if (dateAtMidnight >= todayAtMidnight) {
+      // Cancel any previous scroll request
+      scrollRequestIdRef.current += 1;
+
+      // Set pending scroll flag and target date - useEffect handles scroll when slots load
+      pendingScrollRef.current = true;
+      scrollTargetDateRef.current = date.toISOString().split('T')[0] ?? null;
+
+      // Update selected date (triggers fetch → loadingSlots → useEffect scroll)
       setSelectedDate(date);
-      // Wait for slots to load
-      setTimeout(async () => {
-        if (!morningSlotsRef.current) {
-          return;
-        }
-
-        // Calculate position to show morning card at bottom of viewport
-        const rect = morningSlotsRef.current.getBoundingClientRect();
-        const targetY = window.scrollY + rect.bottom - window.innerHeight;
-
-        // First scroll - slow and smooth to morning card (800ms)
-        await smoothScrollTo(Math.max(0, targetY), 800);
-
-        // Pause for 150ms
-        await new Promise(resolve => setTimeout(resolve, 150));
-
-        // Second scroll - continue to bottom (1200ms)
-        const bottomY = document.documentElement.scrollHeight - window.innerHeight;
-        await smoothScrollTo(bottomY, 1200);
-      }, 400);
     }
   };
 
@@ -359,7 +443,9 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
 
     // Use the phone from auth hook (may be updated after login)
     const phoneToUse = phone || clientPhone;
-    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${techId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(phoneToUse)}`;
+    // Use stateTechId if available, otherwise fall back to URL techId
+    const effectiveTechId = stateTechId || techId || 'any';
+    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${effectiveTechId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(phoneToUse)}`;
 
     // Pass through originalAppointmentId for reschedule flow
     if (originalAppointmentId) {
@@ -372,9 +458,11 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const handleBack = () => {
     const prevStep = getPrevStep('time', bookingFlow);
     if (prevStep) {
+      // Use stateTechId if available, otherwise fall back to URL techId
+      const effectiveTechId = stateTechId || techId;
       let url = `/${locale}/book/${prevStep}?serviceIds=${serviceIds.join(',')}&clientPhone=${encodeURIComponent(clientPhone)}`;
-      if (techId) {
-        url += `&techId=${encodeURIComponent(techId)}`;
+      if (effectiveTechId) {
+        url += `&techId=${encodeURIComponent(effectiveTechId)}`;
       }
       if (originalAppointmentId) {
         url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
@@ -468,7 +556,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
           })}
         </div>
 
-        {/* Booking Summary Card */}
+        {/* Booking Summary Card - Only show technician if one is selected */}
         <div
           className="mb-6 overflow-hidden rounded-2xl shadow-xl"
           style={{
@@ -488,17 +576,27 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
               <div className="min-w-0 flex-1">
                 <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
                 <div className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
-                <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                  with
-                  {' '}
-                  {technician?.name || 'Any Artist'}
-                  {' '}
-                  ·
-                  {' '}
-                  {totalDuration}
-                  {' '}
-                  min
-                </div>
+                {/* Only show technician info if a technician is actually selected */}
+                {technician && (
+                  <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
+                    with
+                    {' '}
+                    {technician.name}
+                    {' '}
+                    ·
+                    {' '}
+                    {totalDuration}
+                    {' '}
+                    min
+                  </div>
+                )}
+                {!technician && (
+                  <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
+                    {totalDuration}
+                    {' '}
+                    min
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <div className="text-2xl font-bold text-white">
@@ -742,6 +840,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
             {/* Afternoon Times */}
             {afternoonSlots.length > 0 && !loadingSlots && (
               <div
+                ref={afternoonSlotsRef}
                 className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
                 style={{
                   borderWidth: '1px',

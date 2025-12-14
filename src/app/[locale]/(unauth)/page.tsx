@@ -1,43 +1,10 @@
-import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
+import { redirect } from 'next/navigation';
 
-import { CTA } from '@/templates/CTA';
-import { DemoBanner } from '@/templates/DemoBanner';
-import { FAQ } from '@/templates/FAQ';
-import { Features } from '@/templates/Features';
-import { Footer } from '@/templates/Footer';
-import { Hero } from '@/templates/Hero';
-import { Navbar } from '@/templates/Navbar';
-import { Pricing } from '@/templates/Pricing';
-import { Sponsors } from '@/templates/Sponsors';
+import { AppConfig } from '@/utils/AppConfig';
 
-export async function generateMetadata(props: { params: { locale: string } }) {
-  const t = await getTranslations({
-    locale: props.params.locale,
-    namespace: 'Index',
-  });
+export default function IndexPage(props: { params: { locale: string } }) {
+  const locale = props.params.locale;
+  const target = locale === AppConfig.defaultLocale ? '/book' : `/${locale}/book`;
 
-  return {
-    title: t('meta_title'),
-    description: t('meta_description'),
-  };
+  redirect(target);
 }
-
-const IndexPage = (props: { params: { locale: string } }) => {
-  unstable_setRequestLocale(props.params.locale);
-
-  return (
-    <>
-      <DemoBanner />
-      <Navbar />
-      <Hero />
-      <Sponsors />
-      <Features />
-      <Pricing />
-      <FAQ />
-      <CTA />
-      <Footer />
-    </>
-  );
-};
-
-export default IndexPage;

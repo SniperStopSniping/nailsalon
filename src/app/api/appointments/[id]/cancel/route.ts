@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getAppointmentById, updateSalonClientStats } from '@/libs/queries';
-import { appointmentSchema, CANCEL_REASONS, rewardSchema } from '@/models/Schema';
+import { appointmentSchema, CANCEL_REASONS, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -132,7 +132,43 @@ export async function PATCH(
       }
     }
 
-    // 5b. Update salon client stats if this was a no-show
+    // 5b. Refund any points that were redeemed on this appointment
+    // Check if notes contain "[Points redeemed:" which indicates points were spent
+    const notesText = appointment.notes || '';
+    const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
+
+    if (pointsRedeemedMatch) {
+      // Extract the points number (remove commas)
+      const pointsToRefund = Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10);
+
+      if (pointsToRefund > 0) {
+        // Find the client and refund their points
+        const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
+        const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
+          ? normalizedPhone.slice(1)
+          : normalizedPhone;
+
+        const phoneVariants = [
+          tenDigitPhone,
+          `+1${tenDigitPhone}`,
+          appointment.clientPhone,
+        ];
+
+        await db
+          .update(salonClientSchema)
+          .set({
+            loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+          })
+          .where(
+            and(
+              eq(salonClientSchema.salonId, appointment.salonId),
+              inArray(salonClientSchema.phone, phoneVariants),
+            ),
+          );
+      }
+    }
+
+    // 5d. Update salon client stats if this was a no-show
     // (Background, don't await - no-shows affect stats)
     if (validated.data.cancelReason === 'no_show') {
       updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((err) => {

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
@@ -11,6 +11,7 @@ import {
   CANCEL_REASONS,
   referralSchema,
   rewardSchema,
+  salonClientSchema,
   salonSchema,
   serviceSchema,
 } from '@/models/Schema';
@@ -155,7 +156,64 @@ export async function PATCH(
       }
     }
 
-    // 7. If status changed to 'completed', handle reward completion
+    // 7. If status changed to 'cancelled', handle refunds
+    if (data.status === 'cancelled') {
+      // 7a. Unlink any rewards that were pending use with this appointment
+      const linkedReward = await db
+        .select()
+        .from(rewardSchema)
+        .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+        .limit(1);
+
+      if (linkedReward.length > 0) {
+        const reward = linkedReward[0]!;
+        // Only restore if it wasn't already used
+        if (reward.status !== 'used') {
+          await db
+            .update(rewardSchema)
+            .set({
+              usedInAppointmentId: null,
+              status: 'active',
+            })
+            .where(eq(rewardSchema.id, reward.id));
+        }
+      }
+
+      // 7b. Refund any points that were redeemed on this appointment
+      const notesText = existingAppointment.notes || '';
+      const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
+
+      if (pointsRedeemedMatch) {
+        const pointsToRefund = Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10);
+
+        if (pointsToRefund > 0) {
+          const normalizedPhone = existingAppointment.clientPhone.replace(/\D/g, '');
+          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
+            ? normalizedPhone.slice(1)
+            : normalizedPhone;
+
+          const phoneVariants = [
+            tenDigitPhone,
+            `+1${tenDigitPhone}`,
+            existingAppointment.clientPhone,
+          ];
+
+          await db
+            .update(salonClientSchema)
+            .set({
+              loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+            })
+            .where(
+              and(
+                eq(salonClientSchema.salonId, existingAppointment.salonId),
+                inArray(salonClientSchema.phone, phoneVariants),
+              ),
+            );
+        }
+      }
+    }
+
+    // 8. If status changed to 'completed', handle reward completion
     if (data.status === 'completed') {
       // Mark any reward linked to this appointment as 'used'
       const linkedReward = await db

@@ -26,8 +26,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
-
 import { BackButton, ModalHeader } from './AppModal';
 
 type NotificationsModalProps = {
@@ -315,7 +313,6 @@ function appointmentToNotification(appointment: {
 }
 
 export function NotificationsModal({ onClose }: NotificationsModalProps) {
-  const { salonSlug } = useSalon();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -338,7 +335,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
       const dateStr = sevenDaysAgo.toISOString().split('T')[0];
 
       const response = await fetch(
-        `/api/appointments?salonSlug=${salonSlug}&startDate=${dateStr}`,
+        `/api/admin/appointments?startDate=${dateStr}`,
       );
 
       if (!response.ok) {
@@ -362,7 +359,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [salonSlug, hasLoaded]);
+  }, [hasLoaded]);
 
   useEffect(() => {
     fetchActivity();

@@ -102,25 +102,59 @@ export type RewardData = {
   icon: React.ElementType;
 };
 
-const REWARDS_DATA: RewardData[] = [
+// API reward type from database
+type ApiReward = {
+  id: string;
+  points: number;
+  status: 'active' | 'used' | 'expired';
+  type: string;
+  eligibleServiceName: string | null;
+  expiresAt: string | null;
+  usedInAppointmentId: string | null;
+  clientName: string | null;
+  createdAt: string;
+  isExpired: boolean;
+  daysUntilExpiry: number | null;
+};
+
+// Upcoming appointment type
+type UpcomingAppointment = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  totalPrice: number;
+  services: Array<{
+    id: string;
+    name: string;
+    price: number;
+  }>;
+  technician: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+// Static catalog rewards (for browsing what's available to earn)
+const REWARDS_CATALOG: RewardData[] = [
   // TIER 1: SMALL TREATS (2,500)
-  { id: '1', points: 2500, title: '$5 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
-  { id: '2', points: 2500, title: 'Cuticle Oil', subtitle: 'Take-home care', tierColor: 'green', icon: Gift },
+  { id: 'cat-1', points: 2500, title: '$5 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
+  { id: 'cat-2', points: 2500, title: 'Cuticle Oil', subtitle: 'Take-home care', tierColor: 'green', icon: Gift },
 
   // TIER 2: MEDIUM VALUE (4,750)
-  { id: '3', points: 4750, title: '$10 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
-  { id: '4', points: 4750, title: 'Nail Art Add-on', subtitle: '2 fingers / simple', tierColor: 'purple', icon: Palette },
+  { id: 'cat-3', points: 4750, title: '$10 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
+  { id: 'cat-4', points: 4750, title: 'Nail Art Add-on', subtitle: '2 fingers / simple', tierColor: 'purple', icon: Palette },
 
   // TIER 3: HIGH VALUE (8,750)
-  { id: '5', points: 8750, title: '$20 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
-  { id: '6', points: 8750, title: 'French Tip', subtitle: 'Add-on styling', tierColor: 'purple', icon: Zap },
+  { id: 'cat-5', points: 8750, title: '$20 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
+  { id: 'cat-6', points: 8750, title: 'French Tip', subtitle: 'Add-on styling', tierColor: 'purple', icon: Zap },
 
   // TIER 4: LUXURY HERO (25,000)
-  { id: '7', points: 25000, title: 'Free Gel Manicure', subtitle: 'Single color · any short/medium', tierColor: 'gold', icon: Crown },
-  { id: '8', points: 25000, title: 'Free BIAB Short', subtitle: 'Short BIAB set or fill', tierColor: 'gold', icon: Crown },
+  { id: 'cat-7', points: 25000, title: 'Free Gel Manicure', subtitle: 'Single color · any short/medium', tierColor: 'gold', icon: Crown },
+  { id: 'cat-8', points: 25000, title: 'Free BIAB Short', subtitle: 'Short BIAB set or fill', tierColor: 'gold', icon: Crown },
 
   // TIER 5: TOP STATUS (38,500)
-  { id: '9', points: 38500, title: '$100 Off', subtitle: 'Elite Status Reward', tierColor: 'gold', icon: Sparkles },
+  { id: 'cat-9', points: 38500, title: '$100 Off', subtitle: 'Elite Status Reward', tierColor: 'gold', icon: Sparkles },
 ];
 
 // --- COMPONENTS ---
@@ -131,13 +165,18 @@ const REWARDS_DATA: RewardData[] = [
 type RedeemSheetProps = {
   isOpen: boolean;
   onClose: () => void;
-  rewardTitle: string;
-  pointsCost: number;
+  reward: ApiReward | null;
+  appointment: UpcomingAppointment | null;
+  clientPhone: string;
+  onSuccess: (discountApplied: number, newTotal: number) => void;
 };
 
-const RedeemSheet = ({ isOpen, onClose, rewardTitle, pointsCost }: RedeemSheetProps) => {
+const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSuccess }: RedeemSheetProps) => {
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [sliderValue, setSliderValue] = useState(0);
+  const [discountResult, setDiscountResult] = useState<{ discount: number; newTotal: number } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -148,7 +187,7 @@ const RedeemSheet = ({ isOpen, onClose, rewardTitle, pointsCost }: RedeemSheetPr
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (!isConfirmed && e.key === 'Escape') {
+      if (!isConfirmed && !isRedeeming && e.key === 'Escape') {
         onClose();
       }
     };
@@ -156,18 +195,72 @@ const RedeemSheet = ({ isOpen, onClose, rewardTitle, pointsCost }: RedeemSheetPr
       window.addEventListener('keydown', handleEsc);
     }
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onClose, isConfirmed]);
+  }, [isOpen, onClose, isConfirmed, isRedeeming]);
 
   useEffect(() => {
     if (isOpen) {
       setIsConfirmed(false);
+      setIsRedeeming(false);
+      setError(null);
       setSliderValue(0);
+      setDiscountResult(null);
     }
   }, [isOpen]);
 
+  const handleConfirm = async () => {
+    if (!reward || !appointment || !clientPhone || isRedeeming) {
+      return;
+    }
+
+    setIsRedeeming(true);
+    setError(null);
+
+    try {
+      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+
+      const response = await fetch('/api/rewards/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rewardId: reward.id,
+          appointmentId: appointment.id,
+          phone: normalizedPhone,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to redeem reward');
+      }
+
+      // Success!
+      setIsConfirmed(true);
+      setSliderValue(100);
+      setDiscountResult({
+        discount: data.data.discountApplied,
+        newTotal: data.data.newTotalPrice,
+      });
+      triggerHaptic();
+      triggerLuxuryConfetti();
+
+      // Notify parent of success
+      onSuccess(data.data.discountApplied, data.data.newTotalPrice);
+
+      setTimeout(() => {
+        triggerHaptic();
+        onClose();
+      }, 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setSliderValue(0);
+      setIsRedeeming(false);
+    }
+  };
+
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
-    if (Number.isNaN(val)) {
+    if (Number.isNaN(val) || isRedeeming || isConfirmed) {
       return;
     }
     setSliderValue(val);
@@ -176,16 +269,8 @@ const RedeemSheet = ({ isOpen, onClose, rewardTitle, pointsCost }: RedeemSheetPr
     }
   };
 
-  const handleConfirm = () => {
-    setIsConfirmed(true);
-    setSliderValue(100);
-    triggerHaptic();
-    triggerLuxuryConfetti();
-    setTimeout(() => {
-      triggerHaptic();
-      onClose();
-    }, 2000);
-  };
+  const rewardTitle = reward?.eligibleServiceName || 'Reward';
+  const pointsCost = reward?.points || 0;
 
   return (
     <AnimatePresence>
@@ -217,79 +302,417 @@ const RedeemSheet = ({ isOpen, onClose, rewardTitle, pointsCost }: RedeemSheetPr
               {isConfirmed ? `Success! Reward ${rewardTitle} redeemed for ${pointsCost} points.` : ''}
             </div>
 
-            <div className="mx-auto mb-8 h-1.5 w-12 rounded-full bg-[var(--n5-border-muted)]" />
+            <div className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-[var(--n5-border-muted)]" />
             <div className="relative z-10 flex flex-col items-center text-center">
               <div
-                className="mb-6 flex size-20 items-center justify-center rounded-full border border-[var(--n5-border)] shadow-[var(--n5-shadow-lg)]"
+                className="mb-4 flex size-16 items-center justify-center rounded-full border border-[var(--n5-border)] shadow-[var(--n5-shadow-lg)]"
                 style={{
                   background: `linear-gradient(to top right, var(--n5-bg-page), white)`,
                 }}
               >
                 {isConfirmed
                   ? (
-                      <Check className="animate-pulse text-[var(--n5-success)]" size={36} />
+                      <Check className="animate-pulse text-[var(--n5-success)]" size={32} />
                     )
-                  : (
-                      <Sparkles size={32} strokeWidth={1.5} className="text-[var(--n5-accent)]" />
-                    )}
+                  : isRedeeming
+                    ? (
+                        <RefreshCw size={28} className="animate-spin text-[var(--n5-accent)]" />
+                      )
+                    : (
+                        <Sparkles size={28} strokeWidth={1.5} className="text-[var(--n5-accent)]" />
+                      )}
               </div>
 
-              <p className="font-body mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]">Loyalty Reward</p>
-              <h2 id="redeem-title" className="font-heading mb-2 text-2xl tracking-tight text-[var(--n5-ink-main)]">
-                {isConfirmed ? 'Reward Redeemed!' : 'Redeem Reward?'}
-              </h2>
-              <p className="font-body mb-10 max-w-[260px] text-[15px] leading-relaxed text-[var(--n5-ink-muted)]">
-                Redeem
-                {' '}
-                <span className="font-semibold text-[var(--n5-ink-main)]">{rewardTitle}</span>
-                {' '}
-                for
-                {' '}
-                <span className="font-semibold text-[var(--n5-ink-main)]">
-                  {pointsCost.toLocaleString()}
-                  {' '}
-                  pts
-                </span>
-                ?
+              <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]">
+                {isConfirmed ? 'Success' : 'Apply Reward'}
               </p>
+              <h2 id="redeem-title" className="font-heading mb-3 text-xl tracking-tight text-[var(--n5-ink-main)]">
+                {isConfirmed ? 'Reward Applied!' : rewardTitle}
+              </h2>
 
-              <div
-                className="relative h-[64px] w-full select-none overflow-hidden rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-selected)] p-1.5 shadow-inner"
-              >
-                <div
-                  className="absolute left-0 top-0 h-full transition-all duration-75 ease-out"
-                  style={{
-                    width: `${sliderValue}%`,
-                    backgroundColor: `color-mix(in srgb, var(--n5-accent) 20%, transparent)`,
-                  }}
-                />
-                <div className={cn('absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300', sliderValue > 50 ? 'opacity-0' : 'opacity-100')}>
-                  <span className="font-body text-[13px] font-bold uppercase tracking-widest text-[var(--n5-accent)]">Slide to Confirm</span>
+              {/* Show discount result on success */}
+              {isConfirmed && discountResult && (
+                <div className="mb-4 rounded-xl bg-[var(--n5-success)]/10 px-4 py-3">
+                  <p className="font-body text-sm text-[var(--n5-success)]">
+                    <span className="font-semibold">${discountResult.discount.toFixed(2)} off</span> applied!
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    New appointment total: <span className="font-semibold">${discountResult.newTotal.toFixed(2)}</span>
+                  </p>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={sliderValue}
-                  onChange={handleSliderChange}
-                  disabled={isConfirmed}
-                  aria-label="Slide to confirm redemption"
-                  className="absolute inset-0 z-20 size-full cursor-pointer opacity-0"
-                />
-                <div
-                  className="pointer-events-none absolute inset-y-1.5 left-1.5 z-10 flex aspect-square h-full items-center justify-center rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-card)] text-[var(--n5-accent)] shadow-[0_2px_10px_rgba(0,0,0,0.1)] transition-all duration-75 ease-out"
-                  style={{
-                    left: `calc(${sliderValue}% - ${sliderValue * 0.7}px)`,
-                  }}
-                >
-                  {isConfirmed ? <Check size={24} /> : <div className="h-4 w-1.5 rounded-full bg-[var(--n5-border-muted)]" />}
+              )}
+
+              {/* Show appointment info when not confirmed */}
+              {!isConfirmed && appointment && (
+                <div className="mb-4 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-selected)] p-3">
+                  <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--n5-ink-muted)]">
+                    Applying to your appointment
+                  </p>
+                  <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
+                    {new Date(appointment.startTime).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' at '}
+                    {new Date(appointment.startTime).toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    {appointment.services.map(s => s.name).join(', ')}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
+                    Current total: <span className="font-semibold">${(appointment.totalPrice / 100).toFixed(2)}</span>
+                  </p>
                 </div>
-              </div>
+              )}
+
+              {/* Error message */}
+              {error && (
+                <div className="mb-4 rounded-xl bg-red-50 px-4 py-2">
+                  <p className="font-body text-sm text-red-600">{error}</p>
+                </div>
+              )}
 
               {!isConfirmed && (
+                <p className="font-body mb-6 text-xs text-[var(--n5-ink-muted)]">
+                  This will use your <span className="font-semibold">{pointsCost.toLocaleString()} pts</span> reward
+                </p>
+              )}
+
+              {/* Only show slider if not confirmed */}
+              {!isConfirmed && (
+                <div
+                  className={cn(
+                    'relative h-[56px] w-full select-none overflow-hidden rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-selected)] p-1.5 shadow-inner',
+                    isRedeeming && 'opacity-50 pointer-events-none',
+                  )}
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full transition-all duration-75 ease-out"
+                    style={{
+                      width: `${sliderValue}%`,
+                      backgroundColor: `color-mix(in srgb, var(--n5-accent) 20%, transparent)`,
+                    }}
+                  />
+                  <div className={cn('absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300', sliderValue > 50 ? 'opacity-0' : 'opacity-100')}>
+                    <span className="font-body text-[12px] font-bold uppercase tracking-widest text-[var(--n5-accent)]">
+                      {isRedeeming ? 'Applying...' : 'Slide to Apply'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={sliderValue}
+                    onChange={handleSliderChange}
+                    disabled={isConfirmed || isRedeeming}
+                    aria-label="Slide to confirm redemption"
+                    className="absolute inset-0 z-20 size-full cursor-pointer opacity-0"
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-y-1.5 left-1.5 z-10 flex aspect-square h-full items-center justify-center rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-card)] text-[var(--n5-accent)] shadow-[0_2px_10px_rgba(0,0,0,0.1)] transition-all duration-75 ease-out"
+                    style={{
+                      left: `calc(${sliderValue}% - ${sliderValue * 0.7}px)`,
+                    }}
+                  >
+                    {isRedeeming ? <RefreshCw size={20} className="animate-spin" /> : <div className="h-3 w-1 rounded-full bg-[var(--n5-border-muted)]" />}
+                  </div>
+                </div>
+              )}
+
+              {!isConfirmed && !isRedeeming && (
                 <button
                   onClick={onClose}
-                  className="font-body mt-6 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] transition-colors"
+                  className="font-body mt-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/**
+ * 1b. CATALOG REDEEM SHEET - For redeeming catalog rewards with points
+ */
+type CatalogRedeemSheetProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  reward: RewardData | null;
+  appointment: UpcomingAppointment | null;
+  clientPhone: string;
+  currentPoints: number;
+  onSuccess: (discountApplied: number, newTotal: number) => void;
+};
+
+const CatalogRedeemSheet = ({
+  isOpen,
+  onClose,
+  reward,
+  appointment,
+  clientPhone,
+  currentPoints,
+  onSuccess,
+}: CatalogRedeemSheetProps) => {
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sliderValue, setSliderValue] = useState(0);
+  const [discountResult, setDiscountResult] = useState<{ discount: number; newTotal: number } | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => sheetRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (!isConfirmed && !isRedeeming && e.key === 'Escape') {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleEsc);
+    }
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose, isConfirmed, isRedeeming]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsConfirmed(false);
+      setIsRedeeming(false);
+      setError(null);
+      setSliderValue(0);
+      setDiscountResult(null);
+    }
+  }, [isOpen]);
+
+  const handleConfirm = async () => {
+    if (!reward || !appointment || !clientPhone || isRedeeming) {
+      return;
+    }
+
+    if (currentPoints < reward.points) {
+      setError(`You need ${reward.points.toLocaleString()} points but only have ${currentPoints.toLocaleString()}`);
+      return;
+    }
+
+    setIsRedeeming(true);
+    setError(null);
+
+    try {
+      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+
+      const response = await fetch('/api/rewards/redeem-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rewardTitle: reward.title,
+          rewardPoints: reward.points,
+          appointmentId: appointment.id,
+          phone: normalizedPhone,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to redeem reward');
+      }
+
+      // Success!
+      setIsConfirmed(true);
+      setSliderValue(100);
+      setDiscountResult({
+        discount: data.data.discountApplied,
+        newTotal: data.data.newTotalPrice,
+      });
+      triggerHaptic();
+      triggerLuxuryConfetti();
+
+      // Notify parent of success
+      onSuccess(data.data.discountApplied, data.data.newTotalPrice);
+
+      setTimeout(() => {
+        triggerHaptic();
+        onClose();
+      }, 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setSliderValue(0);
+      setIsRedeeming(false);
+    }
+  };
+
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    if (Number.isNaN(val) || isRedeeming || isConfirmed) {
+      return;
+    }
+    setSliderValue(val);
+    if (val >= 98 && !isConfirmed) {
+      handleConfirm();
+    }
+  };
+
+  const rewardTitle = reward?.title || 'Reward';
+  const pointsCost = reward?.points || 0;
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={!isConfirmed && !isRedeeming ? onClose : undefined}
+            className="fixed inset-0 z-[60] backdrop-blur-sm"
+            style={{ backgroundColor: `color-mix(in srgb, var(--n5-ink-main) 40%, transparent)` }}
+            aria-hidden="true"
+          />
+          <motion.div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="catalog-redeem-title"
+            tabIndex={-1}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-x-0 bottom-0 z-[70] overflow-hidden bg-[var(--n5-bg-card)] p-6 pb-12 shadow-[var(--n5-shadow-modal)] outline-none"
+            style={{ borderRadius: 'var(--n5-radius-sheet) var(--n5-radius-sheet) 0 0' }}
+          >
+            <div className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-[var(--n5-border-muted)]" />
+            <div className="relative z-10 flex flex-col items-center text-center">
+              <div
+                className="mb-4 flex size-16 items-center justify-center rounded-full border border-[var(--n5-border)] shadow-[var(--n5-shadow-lg)]"
+                style={{
+                  background: `linear-gradient(to top right, var(--n5-bg-page), white)`,
+                }}
+              >
+                {isConfirmed
+                  ? <Check className="animate-pulse text-[var(--n5-success)]" size={32} />
+                  : isRedeeming
+                    ? <RefreshCw size={28} className="animate-spin text-[var(--n5-accent)]" />
+                    : <Sparkles size={28} strokeWidth={1.5} className="text-[var(--n5-accent)]" />}
+              </div>
+
+              <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]">
+                {isConfirmed ? 'Success' : 'Spend Points'}
+              </p>
+              <h2 id="catalog-redeem-title" className="font-heading mb-3 text-xl tracking-tight text-[var(--n5-ink-main)]">
+                {isConfirmed ? 'Reward Applied!' : rewardTitle}
+              </h2>
+
+              {/* Show discount result on success */}
+              {isConfirmed && discountResult && (
+                <div className="mb-4 rounded-xl bg-[var(--n5-success)]/10 px-4 py-3">
+                  <p className="font-body text-sm text-[var(--n5-success)]">
+                    <span className="font-semibold">${discountResult.discount.toFixed(2)} off</span> applied!
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    New appointment total: <span className="font-semibold">${discountResult.newTotal.toFixed(2)}</span>
+                  </p>
+                </div>
+              )}
+
+              {/* Show appointment info when not confirmed */}
+              {!isConfirmed && appointment && (
+                <div className="mb-4 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-selected)] p-3">
+                  <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--n5-ink-muted)]">
+                    Applying to your appointment
+                  </p>
+                  <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
+                    {new Date(appointment.startTime).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' at '}
+                    {new Date(appointment.startTime).toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    {appointment.services.map(s => s.name).join(', ')}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
+                    Current total: <span className="font-semibold">${(appointment.totalPrice / 100).toFixed(2)}</span>
+                  </p>
+                </div>
+              )}
+
+              {/* Error message */}
+              {error && (
+                <div className="mb-4 rounded-xl bg-red-50 px-4 py-2">
+                  <p className="font-body text-sm text-red-600">{error}</p>
+                </div>
+              )}
+
+              {!isConfirmed && (
+                <p className="font-body mb-6 text-xs text-[var(--n5-ink-muted)]">
+                  This will use <span className="font-semibold">{pointsCost.toLocaleString()} pts</span> from your balance
+                </p>
+              )}
+
+              {/* Only show slider if not confirmed */}
+              {!isConfirmed && (
+                <div
+                  className={cn(
+                    'relative h-[56px] w-full select-none overflow-hidden rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-selected)] p-1.5 shadow-inner',
+                    isRedeeming && 'opacity-50 pointer-events-none',
+                  )}
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full transition-all duration-75 ease-out"
+                    style={{
+                      width: `${sliderValue}%`,
+                      backgroundColor: `color-mix(in srgb, var(--n5-accent) 20%, transparent)`,
+                    }}
+                  />
+                  <div className={cn('absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300', sliderValue > 50 ? 'opacity-0' : 'opacity-100')}>
+                    <span className="font-body text-[12px] font-bold uppercase tracking-widest text-[var(--n5-accent)]">
+                      {isRedeeming ? 'Applying...' : 'Slide to Redeem'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={sliderValue}
+                    onChange={handleSliderChange}
+                    disabled={isConfirmed || isRedeeming}
+                    aria-label="Slide to confirm redemption"
+                    className="absolute inset-0 z-20 size-full cursor-pointer opacity-0"
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-y-1.5 left-1.5 z-10 flex aspect-square h-full items-center justify-center rounded-full border border-[var(--n5-border-muted)] bg-[var(--n5-bg-card)] text-[var(--n5-accent)] shadow-[0_2px_10px_rgba(0,0,0,0.1)] transition-all duration-75 ease-out"
+                    style={{
+                      left: `calc(${sliderValue}% - ${sliderValue * 0.7}px)`,
+                    }}
+                  >
+                    {isRedeeming ? <RefreshCw size={20} className="animate-spin" /> : <div className="h-3 w-1 rounded-full bg-[var(--n5-border-muted)]" />}
+                  </div>
+                </div>
+              )}
+
+              {!isConfirmed && !isRedeeming && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="font-body mt-4 text-xs font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] transition-colors"
                 >
                   Cancel
                 </button>
@@ -667,8 +1090,14 @@ export default function RewardsContent() {
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
   const [clientPhone, setClientPhone] = useState('');
-  const [selectedReward, setSelectedReward] = useState<RewardData | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Active rewards from the API (actual redeemable rewards)
+  const [activeRewards, setActiveRewards] = useState<ApiReward[]>([]);
+  const [selectedApiReward, setSelectedApiReward] = useState<ApiReward | null>(null);
+
+  // Upcoming appointment
+  const [upcomingAppointment, setUpcomingAppointment] = useState<UpcomingAppointment | null>(null);
 
   // Load client phone from cookie
   useEffect(() => {
@@ -683,7 +1112,7 @@ export default function RewardsContent() {
     }
   }, []);
 
-  // Fetch rewards/points from API (will override default if user has actual points)
+  // Fetch rewards/points from API
   const fetchRewards = useCallback(async () => {
     if (!clientPhone || !salonSlug) {
       setLoading(false);
@@ -702,13 +1131,19 @@ export default function RewardsContent() {
       );
       if (response.ok) {
         const data = await response.json();
-        // Only override if API returns actual points data
+        // Set points
         if (data.meta?.activePoints !== undefined) {
           setCurrentPoints(data.meta.activePoints);
         }
         if (data.meta?.streak !== undefined) {
           setStreak(data.meta.streak);
         }
+        // Set active rewards (only ones that can be redeemed)
+        const rewards = data.data?.rewards || [];
+        const active = rewards.filter((r: ApiReward) =>
+          r.status === 'active' && !r.isExpired && !r.usedInAppointmentId,
+        );
+        setActiveRewards(active);
       }
     } catch (error) {
       console.error('Failed to fetch rewards:', error);
@@ -717,16 +1152,46 @@ export default function RewardsContent() {
     }
   }, [clientPhone, salonSlug]);
 
+  // Fetch upcoming appointment
+  const fetchAppointment = useCallback(async () => {
+    if (!clientPhone) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`,
+      );
+      if (response.ok) {
+        const data = await response.json();
+        if (data.data?.appointment) {
+          setUpcomingAppointment({
+            id: data.data.appointment.id,
+            startTime: data.data.appointment.startTime,
+            endTime: data.data.appointment.endTime,
+            status: data.data.appointment.status,
+            totalPrice: data.data.appointment.totalPrice,
+            services: data.data.services || [],
+            technician: data.data.technician,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch appointment:', error);
+    }
+  }, [clientPhone]);
+
   useEffect(() => {
     if (clientPhone && salonSlug) {
       fetchRewards();
+      fetchAppointment();
     } else {
       setLoading(false);
     }
-  }, [clientPhone, salonSlug, fetchRewards]);
+  }, [clientPhone, salonSlug, fetchRewards, fetchAppointment]);
 
   // Dynamic Calculation: Finds the next milestone based on current points
-  const nextRewardPoints = REWARDS_DATA
+  const nextRewardPoints = REWARDS_CATALOG
     .map(r => r.points)
     .filter(p => p > currentPoints)
     .sort((a, b) => a - b)[0] ?? currentPoints;
@@ -734,13 +1199,38 @@ export default function RewardsContent() {
   const handleRefresh = useCallback(() => {
     triggerHaptic();
     setIsRefreshing(true);
-    fetchRewards().finally(() => {
+    Promise.all([fetchRewards(), fetchAppointment()]).finally(() => {
       setTimeout(() => {
         setIsRefreshing(false);
         triggerHaptic();
       }, 500);
     });
-  }, [fetchRewards]);
+  }, [fetchRewards, fetchAppointment]);
+
+  const handleRedeemSuccess = useCallback((discountApplied: number, newTotal: number) => {
+    // Refresh data after successful redemption
+    fetchRewards();
+    fetchAppointment();
+    // Update the appointment price locally for immediate feedback
+    // Note: newTotal is now in dollars from the API
+    if (upcomingAppointment) {
+      setUpcomingAppointment({
+        ...upcomingAppointment,
+        totalPrice: newTotal * 100, // Convert back to cents for local state
+      });
+    }
+    // Update points locally (will be refreshed from API too)
+    setCurrentPoints(prev => Math.max(0, prev - (discountApplied * 100 / 50))); // Rough estimate
+  }, [fetchRewards, fetchAppointment, upcomingAppointment]);
+
+  // State for catalog redemption
+  const [selectedCatalogReward, setSelectedCatalogReward] = useState<RewardData | null>(null);
+
+  // Handle catalog reward redemption (spending points)
+  const handleCatalogRedeem = useCallback((reward: RewardData) => {
+    triggerHaptic();
+    setSelectedCatalogReward(reward);
+  }, []);
 
   const handleBack = useCallback(() => {
     triggerHaptic();
@@ -806,14 +1296,147 @@ export default function RewardsContent() {
                 <BalanceCard points={currentPoints} nextReward={nextRewardPoints} streak={streak} />
               </motion.div>
 
+              {/* YOUR ACTIVE REWARDS - Actually redeemable */}
+              {activeRewards.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.1 }}
+                  className="space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
+                      Your Rewards
+                    </h2>
+                    <span className="rounded-full bg-[var(--n5-accent-soft)] px-2.5 py-1 text-xs font-bold text-[var(--n5-accent)]">
+                      {activeRewards.length} Available
+                    </span>
+                  </div>
+
+                  {!upcomingAppointment && (
+                    <div className="rounded-xl border border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 p-3">
+                      <p className="font-body text-sm text-[var(--n5-warning)]">
+                        <span className="font-semibold">Book an appointment</span> to use your rewards!
+                      </p>
+                      <button
+                        onClick={() => router.push('/book')}
+                        className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
+                      >
+                        Book Now →
+                      </button>
+                    </div>
+                  )}
+
+                  {upcomingAppointment && (
+                    <div className="rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-3">
+                      <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--n5-ink-muted)]">
+                        Your Next Appointment
+                      </p>
+                      <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
+                        {new Date(upcomingAppointment.startTime).toLocaleDateString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                        {' at '}
+                        {new Date(upcomingAppointment.startTime).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                      <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+                        {upcomingAppointment.services.map(s => s.name).join(', ')}
+                      </p>
+                      <p className="font-body mt-1 text-xs font-semibold text-[var(--n5-ink-main)]">
+                        Total: ${(upcomingAppointment.totalPrice / 100).toFixed(2)}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {activeRewards.map((reward) => (
+                      <motion.div
+                        key={reward.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center justify-between rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 shadow-sm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-10 items-center justify-center rounded-full bg-[var(--n5-accent-soft)]">
+                            <Gift className="size-5 text-[var(--n5-accent)]" />
+                          </div>
+                          <div>
+                            <p className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
+                              {reward.eligibleServiceName || 'Free Service'}
+                            </p>
+                            <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                              {reward.type === 'referral_referee' ? 'Referral Bonus' : reward.type === 'referral_referrer' ? 'Referral Reward' : 'Reward'}
+                              {reward.daysUntilExpiry !== null && (
+                                <span className="ml-1 text-[var(--n5-warning)]">
+                                  · Expires in {reward.daysUntilExpiry} days
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            triggerHaptic();
+                            if (upcomingAppointment) {
+                              setSelectedApiReward(reward);
+                            } else {
+                              router.push('/book');
+                            }
+                          }}
+                          disabled={!upcomingAppointment}
+                          className={cn(
+                            'rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all',
+                            upcomingAppointment
+                              ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] active:scale-95'
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+                          )}
+                        >
+                          {upcomingAppointment ? 'Use' : 'Book First'}
+                        </button>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* CATALOG - Browse what's available to redeem with your points */}
               <div className="space-y-5">
+                <div className="flex items-center justify-between pt-4">
+                  <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
+                    Redeem Points
+                  </h2>
+                  <span className="font-body text-xs text-[var(--n5-ink-muted)]">
+                    {currentPoints.toLocaleString()} pts available
+                  </span>
+                </div>
+
+                {!upcomingAppointment && currentPoints > 0 && (
+                  <div className="rounded-xl border border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 p-3">
+                    <p className="font-body text-sm text-[var(--n5-warning)]">
+                      <span className="font-semibold">Book an appointment</span> to redeem your points!
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/book')}
+                      className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
+                    >
+                      Book Now →
+                    </button>
+                  </div>
+                )}
+
                 {/* Tiers Logic - Dynamic Locking */}
                 {[
-                  { title: 'Small Treats', pts: '2,500', items: REWARDS_DATA.filter(r => r.points <= 2500) },
-                  { title: 'Medium Value', pts: '4,750', items: REWARDS_DATA.filter(r => r.points > 2500 && r.points <= 4750) },
-                  { title: 'High Value', pts: '8,750', items: REWARDS_DATA.filter(r => r.points > 4750 && r.points <= 8750) },
-                  { title: 'Luxury Hero', pts: '25,000', items: REWARDS_DATA.filter(r => r.points > 8750 && r.points <= 25000) },
-                  { title: 'Top Status', pts: '38,500', items: REWARDS_DATA.filter(r => r.points > 25000) },
+                  { title: 'Small Treats', pts: '2,500', items: REWARDS_CATALOG.filter(r => r.points <= 2500) },
+                  { title: 'Medium Value', pts: '4,750', items: REWARDS_CATALOG.filter(r => r.points > 2500 && r.points <= 4750) },
+                  { title: 'High Value', pts: '8,750', items: REWARDS_CATALOG.filter(r => r.points > 4750 && r.points <= 8750) },
+                  { title: 'Luxury Hero', pts: '25,000', items: REWARDS_CATALOG.filter(r => r.points > 8750 && r.points <= 25000) },
+                  { title: 'Top Status', pts: '38,500', items: REWARDS_CATALOG.filter(r => r.points > 25000) },
                 ].map(tier => (
                   <div key={tier.title}>
                     <TierHeader title={tier.title} pts={tier.pts} />
@@ -823,7 +1446,11 @@ export default function RewardsContent() {
                           key={reward.id}
                           {...reward}
                           isLocked={currentPoints < reward.points}
-                          onRedeem={() => setSelectedReward(reward)}
+                          onRedeem={
+                            currentPoints >= reward.points && upcomingAppointment
+                              ? () => handleCatalogRedeem(reward)
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -839,12 +1466,25 @@ export default function RewardsContent() {
 
         <FloatingDock />
 
-        {/* REDEEM SHEET */}
+        {/* REDEEM SHEET - For API rewards (from referrals etc) */}
         <RedeemSheet
-          isOpen={!!selectedReward}
-          onClose={() => setSelectedReward(null)}
-          rewardTitle={selectedReward?.title || ''}
-          pointsCost={selectedReward?.points || 0}
+          isOpen={!!selectedApiReward}
+          onClose={() => setSelectedApiReward(null)}
+          reward={selectedApiReward}
+          appointment={upcomingAppointment}
+          clientPhone={clientPhone}
+          onSuccess={handleRedeemSuccess}
+        />
+
+        {/* CATALOG REDEEM SHEET - For spending points on catalog rewards */}
+        <CatalogRedeemSheet
+          isOpen={!!selectedCatalogReward}
+          onClose={() => setSelectedCatalogReward(null)}
+          reward={selectedCatalogReward}
+          appointment={upcomingAppointment}
+          clientPhone={clientPhone}
+          currentPoints={currentPoints}
+          onSuccess={handleRedeemSuccess}
         />
       </div>
     </>

@@ -18,6 +18,7 @@ import {
   BarChart3,
   Bell,
   Calendar,
+  CalendarDays,
   ClipboardList,
   Gift,
   Scissors,
@@ -41,6 +42,13 @@ type AppItem = {
 
 // App definitions with gradients
 const APPS: AppItem[] = [
+  {
+    id: 'schedule',
+    name: 'Schedule',
+    icon: CalendarDays,
+    gradient: 'from-[#667eea] to-[#764ba2]',
+    shadowColor: '#667eea',
+  },
   {
     id: 'bookings',
     name: 'Bookings',

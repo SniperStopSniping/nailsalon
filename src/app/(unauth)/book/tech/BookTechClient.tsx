@@ -8,6 +8,7 @@ import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -50,25 +51,42 @@ export function BookTechClient({ technicians, services, bookingFlow }: BookTechC
   // Use shared auth hook
   const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
 
+  // Use global booking state for technician persistence
+  const { technicianId, setTechnicianId, syncFromUrl } = useBookingState();
+
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [pendingTechId, setPendingTechId] = useState<string | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  // Initialize mounted and sync from URL params/state on mount
   useEffect(() => {
     setMounted(true);
-  }, []);
+    
+    const urlTechId = searchParams.get('techId');
+    if (urlTechId) {
+      syncFromUrl({ techId: urlTechId });
+      setSelectedTech(urlTechId);
+    } else if (technicianId) {
+      setSelectedTech(technicianId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Use services passed from server, fallback to URL params for service names
   const serviceNames = services.map(s => s.name).join(' + ');
   const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
 
   const goToNextStep = (techId: string, clientPhoneToUse: string) => {
+    // Save to global state first
+    setTechnicianId(techId === 'any' ? null : techId);
+
     const nextStep = getNextStep('tech', bookingFlow);
     if (!nextStep) {
       return;
     }
 
+    // Always include techId in URL (even if 'any') so server components can read it
     let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhoneToUse)}`;
 
     // Pass through originalAppointmentId for reschedule flow
@@ -82,6 +100,8 @@ export function BookTechClient({ technicians, services, bookingFlow }: BookTechC
   const handleSelectTech = (techId: string) => {
     // Always allow selection
     setSelectedTech(techId);
+    // Save to global state immediately
+    setTechnicianId(techId === 'any' ? null : techId);
 
     // Gate navigation on login when this is the first step
     if (isFirstStep && !isLoggedIn) {
@@ -104,6 +124,8 @@ export function BookTechClient({ technicians, services, bookingFlow }: BookTechC
 
     if (pendingTechId) {
       setSelectedTech(pendingTechId);
+      // Save to global state
+      setTechnicianId(pendingTechId === 'any' ? null : pendingTechId);
       setTimeout(() => {
         goToNextStep(pendingTechId, verifiedPhone);
       }, 300);
@@ -200,32 +222,6 @@ export function BookTechClient({ technicians, services, bookingFlow }: BookTechC
               </div>
             );
           })}
-        </div>
-
-        {/* Service Summary */}
-        <div
-          className="mb-6 overflow-hidden rounded-2xl shadow-xl"
-          style={{
-            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
-            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
-          }}
-        >
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="mb-0.5 text-xs text-white/70">You selected</div>
-                <div className="text-lg font-bold text-white">{serviceNames || 'Service'}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: themeVars.primary }}>
-                  $
-                  {totalPrice}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Title */}

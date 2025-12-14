@@ -21,7 +21,9 @@ export const dynamic = 'force-dynamic';
 
 const querySchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  period: z.enum(['daily', 'weekly', 'monthly', 'yearly']).optional().default('daily'),
+  period: z.enum(['daily', 'weekly', 'monthly', 'yearly']).optional().default('weekly'),
+  // Optional anchor date (YYYY-MM-DD) for navigating to past/future periods
+  anchor: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 // =============================================================================
@@ -43,55 +45,58 @@ type ErrorResponse = {
 /**
  * Calculate date ranges for the requested period.
  *
- * TODO: This uses the server's local timezone for date boundaries.
- * If appointments.startTime is stored in UTC, this can cause off-by-one
- * errors around midnight.
+ * @param period - 'daily' | 'weekly' | 'monthly' | 'yearly'
+ * @param anchor - Optional anchor date (YYYY-MM-DD). If provided, compute the range
+ *                 containing that date. If not provided, use today.
  *
- * Consider either:
- * 1. Using the salon's timezone (e.g. salon.timezone) and converting to UTC
- *    before querying, or
- * 2. Storing a pre-normalized "analytics_date" (YYYY-MM-DD) on appointments
- *    and grouping by that instead of timestamps.
+ * NOTE: This uses server's local timezone for date boundaries.
  */
-function getDateRange(period: string): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+function getDateRange(period: string, anchor?: string): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
+  // Parse anchor or use today
+  const anchorDate = anchor
+    ? new Date(anchor + 'T00:00:00')
+    : new Date();
+  const baseDay = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
 
   let start: Date;
-  const end: Date = tomorrow;
+  let end: Date;
   let previousStart: Date;
   let previousEnd: Date;
 
   switch (period) {
     case 'weekly': {
-      const dayOfWeek = today.getDay();
-      start = new Date(today);
-      start.setDate(today.getDate() - dayOfWeek);
+      const dayOfWeek = baseDay.getDay();
+      start = new Date(baseDay);
+      start.setDate(baseDay.getDate() - dayOfWeek);
+      end = new Date(start);
+      end.setDate(start.getDate() + 7);
       previousStart = new Date(start);
       previousStart.setDate(previousStart.getDate() - 7);
       previousEnd = new Date(start);
       break;
     }
     case 'monthly': {
-      start = new Date(today.getFullYear(), today.getMonth(), 1);
-      previousStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      start = new Date(baseDay.getFullYear(), baseDay.getMonth(), 1);
+      end = new Date(baseDay.getFullYear(), baseDay.getMonth() + 1, 1);
+      previousStart = new Date(baseDay.getFullYear(), baseDay.getMonth() - 1, 1);
       previousEnd = new Date(start);
       break;
     }
     case 'yearly': {
-      start = new Date(today.getFullYear(), 0, 1);
-      previousStart = new Date(today.getFullYear() - 1, 0, 1);
+      start = new Date(baseDay.getFullYear(), 0, 1);
+      end = new Date(baseDay.getFullYear() + 1, 0, 1);
+      previousStart = new Date(baseDay.getFullYear() - 1, 0, 1);
       previousEnd = new Date(start);
       break;
     }
     case 'daily':
     default: {
-      start = today;
-      previousStart = new Date(today);
+      start = baseDay;
+      end = new Date(baseDay);
+      end.setDate(baseDay.getDate() + 1);
+      previousStart = new Date(baseDay);
       previousStart.setDate(previousStart.getDate() - 1);
-      previousEnd = new Date(today);
+      previousEnd = new Date(baseDay);
       break;
     }
   }
@@ -126,7 +131,7 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const { salonSlug, period } = validated.data;
+    const { salonSlug, period, anchor } = validated.data;
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
@@ -140,7 +145,7 @@ export async function GET(request: Request): Promise<Response> {
       return moduleGuard;
     }
 
-    const { start, end, previousStart, previousEnd } = getDateRange(period);
+    const { start, end, previousStart, previousEnd } = getDateRange(period, anchor);
 
     // ==========================================================================
     // Revenue Stats

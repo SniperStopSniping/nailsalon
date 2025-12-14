@@ -12,9 +12,9 @@
 
 import { Bell, LogOut } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
-import { AnalyticsWidgets } from '@/components/admin/AnalyticsWidgets';
+import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
 import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
@@ -24,6 +24,7 @@ import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
 import { RewardsModal } from '@/components/admin/RewardsModal';
+import { ScheduleCalendarModal } from '@/components/admin/ScheduleCalendarModal';
 import { ServicesModal } from '@/components/admin/ServicesModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
 import { SkeletonWidgets } from '@/components/admin/SkeletonWidgets';
@@ -31,6 +32,7 @@ import { StaffModal } from '@/components/admin/StaffModal';
 import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
 import { CancelledBanner, SuspendedBanner, TrialBanner } from '@/components/admin/SuspendedBanner';
 import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
+import { WalkInModal } from '@/components/admin/WalkInModal';
 import { useSalon } from '@/providers/SalonProvider';
 // =============================================================================
 // Main Page Component
@@ -41,6 +43,77 @@ import type { AnalyticsResponse } from '@/types/admin';
 // =============================================================================
 // Types
 // =============================================================================
+
+/** Analytics with optional dateRange (when API fails, UI computes from anchor) */
+type PartialAnalytics = Omit<AnalyticsResponse, 'dateRange'> & {
+  dateRange?: AnalyticsResponse['dateRange'];
+};
+
+/**
+ * Empty analytics fallback - ensures dashboard always has safe defaults
+ * Note: dateRange is intentionally undefined so the UI computes it from anchorDate
+ */
+function getEmptyAnalytics(): PartialAnalytics {
+  return {
+    period: 'weekly',
+    revenue: {
+      total: 0,
+      trend: 0,
+      completed: 0,
+    },
+    appointments: {
+      total: 0,
+      completed: 0,
+      noShows: 0,
+      upcoming: 0,
+    },
+    staff: [],
+    services: [],
+    // dateRange intentionally omitted - UI will compute from anchor
+  };
+}
+
+// =============================================================================
+// Period Navigation Helpers (stable references - outside component)
+// =============================================================================
+
+const PERIOD_PARAM_MAP: Record<TimePeriod, 'daily' | 'weekly' | 'monthly' | 'yearly'> = {
+  Daily: 'daily',
+  Weekly: 'weekly',
+  Monthly: 'monthly',
+  Yearly: 'yearly',
+};
+
+function addDays(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function addMonths(ymd: string, months: number): string {
+  const d = new Date(`${ymd}T00:00:00`);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+function addYears(ymd: string, years: number): string {
+  const d = new Date(`${ymd}T00:00:00`);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftAnchor(ymd: string, period: TimePeriod, dir: -1 | 1): string {
+  if (period === 'Daily') {
+    return addDays(ymd, dir);
+  }
+  if (period === 'Weekly') {
+    return addDays(ymd, dir * 7);
+  }
+  if (period === 'Monthly') {
+    return addMonths(ymd, dir);
+  }
+  return addYears(ymd, dir);
+}
 
 type AdminUser = {
   id: string;
@@ -164,11 +237,18 @@ function AdminDashboardContent() {
     staff: [],
     badges: { referrals: 0, reviews: 0, marketing: 0, alerts: 0 },
   });
-  const [analyticsData, setAnalyticsData] = useState<AnalyticsResponse | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Analytics should never block rendering:
+  // - Preserve last known-good analytics on transient failures
+  // - Ignore out-of-order fetches
+  const lastGoodAnalyticsRef = useRef<PartialAnalytics>(getEmptyAnalytics());
+  const latestFetchIdRef = useRef<string>('');
 
   // Swipe page state
   const [currentPage, setCurrentPage] = useState(0);
@@ -177,6 +257,8 @@ function AdminDashboardContent() {
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showFraudSignals, setShowFraudSignals] = useState(false);
+  const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
+  const [showWalkIn, setShowWalkIn] = useState(false);
 
   // Fraud signals - parent owns state
   const [fraudSignals, setFraudSignals] = useState<import('@/components/admin/FraudSignalsModal').FraudSignal[]>([]);
@@ -191,6 +273,25 @@ function AdminDashboardContent() {
 
   // Track if we've already synced to prevent infinite loops
   const [hasSynced, setHasSynced] = useState(false);
+
+  // Performance period controls (API-driven)
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>('Weekly');
+  const [anchorDate, setAnchorDate] = useState<string>(() => {
+    // Today in YYYY-MM-DD format (local time, not UTC)
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+
+  // Helper to get today's date in YYYY-MM-DD (local time)
+  const getTodayYMD = useCallback(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  // Navigation callbacks (stable via useCallback)
+  const onPrev = useCallback(() => setAnchorDate(a => shiftAnchor(a, timePeriod, -1)), [timePeriod]);
+  const onNext = useCallback(() => setAnchorDate(a => shiftAnchor(a, timePeriod, +1)), [timePeriod]);
+  const onToday = useCallback(() => setAnchorDate(getTodayYMD()), [getTodayYMD]);
 
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
@@ -265,99 +366,158 @@ function AdminDashboardContent() {
 
   // Fetch dashboard data from analytics API
   const fetchData = useCallback(async () => {
+    const requestId = crypto.randomUUID();
+    latestFetchIdRef.current = requestId;
+
     try {
-      setError(null);
-
-      // Fetch fraud signals in parallel with analytics
-      fetchFraudSignals();
-
-      // Fetch from analytics API
-      const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${salonSlug}&period=monthly`);
-
-      if (!analyticsResponse.ok) {
-        throw new Error('Failed to load analytics');
+      if (latestFetchIdRef.current === requestId) {
+        setError(null);
+        setNonBlockingMessage(null);
       }
 
-      if (analyticsResponse.ok) {
-        const analyticsResult = await analyticsResponse.json();
-        const analytics = analyticsResult.data;
+      // Fetch fraud signals in parallel with analytics (non-blocking)
+      fetchFraudSignals().catch(err => {
+        console.error('[AdminDashboard] fraud signals fetch failed', err);
+        // Don't block dashboard rendering
+      });
 
-        // Generate availability slots from upcoming appointments
-        const slots: ('booked' | 'open')[] = [];
-        for (let i = 0; i < 16; i++) {
-          // More realistic: mark slots as booked based on upcoming count
-          const bookedRatio = analytics?.appointments?.upcoming
-            ? Math.min(analytics.appointments.upcoming / 8, 1)
-            : 0.4;
-          slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
+      // Fetch from analytics API (non-blocking - never throws)
+      let analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+      let analyticsNonBlockingMessage: string | null = null;
+
+      try {
+        const period = PERIOD_PARAM_MAP[timePeriod];
+        const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${salonSlug}&period=${period}&anchor=${encodeURIComponent(anchorDate)}`);
+
+        const text = await analyticsResponse.text();
+        let parsed: any = null;
+        try {
+          parsed = text ? JSON.parse(text) : null;
+        } catch {
+          // Non-JSON body is fine; keep parsed as null
         }
 
-        const openCount = slots.filter(s => s === 'open').length;
-        const openSlotIndex = slots.findIndex(s => s === 'open');
-        let nextTime = null;
-        if (openSlotIndex !== -1) {
-          const baseHour = 9;
-          const slotHour = baseHour + Math.floor(openSlotIndex / 2);
-          const slotMinute = (openSlotIndex % 2) * 30;
-          const slotDate = new Date();
-          slotDate.setHours(slotHour, slotMinute, 0, 0);
-          if (slotDate > new Date()) {
-            nextTime = slotDate.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
+        if (analyticsResponse.ok) {
+          const candidate = parsed?.data ?? parsed;
+          if (candidate) {
+            analytics = candidate as AnalyticsResponse;
+            lastGoodAnalyticsRef.current = analytics;
+          } else {
+            // No usable data -> keep last good (or empty if first load)
+            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+          }
+        } else {
+          // 401 is auth-critical: redirect to login and stop processing
+          if (analyticsResponse.status === 401) {
+            if (latestFetchIdRef.current === requestId) {
+              router.replace(`/${locale}/admin-login`);
+            }
+            return;
+          }
+
+          // Expected/normal failures: no banner, no scary logs; keep last good
+          if (analyticsResponse.status === 403 || analyticsResponse.status === 404) {
+            analyticsNonBlockingMessage = null;
+            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+          } else {
+            // Unexpected failures: still render (with last good), but log + mild banner
+            const errBody = parsed ?? (text ? text.slice(0, 500) : null);
+            console.error('[AdminDashboard] analytics failed', {
+              status: analyticsResponse.status,
+              errBody,
             });
+            analyticsNonBlockingMessage = 'Some dashboard analytics are temporarily unavailable.';
+            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
           }
         }
-
-        // Map staff data from API
-        const staffStatus = (analytics?.staff || []).slice(0, 3).map((tech: { name: string; appointmentCount: number }) => ({
-          name: tech.name.split(' ')[0] || tech.name,
-          status: tech.appointmentCount > 0 ? 'busy' : 'free' as 'busy' | 'free' | 'break',
-          detail: tech.appointmentCount > 0 ? `${tech.appointmentCount} appts` : undefined,
-        }));
-
-        setData({
-          revenue: {
-            today: analytics?.revenue?.total ?? 0,
-            completed: analytics?.revenue?.completed ?? 0,
-            trend: analytics?.revenue?.trend ?? 0,
-          },
-          appointments: {
-            total: analytics?.appointments?.total ?? 0,
-            completed: analytics?.appointments?.completed ?? 0,
-            noShows: analytics?.appointments?.noShows ?? 0,
-            upcoming: analytics?.appointments?.upcoming ?? 0,
-          },
-          openSpots: {
-            count: openCount,
-            nextTime,
-            slots,
-          },
-          staff: staffStatus.length > 0
-            ? staffStatus
-            : [
-                { name: 'No staff', status: 'free' as const },
-              ],
-          badges: {
-            referrals: 0,
-            reviews: 0,
-            marketing: 0,
-            alerts: analytics?.appointments?.noShows ?? 0,
-          },
-        });
-
-        // Store analytics for widgets
-        setAnalyticsData(analytics);
-        setLastUpdated(new Date());
+      } catch (e) {
+        // Network failure, JSON parse crash, etc.
+        console.error('[AdminDashboard] analytics request crashed', e);
+        analyticsNonBlockingMessage = 'Some dashboard analytics are temporarily unavailable.';
+        analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
       }
+
+      // Always set non-blocking message if there was one
+      if (latestFetchIdRef.current !== requestId) return;
+      setNonBlockingMessage(analyticsNonBlockingMessage);
+
+      // Generate availability slots from upcoming appointments
+      const slots: ('booked' | 'open')[] = [];
+      for (let i = 0; i < 16; i++) {
+        // More realistic: mark slots as booked based on upcoming count
+        const bookedRatio = analytics?.appointments?.upcoming
+          ? Math.min(analytics.appointments.upcoming / 8, 1)
+          : 0;
+        slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
+      }
+
+      const openCount = slots.filter(s => s === 'open').length;
+      const openSlotIndex = slots.findIndex(s => s === 'open');
+      let nextTime = null;
+      if (openSlotIndex !== -1) {
+        const baseHour = 9;
+        const slotHour = baseHour + Math.floor(openSlotIndex / 2);
+        const slotMinute = (openSlotIndex % 2) * 30;
+        const slotDate = new Date();
+        slotDate.setHours(slotHour, slotMinute, 0, 0);
+        if (slotDate > new Date()) {
+          nextTime = slotDate.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          });
+        }
+      }
+
+      // Map staff data from API
+      const staffStatus = (analytics?.staff || []).slice(0, 3).map((tech: { name: string; appointmentCount: number }) => ({
+        name: tech.name.split(' ')[0] || tech.name,
+        status: tech.appointmentCount > 0 ? 'busy' : 'free' as 'busy' | 'free' | 'break',
+        detail: tech.appointmentCount > 0 ? `${tech.appointmentCount} appts` : undefined,
+      }));
+
+      // Always set data - even if analytics failed, use empty defaults
+      setData({
+        revenue: {
+          today: analytics?.revenue?.total ?? 0,
+          completed: analytics?.revenue?.completed ?? 0,
+          trend: analytics?.revenue?.trend ?? 0,
+        },
+        appointments: {
+          total: analytics?.appointments?.total ?? 0,
+          completed: analytics?.appointments?.completed ?? 0,
+          noShows: analytics?.appointments?.noShows ?? 0,
+          upcoming: analytics?.appointments?.upcoming ?? 0,
+        },
+        openSpots: {
+          count: openCount,
+          nextTime,
+          slots,
+        },
+        staff: staffStatus.length > 0
+          ? staffStatus
+          : [],
+        badges: {
+          referrals: 0,
+          reviews: 0,
+          marketing: 0,
+          alerts: analytics?.appointments?.noShows ?? 0,
+        },
+      });
+
+      // Store analytics for widgets (always set, even if empty)
+      setAnalyticsData(analytics);
+      setLastUpdated(new Date());
     } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
-      setError('Failed to load dashboard data. Please try again.');
+      // Only catch truly unexpected errors (shouldn't happen now, but safety net)
+      console.error('[AdminDashboard] unexpected error in fetchData', err);
+      // Don't set error banner - dashboard should still render with empty data
     } finally {
-      setLoading(false);
+      if (latestFetchIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
-  }, [salonSlug]);
+  }, [salonSlug, timePeriod, anchorDate]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
@@ -368,6 +528,7 @@ function AdminDashboardContent() {
     setMounted(true);
   }, []);
 
+  // Fetch data when auth is ready or fetchData changes (which includes period/anchor)
   useEffect(() => {
     if (!authLoading && adminUser && !showSalonSelector) {
       fetchData();
@@ -379,21 +540,27 @@ function AdminDashboardContent() {
 
   // Handle app tile tap - all tiles now open modals
   const handleAppTap = (appId: AppId) => {
-    setActiveModal(appId);
+    if (appId === 'schedule') {
+      setShowScheduleCalendar(true);
+    } else {
+      setActiveModal(appId);
+    }
   };
 
   // Handle quick action tap
   const handleQuickAction = useCallback((actionId: string) => {
     switch (actionId) {
       case 'new-appointment':
+        setShowScheduleCalendar(true);
+        break;
       case 'walk-in':
-        setActiveModal('bookings');
+        setShowWalkIn(true);
         break;
       case 'send-sms':
         setActiveModal('marketing');
         break;
       case 'today-schedule':
-        setActiveModal('bookings');
+        setShowScheduleCalendar(true);
         break;
       default:
         break;
@@ -573,10 +740,17 @@ function AdminDashboardContent() {
           onLogout={handleLogout}
         />
 
-        {/* Error Banner */}
+        {/* Critical Error Banner */}
         {error && (
           <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+
+        {/* Non-blocking Analytics Warning */}
+        {nonBlockingMessage && (
+          <div className="mx-4 mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm text-amber-700">{nonBlockingMessage}</p>
           </div>
         )}
 
@@ -596,6 +770,14 @@ function AdminDashboardContent() {
               utilization={utilization}
               services={services}
               onQuickAction={handleQuickAction}
+              timePeriod={timePeriod}
+              onTimePeriodChange={setTimePeriod}
+              dateRange={analyticsData?.dateRange}
+              anchorDate={anchorDate}
+              onPrev={onPrev}
+              onNext={onNext}
+              onToday={onToday}
+              onAnchorChange={setAnchorDate}
             />
 
             {/* Page 2: App Grid */}
@@ -646,6 +828,14 @@ function AdminDashboardContent() {
           staffData={staffData}
           utilization={utilization}
           services={services}
+          timePeriod={timePeriod}
+          onTimePeriodChange={setTimePeriod}
+          dateRange={analyticsData?.dateRange}
+          anchorDate={anchorDate}
+          onPrev={onPrev}
+          onNext={onNext}
+          onToday={onToday}
+          onAnchorChange={setAnchorDate}
         />
       </AppModal>
 
@@ -727,6 +917,23 @@ function AdminDashboardContent() {
           onRefetch={fetchFraudSignals}
         />
       </AppModal>
+
+      {/* Schedule Calendar Modal */}
+      <AppModal
+        isOpen={showScheduleCalendar}
+        onClose={() => setShowScheduleCalendar(false)}
+      >
+        <ScheduleCalendarModal onClose={() => setShowScheduleCalendar(false)} />
+      </AppModal>
+
+      {/* Walk-in Modal */}
+      <WalkInModal
+        isOpen={showWalkIn}
+        onClose={() => setShowWalkIn(false)}
+        onSuccess={() => {
+          // Could refresh dashboard data here if needed
+        }}
+      />
     </div>
   );
 }
