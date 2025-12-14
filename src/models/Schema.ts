@@ -1819,8 +1819,8 @@ export type NewAuditLog = typeof auditLogSchema.$inferInsert;
 // Fraud Signal Enums - PG enums for type safety (not free text)
 // -----------------------------------------------------------------------------
 export const fraudSignalTypeEnum = pgEnum('fraud_signal_type', [
-  'HIGH_APPOINTMENT_FREQUENCY',  // 3+ in 7 days OR 5+ in 14 days
-  'HIGH_REWARD_VELOCITY',        // Points >= 5000 in 7 days
+  'HIGH_APPOINTMENT_FREQUENCY', // 3+ in 7 days OR 5+ in 14 days
+  'HIGH_REWARD_VELOCITY', // Points >= 5000 in 7 days
 ]);
 
 export const fraudSignalSeverityEnum = pgEnum('fraud_signal_severity', [
@@ -1835,7 +1835,7 @@ export const fraudSignalSeverityEnum = pgEnum('fraud_signal_severity', [
 export const fraudSignalSchema = pgTable(
   'fraud_signal',
   {
-    id: text('id').primaryKey(),  // Generated via crypto.randomUUID()
+    id: text('id').primaryKey(), // Generated via crypto.randomUUID()
     salonId: text('salon_id').notNull().references(() => salonSchema.id),
     // Both NOT NULL - fraud without client or appointment is useless
     // ON DELETE RESTRICT - never cascade-delete fraud history
@@ -1844,19 +1844,19 @@ export const fraudSignalSchema = pgTable(
 
     type: fraudSignalTypeEnum('type').notNull(),
     severity: fraudSignalSeverityEnum('severity').notNull().default('MEDIUM'),
-    reason: text('reason').notNull(),  // Human-readable, deterministic format
+    reason: text('reason').notNull(), // Human-readable, deterministic format
 
     metadata: jsonb('metadata').$type<{
       appointmentsInPeriod?: number;
       pointsInPeriod?: number;
       periodDays?: number;
       threshold?: number;
-      clientPhone?: string;  // For reference only
+      clientPhone?: string; // For reference only
     }>().notNull().default(sql`'{}'::jsonb`),
 
     // Resolution tracking (full timestamp precision - NO mode: 'date')
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
-    resolvedBy: text('resolved_by'),  // adminUserId from session
+    resolvedBy: text('resolved_by'), // adminUserId from session
     resolutionNote: text('resolution_note'),
 
     // Full timestamp precision for accurate 7d/14d throttle calculations

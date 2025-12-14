@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -403,7 +403,7 @@ export async function POST(request: Request): Promise<Response> {
           let elapsedMs = 0;
 
           while (elapsedMs < maxPollMs) {
-            const delay = Math.min(baseDelayMs * Math.pow(1.5, elapsedMs / 1000), maxDelayMs);
+            const delay = Math.min(baseDelayMs * 1.5 ** (elapsedMs / 1000), maxDelayMs);
             await new Promise(resolve => setTimeout(resolve, delay));
             elapsedMs += delay;
 

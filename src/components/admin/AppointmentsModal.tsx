@@ -391,7 +391,10 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
                       <div className="mt-0.5 truncate text-[11px] opacity-80">
                         {appt.client}
                         {appt.technician && (
-                          <span className="ml-1.5 text-[10px] opacity-70">· {appt.technician}</span>
+                          <span className="ml-1.5 text-[10px] opacity-70">
+                            ·
+                            {appt.technician}
+                          </span>
                         )}
                         {!appt.technician && (
                           <span className="ml-1.5 text-[10px] italic opacity-50">· Unassigned</span>
@@ -418,7 +421,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       >
         <Plus className="size-8" />
       </button>
-      
+
       {/* New Appointment Modal */}
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}

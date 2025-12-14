@@ -88,11 +88,21 @@ function formatRelativeTime(dateStr: string): string {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffMins < 1) {
+    return 'Just now';
+  }
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  if (diffDays === 1) {
+    return 'Yesterday';
+  }
+  if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  }
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -191,7 +201,9 @@ export function FraudSignalsModal({
   // (list may be paginated/filtered/refetched)
   const handleResolve = async (signalId: string) => {
     // Guard: Already resolving this signal (in-flight request)
-    if (resolvingIds.has(signalId)) return;
+    if (resolvingIds.has(signalId)) {
+      return;
+    }
 
     // Mark as resolving IMMEDIATELY (before any async work)
     setResolvingIds(prev => new Set(prev).add(signalId));
@@ -206,7 +218,7 @@ export function FraudSignalsModal({
 
       if (!response.ok) {
         // Revert - allow retry
-        setResolvingIds(prev => {
+        setResolvingIds((prev) => {
           const next = new Set(prev);
           next.delete(signalId);
           return next;
@@ -233,7 +245,9 @@ export function FraudSignalsModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black/40"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
       }}
     >
       <motion.div
@@ -247,7 +261,7 @@ export function FraudSignalsModal({
         <ModalHeader
           title="Activity Review"
           leftAction={<BackButton onClick={onClose} />}
-          rightAction={
+          rightAction={(
             <button
               type="button"
               onClick={onClose}
@@ -256,7 +270,7 @@ export function FraudSignalsModal({
             >
               <X size={18} className="text-[#8E8E93]" />
             </button>
-          }
+          )}
         />
 
         {/* Content */}

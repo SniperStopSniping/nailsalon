@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import { getAdminSession } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { appointmentSchema, appointmentServicesSchema, APPOINTMENT_STATUSES, salonSchema, serviceSchema, technicianSchema } from '@/models/Schema';
+import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, salonSchema, serviceSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,9 @@ const querySchema = z.object({
 });
 
 function parseStatuses(statusParam: string | undefined): string[] | null {
-  if (!statusParam) return null;
+  if (!statusParam) {
+    return null;
+  }
   const allowed = new Set<string>(APPOINTMENT_STATUSES);
   const statuses = statusParam
     .split(',')
@@ -115,7 +117,9 @@ function addUtcDays(date: Date, days: number): Date {
 export async function GET(request: Request): Promise<Response> {
   try {
     const { salonId, error } = await getActiveSalonId();
-    if (error || !salonId) return error!;
+    if (error || !salonId) {
+      return error!;
+    }
 
     const { searchParams } = new URL(request.url);
     const validated = querySchema.safeParse({
@@ -240,4 +244,3 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 }
-

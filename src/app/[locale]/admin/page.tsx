@@ -352,7 +352,9 @@ function AdminDashboardContent() {
       setFraudSignalsError(null);
       // API returns signals + unresolvedCount for total
       const response = await fetch('/api/admin/fraud-signals');
-      if (!response.ok) throw new Error('Failed to load');
+      if (!response.ok) {
+        throw new Error('Failed to load');
+      }
       const result = await response.json();
       setFraudSignals(result.data.signals);
       // Use unresolvedCount from API for badge (accurate even with pagination)
@@ -376,7 +378,7 @@ function AdminDashboardContent() {
       }
 
       // Fetch fraud signals in parallel with analytics (non-blocking)
-      fetchFraudSignals().catch(err => {
+      fetchFraudSignals().catch((err) => {
         console.error('[AdminDashboard] fraud signals fetch failed', err);
         // Don't block dashboard rendering
       });
@@ -438,7 +440,9 @@ function AdminDashboardContent() {
       }
 
       // Always set non-blocking message if there was one
-      if (latestFetchIdRef.current !== requestId) return;
+      if (latestFetchIdRef.current !== requestId) {
+        return;
+      }
       setNonBlockingMessage(analyticsNonBlockingMessage);
 
       // Generate availability slots from upcoming appointments
@@ -714,14 +718,18 @@ function AdminDashboardContent() {
         <button
           type="button"
           onClick={() => setShowFraudSignals(true)}
-          className="mx-4 mt-2 flex items-center justify-between rounded-xl bg-amber-50 p-3 border border-amber-200 transition-colors hover:bg-amber-100"
+          className="mx-4 mt-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3 transition-colors hover:bg-amber-100"
         >
           <div className="flex items-center gap-3">
             <div className="flex size-8 items-center justify-center rounded-full bg-amber-100">
               <span className="text-amber-600">⚠️</span>
             </div>
             <span className="text-sm font-medium text-amber-800">
-              {fraudSignalCount} {fraudSignalCount === 1 ? 'activity' : 'activities'} flagged for review
+              {fraudSignalCount}
+              {' '}
+              {fraudSignalCount === 1 ? 'activity' : 'activities'}
+              {' '}
+              flagged for review
             </span>
           </div>
           <span className="text-xs text-amber-600">Review →</span>

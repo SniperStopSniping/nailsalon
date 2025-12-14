@@ -5,19 +5,16 @@
  * Uses server-side sessions stored in DB with a single HttpOnly cookie.
  */
 
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cookies } from 'next/headers';
-import { eq, and, gt, isNull } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-import {
-  adminUserSchema,
-  adminSessionSchema,
-  adminInviteSchema,
-  adminSalonMembershipSchema,
-  salonSchema,
-  type AdminUser,
-  type AdminInviteRole,
-} from '@/models/Schema';
+// =============================================================================
+// BACKWARD COMPATIBILITY (for existing API routes)
+// =============================================================================
+import { getSalonBySlug } from '@/libs/queries';
+import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
+import { adminInviteSchema, adminSalonMembershipSchema, adminSessionSchema, adminUserSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
 // CONSTANTS
@@ -38,16 +35,16 @@ export const COOKIE_OPTIONS = {
 // TYPES
 // =============================================================================
 
-export interface SalonMembership {
+export type SalonMembership = {
   salonId: string;
   salonSlug: string;
   salonName: string;
   role: string;
-}
+};
 
-export interface AdminWithSalons extends AdminUser {
+export type AdminWithSalons = {
   salons: SalonMembership[];
-}
+} & AdminUser;
 
 // Discriminated union for guard results
 export type AdminGuardSuccess = { ok: true; admin: AdminWithSalons };
@@ -173,7 +170,7 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
 
     return {
       ...admin,
-      salons: memberships.map((m) => ({
+      salons: memberships.map(m => ({
         salonId: m.salonId,
         salonSlug: m.salonSlug,
         salonName: m.salonName,
@@ -237,7 +234,7 @@ export async function requireAdmin(salonId: string): Promise<AdminGuardResult> {
   }
 
   // Check if admin has membership for this salon
-  const hasMembership = admin.salons.some((s) => s.salonId === salonId);
+  const hasMembership = admin.salons.some(s => s.salonId === salonId);
 
   if (!hasMembership) {
     return {
@@ -346,7 +343,7 @@ export async function canReceiveAdminOtp(phoneE164: string): Promise<boolean> {
  */
 export async function shouldBootstrap(phoneE164: string): Promise<boolean> {
   const bootstrapPhone = process.env.SUPER_ADMIN_BOOTSTRAP_PHONE;
-  
+
   if (!bootstrapPhone || phoneE164 !== bootstrapPhone) {
     return false;
   }
@@ -479,7 +476,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
 
   return {
     ...admin,
-    salons: memberships.map((m) => ({
+    salons: memberships.map(m => ({
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
@@ -488,17 +485,10 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
   };
 }
 
-// =============================================================================
-// BACKWARD COMPATIBILITY (for existing API routes)
-// =============================================================================
-
-import { getSalonBySlug } from '@/libs/queries';
-import type { Salon } from '@/models/Schema';
-
 /**
  * Legacy helper for existing admin API routes
  * Verifies admin session and returns salon
- * 
+ *
  * @deprecated Use requireAdmin(salonId) instead
  */
 export async function requireAdminSalon(

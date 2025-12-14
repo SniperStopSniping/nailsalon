@@ -54,7 +54,7 @@ type ErrorResponse = {
 function getDateRange(period: string, anchor?: string): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
   // Parse anchor or use today
   const anchorDate = anchor
-    ? new Date(anchor + 'T00:00:00')
+    ? new Date(`${anchor}T00:00:00`)
     : new Date();
   const baseDay = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
 

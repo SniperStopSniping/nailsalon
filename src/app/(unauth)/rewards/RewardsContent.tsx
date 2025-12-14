@@ -332,12 +332,24 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
 
               {/* Show discount result on success */}
               {isConfirmed && discountResult && (
-                <div className="mb-4 rounded-xl bg-[var(--n5-success)]/10 px-4 py-3">
+                <div className="bg-[var(--n5-success)]/10 mb-4 rounded-xl px-4 py-3">
                   <p className="font-body text-sm text-[var(--n5-success)]">
-                    <span className="font-semibold">${discountResult.discount.toFixed(2)} off</span> applied!
+                    <span className="font-semibold">
+                      $
+                      {discountResult.discount.toFixed(2)}
+                      {' '}
+                      off
+                    </span>
+                    {' '}
+                    applied!
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                    New appointment total: <span className="font-semibold">${discountResult.newTotal.toFixed(2)}</span>
+                    New appointment total:
+                    {' '}
+                    <span className="font-semibold">
+                      $
+                      {discountResult.newTotal.toFixed(2)}
+                    </span>
                   </p>
                 </div>
               )}
@@ -364,7 +376,12 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
                     {appointment.services.map(s => s.name).join(', ')}
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
-                    Current total: <span className="font-semibold">${(appointment.totalPrice / 100).toFixed(2)}</span>
+                    Current total:
+                    {' '}
+                    <span className="font-semibold">
+                      $
+                      {(appointment.totalPrice / 100).toFixed(2)}
+                    </span>
                   </p>
                 </div>
               )}
@@ -378,7 +395,15 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
 
               {!isConfirmed && (
                 <p className="font-body mb-6 text-xs text-[var(--n5-ink-muted)]">
-                  This will use your <span className="font-semibold">{pointsCost.toLocaleString()} pts</span> reward
+                  This will use your
+                  {' '}
+                  <span className="font-semibold">
+                    {pointsCost.toLocaleString()}
+                    {' '}
+                    pts
+                  </span>
+                  {' '}
+                  reward
                 </p>
               )}
 
@@ -617,12 +642,24 @@ const CatalogRedeemSheet = ({
 
               {/* Show discount result on success */}
               {isConfirmed && discountResult && (
-                <div className="mb-4 rounded-xl bg-[var(--n5-success)]/10 px-4 py-3">
+                <div className="bg-[var(--n5-success)]/10 mb-4 rounded-xl px-4 py-3">
                   <p className="font-body text-sm text-[var(--n5-success)]">
-                    <span className="font-semibold">${discountResult.discount.toFixed(2)} off</span> applied!
+                    <span className="font-semibold">
+                      $
+                      {discountResult.discount.toFixed(2)}
+                      {' '}
+                      off
+                    </span>
+                    {' '}
+                    applied!
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                    New appointment total: <span className="font-semibold">${discountResult.newTotal.toFixed(2)}</span>
+                    New appointment total:
+                    {' '}
+                    <span className="font-semibold">
+                      $
+                      {discountResult.newTotal.toFixed(2)}
+                    </span>
                   </p>
                 </div>
               )}
@@ -649,7 +686,12 @@ const CatalogRedeemSheet = ({
                     {appointment.services.map(s => s.name).join(', ')}
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
-                    Current total: <span className="font-semibold">${(appointment.totalPrice / 100).toFixed(2)}</span>
+                    Current total:
+                    {' '}
+                    <span className="font-semibold">
+                      $
+                      {(appointment.totalPrice / 100).toFixed(2)}
+                    </span>
                   </p>
                 </div>
               )}
@@ -663,7 +705,15 @@ const CatalogRedeemSheet = ({
 
               {!isConfirmed && (
                 <p className="font-body mb-6 text-xs text-[var(--n5-ink-muted)]">
-                  This will use <span className="font-semibold">{pointsCost.toLocaleString()} pts</span> from your balance
+                  This will use
+                  {' '}
+                  <span className="font-semibold">
+                    {pointsCost.toLocaleString()}
+                    {' '}
+                    pts
+                  </span>
+                  {' '}
+                  from your balance
                 </p>
               )}
 
@@ -1309,14 +1359,18 @@ export default function RewardsContent() {
                       Your Rewards
                     </h2>
                     <span className="rounded-full bg-[var(--n5-accent-soft)] px-2.5 py-1 text-xs font-bold text-[var(--n5-accent)]">
-                      {activeRewards.length} Available
+                      {activeRewards.length}
+                      {' '}
+                      Available
                     </span>
                   </div>
 
                   {!upcomingAppointment && (
-                    <div className="rounded-xl border border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 p-3">
+                    <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
                       <p className="font-body text-sm text-[var(--n5-warning)]">
-                        <span className="font-semibold">Book an appointment</span> to use your rewards!
+                        <span className="font-semibold">Book an appointment</span>
+                        {' '}
+                        to use your rewards!
                       </p>
                       <button
                         onClick={() => router.push('/book')}
@@ -1348,13 +1402,14 @@ export default function RewardsContent() {
                         {upcomingAppointment.services.map(s => s.name).join(', ')}
                       </p>
                       <p className="font-body mt-1 text-xs font-semibold text-[var(--n5-ink-main)]">
-                        Total: ${(upcomingAppointment.totalPrice / 100).toFixed(2)}
+                        Total: $
+                        {(upcomingAppointment.totalPrice / 100).toFixed(2)}
                       </p>
                     </div>
                   )}
 
                   <div className="space-y-2">
-                    {activeRewards.map((reward) => (
+                    {activeRewards.map(reward => (
                       <motion.div
                         key={reward.id}
                         initial={{ opacity: 0, x: -10 }}
@@ -1373,7 +1428,11 @@ export default function RewardsContent() {
                               {reward.type === 'referral_referee' ? 'Referral Bonus' : reward.type === 'referral_referrer' ? 'Referral Reward' : 'Reward'}
                               {reward.daysUntilExpiry !== null && (
                                 <span className="ml-1 text-[var(--n5-warning)]">
-                                  · Expires in {reward.daysUntilExpiry} days
+                                  · Expires in
+                                  {' '}
+                                  {reward.daysUntilExpiry}
+                                  {' '}
+                                  days
                                 </span>
                               )}
                             </p>
@@ -1411,14 +1470,18 @@ export default function RewardsContent() {
                     Redeem Points
                   </h2>
                   <span className="font-body text-xs text-[var(--n5-ink-muted)]">
-                    {currentPoints.toLocaleString()} pts available
+                    {currentPoints.toLocaleString()}
+                    {' '}
+                    pts available
                   </span>
                 </div>
 
                 {!upcomingAppointment && currentPoints > 0 && (
-                  <div className="rounded-xl border border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 p-3">
+                  <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
                     <p className="font-body text-sm text-[var(--n5-warning)]">
-                      <span className="font-semibold">Book an appointment</span> to redeem your points!
+                      <span className="font-semibold">Book an appointment</span>
+                      {' '}
+                      to redeem your points!
                     </p>
                     <button
                       type="button"

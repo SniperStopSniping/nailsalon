@@ -62,7 +62,7 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   // Initialize mounted and sync from URL params/state on mount
   useEffect(() => {
     setMounted(true);
-    
+
     const urlTechId = searchParams.get('techId');
     if (urlTechId) {
       syncFromUrl({ techId: urlTechId });

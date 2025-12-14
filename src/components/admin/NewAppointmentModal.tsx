@@ -12,7 +12,7 @@
  * - Duration & price preview
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, Check, ChevronDown, Clock, Loader2, Phone, Plus, Search, User, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -77,59 +77,61 @@ function generateTimeSlots(): string[] {
 
 const TIME_SLOTS = generateTimeSlots();
 
-export function NewAppointmentModal({ 
-  isOpen, 
-  onClose, 
+export function NewAppointmentModal({
+  isOpen,
+  onClose,
   onSuccess,
-  preselectedDate 
+  preselectedDate,
 }: NewAppointmentModalProps) {
   const { salonSlug } = useSalon();
-  
+
   // Form state
   const [selectedDate, setSelectedDate] = useState<string>(
-    preselectedDate ? formatDateForInput(preselectedDate) : formatDateForInput(new Date())
+    preselectedDate ? formatDateForInput(preselectedDate) : formatDateForInput(new Date()),
   );
   const [selectedTime, setSelectedTime] = useState<string>('10:00');
   const [clientPhone, setClientPhone] = useState('');
   const [clientName, setClientName] = useState('');
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  
+
   // Data state
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // UI state
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
-  
+
   // Fetch technicians and services
   const fetchData = useCallback(async () => {
-    if (!salonSlug) return;
-    
+    if (!salonSlug) {
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch technicians and services in parallel
       const [techRes, servicesRes] = await Promise.all([
         fetch(`/api/admin/technicians?salonSlug=${salonSlug}&status=active`),
         fetch(`/api/salon/services?salonSlug=${salonSlug}`),
       ]);
-      
+
       if (!techRes.ok || !servicesRes.ok) {
         throw new Error('Failed to load data');
       }
-      
+
       const [techData, servicesData] = await Promise.all([
         techRes.json(),
         servicesRes.json(),
       ]);
-      
+
       setTechnicians(techData.data?.technicians || []);
       setServices(servicesData.data?.services || []);
     } catch (err) {
@@ -139,13 +141,13 @@ export function NewAppointmentModal({
       setLoading(false);
     }
   }, [salonSlug]);
-  
+
   useEffect(() => {
     if (isOpen) {
       fetchData();
     }
   }, [isOpen, fetchData]);
-  
+
   // Reset form when closing
   useEffect(() => {
     if (!isOpen) {
@@ -157,25 +159,25 @@ export function NewAppointmentModal({
       setServiceSearch('');
     }
   }, [isOpen]);
-  
+
   // Update selected date when preselectedDate changes
   useEffect(() => {
     if (preselectedDate) {
       setSelectedDate(formatDateForInput(preselectedDate));
     }
   }, [preselectedDate]);
-  
+
   // Calculate totals
   const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
-  
+
   // Filter services by search
-  const filteredServices = services.filter(s => 
-    s.name.toLowerCase().includes(serviceSearch.toLowerCase()) ||
-    s.category?.toLowerCase().includes(serviceSearch.toLowerCase())
+  const filteredServices = services.filter(s =>
+    s.name.toLowerCase().includes(serviceSearch.toLowerCase())
+    || s.category?.toLowerCase().includes(serviceSearch.toLowerCase()),
   );
-  
+
   // Group services by category
   const servicesByCategory = filteredServices.reduce((acc, service) => {
     const category = service.category || 'Other';
@@ -185,16 +187,16 @@ export function NewAppointmentModal({
     acc[category].push(service);
     return acc;
   }, {} as Record<string, Service[]>);
-  
+
   // Handle service toggle
   const toggleService = (serviceId: string) => {
-    setSelectedServiceIds(prev => 
+    setSelectedServiceIds(prev =>
       prev.includes(serviceId)
         ? prev.filter(id => id !== serviceId)
-        : [...prev, serviceId]
+        : [...prev, serviceId],
     );
   };
-  
+
   // Format phone as user types
   const handlePhoneChange = (value: string) => {
     // Remove non-digits
@@ -202,14 +204,18 @@ export function NewAppointmentModal({
     // Limit to 10 digits
     setClientPhone(digits.slice(0, 10));
   };
-  
+
   // Format phone for display
   const formatPhoneDisplay = (phone: string): string => {
-    if (phone.length <= 3) return phone;
-    if (phone.length <= 6) return `(${phone.slice(0, 3)}) ${phone.slice(3)}`;
+    if (phone.length <= 3) {
+      return phone;
+    }
+    if (phone.length <= 6) {
+      return `(${phone.slice(0, 3)}) ${phone.slice(3)}`;
+    }
     return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
   };
-  
+
   // Handle form submission
   const handleSubmit = async () => {
     // Validation
@@ -221,16 +227,16 @@ export function NewAppointmentModal({
       setError('Please select at least one service');
       return;
     }
-    
+
     try {
       setSubmitting(true);
       setError(null);
-      
+
       // Build start time ISO string
       const [year, month, day] = selectedDate.split('-').map(Number);
       const [hours, minutes] = selectedTime.split(':').map(Number);
       const startTime = new Date(year!, month! - 1, day, hours, minutes);
-      
+
       const response = await fetch('/api/appointments', {
         method: 'POST',
         headers: {
@@ -245,13 +251,13 @@ export function NewAppointmentModal({
           startTime: startTime.toISOString(),
         }),
       });
-      
+
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error?.message || 'Failed to create appointment');
       }
-      
+
       // Success
       onSuccess?.();
       onClose();
@@ -262,11 +268,13 @@ export function NewAppointmentModal({
       setSubmitting(false);
     }
   };
-  
+
   const selectedTechnician = technicians.find(t => t.id === selectedTechnicianId);
-  
-  if (!isOpen) return null;
-  
+
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -279,14 +287,14 @@ export function NewAppointmentModal({
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
             onClick={onClose}
           />
-          
+
           {/* Modal */}
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-4 top-[10%] bottom-[10%] z-50 mx-auto max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="fixed inset-x-4 inset-y-[10%] z-50 mx-auto max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -301,7 +309,7 @@ export function NewAppointmentModal({
                 <X className="size-5 text-gray-600" />
               </button>
             </div>
-            
+
             {/* Content */}
             <div className="h-[calc(100%-140px)] overflow-y-auto bg-white p-5">
               {loading ? (
@@ -316,7 +324,7 @@ export function NewAppointmentModal({
                       <p className="text-sm text-red-700">{error}</p>
                     </div>
                   )}
-                  
+
                   {/* Date & Time */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -333,7 +341,7 @@ export function NewAppointmentModal({
                         className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
-                    
+
                     <div className="relative">
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
                         <Clock className="mr-1.5 inline-block size-4" />
@@ -347,9 +355,9 @@ export function NewAppointmentModal({
                         <span>{selectedTime}</span>
                         <ChevronDown className="size-4 text-gray-400" />
                       </button>
-                      
+
                       {showTimeDropdown && (
-                        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                           {TIME_SLOTS.map(time => (
                             <button
                               key={time}
@@ -370,7 +378,7 @@ export function NewAppointmentModal({
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Client Info */}
                   <div className="space-y-4">
                     <div>
@@ -386,7 +394,7 @@ export function NewAppointmentModal({
                         className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
                         <User className="mr-1.5 inline-block size-4" />
@@ -401,7 +409,7 @@ export function NewAppointmentModal({
                       />
                     </div>
                   </div>
-                  
+
                   {/* Technician Selection */}
                   <div className="relative">
                     <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -413,22 +421,24 @@ export function NewAppointmentModal({
                       className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
                     >
                       <span className="flex items-center gap-2">
-                        {selectedTechnician ? (
-                          <>
-                            <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
-                              {selectedTechnician.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                            </div>
-                            {selectedTechnician.name}
-                          </>
-                        ) : (
-                          'Any available technician'
-                        )}
+                        {selectedTechnician
+                          ? (
+                              <>
+                                <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
+                                  {selectedTechnician.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </div>
+                                {selectedTechnician.name}
+                              </>
+                            )
+                          : (
+                              'Any available technician'
+                            )}
                       </span>
                       <ChevronDown className="size-4 text-gray-400" />
                     </button>
-                    
+
                     {showTechDropdown && (
-                      <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                         <button
                           type="button"
                           onClick={() => {
@@ -464,13 +474,13 @@ export function NewAppointmentModal({
                       </div>
                     )}
                   </div>
-                  
+
                   {/* Services Selection */}
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-gray-700">
                       Services *
                     </label>
-                    
+
                     {/* Search */}
                     <div className="relative mb-3">
                       <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
@@ -482,7 +492,7 @@ export function NewAppointmentModal({
                         className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
-                    
+
                     {/* Service List */}
                     <div className="max-h-48 space-y-4 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
                       {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
@@ -491,7 +501,7 @@ export function NewAppointmentModal({
                             {category}
                           </h4>
                           <div className="space-y-1">
-                            {categoryServices.map(service => {
+                            {categoryServices.map((service) => {
                               const isSelected = selectedServiceIds.includes(service.id);
                               return (
                                 <button
@@ -500,20 +510,21 @@ export function NewAppointmentModal({
                                   onClick={() => toggleService(service.id)}
                                   className={`
                                     flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-all
-                                    ${isSelected 
-                                      ? 'bg-blue-50 ring-1 ring-blue-200' 
-                                      : 'hover:bg-gray-50'
-                                    }
+                                    ${isSelected
+                                  ? 'bg-blue-50 ring-1 ring-blue-200'
+                                  : 'hover:bg-gray-50'
+                                }
                                   `}
                                 >
                                   <div className="flex items-center gap-2">
                                     <div className={`
                                       flex size-5 items-center justify-center rounded-md border transition-colors
-                                      ${isSelected 
-                                        ? 'border-blue-500 bg-blue-500 text-white' 
-                                        : 'border-gray-300'
-                                      }
-                                    `}>
+                                      ${isSelected
+                                  ? 'border-blue-500 bg-blue-500 text-white'
+                                  : 'border-gray-300'
+                                }
+                                    `}
+                                    >
                                       {isSelected && <Check className="size-3" />}
                                     </div>
                                     <span className={isSelected ? 'font-medium text-blue-900' : 'text-gray-700'}>
@@ -534,7 +545,7 @@ export function NewAppointmentModal({
                           </div>
                         </div>
                       ))}
-                      
+
                       {filteredServices.length === 0 && (
                         <p className="py-4 text-center text-sm text-gray-500">
                           No services found
@@ -545,21 +556,27 @@ export function NewAppointmentModal({
                 </div>
               )}
             </div>
-            
+
             {/* Footer */}
             <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
               {/* Summary */}
               {selectedServices.length > 0 && (
                 <div className="mb-4 flex items-center justify-between text-sm">
                   <div className="text-gray-600">
-                    {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} · {formatDuration(totalDuration)}
+                    {selectedServices.length}
+                    {' '}
+                    service
+                    {selectedServices.length !== 1 ? 's' : ''}
+                    {' '}
+                    ·
+                    {formatDuration(totalDuration)}
                   </div>
                   <div className="text-lg font-semibold text-gray-900">
                     {formatCurrency(totalPrice)}
                   </div>
                 </div>
               )}
-              
+
               {/* Actions */}
               <div className="flex gap-3">
                 <button
@@ -575,17 +592,19 @@ export function NewAppointmentModal({
                   disabled={submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="size-4" />
-                      Create Appointment
-                    </>
-                  )}
+                  {submitting
+                    ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" />
+                          Creating...
+                        </>
+                      )
+                    : (
+                        <>
+                          <Plus className="size-4" />
+                          Create Appointment
+                        </>
+                      )}
                 </button>
               </div>
             </div>

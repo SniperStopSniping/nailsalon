@@ -10,7 +10,7 @@
  * - Click on a day to see detailed appointments
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, User, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -48,10 +48,10 @@ function formatMonthYear(date: Date): string {
 function formatWeekRange(startDate: Date): string {
   const endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + 6);
-  
+
   const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
   const endMonth = endDate.toLocaleDateString('en-US', { month: 'short' });
-  
+
   if (startMonth === endMonth) {
     return `${startMonth} ${startDate.getDate()} - ${endDate.getDate()}, ${startDate.getFullYear()}`;
   }
@@ -75,27 +75,27 @@ function getMonthDays(date: Date): Date[] {
   const month = date.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-  
+
   const days: Date[] = [];
-  
+
   // Add padding days from previous month
   const startPadding = firstDay.getDay();
   for (let i = startPadding - 1; i >= 0; i--) {
     const d = new Date(year, month, -i);
     days.push(d);
   }
-  
+
   // Add days of current month
   for (let i = 1; i <= lastDay.getDate(); i++) {
     days.push(new Date(year, month, i));
   }
-  
+
   // Add padding days from next month to complete the grid
   const endPadding = 42 - days.length; // 6 rows * 7 days
   for (let i = 1; i <= endPadding; i++) {
     days.push(new Date(year, month + 1, i));
   }
-  
+
   return days;
 }
 
@@ -126,7 +126,7 @@ function calculateDuration(startTime: string, endTime: string): string {
   const start = new Date(startTime);
   const end = new Date(endTime);
   const minutes = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
-  
+
   if (minutes < 60) {
     return `${minutes}min`;
   }
@@ -137,9 +137,9 @@ function calculateDuration(startTime: string, endTime: string): string {
 
 function isSameDay(date1: Date, date2: Date): boolean {
   return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
+    date1.getFullYear() === date2.getFullYear()
+    && date1.getMonth() === date2.getMonth()
+    && date1.getDate() === date2.getDate()
   );
 }
 
@@ -182,7 +182,7 @@ type DayCellProps = {
 
 function DayCell({ date, count, isCurrentMonth, isSelected, onClick, viewMode }: DayCellProps) {
   const today = isToday(date);
-  
+
   return (
     <motion.button
       type="button"
@@ -191,36 +191,38 @@ function DayCell({ date, count, isCurrentMonth, isSelected, onClick, viewMode }:
       className={`
         relative flex flex-col items-center justify-center rounded-xl transition-all
         ${viewMode === 'weekly' ? 'aspect-[1/1.2] min-h-[80px]' : 'aspect-square min-h-[44px]'}
-        ${isSelected 
-          ? 'bg-[#007AFF] text-white shadow-lg shadow-[#007AFF]/30' 
-          : today 
-            ? 'bg-blue-50 text-blue-600' 
-            : isCurrentMonth 
-              ? 'bg-white hover:bg-gray-50 text-gray-900' 
-              : 'bg-gray-50/50 text-gray-400'
-        }
+        ${isSelected
+      ? 'bg-[#007AFF] text-white shadow-lg shadow-[#007AFF]/30'
+      : today
+        ? 'bg-blue-50 text-blue-600'
+        : isCurrentMonth
+          ? 'bg-white text-gray-900 hover:bg-gray-50'
+          : 'bg-gray-50/50 text-gray-400'
+    }
         ${count > 0 && !isSelected ? 'ring-1 ring-blue-200' : ''}
       `}
     >
       <span className={`text-sm font-semibold ${viewMode === 'weekly' ? 'text-lg' : ''}`}>
         {date.getDate()}
       </span>
-      
+
       {count > 0 && (
-        <span 
+        <span
           className={`
             mt-0.5 text-[10px] font-bold
             ${viewMode === 'weekly' ? 'text-xs' : ''}
-            ${isSelected 
-              ? 'text-white/90' 
-              : 'text-[#007AFF]'
-            }
+            ${isSelected
+          ? 'text-white/90'
+          : 'text-[#007AFF]'
+        }
           `}
         >
-          {count} {count === 1 ? 'appt' : 'appts'}
+          {count}
+          {' '}
+          {count === 1 ? 'appt' : 'appts'}
         </span>
       )}
-      
+
       {today && !isSelected && (
         <div className="absolute bottom-1 size-1.5 rounded-full bg-blue-500" />
       )}
@@ -238,11 +240,11 @@ type DayDetailPanelProps = {
 function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
   const dateStr = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  
+
   // Group appointments by technician
   const byTechnician = useMemo(() => {
     const groups: Record<string, AppointmentSummary[]> = {};
-    
+
     for (const appt of appointments) {
       const tech = appt.technician || 'Unassigned';
       if (!groups[tech]) {
@@ -250,15 +252,15 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
       }
       groups[tech].push(appt);
     }
-    
+
     // Sort each group by start time
     for (const tech of Object.keys(groups)) {
       groups[tech]!.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
     }
-    
+
     return groups;
   }, [appointments]);
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -285,12 +287,17 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <Calendar className="size-4" />
-          <span>{appointments.length} appointment{appointments.length !== 1 ? 's' : ''}</span>
+          <span>
+            {appointments.length}
+            {' '}
+            appointment
+            {appointments.length !== 1 ? 's' : ''}
+          </span>
         </div>
       </div>
-      
+
       {/* Content */}
-      <div className="overflow-y-auto p-5 pb-safe" style={{ maxHeight: 'calc(70vh - 100px)' }}>
+      <div className="pb-safe overflow-y-auto p-5" style={{ maxHeight: 'calc(70vh - 100px)' }}>
         {appointments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
@@ -309,15 +316,18 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
                   </div>
                   <span className="text-sm font-semibold text-gray-900">{techName}</span>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                    {appts.length} appt{appts.length !== 1 ? 's' : ''}
+                    {appts.length}
+                    {' '}
+                    appt
+                    {appts.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                
+
                 {/* Appointments List */}
                 <div className="space-y-2">
                   {appts.map((appt, idx) => {
                     const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
-                    
+
                     return (
                       <motion.div
                         key={appt.id}
@@ -338,13 +348,13 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
                                 {appt.clientName || 'Guest'}
                               </span>
                             </div>
-                            
+
                             {/* Services */}
                             <p className="mt-1 text-sm text-gray-600">
                               {appt.services.join(', ') || 'Service'}
                             </p>
                           </div>
-                          
+
                           {/* Time & Duration */}
                           <div className="text-right">
                             <div className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}>
@@ -356,17 +366,21 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
                             </p>
                           </div>
                         </div>
-                        
+
                         {/* Status Badge */}
                         <div className="mt-2 flex items-center justify-between">
                           <span className={`
                             inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
                             ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
-                          `}>
+                          `}
+                          >
                             {appt.status.replace('_', ' ')}
                           </span>
                           <span className="text-xs text-gray-400">
-                            {formatTime(appt.startTime)} - {formatTime(appt.endTime)}
+                            {formatTime(appt.startTime)}
+                            {' '}
+                            -
+                            {formatTime(appt.endTime)}
                           </span>
                         </div>
                       </motion.div>
@@ -391,7 +405,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
-  
+
   // Calculate date range based on view mode
   const dateRange = useMemo(() => {
     if (viewMode === 'weekly') {
@@ -412,7 +426,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       return { start: adjustedStart, end: adjustedEnd };
     }
   }, [viewMode, currentDate]);
-  
+
   // Get days to display
   const displayDays = useMemo(() => {
     if (viewMode === 'weekly') {
@@ -420,34 +434,34 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
     }
     return getMonthDays(currentDate);
   }, [viewMode, currentDate]);
-  
+
   // Fetch appointments for the date range
   const fetchAppointments = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const startStr = formatDateKey(dateRange.start);
       const endStr = formatDateKey(dateRange.end);
-      
+
       const response = await fetch(
-        `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`
+        `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`,
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to load appointments');
       }
-      
+
       const result = await response.json();
       const rawAppointments = result.data?.appointments || [];
-      
+
       // Group appointments by date
       const dataMap = new Map<string, DaySummary>();
-      
+
       for (const appt of rawAppointments) {
         const dateKey = appt.startTime.split('T')[0];
         const existing = dataMap.get(dateKey);
-        
+
         const summary: AppointmentSummary = {
           id: appt.id,
           clientName: appt.clientName || 'Guest',
@@ -457,7 +471,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           technician: appt.technician?.name || null,
           status: appt.status,
         };
-        
+
         if (existing) {
           existing.count++;
           existing.appointments.push(summary);
@@ -469,7 +483,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           });
         }
       }
-      
+
       setAppointmentData(dataMap);
     } catch (err) {
       console.error('Failed to fetch appointments:', err);
@@ -478,14 +492,14 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       setLoading(false);
     }
   }, [dateRange]);
-  
+
   useEffect(() => {
     fetchAppointments();
   }, [fetchAppointments]);
-  
+
   // Navigation handlers
   const handlePrev = () => {
-    setCurrentDate(prev => {
+    setCurrentDate((prev) => {
       const d = new Date(prev);
       if (viewMode === 'weekly') {
         d.setDate(d.getDate() - 7);
@@ -496,9 +510,9 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
     });
     setSelectedDate(null);
   };
-  
+
   const handleNext = () => {
-    setCurrentDate(prev => {
+    setCurrentDate((prev) => {
       const d = new Date(prev);
       if (viewMode === 'weekly') {
         d.setDate(d.getDate() + 7);
@@ -509,22 +523,22 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
     });
     setSelectedDate(null);
   };
-  
+
   const handleToday = () => {
     setCurrentDate(new Date());
     setSelectedDate(null);
   };
-  
+
   const handleDayClick = (date: Date) => {
     setSelectedDate(date);
   };
-  
-  const selectedDateData = selectedDate 
+
+  const selectedDateData = selectedDate
     ? appointmentData.get(formatDateKey(selectedDate))
     : null;
-  
+
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  
+
   return (
     <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
@@ -542,7 +556,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           </button>
         )}
       />
-      
+
       {/* View Mode Toggle */}
       <div className="flex justify-center border-b border-gray-200 bg-white px-4 pb-3 pt-2">
         <div className="flex rounded-lg bg-gray-100 p-1">
@@ -551,10 +565,10 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
             onClick={() => setViewMode('weekly')}
             className={`
               rounded-md px-4 py-1.5 text-sm font-medium transition-all
-              ${viewMode === 'weekly' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900'
-              }
+              ${viewMode === 'weekly'
+      ? 'bg-white text-gray-900 shadow-sm'
+      : 'text-gray-600 hover:text-gray-900'
+    }
             `}
           >
             Weekly
@@ -564,17 +578,17 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
             onClick={() => setViewMode('monthly')}
             className={`
               rounded-md px-4 py-1.5 text-sm font-medium transition-all
-              ${viewMode === 'monthly' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900'
-              }
+              ${viewMode === 'monthly'
+      ? 'bg-white text-gray-900 shadow-sm'
+      : 'text-gray-600 hover:text-gray-900'
+    }
             `}
           >
             Monthly
           </button>
         </div>
       </div>
-      
+
       {/* Navigation */}
       <div className="flex items-center justify-between bg-white px-4 py-3">
         <button
@@ -585,14 +599,13 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         >
           <ChevronLeft className="size-6 text-gray-600" />
         </button>
-        
+
         <h2 className="text-lg font-semibold text-gray-900">
-          {viewMode === 'weekly' 
+          {viewMode === 'weekly'
             ? formatWeekRange(getWeekStart(currentDate))
-            : formatMonthYear(currentDate)
-          }
+            : formatMonthYear(currentDate)}
         </h2>
-        
+
         <button
           type="button"
           onClick={handleNext}
@@ -602,57 +615,61 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           <ChevronRight className="size-6 text-gray-600" />
         </button>
       </div>
-      
+
       {/* Calendar Grid */}
       <div className="flex-1 overflow-y-auto bg-white px-3 pb-24">
         {/* Day Names Header */}
         <div className="sticky top-0 z-10 grid grid-cols-7 gap-1 bg-white py-2">
           {dayNames.map(day => (
-            <div 
-              key={day} 
+            <div
+              key={day}
               className="text-center text-xs font-semibold uppercase tracking-wide text-gray-500"
             >
               {day}
             </div>
           ))}
         </div>
-        
-        {loading ? (
-          <LoadingSkeleton />
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center px-8 py-20">
-            <p className="mb-2 text-sm text-red-600">{error}</p>
-            <button
-              type="button"
-              onClick={fetchAppointments}
-              className="text-sm font-medium text-[#007AFF]"
-            >
-              Try again
-            </button>
-          </div>
-        ) : (
-          <div className={`grid grid-cols-7 gap-1 ${viewMode === 'weekly' ? 'gap-2' : ''}`}>
-            {displayDays.map((date, idx) => {
-              const dateKey = formatDateKey(date);
-              const daySummary = appointmentData.get(dateKey);
-              const isCurrentMonth = date.getMonth() === currentDate.getMonth();
-              const isSelected = selectedDate ? isSameDay(date, selectedDate) : false;
-              
-              return (
-                <DayCell
-                  key={idx}
-                  date={date}
-                  count={daySummary?.count || 0}
-                  isCurrentMonth={isCurrentMonth}
-                  isSelected={isSelected}
-                  onClick={() => handleDayClick(date)}
-                  viewMode={viewMode}
-                />
-              );
-            })}
-          </div>
-        )}
-        
+
+        {loading
+          ? (
+              <LoadingSkeleton />
+            )
+          : error
+            ? (
+                <div className="flex flex-col items-center justify-center px-8 py-20">
+                  <p className="mb-2 text-sm text-red-600">{error}</p>
+                  <button
+                    type="button"
+                    onClick={fetchAppointments}
+                    className="text-sm font-medium text-[#007AFF]"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )
+            : (
+                <div className={`grid grid-cols-7 gap-1 ${viewMode === 'weekly' ? 'gap-2' : ''}`}>
+                  {displayDays.map((date, idx) => {
+                    const dateKey = formatDateKey(date);
+                    const daySummary = appointmentData.get(dateKey);
+                    const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+                    const isSelected = selectedDate ? isSameDay(date, selectedDate) : false;
+
+                    return (
+                      <DayCell
+                        key={idx}
+                        date={date}
+                        count={daySummary?.count || 0}
+                        isCurrentMonth={isCurrentMonth}
+                        isSelected={isSelected}
+                        onClick={() => handleDayClick(date)}
+                        viewMode={viewMode}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
         {/* Legend */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
@@ -669,7 +686,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           </div>
         </div>
       </div>
-      
+
       {/* Floating Action Button */}
       <button
         type="button"
@@ -679,7 +696,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       >
         <Plus className="size-8" />
       </button>
-      
+
       {/* Day Detail Panel */}
       <AnimatePresence>
         {selectedDate && !showNewAppointmentModal && (
@@ -692,7 +709,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
               className="fixed inset-0 z-40 bg-black/30"
               onClick={() => setSelectedDate(null)}
             />
-            
+
             {/* Panel */}
             <DayDetailPanel
               date={selectedDate}
@@ -702,7 +719,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           </>
         )}
       </AnimatePresence>
-      
+
       {/* New Appointment Modal */}
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}

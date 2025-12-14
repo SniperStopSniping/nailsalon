@@ -19,9 +19,9 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
-import { useBookingState } from '@/hooks/useBookingState';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';

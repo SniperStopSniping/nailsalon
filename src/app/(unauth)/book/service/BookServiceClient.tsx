@@ -338,7 +338,10 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
             <div className="flex items-center gap-2">
               <span className="text-amber-600">⚠️</span>
               <span className="text-sm text-amber-800">
-                Location not found, defaulted to {primaryLocation?.name || 'primary location'}.
+                Location not found, defaulted to
+                {' '}
+                {primaryLocation?.name || 'primary location'}
+                .
               </span>
             </div>
             <button
