@@ -10,6 +10,8 @@
  * Always returns success to prevent phone enumeration.
  */
 
+import { Buffer } from 'node:buffer';
+
 import { NextResponse } from 'next/server';
 
 import {

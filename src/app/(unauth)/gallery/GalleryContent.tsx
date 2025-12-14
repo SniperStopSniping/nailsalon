@@ -577,9 +577,8 @@ export default function GalleryContent() {
       {/* Main Content */}
       <main className="mx-auto max-w-lg space-y-6 px-5 py-28">
         <AnimatePresence mode="wait">
-          {loading ? (
-            <GallerySkeleton key="skeleton" />
-          ) : (
+          {loading && <GallerySkeleton key="skeleton" />}
+          {!loading && (
             <motion.div
               key="content"
               initial={{ opacity: 0 }}

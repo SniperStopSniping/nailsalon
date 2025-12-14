@@ -7,6 +7,8 @@
  * Body: { phone: string, code: string }
  */
 
+import { Buffer } from 'node:buffer';
+
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 

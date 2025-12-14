@@ -200,18 +200,20 @@ function AdminLoginContent() {
       {/* Form */}
       <div className="flex-1 px-6">
         <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
-          {step === 'phone' ? (
+          {step === 'phone' && (
             <>
               {/* Salon Slug Input */}
               <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#3F2B24]">
+                <label htmlFor="admin-salon-code" className="mb-2 block text-sm font-medium text-[#3F2B24]">
                   Salon Code
                 </label>
                 <input
+                  id="admin-salon-code"
                   type="text"
                   value={salonSlug}
                   onChange={handleSalonSlugChange}
                   placeholder="e.g. luxe-nails"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- login form first field
                   autoFocus
                   className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#3F2B24] placeholder:text-[#C4B8AC] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
                 />
@@ -222,10 +224,11 @@ function AdminLoginContent() {
 
               {/* Phone Input */}
               <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#3F2B24]">
+                <label htmlFor="admin-phone" className="mb-2 block text-sm font-medium text-[#3F2B24]">
                   Phone Number
                 </label>
                 <input
+                  id="admin-phone"
                   type="tel"
                   value={formatPhoneDisplay(phone)}
                   onChange={handlePhoneChange}
@@ -241,19 +244,22 @@ function AdminLoginContent() {
                 </p>
               </div>
             </>
-          ) : (
+          )}
+          {step === 'code' && (
             <>
               {/* Code Input */}
               <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#3F2B24]">
+                <label htmlFor="admin-code" className="mb-2 block text-sm font-medium text-[#3F2B24]">
                   Verification Code
                 </label>
                 <input
+                  id="admin-code"
                   type="text"
                   inputMode="numeric"
                   value={code}
                   onChange={handleCodeChange}
                   placeholder="123456"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- OTP input after step transition
                   autoFocus
                   maxLength={6}
                   className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-[#3F2B24] placeholder:text-[#C4B8AC] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"

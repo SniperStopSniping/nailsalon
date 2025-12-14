@@ -538,9 +538,8 @@ export function TimeOffRequestsInbox() {
         setSelectedRequest(null);
       } catch (err) {
         console.error('Error updating request:', err);
-        alert(
-          err instanceof Error ? err.message : 'Failed to update request',
-        );
+        // eslint-disable-next-line no-alert -- no toast system yet (TODO: replace with toast)
+        alert(err instanceof Error ? err.message : 'Failed to update request');
       } finally {
         setIsSubmitting(false);
       }

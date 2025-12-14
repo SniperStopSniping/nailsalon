@@ -7,6 +7,8 @@
  * Body: { phone: string } - 10-digit US phone number
  */
 
+import { Buffer } from 'node:buffer';
+
 import { NextResponse } from 'next/server';
 
 // =============================================================================

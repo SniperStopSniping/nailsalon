@@ -1124,14 +1124,15 @@ export default function StaffSchedulePage() {
           </div>
         )}
 
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center py-12">
             <div
               className="size-8 animate-spin rounded-full border-4 border-t-transparent"
               style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
             />
           </div>
-        ) : (
+        )}
+        {!loading && (
           <div
             className="space-y-6"
             style={{

@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { and, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -50,8 +52,14 @@ function formatPhoneE164(phone: string): string {
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
-  plan: z.enum(SALON_PLANS).optional(),
-  status: z.enum(SALON_STATUSES).optional(),
+  plan: z.preprocess(
+    val => (val === '' ? undefined : val),
+    z.enum(SALON_PLANS).optional(),
+  ),
+  status: z.preprocess(
+    val => (val === '' ? undefined : val),
+    z.enum(SALON_STATUSES).optional(),
+  ),
   page: z.coerce.number().min(1).optional().default(1),
   pageSize: z.coerce.number().min(1).max(100).optional().default(20),
 });

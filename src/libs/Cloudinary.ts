@@ -1,3 +1,5 @@
+import type { Buffer } from 'node:buffer';
+
 import type { UploadApiResponse } from 'cloudinary';
 import { v2 as cloudinary } from 'cloudinary';
 

@@ -279,14 +279,15 @@ export default function StaffEarningsPage() {
         </div>
 
         {/* Content */}
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center py-12">
             <div
               className="size-8 animate-spin rounded-full border-4 border-t-transparent"
               style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
             />
           </div>
-        ) : error ? (
+        )}
+        {!loading && error && (
           <div
             className="rounded-2xl bg-white p-6 text-center shadow-lg"
             style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
@@ -302,7 +303,8 @@ export default function StaffEarningsPage() {
               Try Again
             </button>
           </div>
-        ) : earnings ? (
+        )}
+        {!loading && !error && earnings && (
           <div
             className="space-y-4"
             style={{
@@ -423,7 +425,7 @@ export default function StaffEarningsPage() {
               </div>
             )}
           </div>
-        ) : null}
+        )}
       </div>
 
       <StaffBottomNav activeItem="earnings" />

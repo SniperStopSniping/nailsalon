@@ -10,6 +10,8 @@
  * All invite claiming done in a transaction.
  */
 
+import { Buffer } from 'node:buffer';
+
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';

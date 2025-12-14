@@ -7,6 +7,8 @@
  * Protected by requireSuperAdmin().
  */
 
+import { Buffer } from 'node:buffer';
+
 import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 

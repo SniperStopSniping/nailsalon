@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { v2 as cloudinary } from 'cloudinary';
 import { and, eq } from 'drizzle-orm';
 

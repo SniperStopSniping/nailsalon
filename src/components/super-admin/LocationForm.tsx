@@ -105,6 +105,7 @@ export function LocationForm({ salonId, maxLocations, onClose }: LocationFormPro
 
   // Delete location
   const handleDeleteLocation = async (locationId: string) => {
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!confirm('Delete this location?')) {
       return;
     }

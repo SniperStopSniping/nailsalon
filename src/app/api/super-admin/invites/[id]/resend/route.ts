@@ -4,6 +4,8 @@
  * POST - Resend an existing invite (renews expiration if expired)
  */
 
+import { Buffer } from 'node:buffer';
+
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 

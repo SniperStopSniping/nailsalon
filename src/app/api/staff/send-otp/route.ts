@@ -8,6 +8,8 @@
  * Body: { phone: string, salonSlug: string }
  */
 
+import { Buffer } from 'node:buffer';
+
 import { NextResponse } from 'next/server';
 
 import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';

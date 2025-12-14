@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 

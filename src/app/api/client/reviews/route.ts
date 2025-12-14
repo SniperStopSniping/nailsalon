@@ -12,6 +12,8 @@
  * - Salon must have reviewsEnabled = true
  */
 
+import { Buffer } from 'node:buffer';
+
 import { and, eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { z } from 'zod';

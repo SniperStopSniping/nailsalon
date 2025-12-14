@@ -176,6 +176,7 @@ export function SuperAdminDashboard() {
       ? 'Remove this owner completely? They will lose access to the salon.'
       : 'Demote this owner to admin? They will keep access but not be listed as owner.';
 
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!window.confirm(confirmMsg)) {
       return;
     }
@@ -196,6 +197,7 @@ export function SuperAdminDashboard() {
       // Refresh the list
       fetchSalons();
     } catch (err) {
+      // eslint-disable-next-line no-alert -- error feedback (TODO: replace with toast)
       alert(err instanceof Error ? err.message : 'Failed to update owner');
     } finally {
       setRemovingOwnerId(null);

@@ -225,14 +225,15 @@ export default function StaffClientProfilePage() {
           </div>
         </div>
 
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center py-12">
             <div
               className="size-8 animate-spin rounded-full border-4 border-t-transparent"
               style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
             />
           </div>
-        ) : profile ? (
+        )}
+        {!loading && profile && (
           <div
             className="space-y-4"
             style={{
@@ -414,100 +415,100 @@ export default function StaffClientProfilePage() {
                 )}
 
                 {/* Preferences Tab */}
-                {activeTab === 'preferences' && (
-                  !profile.preferences ? (
-                    <div className="py-8 text-center text-neutral-500">
-                      <div className="mb-2 text-3xl">✨</div>
-                      <p>No style preferences saved</p>
+                {activeTab === 'preferences' && !profile.preferences && (
+                  <div className="py-8 text-center text-neutral-500">
+                    <div className="mb-2 text-3xl">✨</div>
+                    <p>No style preferences saved</p>
+                  </div>
+                )}
+                {activeTab === 'preferences' && profile.preferences && (
+                  <div className="space-y-4">
+                    {/* Nail Style */}
+                    <div>
+                      <div className="mb-2 text-sm font-medium text-neutral-600">Nail Style</div>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.preferences.nailShape && (
+                          <PreferenceTag label={`Shape: ${profile.preferences.nailShape}`} />
+                        )}
+                        {profile.preferences.nailLength && (
+                          <PreferenceTag label={`Length: ${profile.preferences.nailLength}`} />
+                        )}
+                        {profile.preferences.finishes?.map(f => (
+                          <PreferenceTag key={f} label={f} />
+                        ))}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Nail Style */}
+
+                    {/* Colors */}
+                    {profile.preferences.colorFamilies && profile.preferences.colorFamilies.length > 0 && (
                       <div>
-                        <div className="mb-2 text-sm font-medium text-neutral-600">Nail Style</div>
+                        <div className="mb-2 text-sm font-medium text-neutral-600">Favorite Colors</div>
                         <div className="flex flex-wrap gap-2">
-                          {profile.preferences.nailShape && (
-                            <PreferenceTag label={`Shape: ${profile.preferences.nailShape}`} />
-                          )}
-                          {profile.preferences.nailLength && (
-                            <PreferenceTag label={`Length: ${profile.preferences.nailLength}`} />
-                          )}
-                          {profile.preferences.finishes?.map(f => (
-                            <PreferenceTag key={f} label={f} />
+                          {profile.preferences.colorFamilies.map(c => (
+                            <PreferenceTag key={c} label={c} />
                           ))}
                         </div>
                       </div>
+                    )}
 
-                      {/* Colors */}
-                      {profile.preferences.colorFamilies && profile.preferences.colorFamilies.length > 0 && (
-                        <div>
-                          <div className="mb-2 text-sm font-medium text-neutral-600">Favorite Colors</div>
-                          <div className="flex flex-wrap gap-2">
-                            {profile.preferences.colorFamilies.map(c => (
-                              <PreferenceTag key={c} label={c} />
-                            ))}
-                          </div>
+                    {/* Sensitivities */}
+                    {profile.preferences.sensitivities && profile.preferences.sensitivities.length > 0 && (
+                      <div>
+                        <div className="mb-2 text-sm font-medium text-red-600">⚠️ Sensitivities</div>
+                        <div className="flex flex-wrap gap-2">
+                          {profile.preferences.sensitivities.map(s => (
+                            <span key={s} className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {s}
+                            </span>
+                          ))}
                         </div>
-                      )}
+                      </div>
+                    )}
 
-                      {/* Sensitivities */}
-                      {profile.preferences.sensitivities && profile.preferences.sensitivities.length > 0 && (
-                        <div>
-                          <div className="mb-2 text-sm font-medium text-red-600">⚠️ Sensitivities</div>
-                          <div className="flex flex-wrap gap-2">
-                            {profile.preferences.sensitivities.map(s => (
-                              <span key={s} className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
+                    {/* Favorite Tech */}
+                    {profile.preferences.favoriteTechName && (
+                      <div>
+                        <div className="mb-2 text-sm font-medium text-neutral-600">Favorite Tech</div>
+                        <div className="rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
+                          <span className="font-medium">{profile.preferences.favoriteTechName}</span>
                         </div>
-                      )}
+                      </div>
+                    )}
 
-                      {/* Favorite Tech */}
-                      {profile.preferences.favoriteTechName && (
-                        <div>
-                          <div className="mb-2 text-sm font-medium text-neutral-600">Favorite Tech</div>
-                          <div className="rounded-xl p-3" style={{ backgroundColor: themeVars.surfaceAlt }}>
-                            <span className="font-medium">{profile.preferences.favoriteTechName}</span>
-                          </div>
+                    {/* Tech Notes */}
+                    {profile.preferences.techNotes && (
+                      <div>
+                        <div className="mb-2 text-sm font-medium text-neutral-600">Notes for Tech</div>
+                        <div className="rounded-xl p-3 text-sm" style={{ backgroundColor: themeVars.highlightBackground }}>
+                          {profile.preferences.techNotes}
                         </div>
-                      )}
+                      </div>
+                    )}
 
-                      {/* Tech Notes */}
-                      {profile.preferences.techNotes && (
-                        <div>
-                          <div className="mb-2 text-sm font-medium text-neutral-600">Notes for Tech</div>
-                          <div className="rounded-xl p-3 text-sm" style={{ backgroundColor: themeVars.highlightBackground }}>
-                            {profile.preferences.techNotes}
-                          </div>
+                    {/* Experience Preferences */}
+                    {(profile.preferences.musicPreference || profile.preferences.conversationLevel || profile.preferences.beveragePreference?.length) && (
+                      <div>
+                        <div className="mb-2 text-sm font-medium text-neutral-600">Experience</div>
+                        <div className="flex flex-wrap gap-2">
+                          {profile.preferences.musicPreference && (
+                            <PreferenceTag label={`🎵 ${profile.preferences.musicPreference}`} />
+                          )}
+                          {profile.preferences.conversationLevel && (
+                            <PreferenceTag label={`💬 ${profile.preferences.conversationLevel}`} />
+                          )}
+                          {profile.preferences.beveragePreference?.map(b => (
+                            <PreferenceTag key={b} label={`☕ ${b}`} />
+                          ))}
                         </div>
-                      )}
-
-                      {/* Experience Preferences */}
-                      {(profile.preferences.musicPreference || profile.preferences.conversationLevel || profile.preferences.beveragePreference?.length) && (
-                        <div>
-                          <div className="mb-2 text-sm font-medium text-neutral-600">Experience</div>
-                          <div className="flex flex-wrap gap-2">
-                            {profile.preferences.musicPreference && (
-                              <PreferenceTag label={`🎵 ${profile.preferences.musicPreference}`} />
-                            )}
-                            {profile.preferences.conversationLevel && (
-                              <PreferenceTag label={`💬 ${profile.preferences.conversationLevel}`} />
-                            )}
-                            {profile.preferences.beveragePreference?.map(b => (
-                              <PreferenceTag key={b} label={`☕ ${b}`} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
           </div>
-        ) : (
+        )}
+        {!loading && !profile && (
           <div
             className="rounded-2xl bg-white p-8 text-center shadow-lg"
             style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}

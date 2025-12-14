@@ -147,6 +147,7 @@ function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
   const [error, setError] = useState<string | null>(null);
 
   const handleRemove = async () => {
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!window.confirm(`Remove ${admin.name || 'this admin'} from the salon? They will lose access.`)) {
       return;
     }
@@ -174,6 +175,7 @@ function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
   };
 
   const handlePromote = async () => {
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!window.confirm(`Make ${admin.name || 'this admin'} the owner? The current owner will be demoted to admin.`)) {
       return;
     }
@@ -205,6 +207,7 @@ function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
   };
 
   const handleDemote = async () => {
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!window.confirm(`Demote ${admin.name || 'this admin'} to regular admin?`)) {
       return;
     }
@@ -597,6 +600,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       ? 'Remove this owner completely? They will lose access to the salon.'
       : 'Demote this owner to admin? They will keep access but not be listed as owner.';
 
+    // eslint-disable-next-line no-alert -- destructive action confirmation (TODO: replace with modal)
     if (!window.confirm(confirmMsg)) {
       return;
     }
@@ -1227,6 +1231,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       <button
                         type="button"
                         onClick={() => {
+                          // eslint-disable-next-line no-alert -- tier change confirmation (TODO: replace with modal)
                           if (window.confirm('Apply Starter tier? This will MERGE with existing features.')) {
                             setFeatures(prev => ({ ...(prev ?? {}), ...STARTER_FEATURES }));
                             markDirty();
@@ -1239,6 +1244,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       <button
                         type="button"
                         onClick={() => {
+                          // eslint-disable-next-line no-alert -- tier change confirmation (TODO: replace with modal)
                           if (window.confirm('Apply Pro tier? This will MERGE with existing features.')) {
                             setFeatures(prev => ({ ...(prev ?? {}), ...PRO_FEATURES }));
                             markDirty();
@@ -1251,6 +1257,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       <button
                         type="button"
                         onClick={() => {
+                          // eslint-disable-next-line no-alert -- tier change confirmation (TODO: replace with modal)
                           if (window.confirm('Apply Elite tier? This will MERGE with existing features.')) {
                             setFeatures(prev => ({ ...(prev ?? {}), ...ELITE_FEATURES }));
                             markDirty();

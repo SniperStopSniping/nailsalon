@@ -192,10 +192,12 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
     // Validate file
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
+      // eslint-disable-next-line no-alert -- validation feedback (TODO: replace with toast)
       alert('Please select a JPEG, PNG, or WebP image');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
+      // eslint-disable-next-line no-alert -- validation feedback (TODO: replace with toast)
       alert('Image must be less than 5MB');
       return;
     }
@@ -223,6 +225,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
       onUpdate?.();
     } catch (err) {
       console.error('Error uploading avatar:', err);
+      // eslint-disable-next-line no-alert -- error feedback (TODO: replace with toast)
       alert(err instanceof Error ? err.message : 'Failed to upload avatar');
     } finally {
       setUploadingAvatar(false);
