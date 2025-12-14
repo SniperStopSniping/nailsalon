@@ -210,7 +210,7 @@ export async function POST(request: Request): Promise<Response> {
       })
       .returning();
 
-    console.log(
+    console.warn(
       `[TimeOffRequest] Created request ${requestId} for ${technicianName} (${technicianId}): ${startDate} to ${endDate}`,
     );
 

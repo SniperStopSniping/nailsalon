@@ -272,7 +272,7 @@ export async function POST(request: Request): Promise<Response> {
       })
       .returning();
 
-    console.log(
+    console.warn(
       `[TimeOff] Admin ${admin.name || admin.id} created time-off ${timeOffId} for ${technician.name} (${technician.id})`,
     );
 

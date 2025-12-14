@@ -108,7 +108,7 @@ async function syncSubscription(subscriptionId: string): Promise<void> {
     void logSubscriptionStatusChange(salonId, oldStatus, stripeSubscriptionStatus, subscription.id);
   }
 
-  console.log(`[Stripe Webhook] Synced subscription ${subscriptionId} for salon ${salonId}, status: ${stripeSubscriptionStatus}`);
+  console.warn(`[Stripe Webhook] Synced subscription ${subscriptionId} for salon ${salonId}, status: ${stripeSubscriptionStatus}`);
 }
 
 // =============================================================================
@@ -168,7 +168,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
   // Audit log: billing mode changed to STRIPE
   void logBillingModeChange(salonId, 'NONE', BILLING_MODE.STRIPE, 'webhook');
 
-  console.log(`[Stripe Webhook] Enabled Stripe billing for salon ${salonId}`);
+  console.warn(`[Stripe Webhook] Enabled Stripe billing for salon ${salonId}`);
 
   // Sync full subscription details
   if (subscriptionId) {
@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
         break;
 
       default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+        console.warn(`[Stripe Webhook] Unhandled event type: ${event.type}`);
     }
 
     return new Response('OK', { status: 200 });

@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     if (!canReceive) {
       // Still return success to prevent enumeration
       // But don't actually send OTP
-      console.log(`[ADMIN OTP] Phone ${phoneE164} not authorized - returning fake success`);
+      console.warn(`[ADMIN OTP] Phone ${phoneE164} not authorized - returning fake success`);
       return NextResponse.json({
         success: true,
         message: 'If this phone is authorized, a code will be sent.',
@@ -79,8 +79,8 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Skip Twilio, auto-approve
     // ==========================================================================
     if (!isTwilioConfigured) {
-      console.log(`[DEV MODE] Admin OTP would be sent to ${phoneE164}`);
-      console.log('[DEV MODE] Use code "123456" to verify');
+      console.warn(`[DEV MODE] Admin OTP would be sent to ${phoneE164}`);
+      console.warn('[DEV MODE] Use code "123456" to verify');
 
       return NextResponse.json({
         success: true,
@@ -132,8 +132,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const data = await response.json();
-    console.log(`[ADMIN OTP] Sent to ${phoneE164}, SID: ${data.sid}`);
+    await response.json();
 
     return NextResponse.json({
       success: true,

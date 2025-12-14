@@ -395,10 +395,6 @@ export function ChangeAppointmentClient({
       confirmUrl += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
     }
 
-    // Debug: log the URL being navigated to
-    console.log('[Change Appointment] Navigating to:', confirmUrl);
-    console.log('[Change Appointment] originalAppointmentId:', originalAppointmentId);
-
     router.push(confirmUrl);
   };
 

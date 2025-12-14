@@ -98,7 +98,7 @@ export async function DELETE(
       .delete(technicianTimeOffSchema)
       .where(eq(technicianTimeOffSchema.id, timeOffId));
 
-    console.log(
+    console.warn(
       `[TimeOff] Admin ${admin.name || admin.id} deleted time-off ${timeOffId}`,
     );
 

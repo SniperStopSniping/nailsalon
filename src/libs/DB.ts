@@ -101,7 +101,7 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
     }
   }
 
-  // No console.log - silent initialization
+  // No console.warn - silent initialization
 }
 
 // =============================================================================

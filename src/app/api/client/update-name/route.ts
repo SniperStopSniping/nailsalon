@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       path: '/',
     });
 
-    console.log(`[Client] Updated name for ${phoneForDb}: ${firstName}`);
+    console.warn(`[Client] Updated name for ${phoneForDb}: ${firstName}`);
 
     return NextResponse.json({
       success: true,

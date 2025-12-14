@@ -124,14 +124,14 @@ export async function POST(
           }),
         });
 
-        console.log(`[INVITE SMS RESEND] Sent to ${invite.phoneE164}`);
+        console.warn(`[INVITE SMS RESEND] Sent to ${invite.phoneE164}`);
       } catch (smsError) {
         console.error('Failed to resend invite SMS:', smsError);
         // Don't fail if SMS fails
       }
     } else {
-      console.log(`[DEV MODE] Would resend invite SMS to ${invite.phoneE164}:`);
-      console.log(message);
+      console.warn(`[DEV MODE] Would resend invite SMS to ${invite.phoneE164}:`);
+      console.warn(message);
     }
 
     return NextResponse.json({

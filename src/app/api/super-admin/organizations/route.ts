@@ -418,14 +418,14 @@ export async function POST(request: Request): Promise<Response> {
           }),
         });
 
-        console.log(`[CREATE SALON] Owner invite SMS sent to ${phoneE164}`);
+        console.warn(`[CREATE SALON] Owner invite SMS sent to ${phoneE164}`);
       } catch (smsError) {
         console.error('Failed to send owner invite SMS:', smsError);
         // Don't fail salon creation if SMS fails
       }
     } else {
-      console.log(`[DEV MODE] Would send owner invite SMS to ${phoneE164}:`);
-      console.log(message);
+      console.warn(`[DEV MODE] Would send owner invite SMS to ${phoneE164}:`);
+      console.warn(message);
     }
 
     return Response.json({

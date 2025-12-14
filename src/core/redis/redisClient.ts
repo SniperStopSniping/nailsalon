@@ -43,7 +43,7 @@ function createRedisClient(): Redis | null {
     });
 
     globalForRedis.redisClient.on('connect', () => {
-      console.log('[Redis] Connected');
+      console.warn('[Redis] Connected');
     });
   }
 

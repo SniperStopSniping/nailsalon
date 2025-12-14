@@ -186,7 +186,7 @@ export async function POST(request: Request) {
 
     if (rewardGranted) {
       // eslint-disable-next-line no-console
-      console.log(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
+      console.warn(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
     }
 
     // 5. Set cookies for client-side access
@@ -209,7 +209,7 @@ export async function POST(request: Request) {
     });
 
     // eslint-disable-next-line no-console
-    console.log(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
+    console.warn(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
 
     return NextResponse.json({
       success: true,

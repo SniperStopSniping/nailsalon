@@ -150,7 +150,7 @@ export async function PATCH(
       .where(eq(technicianSchema.id, existingRequest.technicianId))
       .limit(1);
 
-    console.log(
+    console.warn(
       `[TimeOffRequest] Admin ${admin.name || admin.id} ${status.toLowerCase()} request ${id} for ${technician?.name ?? existingRequest.technicianId}`,
     );
 

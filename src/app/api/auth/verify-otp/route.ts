@@ -105,7 +105,7 @@ export async function POST(request: Request) {
     // ==========================================================================
     if (!isTwilioConfigured) {
       if (code === '123456') {
-        console.log(`[DEV MODE] OTP verified for ${formattedPhone}`);
+        console.warn(`[DEV MODE] OTP verified for ${formattedPhone}`);
 
         // Set session cookie
         const sessionToken = generateSessionToken(formattedPhone);
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
 
     // Check if verification was successful
     if (!response.ok || data.status !== 'approved') {
-      console.log(`OTP verification failed for ${formattedPhone}:`, data);
+      console.warn(`OTP verification failed for ${formattedPhone}:`, data);
 
       return NextResponse.json(
         { error: 'Invalid verification code' },
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(`OTP verified for ${formattedPhone}, SID: ${data.sid}`);
+    console.warn(`OTP verified for ${formattedPhone}, SID: ${data.sid}`);
 
     // Set session cookie
     const sessionToken = generateSessionToken(formattedPhone);

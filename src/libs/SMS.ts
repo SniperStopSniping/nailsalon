@@ -84,9 +84,9 @@ async function sendSMS(to: string, body: string): Promise<boolean> {
   const client = getTwilioClient();
 
   if (!client) {
-    console.log('[SMS DEV MODE] Would send to:', to);
-    console.log('[SMS DEV MODE] Message:', body);
-    console.log('---');
+    console.warn('[SMS DEV MODE] Would send to:', to);
+    console.warn('[SMS DEV MODE] Message:', body);
+    console.warn('---');
     return false;
   }
 
@@ -96,7 +96,7 @@ async function sendSMS(to: string, body: string): Promise<boolean> {
       from: Env.TWILIO_PHONE_NUMBER,
       to: `+1${to}`,
     });
-    console.log('SMS sent successfully:', message.sid);
+    console.warn('SMS sent successfully:', message.sid);
     return true;
   } catch (error) {
     console.error('Failed to send SMS:', error);
@@ -118,7 +118,7 @@ export async function sendBookingConfirmationToClient(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -161,7 +161,7 @@ export async function sendBookingNotificationToTech(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -194,7 +194,7 @@ ${technicianName}, you have a new appointment:
 
   // TODO: Look up technician's phone number from database
   // await sendSMS(techPhone, message);
-  console.log('[TECH NOTIFICATION]', message);
+  console.warn('[TECH NOTIFICATION]', message);
 }
 
 /**
@@ -206,7 +206,7 @@ export async function sendAppointmentReminder(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -246,7 +246,7 @@ export async function sendCancellationConfirmation(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -279,7 +279,7 @@ export async function sendRescheduleConfirmation(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -342,7 +342,7 @@ export async function sendCancellationNotificationToTech(
 ): Promise<void> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
 
@@ -376,7 +376,7 @@ ${technicianName}, an appointment has been ${actionText}:
   if (technicianPhone) {
     await sendSMS(technicianPhone, message);
   } else {
-    console.log('[TECH NOTIFICATION]', message);
+    console.warn('[TECH NOTIFICATION]', message);
   }
 }
 
@@ -389,7 +389,7 @@ export async function sendReferralInvite(
 ): Promise<boolean> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return false;
   }
 
@@ -421,7 +421,7 @@ export async function sendStaffInvite(
 ): Promise<boolean> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
-    console.log('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return false;
   }
 

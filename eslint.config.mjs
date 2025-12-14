@@ -63,6 +63,8 @@ export default antfu({
     'react/prefer-destructuring-assignment': 'off', // Vscode doesn't support automatically destructuring, it's a pain to add a new variable
     'node/prefer-global/process': 'off', // Allow using `process.env`
     'node/prefer-global/buffer': 'off', // Allow using global Buffer in Node.js API routes
+    'no-console': ['error', { allow: ['warn', 'error'] }], // Allow console.warn/error for server-side debugging
+    'no-alert': 'off', // Allow confirm/alert for critical destructive actions (no toast system yet)
     'test/padding-around-all': 'error', // Add padding in test files
     'test/prefer-lowercase-title': 'off', // Allow using uppercase titles in test titles
   },

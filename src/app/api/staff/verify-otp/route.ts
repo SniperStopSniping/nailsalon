@@ -124,7 +124,7 @@ export async function POST(request: Request) {
     // ==========================================================================
     if (!isTwilioConfigured) {
       if (code === '123456') {
-        console.log(`[DEV MODE] Staff OTP verified for ${formattedPhone}`);
+        console.warn(`[DEV MODE] Staff OTP verified for ${formattedPhone}`);
 
         // Set session cookies
         const sessionToken = generateSessionToken(formattedPhone, salonSlug);
@@ -205,7 +205,7 @@ export async function POST(request: Request) {
 
     // Check if verification was successful
     if (!response.ok || data.status !== 'approved') {
-      console.log(`Staff OTP verification failed for ${formattedPhone}:`, data);
+      console.warn(`Staff OTP verification failed for ${formattedPhone}:`, data);
 
       return NextResponse.json(
         { error: 'Invalid verification code' },
@@ -213,7 +213,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(`Staff OTP verified for ${formattedPhone}, SID: ${data.sid}`);
+    console.warn(`Staff OTP verified for ${formattedPhone}, SID: ${data.sid}`);
 
     // Set session cookies
     const sessionToken = generateSessionToken(formattedPhone, salonSlug);

@@ -101,8 +101,8 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Skip Twilio, auto-approve
     // ==========================================================================
     if (!isTwilioConfigured) {
-      console.log(`[DEV MODE] OTP would be sent to ${formattedPhone}`);
-      console.log('[DEV MODE] Use code "123456" to verify');
+      console.warn(`[DEV MODE] OTP would be sent to ${formattedPhone}`);
+      console.warn('[DEV MODE] Use code "123456" to verify');
 
       return NextResponse.json({
         success: true,
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     }
 
     const data = (await response.json()) as TwilioVerifyResponse;
-    console.log(`OTP sent to ${formattedPhone}, SID: ${data.sid}`);
+    console.warn(`OTP sent to ${formattedPhone}, SID: ${data.sid}`);
 
     return NextResponse.json({
       success: true,

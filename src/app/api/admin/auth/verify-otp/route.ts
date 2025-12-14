@@ -117,7 +117,7 @@ export async function POST(request: Request) {
       // Dev mode: accept 123456
       otpValid = code === '123456';
       if (otpValid) {
-        console.log(`[DEV MODE] Admin OTP verified for ${phoneE164}`);
+        console.warn(`[DEV MODE] Admin OTP verified for ${phoneE164}`);
       }
     } else {
       // Production: verify via Twilio
@@ -139,7 +139,7 @@ export async function POST(request: Request) {
       otpValid = response.ok && data.status === 'approved';
 
       if (otpValid) {
-        console.log(`[ADMIN OTP] Verified for ${phoneE164}, SID: ${data.sid}`);
+        console.warn(`[ADMIN OTP] Verified for ${phoneE164}, SID: ${data.sid}`);
       }
     }
 
@@ -248,7 +248,7 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
                 salonId: invite.salonId,
                 role: membershipRole,
               });
-              console.log(`[INVITE CLAIMED] Created membership for existing admin ${existingAdmin.id} to salon ${invite.salonId} as ${membershipRole}`);
+              console.warn(`[INVITE CLAIMED] Created membership for existing admin ${existingAdmin.id} to salon ${invite.salonId} as ${membershipRole}`);
             }
           }
 
@@ -416,7 +416,7 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
       });
     });
 
-    console.log(`[BOOTSTRAP] Created super admin for ${phoneE164}`);
+    console.warn(`[BOOTSTRAP] Created super admin for ${phoneE164}`);
 
     return {
       success: true,

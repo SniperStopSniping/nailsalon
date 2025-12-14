@@ -250,14 +250,14 @@ export async function POST(request: Request) {
           }),
         });
 
-        console.log(`[INVITE SMS] Sent to ${phoneE164}`);
+        console.warn(`[INVITE SMS] Sent to ${phoneE164}`);
       } catch (smsError) {
         console.error('Failed to send invite SMS:', smsError);
         // Don't fail the invite creation if SMS fails
       }
     } else {
-      console.log(`[DEV MODE] Would send invite SMS to ${phoneE164}:`);
-      console.log(message);
+      console.warn(`[DEV MODE] Would send invite SMS to ${phoneE164}:`);
+      console.warn(message);
     }
 
     return NextResponse.json({
