@@ -164,7 +164,7 @@ export function ServicesTab({ technicianId, onUpdate }: ServicesTabProps) {
 
       {Object.entries(groupedServices).map(([category, categoryServices]) => (
         <div key={category}>
-          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase capitalize text-[#8E8E93]">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
             {category}
           </h3>
           <div className="overflow-hidden rounded-[12px] bg-white">

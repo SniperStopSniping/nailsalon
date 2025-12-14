@@ -831,7 +831,7 @@ const BalanceCard = ({ points = 0, nextReward = 2500, streak = 0 }: BalanceCardP
         className="relative z-10 aspect-[1.7/1] max-h-[200px] w-full select-none"
       >
         <div
-          className="absolute relative inset-0 overflow-hidden border border-white/10 bg-[var(--n5-ink-main)] shadow-[var(--n5-shadow-lg)]"
+          className="absolute inset-0 overflow-hidden border border-white/10 bg-[var(--n5-ink-main)] shadow-[var(--n5-shadow-lg)]"
           style={{ borderRadius: 'var(--n5-radius-card)' }}
         >
 
