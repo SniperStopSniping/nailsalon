@@ -136,7 +136,7 @@ export default function MyReferralsPage() {
           <button
             type="button"
             onClick={handleBack}
-            className="hover:bg-[var(--n5-bg-card)]/50 z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 active:scale-95"
+            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-150 hover:bg-[var(--n5-bg-card)] active:scale-95"
             aria-label="Go back"
           >
             <svg

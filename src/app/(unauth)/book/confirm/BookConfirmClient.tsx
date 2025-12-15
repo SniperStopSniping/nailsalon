@@ -228,7 +228,7 @@ const BookingCard = ({
       >
         {/* Decorative blurs */}
         <div className="absolute inset-0 opacity-50">
-          <div className="absolute left-[-20%] top-[-50%] h-full w-4/5 rounded-full bg-[#5D4037] blur-[90px]" />
+          <div className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[#5D4037] blur-[90px]" />
           <div className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[#8D6E63] opacity-40 mix-blend-overlay blur-[60px]" />
         </div>
 
@@ -421,8 +421,8 @@ const ExistingAppointmentState = ({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="bg-[var(--n5-warning)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
-        style={{ borderRadius: n5.radiusPill }}
+        className="mx-auto mb-6 flex size-24 items-center justify-center"
+        style={{ borderRadius: n5.radiusPill, backgroundColor: 'rgba(255, 149, 0, 0.1)' }}
       >
         <Calendar className="size-12 text-[var(--n5-warning)]" />
       </motion.div>
@@ -495,8 +495,8 @@ const ErrorState = ({
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="bg-[var(--n5-error)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
-        style={{ borderRadius: n5.radiusPill }}
+        className="mx-auto mb-6 flex size-24 items-center justify-center"
+        style={{ borderRadius: n5.radiusPill, backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
       >
         <AlertCircle className="size-12 text-[var(--n5-error)]" />
       </motion.div>
@@ -733,12 +733,13 @@ const SuccessContent = ({
 
       {/* Floating Dock */}
       <div
-        className="bg-[var(--n5-bg-card)]/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8 backdrop-blur-xl"
+        className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8 backdrop-blur-xl"
         style={{
           borderRadius: n5.radiusCard,
           boxShadow: n5.shadowDock,
           borderWidth: 1,
           borderColor: 'var(--n5-border)',
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
         }}
       >
         <button
