@@ -263,6 +263,7 @@ export function BottomSheet({
           aria-label="Drag to resize"
           aria-valuemin={0}
           aria-valuemax={100}
+          aria-valuenow={50}
           className="flex h-8 cursor-grab items-center justify-center active:cursor-grabbing"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}

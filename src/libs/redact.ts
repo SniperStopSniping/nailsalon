@@ -305,7 +305,6 @@ export function isFullAccess(
  * @returns Object with forbidden keys removed
  */
 export function sanitizeForStaff<T extends Record<string, unknown>>(obj: T): T {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: any = { ...obj };
 
   for (const key of STAFF_FORBIDDEN_FIELDS) {
@@ -335,7 +334,6 @@ export function deepSanitizeForStaff<T>(obj: T): T {
     return obj.map(item => deepSanitizeForStaff(item)) as T;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: any = {};
 
   for (const [key, value] of Object.entries(obj)) {

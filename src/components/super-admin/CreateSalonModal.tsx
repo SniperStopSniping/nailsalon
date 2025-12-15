@@ -84,8 +84,16 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Close modal"
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            onClose();
+          }
+        }}
       />
 
       {/* Modal */}

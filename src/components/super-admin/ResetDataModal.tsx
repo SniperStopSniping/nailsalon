@@ -104,8 +104,16 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
     <div className="fixed inset-0 z-[60] overflow-hidden">
       {/* Backdrop */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Close modal"
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={handleClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            handleClose();
+          }
+        }}
       />
 
       {/* Modal */}
@@ -153,9 +161,10 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
                   checked={resetAll}
                   onChange={handleResetAllChange}
                   className="size-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  aria-label="Reset ALL Data"
                 />
                 <div>
-                  <div className="font-medium text-red-900">Reset ALL Data</div>
+                  <span className="font-medium text-red-900">Reset ALL Data</span>
                   <div className="text-xs text-red-700">Clear everything below</div>
                 </div>
               </label>
@@ -169,9 +178,10 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
                   checked={options.appointments}
                   onChange={() => handleOptionChange('appointments')}
                   className="size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  aria-label="Appointments"
                 />
                 <div>
-                  <div className="font-medium text-gray-900">Appointments</div>
+                  <span className="font-medium text-gray-900">Appointments</span>
                   <div className="text-xs text-gray-500">All bookings, services, photos</div>
                 </div>
               </label>
@@ -182,9 +192,10 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
                   checked={options.clients}
                   onChange={() => handleOptionChange('clients')}
                   className="size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  aria-label="Client Preferences"
                 />
                 <div>
-                  <div className="font-medium text-gray-900">Client Preferences</div>
+                  <span className="font-medium text-gray-900">Client Preferences</span>
                   <div className="text-xs text-gray-500">Saved preferences, favorites</div>
                 </div>
               </label>
@@ -195,9 +206,10 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
                   checked={options.staff}
                   onChange={() => handleOptionChange('staff')}
                   className="size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  aria-label="Staff / Technicians"
                 />
                 <div>
-                  <div className="font-medium text-gray-900">Staff / Technicians</div>
+                  <span className="font-medium text-gray-900">Staff / Technicians</span>
                   <div className="text-xs text-gray-500">All techs, schedules, time off</div>
                 </div>
               </label>
@@ -208,9 +220,10 @@ export function ResetDataModal({ isOpen, onClose, salonId, salonName, onSuccess 
                   checked={options.rewards}
                   onChange={() => handleOptionChange('rewards')}
                   className="size-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  aria-label="Rewards & Referrals"
                 />
                 <div>
-                  <div className="font-medium text-gray-900">Rewards & Referrals</div>
+                  <span className="font-medium text-gray-900">Rewards & Referrals</span>
                   <div className="text-xs text-gray-500">Points, referral history</div>
                 </div>
               </label>

@@ -855,6 +855,7 @@ const NameCaptureModal = ({
                   onSave();
                 }
               }}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- modal name input focus
               autoFocus
             />
 

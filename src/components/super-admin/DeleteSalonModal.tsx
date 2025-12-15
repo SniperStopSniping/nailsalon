@@ -84,8 +84,16 @@ export function DeleteSalonModal({
     <div className="fixed inset-0 z-[60] overflow-hidden">
       {/* Backdrop */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Close modal"
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={handleClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            handleClose();
+          }
+        }}
       />
 
       {/* Modal */}
@@ -134,9 +142,10 @@ export function DeleteSalonModal({
                     checked={deleteType === 'soft'}
                     onChange={() => setDeleteType('soft')}
                     className="mt-0.5 size-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    aria-label="Soft Delete"
                   />
                   <div>
-                    <div className="font-medium text-gray-900">Soft Delete</div>
+                    <span className="font-medium text-gray-900">Soft Delete</span>
                     <div className="text-xs text-gray-500">
                       Mark salon as deleted but preserve all data. Can be restored later.
                     </div>
@@ -151,9 +160,10 @@ export function DeleteSalonModal({
                   checked={deleteType === 'hard'}
                   onChange={() => setDeleteType('hard')}
                   className="mt-0.5 size-4 border-gray-300 text-red-600 focus:ring-red-500"
+                  aria-label="Permanent Delete"
                 />
                 <div>
-                  <div className="font-medium text-red-900">Permanent Delete</div>
+                  <span className="font-medium text-red-900">Permanent Delete</span>
                   <div className="text-xs text-red-700">
                     Remove ALL data permanently: appointments, clients, staff, services, rewards.
                     This CANNOT be undone.

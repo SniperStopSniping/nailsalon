@@ -141,8 +141,9 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
       )}
 
       {/* Clickable Content */}
-      <div
-        className={`flex flex-1 cursor-pointer items-center active:bg-gray-50 ${isDraggable ? 'pl-1' : 'pl-4'}`}
+      <button
+        type="button"
+        className={`flex flex-1 cursor-pointer items-center border-0 bg-transparent text-left active:bg-gray-50 ${isDraggable ? 'pl-1' : 'pl-4'}`}
         onClick={onClick}
       >
         {/* Avatar */}
@@ -235,7 +236,7 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
             <ChevronRight className="size-4 text-[#C7C7CC]" />
           </div>
         </div>
-      </div>
+      </button>
     </div>
   );
 });

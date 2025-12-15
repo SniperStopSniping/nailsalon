@@ -370,8 +370,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
           Tech Dashboard Login
         </h3>
         <div className="rounded-[12px] bg-white p-4">
-          <label className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
+          <label htmlFor="settings-clerk-userid" className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
           <input
+            id="settings-clerk-userid"
             type="text"
             value={userId}
             onChange={e => setUserId(e.target.value)}

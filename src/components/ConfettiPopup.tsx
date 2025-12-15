@@ -152,15 +152,15 @@ export function ConfettiPopup({
           }
         }}
       >
-        {/* Modal */}
+        {/* Modal - eslint-disable jsx-a11y/no-noninteractive-element-interactions: stop propagation only */}
         <div
           role="dialog"
+          aria-modal="true"
+          aria-label="Celebration popup"
           className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white p-8 text-center shadow-2xl"
           style={{
             animation: mounted ? 'modal-fade-in 300ms ease-out forwards' : undefined,
           }}
-          onClick={e => e.stopPropagation()}
-          onKeyDown={e => e.stopPropagation()}
         >
           {/* Emoji with animation */}
           <div

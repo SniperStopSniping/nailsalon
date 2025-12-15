@@ -107,8 +107,9 @@ function Row({
   };
 
   return (
-    <div
-      className="flex min-h-[48px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
+    <button
+      type="button"
+      className="flex min-h-[48px] w-full cursor-pointer items-center border-0 bg-transparent pl-4 text-left transition-colors active:bg-gray-50"
       onClick={type === 'link' ? onClick : undefined}
     >
       {/* Icon */}
@@ -152,7 +153,7 @@ function Row({
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -257,8 +258,9 @@ function ProfileCard({
   const displayInitials = initials || name.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
-    <div
-      className="mb-8 flex cursor-pointer items-center gap-3 px-4 transition-opacity active:opacity-70"
+    <button
+      type="button"
+      className="mb-8 flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-4 text-left transition-opacity active:opacity-70"
       onClick={onClick}
     >
       <div className="size-[60px] overflow-hidden rounded-full border border-white/50 shadow-sm">
@@ -271,7 +273,7 @@ function ProfileCard({
         <div className="text-[13px] text-gray-500">{subtitle}</div>
       </div>
       <ChevronRight className="size-5 text-[#C7C7CC]" />
-    </div>
+    </button>
   );
 }
 

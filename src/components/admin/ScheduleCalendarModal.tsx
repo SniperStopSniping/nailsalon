@@ -298,99 +298,101 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
 
       {/* Content */}
       <div className="pb-safe overflow-y-auto p-5" style={{ maxHeight: 'calc(70vh - 100px)' }}>
-        {appointments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
-              <Calendar className="size-7 text-gray-400" />
-            </div>
-            <p className="text-sm font-medium text-gray-500">No appointments scheduled</p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {Object.entries(byTechnician).map(([techName, appts]) => (
-              <div key={techName}>
-                {/* Technician Header */}
-                <div className="mb-3 flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-xs font-bold text-white">
-                    {techName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900">{techName}</span>
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                    {appts.length}
-                    {' '}
-                    appt
-                    {appts.length !== 1 ? 's' : ''}
-                  </span>
+        {appointments.length === 0
+          ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
+                  <Calendar className="size-7 text-gray-400" />
                 </div>
+                <p className="text-sm font-medium text-gray-500">No appointments scheduled</p>
+              </div>
+            )
+          : (
+              <div className="space-y-6">
+                {Object.entries(byTechnician).map(([techName, appts]) => (
+                  <div key={techName}>
+                    {/* Technician Header */}
+                    <div className="mb-3 flex items-center gap-2">
+                      <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-xs font-bold text-white">
+                        {techName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">{techName}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                        {appts.length}
+                        {' '}
+                        appt
+                        {appts.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
 
-                {/* Appointments List */}
-                <div className="space-y-2">
-                  {appts.map((appt, idx) => {
-                    const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
+                    {/* Appointments List */}
+                    <div className="space-y-2">
+                      {appts.map((appt, idx) => {
+                        const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
 
-                    return (
-                      <motion.div
-                        key={appt.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className={`
+                        return (
+                          <motion.div
+                            key={appt.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className={`
                           rounded-xl border p-3
                           ${statusColors!.bg} ${statusColors!.border}
                         `}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            {/* Client Name & Time */}
-                            <div className="flex items-center gap-2">
-                              <User className={`size-4 ${statusColors!.text}`} />
-                              <span className={`font-semibold ${statusColors!.text}`}>
-                                {appt.clientName || 'Guest'}
-                              </span>
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                {/* Client Name & Time */}
+                                <div className="flex items-center gap-2">
+                                  <User className={`size-4 ${statusColors!.text}`} />
+                                  <span className={`font-semibold ${statusColors!.text}`}>
+                                    {appt.clientName || 'Guest'}
+                                  </span>
+                                </div>
+
+                                {/* Services */}
+                                <p className="mt-1 text-sm text-gray-600">
+                                  {appt.services.join(', ') || 'Service'}
+                                </p>
+                              </div>
+
+                              {/* Time & Duration */}
+                              <div className="text-right">
+                                <div className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}>
+                                  <Clock className="size-3.5" />
+                                  {formatTime(appt.startTime)}
+                                </div>
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                  {calculateDuration(appt.startTime, appt.endTime)}
+                                </p>
+                              </div>
                             </div>
 
-                            {/* Services */}
-                            <p className="mt-1 text-sm text-gray-600">
-                              {appt.services.join(', ') || 'Service'}
-                            </p>
-                          </div>
-
-                          {/* Time & Duration */}
-                          <div className="text-right">
-                            <div className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}>
-                              <Clock className="size-3.5" />
-                              {formatTime(appt.startTime)}
-                            </div>
-                            <p className="mt-0.5 text-xs text-gray-500">
-                              {calculateDuration(appt.startTime, appt.endTime)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className={`
+                            {/* Status Badge */}
+                            <div className="mt-2 flex items-center justify-between">
+                              <span className={`
                             inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
                             ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
                           `}
-                          >
-                            {appt.status.replace('_', ' ')}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {formatTime(appt.startTime)}
-                            {' '}
-                            -
-                            {formatTime(appt.endTime)}
-                          </span>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
+                              >
+                                {appt.status.replace('_', ' ')}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {formatTime(appt.startTime)}
+                                {' '}
+                                -
+                                {formatTime(appt.endTime)}
+                              </span>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
       </div>
     </motion.div>
   );

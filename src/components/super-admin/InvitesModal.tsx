@@ -283,8 +283,16 @@ export function InvitesModal({ onClose }: Props) {
       <div className="flex min-h-screen items-center justify-center p-4">
         {/* Backdrop */}
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close modal"
           className="fixed inset-0 bg-black/50 transition-opacity"
           onClick={onClose}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              onClose();
+            }
+          }}
         />
 
         {/* Modal */}
@@ -312,135 +320,141 @@ export function InvitesModal({ onClose }: Props) {
           {/* Content */}
           <div className="max-h-[60vh] overflow-y-auto p-6">
             {/* Create Button / Form */}
-            {!showCreateForm ? (
-              <button
-                type="button"
-                onClick={() => setShowCreateForm(true)}
-                className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-50 px-4 py-3 font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
-              >
-                <UserPlus className="size-5" />
-                Create New Invite
-              </button>
-            ) : (
-              <form onSubmit={handleCreate} className="mb-6 rounded-xl bg-gray-50 p-4">
-                <h3 className="mb-4 font-medium text-gray-900">New Invite</h3>
-
-                {/* Phone */}
-                <div className="mb-4">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="(416) 555-1234"
-                    required
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {/* Role */}
-                <div className="mb-4">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Role
-                  </label>
-                  <select
-                    value={role}
-                    onChange={e => setRole(e.target.value as 'ADMIN' | 'SUPER_ADMIN')}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="ADMIN">Admin (Salon)</option>
-                    <option value="SUPER_ADMIN">Super Admin</option>
-                  </select>
-                </div>
-
-                {/* Salon (for ADMIN role) */}
-                {role === 'ADMIN' && (
-                  <>
-                    <div className="mb-4">
-                      <label className="mb-1 block text-sm font-medium text-gray-700">
-                        Salon
-                      </label>
-                      <select
-                        value={salonSlug}
-                        onChange={e => setSalonSlug(e.target.value)}
-                        required={role === 'ADMIN'}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="">Select a salon...</option>
-                        {salons.map(salon => (
-                          <option key={salon.id} value={salon.slug}>
-                            {salon.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="mb-4">
-                      <label className="mb-1 block text-sm font-medium text-gray-700">
-                        Access Level
-                      </label>
-                      <select
-                        value={membershipRole}
-                        onChange={e => setMembershipRole(e.target.value as 'admin' | 'owner')}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="admin">Admin (can manage salon)</option>
-                        <option value="owner">Owner (full control)</option>
-                      </select>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Owner has full control and is shown as the primary contact.
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {/* Error */}
-                {createError && (
-                  <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {createError}
-                  </div>
-                )}
-
-                {/* Success */}
-                {createSuccess && (
-                  <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-                    <Check className="size-4" />
-                    Invite sent successfully!
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex gap-2">
+            {!showCreateForm
+              ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowCreateForm(false);
-                      setCreateError(null);
-                    }}
-                    className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100"
+                    onClick={() => setShowCreateForm(true)}
+                    className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-50 px-4 py-3 font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
                   >
-                    Cancel
+                    <UserPlus className="size-5" />
+                    Create New Invite
                   </button>
-                  <button
-                    type="submit"
-                    disabled={creating}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {creating
-                      ? (
-                          'Sending...'
-                        )
-                      : (
-                          <>
-                            <Send className="size-4" />
-                            Send Invite
-                          </>
-                        )}
-                  </button>
-                </div>
-              </form>
-            )}
+                )
+              : (
+                  <form onSubmit={handleCreate} className="mb-6 rounded-xl bg-gray-50 p-4">
+                    <h3 className="mb-4 font-medium text-gray-900">New Invite</h3>
+
+                    {/* Phone */}
+                    <div className="mb-4">
+                      <label htmlFor="invite-phone" className="mb-1 block text-sm font-medium text-gray-700">
+                        Phone Number
+                      </label>
+                      <input
+                        id="invite-phone"
+                        type="tel"
+                        value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                        placeholder="(416) 555-1234"
+                        required
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    {/* Role */}
+                    <div className="mb-4">
+                      <label htmlFor="invite-role" className="mb-1 block text-sm font-medium text-gray-700">
+                        Role
+                      </label>
+                      <select
+                        id="invite-role"
+                        value={role}
+                        onChange={e => setRole(e.target.value as 'ADMIN' | 'SUPER_ADMIN')}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="ADMIN">Admin (Salon)</option>
+                        <option value="SUPER_ADMIN">Super Admin</option>
+                      </select>
+                    </div>
+
+                    {/* Salon (for ADMIN role) */}
+                    {role === 'ADMIN' && (
+                      <>
+                        <div className="mb-4">
+                          <label htmlFor="invite-salon" className="mb-1 block text-sm font-medium text-gray-700">
+                            Salon
+                          </label>
+                          <select
+                            id="invite-salon"
+                            value={salonSlug}
+                            onChange={e => setSalonSlug(e.target.value)}
+                            required={role === 'ADMIN'}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="">Select a salon...</option>
+                            {salons.map(salon => (
+                              <option key={salon.id} value={salon.slug}>
+                                {salon.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="mb-4">
+                          <label htmlFor="invite-access" className="mb-1 block text-sm font-medium text-gray-700">
+                            Access Level
+                          </label>
+                          <select
+                            id="invite-access"
+                            value={membershipRole}
+                            onChange={e => setMembershipRole(e.target.value as 'admin' | 'owner')}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="admin">Admin (can manage salon)</option>
+                            <option value="owner">Owner (full control)</option>
+                          </select>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Owner has full control and is shown as the primary contact.
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Error */}
+                    {createError && (
+                      <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {createError}
+                      </div>
+                    )}
+
+                    {/* Success */}
+                    {createSuccess && (
+                      <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                        <Check className="size-4" />
+                        Invite sent successfully!
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateForm(false);
+                          setCreateError(null);
+                        }}
+                        className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={creating}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {creating
+                          ? (
+                              'Sending...'
+                            )
+                          : (
+                              <>
+                                <Send className="size-4" />
+                                Send Invite
+                              </>
+                            )}
+                      </button>
+                    </div>
+                  </form>
+                )}
 
             {/* Invites List */}
             {loading

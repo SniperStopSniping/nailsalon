@@ -179,9 +179,9 @@ function AdminOnboardingContent() {
         <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
           {/* Phone (Read-only) */}
           <div className="mb-4">
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <span className="mb-2 block text-sm font-medium text-slate-700">
               Phone Number
-            </label>
+            </span>
             <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-lg text-slate-600">
               {formatPhoneDisplay(user.phone)}
             </div>
@@ -205,6 +205,7 @@ function AdminOnboardingContent() {
                 setError('');
               }}
               placeholder="John Smith"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- onboarding form first field
               autoFocus
               className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-lg text-slate-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
             />

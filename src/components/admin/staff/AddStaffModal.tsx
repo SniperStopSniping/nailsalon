@@ -396,8 +396,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             {/* Basic Info */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
+                <label htmlFor="addstaff-name" className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
                 <input
+                  id="addstaff-name"
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
@@ -406,8 +407,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 />
               </div>
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
+                <label htmlFor="addstaff-email" className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
                 <input
+                  id="addstaff-email"
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -416,8 +418,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 />
               </div>
               <div className="p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
+                <label htmlFor="addstaff-phone" className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
                 <input
+                  id="addstaff-phone"
                   type="tel"
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
@@ -430,7 +433,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
             {/* Role & Skill */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-2 block text-[13px] text-[#8E8E93]">Role</label>
+                <span className="mb-2 block text-[13px] text-[#8E8E93]">Role</span>
                 <div className="flex flex-wrap gap-2">
                   {ROLE_OPTIONS.map(option => (
                     <button
@@ -449,7 +452,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
                 </div>
               </div>
               <div className="p-4">
-                <label className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</label>
+                <span className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</span>
                 <div className="flex flex-wrap gap-2">
                   {SKILL_OPTIONS.map(option => (
                     <button
@@ -495,7 +498,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
 
             {/* Languages */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label className="mb-2 block text-[13px] text-[#8E8E93]">Languages</label>
+              <span className="mb-2 block text-[13px] text-[#8E8E93]">Languages</span>
               <div className="flex flex-wrap gap-2">
                 {LANGUAGE_OPTIONS.map(lang => (
                   <button
@@ -537,8 +540,9 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
 
             {/* Bio */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
+              <label htmlFor="addstaff-bio" className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
               <textarea
+                id="addstaff-bio"
                 value={bio}
                 onChange={e => setBio(e.target.value)}
                 placeholder="Short bio or description..."

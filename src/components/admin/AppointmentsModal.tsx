@@ -315,101 +315,103 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
 
       {/* Scrollable Timeline */}
       <div className="relative flex-1 overflow-y-auto bg-white">
-        {loading ? (
-          <LoadingSkeleton />
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center px-8 py-20">
-            <p className="mb-2 text-sm text-red-600">{error}</p>
-            <button
-              type="button"
-              onClick={fetchAppointments}
-              className="text-sm font-medium text-[#007AFF]"
-            >
-              Try again
-            </button>
-          </div>
-        ) : appointments.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <>
-            {/* Current Time Line (Red) - only show for today */}
-            {isToday(selectedDate) && currentTimeTop > 0 && currentTimeTop < 13 * 96 && (
-              <div
-                className="pointer-events-none absolute left-14 z-20 w-[calc(100%-56px)]"
-                style={{ top: currentTimeTop }}
-              >
-                <div className="relative h-[2px] w-full bg-red-500">
-                  <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
-                  <span className="absolute -left-12 -top-1.5 text-[10px] font-bold text-red-500">
-                    {currentTime}
-                  </span>
+        {loading
+          ? (<LoadingSkeleton />)
+          : error
+            ? (
+                <div className="flex flex-col items-center justify-center px-8 py-20">
+                  <p className="mb-2 text-sm text-red-600">{error}</p>
+                  <button
+                    type="button"
+                    onClick={fetchAppointments}
+                    className="text-sm font-medium text-[#007AFF]"
+                  >
+                    Try again
+                  </button>
                 </div>
-              </div>
-            )}
+              )
+            : appointments.length === 0
+              ? (<EmptyState />)
+              : (
+                  <>
+                    {/* Current Time Line (Red) - only show for today */}
+                    {isToday(selectedDate) && currentTimeTop > 0 && currentTimeTop < 13 * 96 && (
+                      <div
+                        className="pointer-events-none absolute left-14 z-20 w-[calc(100%-56px)]"
+                        style={{ top: currentTimeTop }}
+                      >
+                        <div className="relative h-[2px] w-full bg-red-500">
+                          <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
+                          <span className="absolute -left-12 -top-1.5 text-[10px] font-bold text-red-500">
+                            {currentTime}
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
-            {/* Time Grid */}
-            <div className="pb-20 pt-4">
-              {HOURS.map(hour => (
-                <div key={hour} className="relative flex h-24">
-                  {/* Time Column */}
-                  <div className="-mt-1.5 w-14 pr-3 text-right text-[11px] font-medium text-gray-400">
-                    {formatHour(hour)}
-                  </div>
-                  {/* Row Lines */}
-                  <div className="relative flex-1 border-t border-gray-100">
-                    {/* Half-hour dotted line */}
-                    <div className="absolute left-0 top-12 w-full border-t border-dashed border-gray-50" />
-                  </div>
-                </div>
-              ))}
+                    {/* Time Grid */}
+                    <div className="pb-20 pt-4">
+                      {HOURS.map(hour => (
+                        <div key={hour} className="relative flex h-24">
+                          {/* Time Column */}
+                          <div className="-mt-1.5 w-14 pr-3 text-right text-[11px] font-medium text-gray-400">
+                            {formatHour(hour)}
+                          </div>
+                          {/* Row Lines */}
+                          <div className="relative flex-1 border-t border-gray-100">
+                            {/* Half-hour dotted line */}
+                            <div className="absolute left-0 top-12 w-full border-t border-dashed border-gray-50" />
+                          </div>
+                        </div>
+                      ))}
 
-              {/* Floating Appointment Cards */}
-              {appointments.map(appt => (
-                <motion.div
-                  key={appt.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-                  style={{
-                    position: 'absolute',
-                    top: `${appt.startRow * 96 + 16}px`,
-                    left: '60px',
-                    right: '12px',
-                    height: `${Math.max(appt.duration * 96 - 4, 40)}px`,
-                  }}
-                  className={`
+                      {/* Floating Appointment Cards */}
+                      {appointments.map(appt => (
+                        <motion.div
+                          key={appt.id}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                          style={{
+                            position: 'absolute',
+                            top: `${appt.startRow * 96 + 16}px`,
+                            left: '60px',
+                            right: '12px',
+                            height: `${Math.max(appt.duration * 96 - 4, 40)}px`,
+                          }}
+                          className={`
                     flex cursor-pointer flex-col justify-center overflow-hidden rounded-[6px] border-l-[3px] 
                     p-3 shadow-sm transition-all active:brightness-95
                     ${appt.color} ${appt.borderColor}
                   `}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold leading-tight">
-                        {appt.service}
-                      </div>
-                      <div className="mt-0.5 truncate text-[11px] opacity-80">
-                        {appt.client}
-                        {appt.technician && (
-                          <span className="ml-1.5 text-[10px] opacity-70">
-                            ·
-                            {appt.technician}
-                          </span>
-                        )}
-                        {!appt.technician && (
-                          <span className="ml-1.5 text-[10px] italic opacity-50">· Unassigned</span>
-                        )}
-                      </div>
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[13px] font-semibold leading-tight">
+                                {appt.service}
+                              </div>
+                              <div className="mt-0.5 truncate text-[11px] opacity-80">
+                                {appt.client}
+                                {appt.technician && (
+                                  <span className="ml-1.5 text-[10px] opacity-70">
+                                    ·
+                                    {appt.technician}
+                                  </span>
+                                )}
+                                {!appt.technician && (
+                                  <span className="ml-1.5 text-[10px] italic opacity-50">· Unassigned</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="ml-2 shrink-0 text-[10px] font-semibold opacity-70">
+                              {appt.time.split('-')[0]}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
                     </div>
-                    <div className="ml-2 shrink-0 text-[10px] font-semibold opacity-70">
-                      {appt.time.split('-')[0]}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </>
-        )}
+                  </>
+                )}
       </div>
 
       {/* Floating Action Button */}

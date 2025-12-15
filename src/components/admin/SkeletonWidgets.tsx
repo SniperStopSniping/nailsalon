@@ -28,9 +28,11 @@ const shimmerAnimation = {
 /**
  * Skeleton Box with Shimmer
  */
+const DEFAULT_STYLE: React.CSSProperties = {};
+
 function SkeletonBox({
   className = '',
-  style = {},
+  style = DEFAULT_STYLE,
 }: {
   className?: string;
   style?: React.CSSProperties;

@@ -104,123 +104,125 @@ export function ReviewPrompt({
         className="border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-5 shadow-[var(--n5-shadow-md)]"
         style={{ borderRadius: n5.radiusCard }}
       >
-        {isSubmitted ? (
-          // Success state
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="flex flex-col items-center gap-3 py-4"
-          >
-            <div
-              className="flex size-12 items-center justify-center bg-green-100 text-green-600"
-              style={{ borderRadius: n5.radiusPill }}
-            >
-              <Check className="size-6" />
-            </div>
-            <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
-              Thank you for your review!
-            </p>
-          </motion.div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
-                  How was your visit?
-                </h3>
-                {(technicianName || serviceName) && (
-                  <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-                    {serviceName && <span>{serviceName}</span>}
-                    {serviceName && technicianName && <span> with </span>}
-                    {technicianName && <span className="font-medium">{technicianName}</span>}
-                    {appointmentDate && (
-                      <span className="text-[var(--n5-ink-muted)]/60">
-                        {' '}
-                        ·
-                        {appointmentDate}
-                      </span>
-                    )}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleDismiss}
-                className="p-1 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
-                aria-label="Dismiss"
+        {isSubmitted
+          ? (
+              // Success state
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="flex flex-col items-center gap-3 py-4"
               >
-                <X className="size-5" />
-              </button>
-            </div>
-
-            {/* Star Rating */}
-            <div className="mb-4 flex justify-center gap-2">
-              {[1, 2, 3, 4, 5].map(star => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoverRating(star)}
-                  onMouseLeave={() => setHoverRating(0)}
-                  className="p-1 transition-transform active:scale-90"
-                  aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                <div
+                  className="flex size-12 items-center justify-center bg-green-100 text-green-600"
+                  style={{ borderRadius: n5.radiusPill }}
                 >
-                  <Star
-                    className={cn(
-                      'size-8 transition-colors',
-                      (hoverRating || rating) >= star
-                        ? 'fill-[var(--n5-accent)] text-[var(--n5-accent)]'
-                        : 'text-[var(--n5-border)] fill-transparent',
+                  <Check className="size-6" />
+                </div>
+                <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
+                  Thank you for your review!
+                </p>
+              </motion.div>
+            )
+          : (
+              <>
+                {/* Header */}
+                <div className="mb-4 flex items-start justify-between">
+                  <div>
+                    <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
+                      How was your visit?
+                    </h3>
+                    {(technicianName || serviceName) && (
+                      <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+                        {serviceName && <span>{serviceName}</span>}
+                        {serviceName && technicianName && <span> with </span>}
+                        {technicianName && <span className="font-medium">{technicianName}</span>}
+                        {appointmentDate && (
+                          <span className="text-[var(--n5-ink-muted)]/60">
+                            {' '}
+                            ·
+                            {appointmentDate}
+                          </span>
+                        )}
+                      </p>
                     )}
-                  />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDismiss}
+                    className="p-1 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
+                    aria-label="Dismiss"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+
+                {/* Star Rating */}
+                <div className="mb-4 flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      onMouseEnter={() => setHoverRating(star)}
+                      onMouseLeave={() => setHoverRating(0)}
+                      className="p-1 transition-transform active:scale-90"
+                      aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                    >
+                      <Star
+                        className={cn(
+                          'size-8 transition-colors',
+                          (hoverRating || rating) >= star
+                            ? 'fill-[var(--n5-accent)] text-[var(--n5-accent)]'
+                            : 'text-[var(--n5-border)] fill-transparent',
+                        )}
+                      />
+                    </button>
+                  ))}
+                </div>
+
+                {/* Rating label */}
+                <p className="font-body mb-4 text-center text-xs text-[var(--n5-ink-muted)]">
+                  {rating === 0 && 'Tap to rate'}
+                  {rating === 1 && 'Poor'}
+                  {rating === 2 && 'Fair'}
+                  {rating === 3 && 'Good'}
+                  {rating === 4 && 'Great'}
+                  {rating === 5 && 'Excellent!'}
+                </p>
+
+                {/* Comment (optional) */}
+                <textarea
+                  value={comment}
+                  onChange={e => setComment(e.target.value)}
+                  placeholder="Add a comment (optional)"
+                  className="font-body focus:ring-[var(--n5-accent)]/30 w-full resize-none border border-[var(--n5-border)] bg-[var(--n5-bg-surface)] px-3 py-2 text-sm text-[var(--n5-ink-main)] focus:outline-none focus:ring-2"
+                  style={{ borderRadius: n5.radiusMd }}
+                  rows={3}
+                  maxLength={1000}
+                />
+
+                {/* Error message */}
+                {error && (
+                  <p className="font-body mt-2 text-xs text-red-500">{error}</p>
+                )}
+
+                {/* Submit button */}
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || rating === 0}
+                  className={cn(
+                    'mt-4 w-full py-3 font-body text-sm font-medium transition-all',
+                    rating > 0
+                      ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)]'
+                      : 'cursor-not-allowed bg-[var(--n5-bg-surface)] text-[var(--n5-ink-muted)]',
+                  )}
+                  style={{ borderRadius: n5.radiusMd }}
+                >
+                  {isSubmitting ? 'Submitting...' : 'Submit Review'}
                 </button>
-              ))}
-            </div>
-
-            {/* Rating label */}
-            <p className="font-body mb-4 text-center text-xs text-[var(--n5-ink-muted)]">
-              {rating === 0 && 'Tap to rate'}
-              {rating === 1 && 'Poor'}
-              {rating === 2 && 'Fair'}
-              {rating === 3 && 'Good'}
-              {rating === 4 && 'Great'}
-              {rating === 5 && 'Excellent!'}
-            </p>
-
-            {/* Comment (optional) */}
-            <textarea
-              value={comment}
-              onChange={e => setComment(e.target.value)}
-              placeholder="Add a comment (optional)"
-              className="font-body focus:ring-[var(--n5-accent)]/30 w-full resize-none border border-[var(--n5-border)] bg-[var(--n5-bg-surface)] px-3 py-2 text-sm text-[var(--n5-ink-main)] focus:outline-none focus:ring-2"
-              style={{ borderRadius: n5.radiusMd }}
-              rows={3}
-              maxLength={1000}
-            />
-
-            {/* Error message */}
-            {error && (
-              <p className="font-body mt-2 text-xs text-red-500">{error}</p>
+              </>
             )}
-
-            {/* Submit button */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting || rating === 0}
-              className={cn(
-                'mt-4 w-full py-3 font-body text-sm font-medium transition-all',
-                rating > 0
-                  ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)]'
-                  : 'cursor-not-allowed bg-[var(--n5-bg-surface)] text-[var(--n5-ink-muted)]',
-              )}
-              style={{ borderRadius: n5.radiusMd }}
-            >
-              {isSubmitting ? 'Submitting...' : 'Submit Review'}
-            </button>
-          </>
-        )}
       </motion.div>
     </AnimatePresence>
   );

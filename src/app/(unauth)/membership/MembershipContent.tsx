@@ -767,50 +767,50 @@ export default function MembershipContent() {
       {/* Main Scroll Content */}
       <main className="mx-auto max-w-lg space-y-2 px-5 py-28">
         <AnimatePresence mode="wait">
-          {loading || isRefreshing ? (
-            <MembershipSkeleton key="skeleton" />
-          ) : (
-            <motion.div key="content" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              <TierHeroCard
-                tier={currentTier}
-                visits={visits}
-                pointsEarned={pointsEarned}
-                savedAmount={savedAmount}
-                nextTier={nextTier}
-              />
+          {(loading || isRefreshing)
+            ? (<MembershipSkeleton key="skeleton" />)
+            : (
+                <motion.div key="content" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                  <TierHeroCard
+                    tier={currentTier}
+                    visits={visits}
+                    pointsEarned={pointsEarned}
+                    savedAmount={savedAmount}
+                    nextTier={nextTier}
+                  />
 
-              <TierProgressTimeline currentTier={currentTier} visits={visits} />
+                  <TierProgressTimeline currentTier={currentTier} visits={visits} />
 
-              <PerksList currentTier={currentTier} />
+                  <PerksList currentTier={currentTier} />
 
-              {/* How Points Work Link */}
-              <motion.button
-                type="button"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                onClick={() => handleNavigate('/rewards')}
-                className="font-body mt-8 flex w-full items-center justify-center space-x-2 bg-[var(--n5-bg-card)] py-4 text-sm font-semibold text-[var(--n5-ink-main)] transition-colors hover:bg-[var(--n5-bg-surface)]"
-                style={{ borderRadius: n5.radiusMd, boxShadow: n5.shadowSm }}
-              >
-                <Gift className="size-4 text-[var(--n5-accent)]" />
-                <span>View Rewards & Points</span>
-                <ChevronRight className="size-4 text-[var(--n5-ink-muted)]" />
-              </motion.button>
+                  {/* How Points Work Link */}
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    onClick={() => handleNavigate('/rewards')}
+                    className="font-body mt-8 flex w-full items-center justify-center space-x-2 bg-[var(--n5-bg-card)] py-4 text-sm font-semibold text-[var(--n5-ink-main)] transition-colors hover:bg-[var(--n5-bg-surface)]"
+                    style={{ borderRadius: n5.radiusMd, boxShadow: n5.shadowSm }}
+                  >
+                    <Gift className="size-4 text-[var(--n5-accent)]" />
+                    <span>View Rewards & Points</span>
+                    <ChevronRight className="size-4 text-[var(--n5-ink-muted)]" />
+                  </motion.button>
 
-              {/* Footer */}
-              <div className="pt-10 text-center opacity-40">
-                <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
-                  {salonName || 'Nail Salon No.5'}
-                  {' '}
-                  · Est 2024
-                </p>
-                <p className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]">
-                  Membership benefits subject to availability
-                </p>
-              </div>
-            </motion.div>
-          )}
+                  {/* Footer */}
+                  <div className="pt-10 text-center opacity-40">
+                    <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
+                      {salonName || 'Nail Salon No.5'}
+                      {' '}
+                      · Est 2024
+                    </p>
+                    <p className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]">
+                      Membership benefits subject to availability
+                    </p>
+                  </div>
+                </motion.div>
+              )}
         </AnimatePresence>
       </main>
 

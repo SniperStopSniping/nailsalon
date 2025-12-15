@@ -145,85 +145,85 @@ export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) 
         ))}
       </div>
 
-      {loading ? (
-        <LoadingSkeleton />
-      ) : (
-        <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-3">
-            <EarningsCard
-              icon={<DollarSign className="size-5" />}
-              label="They Earned"
-              value={formatCurrency(summary?.techEarned ?? 0)}
-              sublabel={`${Math.round(commissionRate * 100)}% commission`}
-              color="#34C759"
-            />
-            <EarningsCard
-              icon={<Building2 className="size-5" />}
-              label="They Made Us"
-              value={formatCurrency(summary?.salonEarned ?? 0)}
-              sublabel={`${Math.round((1 - commissionRate) * 100)}% salon`}
-              color="#007AFF"
-            />
-          </div>
-
-          {/* Total Revenue */}
-          <div className="rounded-[12px] bg-white p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-[#FF950015]">
-                <TrendingUp className="size-5 text-[#FF9500]" />
+      {loading
+        ? (<LoadingSkeleton />)
+        : (
+            <>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <EarningsCard
+                  icon={<DollarSign className="size-5" />}
+                  label="They Earned"
+                  value={formatCurrency(summary?.techEarned ?? 0)}
+                  sublabel={`${Math.round(commissionRate * 100)}% commission`}
+                  color="#34C759"
+                />
+                <EarningsCard
+                  icon={<Building2 className="size-5" />}
+                  label="They Made Us"
+                  value={formatCurrency(summary?.salonEarned ?? 0)}
+                  sublabel={`${Math.round((1 - commissionRate) * 100)}% salon`}
+                  color="#007AFF"
+                />
               </div>
-              <span className="text-[13px] text-[#8E8E93]">Total Revenue</span>
-            </div>
-            <div className="text-[28px] font-bold text-[#1C1C1E]">
-              {formatCurrency(summary?.totalRevenue ?? 0)}
-            </div>
-            <div className="text-[13px] text-[#8E8E93]">
-              from
-              {' '}
-              {summary?.appointmentCount ?? 0}
-              {' '}
-              appointment
-              {(summary?.appointmentCount ?? 0) !== 1 ? 's' : ''}
-            </div>
-          </div>
 
-          {/* Chart */}
-          {series.length > 0 && (
-            <div>
-              <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
-                Revenue Trend
-              </h3>
+              {/* Total Revenue */}
               <div className="rounded-[12px] bg-white p-4">
-                <div className="flex h-32 items-end gap-1">
-                  {series.slice(-14).map((item, index) => {
-                    const height = (item.totalRevenue / maxRevenue) * 100;
-                    const date = item.date ? new Date(item.date) : null;
-                    const dayLabel = date
-                      ? date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1)
-                      : '';
-
-                    return (
-                      <div
-                        key={index}
-                        className="flex flex-1 flex-col items-center"
-                      >
-                        <div
-                          className="min-h-[4px] w-full rounded-t-sm bg-[#007AFF]"
-                          style={{ height: `${Math.max(height, 4)}%` }}
-                        />
-                        <span className="mt-1 text-[9px] text-[#8E8E93]">
-                          {dayLabel}
-                        </span>
-                      </div>
-                    );
-                  })}
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-[#FF950015]">
+                    <TrendingUp className="size-5 text-[#FF9500]" />
+                  </div>
+                  <span className="text-[13px] text-[#8E8E93]">Total Revenue</span>
+                </div>
+                <div className="text-[28px] font-bold text-[#1C1C1E]">
+                  {formatCurrency(summary?.totalRevenue ?? 0)}
+                </div>
+                <div className="text-[13px] text-[#8E8E93]">
+                  from
+                  {' '}
+                  {summary?.appointmentCount ?? 0}
+                  {' '}
+                  appointment
+                  {(summary?.appointmentCount ?? 0) !== 1 ? 's' : ''}
                 </div>
               </div>
-            </div>
+
+              {/* Chart */}
+              {series.length > 0 && (
+                <div>
+                  <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
+                    Revenue Trend
+                  </h3>
+                  <div className="rounded-[12px] bg-white p-4">
+                    <div className="flex h-32 items-end gap-1">
+                      {series.slice(-14).map((item, index) => {
+                        const height = (item.totalRevenue / maxRevenue) * 100;
+                        const date = item.date ? new Date(item.date) : null;
+                        const dayLabel = date
+                          ? date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1)
+                          : '';
+
+                        return (
+                          <div
+                            key={index}
+                            className="flex flex-1 flex-col items-center"
+                          >
+                            <div
+                              className="min-h-[4px] w-full rounded-t-sm bg-[#007AFF]"
+                              style={{ height: `${Math.max(height, 4)}%` }}
+                            />
+                            <span className="mt-1 text-[9px] text-[#8E8E93]">
+                              {dayLabel}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </>
-      )}
     </div>
   );
 }

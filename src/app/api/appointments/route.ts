@@ -1285,7 +1285,7 @@ export async function GET(request: Request): Promise<Response> {
       let limit = 50; // Default
       if (limitParam) {
         const parsed = Number.parseInt(limitParam, 10);
-        if (!isNaN(parsed) && parsed > 0) {
+        if (!Number.isNaN(parsed) && parsed > 0) {
           limit = Math.min(parsed, 100); // Cap at 100 for staff
         }
       }
@@ -1433,7 +1433,7 @@ export async function GET(request: Request): Promise<Response> {
 
     if (limitParam) {
       const limit = Number.parseInt(limitParam, 10);
-      if (!isNaN(limit) && limit > 0) {
+      if (!Number.isNaN(limit) && limit > 0) {
         query = query.limit(limit) as typeof query;
       }
     }

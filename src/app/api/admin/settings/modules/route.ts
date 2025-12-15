@@ -182,8 +182,8 @@ export async function PUT(request: Request): Promise<Response> {
         continue;
       }
 
-      const module = moduleKey as ModuleKey;
-      const mapping = MODULE_TO_ENTITLEMENT[module];
+      const moduleId = moduleKey as ModuleKey;
+      const mapping = MODULE_TO_ENTITLEMENT[moduleId];
       if (!mapping) {
         continue;
       }

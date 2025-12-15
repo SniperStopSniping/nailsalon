@@ -582,415 +582,419 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto bg-white p-5">
-              {loading ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="size-8 animate-spin text-gray-400" />
-                </div>
-              ) : (
-                <>
-                  {/* Error Message */}
-                  {error && (
-                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
-                      <p className="text-sm text-red-700">{error}</p>
+              {loading
+                ? (
+                    <div className="flex items-center justify-center py-20">
+                      <Loader2 className="size-8 animate-spin text-gray-400" />
                     </div>
-                  )}
+                  )
+                : (
+                    <>
+                      {/* Error Message */}
+                      {error && (
+                        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                          <p className="text-sm text-red-700">{error}</p>
+                        </div>
+                      )}
 
-                  {/* Step 1: Services Selection */}
-                  {step === 'services' && (
-                    <div className="space-y-4">
-                      <div>
-                        <h3 className="font-semibold text-gray-900">What services today?</h3>
-                        <p className="text-sm text-gray-500">Select all services needed</p>
-                      </div>
+                      {/* Step 1: Services Selection */}
+                      {step === 'services' && (
+                        <div className="space-y-4">
+                          <div>
+                            <h3 className="font-semibold text-gray-900">What services today?</h3>
+                            <p className="text-sm text-gray-500">Select all services needed</p>
+                          </div>
 
-                      {/* Search */}
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="text"
-                          value={serviceSearch}
-                          onChange={e => setServiceSearch(e.target.value)}
-                          placeholder="Search services..."
-                          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
+                          {/* Search */}
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="text"
+                              value={serviceSearch}
+                              onChange={e => setServiceSearch(e.target.value)}
+                              placeholder="Search services..."
+                              className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
 
-                      {/* Service List */}
-                      <div className="space-y-4">
-                        {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
-                          <div key={category}>
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                              {category}
-                            </h4>
-                            <div className="space-y-2">
-                              {categoryServices.map((service) => {
-                                const isSelected = selectedServiceIds.includes(service.id);
-                                return (
-                                  <button
-                                    key={service.id}
-                                    type="button"
-                                    onClick={() => toggleService(service.id)}
-                                    className={`
+                          {/* Service List */}
+                          <div className="space-y-4">
+                            {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+                              <div key={category}>
+                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                  {category}
+                                </h4>
+                                <div className="space-y-2">
+                                  {categoryServices.map((service) => {
+                                    const isSelected = selectedServiceIds.includes(service.id);
+                                    return (
+                                      <button
+                                        key={service.id}
+                                        type="button"
+                                        onClick={() => toggleService(service.id)}
+                                        className={`
                                       flex w-full items-center justify-between rounded-xl border-2 p-3 text-left transition-all
                                       ${isSelected
-                                    ? 'border-blue-500 bg-blue-50'
-                                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                                  }
+                                        ? 'border-blue-500 bg-blue-50'
+                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                      }
                                     `}
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className={`
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <div className={`
                                         flex size-6 items-center justify-center rounded-full border-2 transition-colors
                                         ${isSelected
-                                    ? 'border-blue-500 bg-blue-500 text-white'
-                                    : 'border-gray-300 bg-white'
-                                  }
+                                        ? 'border-blue-500 bg-blue-500 text-white'
+                                        : 'border-gray-300 bg-white'
+                                      }
                                       `}
-                                      >
-                                        {isSelected && <Check className="size-4" />}
-                                      </div>
-                                      <div>
-                                        <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                                          {service.name}
-                                        </p>
-                                        <p className="text-xs text-gray-500">
-                                          <Clock className="mr-1 inline-block size-3" />
-                                          {formatDuration(service.durationMinutes)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <span className={`font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                                      {formatCurrency(service.price)}
-                                    </span>
-                                  </button>
-                                );
-                              })}
+                                          >
+                                            {isSelected && <Check className="size-4" />}
+                                          </div>
+                                          <div>
+                                            <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                              {service.name}
+                                            </p>
+                                            <p className="text-xs text-gray-500">
+                                              <Clock className="mr-1 inline-block size-3" />
+                                              {formatDuration(service.durationMinutes)}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <span className={`font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                          {formatCurrency(service.price)}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Step 2: Technician Selection */}
+                      {step === 'tech' && (
+                        <div className="space-y-4">
+                          {/* Summary of selected services */}
+                          <div className="rounded-xl bg-blue-50 p-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-blue-900">
+                                  {selectedServices.length}
+                                  {' '}
+                                  service
+                                  {selectedServices.length !== 1 ? 's' : ''}
+                                </p>
+                                <p className="text-xs text-blue-700">
+                                  {formatDuration(totalDuration)}
+                                  {' '}
+                                  total •
+                                  {formatCurrency(totalPrice)}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setStep('services')}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                              >
+                                Edit
+                              </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Step 2: Technician Selection */}
-                  {step === 'tech' && (
-                    <div className="space-y-4">
-                      {/* Summary of selected services */}
-                      <div className="rounded-xl bg-blue-50 p-3">
-                        <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-blue-900">
-                              {selectedServices.length}
-                              {' '}
-                              service
-                              {selectedServices.length !== 1 ? 's' : ''}
-                            </p>
-                            <p className="text-xs text-blue-700">
-                              {formatDuration(totalDuration)}
-                              {' '}
-                              total •
-                              {formatCurrency(totalPrice)}
-                            </p>
+                            <h3 className="font-semibold text-gray-900">Who would they like?</h3>
+                            <p className="text-sm text-gray-500">Select a technician</p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep('services')}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
 
-                      <div>
-                        <h3 className="font-semibold text-gray-900">Who would they like?</h3>
-                        <p className="text-sm text-gray-500">Select a technician</p>
-                      </div>
+                          {/* Any Available Option */}
+                          {(() => {
+                            // Count how many techs work today and have availability
+                            const workingTechs = technicians.filter(t => getTechScheduleForToday(t) !== null);
+                            const anySlots = generateTimeSlots(existingAppointments, null, totalDuration, technicians);
+                            const firstSlot = anySlots[0];
 
-                      {/* Any Available Option */}
-                      {(() => {
-                        // Count how many techs work today and have availability
-                        const workingTechs = technicians.filter(t => getTechScheduleForToday(t) !== null);
-                        const anySlots = generateTimeSlots(existingAppointments, null, totalDuration, technicians);
-                        const firstSlot = anySlots[0];
-
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => handleTechSelect(null)}
-                            disabled={anySlots.length === 0}
-                            className={`
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleTechSelect(null)}
+                                disabled={anySlots.length === 0}
+                                className={`
                               flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
                               ${anySlots.length > 0
-                            ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100'
-                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                          }
+                                ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100'
+                                : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
+                              }
                             `}
-                          >
-                            <div className={`
+                              >
+                                <div className={`
                               flex size-12 items-center justify-center rounded-full
                               ${anySlots.length > 0
-                            ? 'bg-gradient-to-br from-green-400 to-emerald-600'
-                            : 'bg-gray-400'
-                          }
+                                ? 'bg-gradient-to-br from-green-400 to-emerald-600'
+                                : 'bg-gray-400'
+                              }
                             `}
-                            >
-                              <User className="size-6 text-white" />
-                            </div>
-                            <div className="flex-1">
-                              <p className={`font-semibold ${anySlots.length > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
-                                Any Available
-                              </p>
-                              {anySlots.length > 0
-                                ? (
-                                    <p className="text-sm text-green-600">
-                                      {workingTechs.length}
-                                      {' '}
-                                      tech
-                                      {workingTechs.length !== 1 ? 's' : ''}
-                                      {' '}
-                                      working • Next:
-                                      {firstSlot?.label}
-                                    </p>
-                                  )
-                                : (
-                                    <p className="text-sm text-gray-400">
-                                      No availability today
-                                    </p>
-                                  )}
-                            </div>
-                            {anySlots.length > 0 && <ChevronRight className="size-5 text-gray-400" />}
-                          </button>
-                        );
-                      })()}
+                                >
+                                  <User className="size-6 text-white" />
+                                </div>
+                                <div className="flex-1">
+                                  <p className={`font-semibold ${anySlots.length > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
+                                    Any Available
+                                  </p>
+                                  {anySlots.length > 0
+                                    ? (
+                                        <p className="text-sm text-green-600">
+                                          {workingTechs.length}
+                                          {' '}
+                                          tech
+                                          {workingTechs.length !== 1 ? 's' : ''}
+                                          {' '}
+                                          working • Next:
+                                          {firstSlot?.label}
+                                        </p>
+                                      )
+                                    : (
+                                        <p className="text-sm text-gray-400">
+                                          No availability today
+                                        </p>
+                                      )}
+                                </div>
+                                {anySlots.length > 0 && <ChevronRight className="size-5 text-gray-400" />}
+                              </button>
+                            );
+                          })()}
 
-                      {/* Technician List */}
-                      {technicians.map((tech) => {
-                        // Check if tech works today
-                        const schedule = getTechScheduleForToday(tech);
-                        const worksToday = schedule !== null;
+                          {/* Technician List */}
+                          {technicians.map((tech) => {
+                            // Check if tech works today
+                            const schedule = getTechScheduleForToday(tech);
+                            const worksToday = schedule !== null;
 
-                        // Check if this tech has ANY available slot for the required duration
-                        const techSlots = worksToday
-                          ? generateTimeSlots(existingAppointments, tech.id, totalDuration, technicians)
-                          : [];
-                        const nextAvailable = techSlots[0];
+                            // Check if this tech has ANY available slot for the required duration
+                            const techSlots = worksToday
+                              ? generateTimeSlots(existingAppointments, tech.id, totalDuration, technicians)
+                              : [];
+                            const nextAvailable = techSlots[0];
 
-                        return (
-                          <button
-                            key={tech.id}
-                            type="button"
-                            onClick={() => handleTechSelect(tech.id)}
-                            disabled={!worksToday}
-                            className={`
+                            return (
+                              <button
+                                key={tech.id}
+                                type="button"
+                                onClick={() => handleTechSelect(tech.id)}
+                                disabled={!worksToday}
+                                className={`
                               flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
                               ${worksToday
-                            ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
-                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                          }
+                                ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
+                                : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
+                              }
                             `}
-                          >
-                            <div className={`
+                              >
+                                <div className={`
                               flex size-12 items-center justify-center rounded-full text-sm font-bold text-white
                               ${worksToday
-                            ? 'bg-gradient-to-br from-blue-400 to-blue-600'
-                            : 'bg-gray-400'
-                          }
+                                ? 'bg-gradient-to-br from-blue-400 to-blue-600'
+                                : 'bg-gray-400'
+                              }
                             `}
-                            >
-                              {getInitials(tech.name)}
-                            </div>
-                            <div className="flex-1">
-                              <p className={`font-semibold ${worksToday ? 'text-gray-900' : 'text-gray-500'}`}>
-                                {tech.name}
-                              </p>
-                              {!worksToday
-                                ? (
-                                    <p className="text-sm text-gray-400">
-                                      Off today
-                                    </p>
-                                  )
-                                : nextAvailable
-                                  ? (
-                                      <p className="text-sm text-green-600">
-                                        Next:
-                                        {' '}
-                                        {nextAvailable.label}
-                                        {' '}
-                                        (
-                                        {techSlots.length}
-                                        {' '}
-                                        slot
-                                        {techSlots.length !== 1 ? 's' : ''}
+                                >
+                                  {getInitials(tech.name)}
+                                </div>
+                                <div className="flex-1">
+                                  <p className={`font-semibold ${worksToday ? 'text-gray-900' : 'text-gray-500'}`}>
+                                    {tech.name}
+                                  </p>
+                                  {!worksToday
+                                    ? (
+                                        <p className="text-sm text-gray-400">
+                                          Off today
+                                        </p>
+                                      )
+                                    : nextAvailable
+                                      ? (
+                                          <p className="text-sm text-green-600">
+                                            Next:
+                                            {' '}
+                                            {nextAvailable.label}
+                                            {' '}
+                                            (
+                                            {techSlots.length}
+                                            {' '}
+                                            slot
+                                            {techSlots.length !== 1 ? 's' : ''}
+                                            )
+                                          </p>
                                         )
-                                      </p>
-                                    )
-                                  : (
-                                      <p className="text-sm text-orange-600">
-                                        Fully booked today
-                                      </p>
-                                    )}
-                            </div>
-                            {worksToday && <ChevronRight className="size-5 text-gray-400" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Step 3: Time Slot Selection */}
-                  {step === 'time' && (
-                    <div className="space-y-4">
-                      {/* Summary */}
-                      <div className="rounded-xl bg-blue-50 p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-blue-900">
-                              {selectedTechnician?.name || 'Any Available'}
-                            </p>
-                            <p className="text-xs text-blue-700">
-                              {formatDuration(totalDuration)}
-                              {' '}
-                              needed •
-                              {formatCurrency(totalPrice)}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep('tech')}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                          >
-                            Change
-                          </button>
+                                      : (
+                                          <p className="text-sm text-orange-600">
+                                            Fully booked today
+                                          </p>
+                                        )}
+                                </div>
+                                {worksToday && <ChevronRight className="size-5 text-gray-400" />}
+                              </button>
+                            );
+                          })}
                         </div>
-                      </div>
+                      )}
 
-                      <div>
-                        <h3 className="font-semibold text-gray-900">Pick a time</h3>
-                        <p className="text-sm text-gray-500">
-                          {availableSlots.length}
-                          {' '}
-                          slot
-                          {availableSlots.length !== 1 ? 's' : ''}
-                          {' '}
-                          available today
-                        </p>
-                      </div>
-
-                      {availableSlots.length === 0
-                        ? (
-                            <div className="rounded-xl bg-orange-50 p-6 text-center">
-                              <p className="font-medium text-orange-800">No slots available</p>
-                              <p className="mt-1 text-sm text-orange-600">
-                                No
-                                {' '}
-                                {formatDuration(totalDuration)}
-                                {' '}
-                                slots available today for
-                                {' '}
-                                {selectedTechnician?.name || 'any tech'}
-                              </p>
+                      {/* Step 3: Time Slot Selection */}
+                      {step === 'time' && (
+                        <div className="space-y-4">
+                          {/* Summary */}
+                          <div className="rounded-xl bg-blue-50 p-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-blue-900">
+                                  {selectedTechnician?.name || 'Any Available'}
+                                </p>
+                                <p className="text-xs text-blue-700">
+                                  {formatDuration(totalDuration)}
+                                  {' '}
+                                  needed •
+                                  {formatCurrency(totalPrice)}
+                                </p>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => setStep('tech')}
-                                className="mt-3 text-sm font-medium text-orange-700 hover:text-orange-900"
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800"
                               >
-                                Try another technician →
+                                Change
                               </button>
                             </div>
-                          )
-                        : (
-                            <div className="grid grid-cols-3 gap-2">
-                              {availableSlots.map((slot, idx) => (
-                                <motion.button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => handleTimeSelect(slot)}
-                                  initial={{ opacity: 0, y: 10 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={{ delay: idx * 0.02 }}
-                                  className="rounded-xl border-2 border-gray-200 bg-white p-3 text-center font-medium text-gray-900 transition-all hover:border-green-400 hover:bg-green-50"
-                                >
-                                  <Clock className="mx-auto mb-1 size-4 text-green-500" />
-                                  <span className="text-sm">{slot.label}</span>
-                                </motion.button>
-                              ))}
-                            </div>
-                          )}
-                    </div>
-                  )}
+                          </div>
 
-                  {/* Step 4: Confirm & Client Details */}
-                  {step === 'confirm' && (
-                    <div className="space-y-5">
-                      {/* Booking Summary */}
-                      <div className="rounded-xl bg-green-50 p-4">
-                        <div className="mb-3 flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-green-800">
-                              {selectedTechnician?.name || 'Any Available'}
-                            </p>
-                            <p className="text-2xl font-bold text-green-900">
-                              {selectedTimeSlot && formatTimeSlot(selectedTimeSlot)}
+                            <h3 className="font-semibold text-gray-900">Pick a time</h3>
+                            <p className="text-sm text-gray-500">
+                              {availableSlots.length}
+                              {' '}
+                              slot
+                              {availableSlots.length !== 1 ? 's' : ''}
+                              {' '}
+                              available today
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setStep('time')}
-                            className="text-sm font-medium text-green-700 hover:text-green-900"
-                          >
-                            Change
-                          </button>
-                        </div>
-                        <div className="border-t border-green-200 pt-3">
-                          <p className="text-sm text-green-700">
-                            {selectedServices.map(s => s.name).join(', ')}
-                          </p>
-                          <p className="mt-1 text-sm font-medium text-green-800">
-                            {formatDuration(totalDuration)}
-                            {' '}
-                            •
-                            {formatCurrency(totalPrice)}
-                          </p>
-                        </div>
-                      </div>
 
-                      {/* Client Info */}
-                      <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-900">Client details</h3>
-
-                        <div>
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                            <Phone className="mr-1.5 inline-block size-4" />
-                            Phone Number *
-                          </label>
-                          <input
-                            type="tel"
-                            value={formatPhoneDisplay(clientPhone)}
-                            onChange={e => handlePhoneChange(e.target.value)}
-                            placeholder="(555) 123-4567"
-                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                          />
+                          {availableSlots.length === 0
+                            ? (
+                                <div className="rounded-xl bg-orange-50 p-6 text-center">
+                                  <p className="font-medium text-orange-800">No slots available</p>
+                                  <p className="mt-1 text-sm text-orange-600">
+                                    No
+                                    {' '}
+                                    {formatDuration(totalDuration)}
+                                    {' '}
+                                    slots available today for
+                                    {' '}
+                                    {selectedTechnician?.name || 'any tech'}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => setStep('tech')}
+                                    className="mt-3 text-sm font-medium text-orange-700 hover:text-orange-900"
+                                  >
+                                    Try another technician →
+                                  </button>
+                                </div>
+                              )
+                            : (
+                                <div className="grid grid-cols-3 gap-2">
+                                  {availableSlots.map((slot, idx) => (
+                                    <motion.button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => handleTimeSelect(slot)}
+                                      initial={{ opacity: 0, y: 10 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      transition={{ delay: idx * 0.02 }}
+                                      className="rounded-xl border-2 border-gray-200 bg-white p-3 text-center font-medium text-gray-900 transition-all hover:border-green-400 hover:bg-green-50"
+                                    >
+                                      <Clock className="mx-auto mb-1 size-4 text-green-500" />
+                                      <span className="text-sm">{slot.label}</span>
+                                    </motion.button>
+                                  ))}
+                                </div>
+                              )}
                         </div>
+                      )}
 
-                        <div>
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                            <User className="mr-1.5 inline-block size-4" />
-                            Client Name (optional)
-                          </label>
-                          <input
-                            type="text"
-                            value={clientName}
-                            onChange={e => setClientName(e.target.value)}
-                            placeholder="Jane Doe"
-                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                          />
+                      {/* Step 4: Confirm & Client Details */}
+                      {step === 'confirm' && (
+                        <div className="space-y-5">
+                          {/* Booking Summary */}
+                          <div className="rounded-xl bg-green-50 p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-green-800">
+                                  {selectedTechnician?.name || 'Any Available'}
+                                </p>
+                                <p className="text-2xl font-bold text-green-900">
+                                  {selectedTimeSlot && formatTimeSlot(selectedTimeSlot)}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setStep('time')}
+                                className="text-sm font-medium text-green-700 hover:text-green-900"
+                              >
+                                Change
+                              </button>
+                            </div>
+                            <div className="border-t border-green-200 pt-3">
+                              <p className="text-sm text-green-700">
+                                {selectedServices.map(s => s.name).join(', ')}
+                              </p>
+                              <p className="mt-1 text-sm font-medium text-green-800">
+                                {formatDuration(totalDuration)}
+                                {' '}
+                                •
+                                {formatCurrency(totalPrice)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Client Info */}
+                          <div className="space-y-4">
+                            <h3 className="font-semibold text-gray-900">Client details</h3>
+
+                            <div>
+                              <label htmlFor="walkin-phone" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                <Phone className="mr-1.5 inline-block size-4" />
+                                Phone Number *
+                              </label>
+                              <input
+                                id="walkin-phone"
+                                type="tel"
+                                value={formatPhoneDisplay(clientPhone)}
+                                onChange={e => handlePhoneChange(e.target.value)}
+                                placeholder="(555) 123-4567"
+                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label htmlFor="walkin-name" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                <User className="mr-1.5 inline-block size-4" />
+                                Client Name (optional)
+                              </label>
+                              <input
+                                id="walkin-name"
+                                type="text"
+                                value={clientName}
+                                onChange={e => setClientName(e.target.value)}
+                                placeholder="Jane Doe"
+                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
             </div>
 
             {/* Footer */}

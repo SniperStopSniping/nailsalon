@@ -406,55 +406,58 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-10">
-        {loading ? (
-          <LoadingSkeleton />
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center px-8 py-20">
-            <p className="mb-2 text-sm text-red-600">{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setHasLoaded(false); fetchActivity();
-              }}
-              className="text-sm font-medium text-[#007AFF]"
-            >
-              Try again
-            </button>
-          </div>
-        ) : notifications.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <>
-            {/* Clear All Button */}
-            {notifications.length > 0 && (
-              <div className="mb-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleClearAll}
-                  className="text-[13px] font-medium text-[#FF3B30] transition-opacity active:opacity-50"
-                >
-                  Clear All
-                </button>
-              </div>
-            )}
-
-            {/* Grouped Notifications */}
-            <AnimatePresence>
-              {Array.from(groupedNotifications.entries()).map(([group, groupNotifs]) => (
-                <div key={group} className="mb-6">
-                  <SectionHeader title={group} />
-                  {groupNotifs.map(notification => (
-                    <NotificationCard
-                      key={notification.id}
-                      notification={notification}
-                      onDismiss={handleDismiss}
-                    />
-                  ))}
+        {loading
+          ? (<LoadingSkeleton />)
+          : error
+            ? (
+                <div className="flex flex-col items-center justify-center px-8 py-20">
+                  <p className="mb-2 text-sm text-red-600">{error}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasLoaded(false);
+                      fetchActivity();
+                    }}
+                    className="text-sm font-medium text-[#007AFF]"
+                  >
+                    Try again
+                  </button>
                 </div>
-              ))}
-            </AnimatePresence>
-          </>
-        )}
+              )
+            : notifications.length === 0
+              ? (<EmptyState />)
+              : (
+                  <>
+                    {/* Clear All Button */}
+                    {notifications.length > 0 && (
+                      <div className="mb-4 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleClearAll}
+                          className="text-[13px] font-medium text-[#FF3B30] transition-opacity active:opacity-50"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Grouped Notifications */}
+                    <AnimatePresence>
+                      {Array.from(groupedNotifications.entries()).map(([group, groupNotifs]) => (
+                        <div key={group} className="mb-6">
+                          <SectionHeader title={group} />
+                          {groupNotifs.map(notification => (
+                            <NotificationCard
+                              key={notification.id}
+                              notification={notification}
+                              onDismiss={handleDismiss}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </AnimatePresence>
+                  </>
+                )}
       </div>
     </div>
   );

@@ -43,21 +43,21 @@ function isStartBeforeEnd(start: string, end: string): boolean {
 
 // Validate date format YYYY-MM-DD
 function isValidDateFormat(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !isNaN(Date.parse(date));
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date));
 }
 
 // Get all dates between start and end (inclusive)
 function getDateRange(startDate: string, endDate: string): string[] {
   const dates: string[] = [];
-  const current = new Date(startDate);
-  const end = new Date(endDate);
+  const startTime = new Date(startDate).getTime();
+  const endTime = new Date(endDate).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
 
-  while (current <= end) {
-    const dateStr = current.toISOString().split('T')[0];
+  for (let time = startTime; time <= endTime; time += dayMs) {
+    const dateStr = new Date(time).toISOString().split('T')[0];
     if (dateStr) {
       dates.push(dateStr);
     }
-    current.setDate(current.getDate() + 1);
   }
 
   return dates;

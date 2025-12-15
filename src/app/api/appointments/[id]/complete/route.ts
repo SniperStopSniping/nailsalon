@@ -371,7 +371,7 @@ async function handleSuccessfulCompletion(
   //
   if (salonClientId) {
     // Observability: log when fraud eval is triggered (helps debugging)
-    console.info('[FraudDetection] fraud_eval_triggered', {
+    console.warn('[FraudDetection] fraud_eval_triggered', {
       appointmentId,
       salonClientId,
       salonId: completedAppointment.salonId,

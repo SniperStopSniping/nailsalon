@@ -985,7 +985,8 @@ const RewardCard = ({ points, title, subtitle, tierColor, isLocked, icon: Icon, 
           : (
               <button
                 onClick={() => {
-                  triggerHaptic(); onRedeem?.();
+                  triggerHaptic();
+                  onRedeem?.();
                 }}
                 aria-label={`Redeem ${title} for ${points.toLocaleString()} points`}
                 className="font-body flex h-10 w-full items-center justify-center space-x-1 bg-[var(--n5-button-primary-bg)] text-[11px] font-bold uppercase tracking-wide text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-transform active:scale-95"
@@ -1103,7 +1104,8 @@ const FloatingDock = () => {
     >
       <button
         onClick={() => {
-          triggerHaptic(); router.push('/book');
+          triggerHaptic();
+          router.push('/book');
         }}
         aria-label="Go to Home"
         className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -1118,7 +1120,8 @@ const FloatingDock = () => {
       </div>
       <button
         onClick={() => {
-          triggerHaptic(); router.push('/profile');
+          triggerHaptic();
+          router.push('/profile');
         }}
         aria-label="Go to Profile"
         className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -1328,203 +1331,205 @@ export default function RewardsContent() {
 
         {/* Main Content */}
         <main className="space-y-5 px-5 pb-28 pt-24">
-          {loading ? (
-            // Loading skeleton
-            <div className="animate-pulse space-y-4">
-              <div className="aspect-[1.7/1] w-full bg-[var(--n5-border-muted)]" style={{ borderRadius: 'var(--n5-radius-card)' }} />
-              <div className="h-6 w-32 rounded bg-[var(--n5-border-muted)]" />
-              <div className="grid grid-cols-2 gap-3">
-                {[1, 2, 3, 4].map(i => (
-                  <div key={i} className="h-[180px] bg-[var(--n5-border-muted)]" style={{ borderRadius: 'var(--n5-radius-card)' }} />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-                {/* Fully Dynamic Balance Card */}
-                <BalanceCard points={currentPoints} nextReward={nextRewardPoints} streak={streak} />
-              </motion.div>
-
-              {/* YOUR ACTIVE REWARDS - Actually redeemable */}
-              {activeRewards.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.1 }}
-                  className="space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
-                      Your Rewards
-                    </h2>
-                    <span className="rounded-full bg-[var(--n5-accent-soft)] px-2.5 py-1 text-xs font-bold text-[var(--n5-accent)]">
-                      {activeRewards.length}
-                      {' '}
-                      Available
-                    </span>
-                  </div>
-
-                  {!upcomingAppointment && (
-                    <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
-                      <p className="font-body text-sm text-[var(--n5-warning)]">
-                        <span className="font-semibold">Book an appointment</span>
-                        {' '}
-                        to use your rewards!
-                      </p>
-                      <button
-                        onClick={() => router.push('/book')}
-                        className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
-                      >
-                        Book Now →
-                      </button>
-                    </div>
-                  )}
-
-                  {upcomingAppointment && (
-                    <div className="rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-3">
-                      <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--n5-ink-muted)]">
-                        Your Next Appointment
-                      </p>
-                      <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
-                        {new Date(upcomingAppointment.startTime).toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                        {' at '}
-                        {new Date(upcomingAppointment.startTime).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </p>
-                      <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-                        {upcomingAppointment.services.map(s => s.name).join(', ')}
-                      </p>
-                      <p className="font-body mt-1 text-xs font-semibold text-[var(--n5-ink-main)]">
-                        Total: $
-                        {(upcomingAppointment.totalPrice / 100).toFixed(2)}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    {activeRewards.map(reward => (
-                      <motion.div
-                        key={reward.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="flex items-center justify-between rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 shadow-sm"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex size-10 items-center justify-center rounded-full bg-[var(--n5-accent-soft)]">
-                            <Gift className="size-5 text-[var(--n5-accent)]" />
-                          </div>
-                          <div>
-                            <p className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
-                              {reward.eligibleServiceName || 'Free Service'}
-                            </p>
-                            <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-                              {reward.type === 'referral_referee' ? 'Referral Bonus' : reward.type === 'referral_referrer' ? 'Referral Reward' : 'Reward'}
-                              {reward.daysUntilExpiry !== null && (
-                                <span className="ml-1 text-[var(--n5-warning)]">
-                                  · Expires in
-                                  {' '}
-                                  {reward.daysUntilExpiry}
-                                  {' '}
-                                  days
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            triggerHaptic();
-                            if (upcomingAppointment) {
-                              setSelectedApiReward(reward);
-                            } else {
-                              router.push('/book');
-                            }
-                          }}
-                          disabled={!upcomingAppointment}
-                          className={cn(
-                            'rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all',
-                            upcomingAppointment
-                              ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] active:scale-95'
-                              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-                          )}
-                        >
-                          {upcomingAppointment ? 'Use' : 'Book First'}
-                        </button>
-                      </motion.div>
+          {loading
+            ? (
+                // Loading skeleton
+                <div className="animate-pulse space-y-4">
+                  <div className="aspect-[1.7/1] w-full bg-[var(--n5-border-muted)]" style={{ borderRadius: 'var(--n5-radius-card)' }} />
+                  <div className="h-6 w-32 rounded bg-[var(--n5-border-muted)]" />
+                  <div className="grid grid-cols-2 gap-3">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="h-[180px] bg-[var(--n5-border-muted)]" style={{ borderRadius: 'var(--n5-radius-card)' }} />
                     ))}
                   </div>
-                </motion.div>
-              )}
-
-              {/* CATALOG - Browse what's available to redeem with your points */}
-              <div className="space-y-5">
-                <div className="flex items-center justify-between pt-4">
-                  <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
-                    Redeem Points
-                  </h2>
-                  <span className="font-body text-xs text-[var(--n5-ink-muted)]">
-                    {currentPoints.toLocaleString()}
-                    {' '}
-                    pts available
-                  </span>
                 </div>
+              )
+            : (
+                <>
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+                    {/* Fully Dynamic Balance Card */}
+                    <BalanceCard points={currentPoints} nextReward={nextRewardPoints} streak={streak} />
+                  </motion.div>
 
-                {!upcomingAppointment && currentPoints > 0 && (
-                  <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
-                    <p className="font-body text-sm text-[var(--n5-warning)]">
-                      <span className="font-semibold">Book an appointment</span>
-                      {' '}
-                      to redeem your points!
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => router.push('/book')}
-                      className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
+                  {/* YOUR ACTIVE REWARDS - Actually redeemable */}
+                  {activeRewards.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.6, delay: 0.1 }}
+                      className="space-y-3"
                     >
-                      Book Now →
-                    </button>
-                  </div>
-                )}
+                      <div className="flex items-center justify-between">
+                        <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
+                          Your Rewards
+                        </h2>
+                        <span className="rounded-full bg-[var(--n5-accent-soft)] px-2.5 py-1 text-xs font-bold text-[var(--n5-accent)]">
+                          {activeRewards.length}
+                          {' '}
+                          Available
+                        </span>
+                      </div>
 
-                {/* Tiers Logic - Dynamic Locking */}
-                {[
-                  { title: 'Small Treats', pts: '2,500', items: REWARDS_CATALOG.filter(r => r.points <= 2500) },
-                  { title: 'Medium Value', pts: '4,750', items: REWARDS_CATALOG.filter(r => r.points > 2500 && r.points <= 4750) },
-                  { title: 'High Value', pts: '8,750', items: REWARDS_CATALOG.filter(r => r.points > 4750 && r.points <= 8750) },
-                  { title: 'Luxury Hero', pts: '25,000', items: REWARDS_CATALOG.filter(r => r.points > 8750 && r.points <= 25000) },
-                  { title: 'Top Status', pts: '38,500', items: REWARDS_CATALOG.filter(r => r.points > 25000) },
-                ].map(tier => (
-                  <div key={tier.title}>
-                    <TierHeader title={tier.title} pts={tier.pts} />
-                    <div className={cn('grid gap-3 mt-3', tier.items.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
-                      {tier.items.map(reward => (
-                        <RewardCard
-                          key={reward.id}
-                          {...reward}
-                          isLocked={currentPoints < reward.points}
-                          onRedeem={
-                            currentPoints >= reward.points && upcomingAppointment
-                              ? () => handleCatalogRedeem(reward)
-                              : undefined
-                          }
-                        />
-                      ))}
+                      {!upcomingAppointment && (
+                        <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
+                          <p className="font-body text-sm text-[var(--n5-warning)]">
+                            <span className="font-semibold">Book an appointment</span>
+                            {' '}
+                            to use your rewards!
+                          </p>
+                          <button
+                            onClick={() => router.push('/book')}
+                            className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
+                          >
+                            Book Now →
+                          </button>
+                        </div>
+                      )}
+
+                      {upcomingAppointment && (
+                        <div className="rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-3">
+                          <p className="font-body mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--n5-ink-muted)]">
+                            Your Next Appointment
+                          </p>
+                          <p className="font-body text-sm font-medium text-[var(--n5-ink-main)]">
+                            {new Date(upcomingAppointment.startTime).toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                            {' at '}
+                            {new Date(upcomingAppointment.startTime).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                          <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+                            {upcomingAppointment.services.map(s => s.name).join(', ')}
+                          </p>
+                          <p className="font-body mt-1 text-xs font-semibold text-[var(--n5-ink-main)]">
+                            Total: $
+                            {(upcomingAppointment.totalPrice / 100).toFixed(2)}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        {activeRewards.map(reward => (
+                          <motion.div
+                            key={reward.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            className="flex items-center justify-between rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 shadow-sm"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex size-10 items-center justify-center rounded-full bg-[var(--n5-accent-soft)]">
+                                <Gift className="size-5 text-[var(--n5-accent)]" />
+                              </div>
+                              <div>
+                                <p className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
+                                  {reward.eligibleServiceName || 'Free Service'}
+                                </p>
+                                <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                                  {reward.type === 'referral_referee' ? 'Referral Bonus' : reward.type === 'referral_referrer' ? 'Referral Reward' : 'Reward'}
+                                  {reward.daysUntilExpiry !== null && (
+                                    <span className="ml-1 text-[var(--n5-warning)]">
+                                      · Expires in
+                                      {' '}
+                                      {reward.daysUntilExpiry}
+                                      {' '}
+                                      days
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                triggerHaptic();
+                                if (upcomingAppointment) {
+                                  setSelectedApiReward(reward);
+                                } else {
+                                  router.push('/book');
+                                }
+                              }}
+                              disabled={!upcomingAppointment}
+                              className={cn(
+                                'rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all',
+                                upcomingAppointment
+                                  ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] active:scale-95'
+                                  : 'bg-gray-200 text-gray-400 cursor-not-allowed',
+                              )}
+                            >
+                              {upcomingAppointment ? 'Use' : 'Book First'}
+                            </button>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* CATALOG - Browse what's available to redeem with your points */}
+                  <div className="space-y-5">
+                    <div className="flex items-center justify-between pt-4">
+                      <h2 className="font-heading text-lg font-semibold text-[var(--n5-ink-main)]">
+                        Redeem Points
+                      </h2>
+                      <span className="font-body text-xs text-[var(--n5-ink-muted)]">
+                        {currentPoints.toLocaleString()}
+                        {' '}
+                        pts available
+                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
 
-              {/* How Points Work Section */}
-              <HowPointsWork />
-            </>
-          )}
+                    {!upcomingAppointment && currentPoints > 0 && (
+                      <div className="border-[var(--n5-warning)]/30 bg-[var(--n5-warning)]/10 rounded-xl border p-3">
+                        <p className="font-body text-sm text-[var(--n5-warning)]">
+                          <span className="font-semibold">Book an appointment</span>
+                          {' '}
+                          to redeem your points!
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => router.push('/book')}
+                          className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
+                        >
+                          Book Now →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Tiers Logic - Dynamic Locking */}
+                    {[
+                      { title: 'Small Treats', pts: '2,500', items: REWARDS_CATALOG.filter(r => r.points <= 2500) },
+                      { title: 'Medium Value', pts: '4,750', items: REWARDS_CATALOG.filter(r => r.points > 2500 && r.points <= 4750) },
+                      { title: 'High Value', pts: '8,750', items: REWARDS_CATALOG.filter(r => r.points > 4750 && r.points <= 8750) },
+                      { title: 'Luxury Hero', pts: '25,000', items: REWARDS_CATALOG.filter(r => r.points > 8750 && r.points <= 25000) },
+                      { title: 'Top Status', pts: '38,500', items: REWARDS_CATALOG.filter(r => r.points > 25000) },
+                    ].map(tier => (
+                      <div key={tier.title}>
+                        <TierHeader title={tier.title} pts={tier.pts} />
+                        <div className={cn('grid gap-3 mt-3', tier.items.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+                          {tier.items.map(reward => (
+                            <RewardCard
+                              key={reward.id}
+                              {...reward}
+                              isLocked={currentPoints < reward.points}
+                              onRedeem={
+                                currentPoints >= reward.points && upcomingAppointment
+                                  ? () => handleCatalogRedeem(reward)
+                                  : undefined
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* How Points Work Section */}
+                  <HowPointsWork />
+                </>
+              )}
         </main>
 
         <FloatingDock />

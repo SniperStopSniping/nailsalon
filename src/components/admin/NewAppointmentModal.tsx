@@ -312,249 +312,256 @@ export function NewAppointmentModal({
 
             {/* Content */}
             <div className="h-[calc(100%-140px)] overflow-y-auto bg-white p-5">
-              {loading ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="size-8 animate-spin text-gray-400" />
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Error Message */}
-                  {error && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                      <p className="text-sm text-red-700">{error}</p>
+              {loading
+                ? (
+                    <div className="flex items-center justify-center py-20">
+                      <Loader2 className="size-8 animate-spin text-gray-400" />
                     </div>
-                  )}
+                  )
+                : (
+                    <div className="space-y-6">
+                      {/* Error Message */}
+                      {error && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                          <p className="text-sm text-red-700">{error}</p>
+                        </div>
+                      )}
 
-                  {/* Date & Time */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="appointment-date" className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Calendar className="mr-1.5 inline-block size-4" />
-                        Date
-                      </label>
-                      <input
-                        id="appointment-date"
-                        type="date"
-                        value={selectedDate}
-                        onChange={e => setSelectedDate(e.target.value)}
-                        min={formatDateForInput(new Date())}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
+                      {/* Date & Time */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="appointment-date" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <Calendar className="mr-1.5 inline-block size-4" />
+                            Date
+                          </label>
+                          <input
+                            id="appointment-date"
+                            type="date"
+                            value={selectedDate}
+                            onChange={e => setSelectedDate(e.target.value)}
+                            min={formatDateForInput(new Date())}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
 
-                    <div className="relative">
-                      <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Clock className="mr-1.5 inline-block size-4" />
-                        Time
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-                        className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
-                      >
-                        <span>{selectedTime}</span>
-                        <ChevronDown className="size-4 text-gray-400" />
-                      </button>
+                        <div className="relative">
+                          <label htmlFor="newappt-time-btn" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <Clock className="mr-1.5 inline-block size-4" />
+                            Time
+                          </label>
+                          <button
+                            id="newappt-time-btn"
+                            type="button"
+                            onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                            className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
+                          >
+                            <span>{selectedTime}</span>
+                            <ChevronDown className="size-4 text-gray-400" />
+                          </button>
 
-                      {showTimeDropdown && (
-                        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                          {TIME_SLOTS.map(time => (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={() => {
-                                setSelectedTime(time);
-                                setShowTimeDropdown(false);
-                              }}
-                              className={`
+                          {showTimeDropdown && (
+                            <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                              {TIME_SLOTS.map(time => (
+                                <button
+                                  key={time}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTime(time);
+                                    setShowTimeDropdown(false);
+                                  }}
+                                  className={`
                                 w-full px-3 py-2 text-left text-sm transition-colors
                                 ${time === selectedTime ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
                               `}
-                            >
-                              {time}
-                            </button>
-                          ))}
+                                >
+                                  {time}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
 
-                  {/* Client Info */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Phone className="mr-1.5 inline-block size-4" />
-                        Phone Number *
-                      </label>
-                      <input
-                        type="tel"
-                        value={formatPhoneDisplay(clientPhone)}
-                        onChange={e => handlePhoneChange(e.target.value)}
-                        placeholder="(555) 123-4567"
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
+                      {/* Client Info */}
+                      <div className="space-y-4">
+                        <div>
+                          <label htmlFor="newappt-phone" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <Phone className="mr-1.5 inline-block size-4" />
+                            Phone Number *
+                          </label>
+                          <input
+                            id="newappt-phone"
+                            type="tel"
+                            value={formatPhoneDisplay(clientPhone)}
+                            onChange={e => handlePhoneChange(e.target.value)}
+                            placeholder="(555) 123-4567"
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
 
-                    <div>
-                      <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <User className="mr-1.5 inline-block size-4" />
-                        Client Name (optional)
-                      </label>
-                      <input
-                        type="text"
-                        value={clientName}
-                        onChange={e => setClientName(e.target.value)}
-                        placeholder="Jane Doe"
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
+                        <div>
+                          <label htmlFor="newappt-name" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <User className="mr-1.5 inline-block size-4" />
+                            Client Name (optional)
+                          </label>
+                          <input
+                            id="newappt-name"
+                            type="text"
+                            value={clientName}
+                            onChange={e => setClientName(e.target.value)}
+                            placeholder="Jane Doe"
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
 
-                  {/* Technician Selection */}
-                  <div className="relative">
-                    <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                      Technician
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowTechDropdown(!showTechDropdown)}
-                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
-                    >
-                      <span className="flex items-center gap-2">
-                        {selectedTechnician
-                          ? (
-                              <>
-                                <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
-                                  {selectedTechnician.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                                </div>
-                                {selectedTechnician.name}
-                              </>
-                            )
-                          : (
-                              'Any available technician'
-                            )}
-                      </span>
-                      <ChevronDown className="size-4 text-gray-400" />
-                    </button>
-
-                    {showTechDropdown && (
-                      <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      {/* Technician Selection */}
+                      <div className="relative">
+                        <label htmlFor="newappt-tech-btn" className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Technician
+                        </label>
                         <button
+                          id="newappt-tech-btn"
                           type="button"
-                          onClick={() => {
-                            setSelectedTechnicianId(null);
-                            setShowTechDropdown(false);
-                          }}
-                          className={`
+                          onClick={() => setShowTechDropdown(!showTechDropdown)}
+                          className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
+                        >
+                          <span className="flex items-center gap-2">
+                            {selectedTechnician
+                              ? (
+                                  <>
+                                    <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
+                                      {selectedTechnician.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                    </div>
+                                    {selectedTechnician.name}
+                                  </>
+                                )
+                              : (
+                                  'Any available technician'
+                                )}
+                          </span>
+                          <ChevronDown className="size-4 text-gray-400" />
+                        </button>
+
+                        {showTechDropdown && (
+                          <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTechnicianId(null);
+                                setShowTechDropdown(false);
+                              }}
+                              className={`
                             w-full px-3 py-2.5 text-left text-sm transition-colors
                             ${!selectedTechnicianId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
                           `}
-                        >
-                          Any available technician
-                        </button>
-                        {technicians.map(tech => (
-                          <button
-                            key={tech.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedTechnicianId(tech.id);
-                              setShowTechDropdown(false);
-                            }}
-                            className={`
+                            >
+                              Any available technician
+                            </button>
+                            {technicians.map(tech => (
+                              <button
+                                key={tech.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTechnicianId(tech.id);
+                                  setShowTechDropdown(false);
+                                }}
+                                className={`
                               flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors
                               ${tech.id === selectedTechnicianId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
                             `}
-                          >
-                            <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
-                              {tech.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                            </div>
-                            {tech.name}
-                          </button>
-                        ))}
+                              >
+                                <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
+                                  {tech.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                </div>
+                                {tech.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* Services Selection */}
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                      Services *
-                    </label>
+                      {/* Services Selection */}
+                      <div>
+                        <label htmlFor="newappt-service-search" className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Services *
+                        </label>
 
-                    {/* Search */}
-                    <div className="relative mb-3">
-                      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={serviceSearch}
-                        onChange={e => setServiceSearch(e.target.value)}
-                        placeholder="Search services..."
-                        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
+                        {/* Search */}
+                        <div className="relative mb-3">
+                          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+                          <input
+                            id="newappt-service-search"
+                            type="text"
+                            value={serviceSearch}
+                            onChange={e => setServiceSearch(e.target.value)}
+                            placeholder="Search services..."
+                            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
 
-                    {/* Service List */}
-                    <div className="max-h-48 space-y-4 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
-                      {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
-                        <div key={category}>
-                          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            {category}
-                          </h4>
-                          <div className="space-y-1">
-                            {categoryServices.map((service) => {
-                              const isSelected = selectedServiceIds.includes(service.id);
-                              return (
-                                <button
-                                  key={service.id}
-                                  type="button"
-                                  onClick={() => toggleService(service.id)}
-                                  className={`
+                        {/* Service List */}
+                        <div className="max-h-48 space-y-4 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
+                          {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+                            <div key={category}>
+                              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                {category}
+                              </h4>
+                              <div className="space-y-1">
+                                {categoryServices.map((service) => {
+                                  const isSelected = selectedServiceIds.includes(service.id);
+                                  return (
+                                    <button
+                                      key={service.id}
+                                      type="button"
+                                      onClick={() => toggleService(service.id)}
+                                      className={`
                                     flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-all
                                     ${isSelected
-                                  ? 'bg-blue-50 ring-1 ring-blue-200'
-                                  : 'hover:bg-gray-50'
-                                }
+                                      ? 'bg-blue-50 ring-1 ring-blue-200'
+                                      : 'hover:bg-gray-50'
+                                    }
                                   `}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className={`
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`
                                       flex size-5 items-center justify-center rounded-md border transition-colors
                                       ${isSelected
-                                  ? 'border-blue-500 bg-blue-500 text-white'
-                                  : 'border-gray-300'
-                                }
+                                      ? 'border-blue-500 bg-blue-500 text-white'
+                                      : 'border-gray-300'
+                                    }
                                     `}
-                                    >
-                                      {isSelected && <Check className="size-3" />}
-                                    </div>
-                                    <span className={isSelected ? 'font-medium text-blue-900' : 'text-gray-700'}>
-                                      {service.name}
-                                    </span>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="font-medium text-gray-900">
-                                      {formatCurrency(service.price)}
-                                    </span>
-                                    <span className="ml-2 text-xs text-gray-500">
-                                      {formatDuration(service.durationMinutes)}
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
+                                        >
+                                          {isSelected && <Check className="size-3" />}
+                                        </div>
+                                        <span className={isSelected ? 'font-medium text-blue-900' : 'text-gray-700'}>
+                                          {service.name}
+                                        </span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-medium text-gray-900">
+                                          {formatCurrency(service.price)}
+                                        </span>
+                                        <span className="ml-2 text-xs text-gray-500">
+                                          {formatDuration(service.durationMinutes)}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
 
-                      {filteredServices.length === 0 && (
-                        <p className="py-4 text-center text-sm text-gray-500">
-                          No services found
-                        </p>
-                      )}
+                          {filteredServices.length === 0 && (
+                            <p className="py-4 text-center text-sm text-gray-500">
+                              No services found
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
+                  )}
             </div>
 
             {/* Footer */}

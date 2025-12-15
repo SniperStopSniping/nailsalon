@@ -459,6 +459,7 @@ export function BlockingLoginModal({
                           inputMode="numeric"
                           pattern="[0-9]*"
                           autoComplete="tel"
+                          // eslint-disable-next-line jsx-a11y/no-autofocus -- login modal first field
                           autoFocus
                           value={phone}
                           onChange={(e) => {
@@ -580,6 +581,7 @@ export function BlockingLoginModal({
                         inputMode="numeric"
                         pattern="[0-9]*"
                         autoComplete="one-time-code"
+                        // eslint-disable-next-line jsx-a11y/no-autofocus -- OTP input after step transition
                         autoFocus
                         value={code}
                         onChange={e =>

@@ -546,10 +546,11 @@ function AddOverrideForm({
         </div>
         {!isEditing && (
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <label htmlFor="timeoff-end-date" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               End Date
             </label>
             <button
+              id="timeoff-end-date"
               type="button"
               onClick={() => {
                 setShowEndCalendar(!showEndCalendar);
@@ -584,10 +585,11 @@ function AddOverrideForm({
       {type === 'hours' && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <label htmlFor="timeoff-start-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               Start Time
             </label>
             <select
+              id="timeoff-start-time"
               value={startTime}
               onChange={e => setStartTime(e.target.value)}
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
@@ -598,10 +600,11 @@ function AddOverrideForm({
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <label htmlFor="timeoff-end-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               End Time
             </label>
             <select
+              id="timeoff-end-time"
               value={endTime}
               onChange={e => setEndTime(e.target.value)}
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
@@ -615,10 +618,11 @@ function AddOverrideForm({
       )}
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        <label htmlFor="timeoff-note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
           Note (optional)
         </label>
         <input
+          id="timeoff-note"
           type="text"
           value={note}
           onChange={e => setNote(e.target.value)}
@@ -696,10 +700,11 @@ function RequestTimeOffForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <label htmlFor="request-start-date" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             Start Date
           </label>
           <button
+            id="request-start-date"
             type="button"
             onClick={() => {
               setShowStartCalendar(!showStartCalendar);
@@ -734,10 +739,11 @@ function RequestTimeOffForm({
           )}
         </div>
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <label htmlFor="request-end-date" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             End Date
           </label>
           <button
+            id="request-end-date"
             type="button"
             onClick={() => {
               setShowEndCalendar(!showEndCalendar);

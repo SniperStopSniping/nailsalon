@@ -293,11 +293,9 @@ async function createSignalIfNotExists(data: {
       .onConflictDoNothing({
         target: [fraudSignalSchema.appointmentId, fraudSignalSchema.type],
       });
-  } catch (error) {
-    // Log at debug level only - conflicts are expected
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('[FraudDetection] Signal insert conflict (expected):', error);
-    }
+  } catch {
+    // Signal insert conflicts are expected (unique constraint on repeated signals)
+    // No logging needed - this is normal operation
   }
 }
 

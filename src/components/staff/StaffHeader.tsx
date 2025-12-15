@@ -171,9 +171,17 @@ function NotificationBell() {
       {/* Notification Panel */}
       {showPanel && (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close notifications panel"
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16 sm:pt-24"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
+              setShowPanel(false);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
               setShowPanel(false);
             }
           }}

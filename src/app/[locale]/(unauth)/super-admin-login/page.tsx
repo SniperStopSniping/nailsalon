@@ -178,73 +178,79 @@ function SuperAdminLoginContent() {
       {/* Form */}
       <div className="flex-1 px-6">
         <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
-          {step === 'phone' ? (
-            <>
-              {/* Phone Input */}
-              <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  value={formatPhoneDisplay(phone)}
-                  onChange={handlePhoneChange}
-                  placeholder="(416) 555-1234"
-                  autoFocus
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg text-white placeholder:text-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
+          {step === 'phone'
+            ? (
+                <>
+                  {/* Phone Input */}
+                  <div className="mb-4">
+                    <label htmlFor="superadmin-phone" className="mb-2 block text-sm font-medium text-slate-300">
+                      Phone Number
+                    </label>
+                    <input
+                      id="superadmin-phone"
+                      type="tel"
+                      value={formatPhoneDisplay(phone)}
+                      onChange={handlePhoneChange}
+                      placeholder="(416) 555-1234"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus -- login form first field
+                      autoFocus
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg text-white placeholder:text-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
 
-              {/* Info */}
-              <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">
-                <p className="text-sm text-slate-400">
-                  This login is for platform super administrators only. Salon owners should use the
-                  {' '}
-                  <a href={`/${locale}/admin-login`} className="text-amber-400 hover:underline">
-                    salon admin login
-                  </a>
-                  .
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Code Input */}
-              <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Verification Code
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={code}
-                  onChange={handleCodeChange}
-                  placeholder="123456"
-                  autoFocus
-                  maxLength={6}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-white placeholder:text-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-                <p className="mt-2 text-center text-sm text-slate-400">
-                  We sent a 6-digit code to
-                  {' '}
-                  {formatPhoneDisplay(phone)}
-                </p>
-              </div>
+                  {/* Info */}
+                  <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3">
+                    <p className="text-sm text-slate-400">
+                      This login is for platform super administrators only. Salon owners should use the
+                      {' '}
+                      <a href={`/${locale}/admin-login`} className="text-amber-400 hover:underline">
+                        salon admin login
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </>
+              )
+            : (
+                <>
+                  {/* Code Input */}
+                  <div className="mb-4">
+                    <label htmlFor="superadmin-code" className="mb-2 block text-sm font-medium text-slate-300">
+                      Verification Code
+                    </label>
+                    <input
+                      id="superadmin-code"
+                      type="text"
+                      inputMode="numeric"
+                      value={code}
+                      onChange={handleCodeChange}
+                      placeholder="123456"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus -- OTP input after step transition
+                      autoFocus
+                      maxLength={6}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-white placeholder:text-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <p className="mt-2 text-center text-sm text-slate-400">
+                      We sent a 6-digit code to
+                      {' '}
+                      {formatPhoneDisplay(phone)}
+                    </p>
+                  </div>
 
-              {/* Back button */}
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('phone');
-                  setCode('');
-                  setError('');
-                }}
-                className="mb-3 w-full text-sm font-medium text-slate-400 hover:text-white"
-              >
-                ← Use a different number
-              </button>
-            </>
-          )}
+                  {/* Back button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep('phone');
+                      setCode('');
+                      setError('');
+                    }}
+                    className="mb-3 w-full text-sm font-medium text-slate-400 hover:text-white"
+                  >
+                    ← Use a different number
+                  </button>
+                </>
+              )}
 
           {/* Error Message */}
           {error && (

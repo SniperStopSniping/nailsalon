@@ -122,10 +122,11 @@ export function SuperAdminPolicyForm({
         <div className="space-y-4">
           {/* Before Photo to Start */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor="sapolicy-before-photo" className="mb-1 block text-sm font-medium text-gray-700">
               Before Photo to Start
             </label>
             <select
+              id="sapolicy-before-photo"
               value={policy.requireBeforePhotoToStart ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -146,10 +147,11 @@ export function SuperAdminPolicyForm({
 
           {/* After Photo to Finish */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor="sapolicy-after-finish" className="mb-1 block text-sm font-medium text-gray-700">
               After Photo to Finish
             </label>
             <select
+              id="sapolicy-after-finish"
               value={policy.requireAfterPhotoToFinish ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -170,10 +172,11 @@ export function SuperAdminPolicyForm({
 
           {/* After Photo to Pay */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor="sapolicy-after-pay" className="mb-1 block text-sm font-medium text-gray-700">
               After Photo to Pay
             </label>
             <select
+              id="sapolicy-after-pay"
               value={policy.requireAfterPhotoToPay ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -204,10 +207,11 @@ export function SuperAdminPolicyForm({
         <div className="space-y-4">
           {/* Enable Auto-Post */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor="sapolicy-autopost" className="mb-1 block text-sm font-medium text-gray-700">
               Enable Auto-Post
             </label>
             <select
+              id="sapolicy-autopost"
               value={policy.autoPostEnabled === null ? '' : policy.autoPostEnabled.toString()}
               onChange={(e) => {
                 const val = e.target.value;
@@ -230,11 +234,12 @@ export function SuperAdminPolicyForm({
           <div>
             <div className="mb-1 flex items-center gap-2">
               <Sparkles className="size-4 text-amber-500" />
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="sapolicy-aicaption" className="text-sm font-medium text-gray-700">
                 AI Caption
               </label>
             </div>
             <select
+              id="sapolicy-aicaption"
               value={policy.autoPostAiCaptionEnabled === null ? '' : policy.autoPostAiCaptionEnabled.toString()}
               onChange={(e) => {
                 const val = e.target.value;

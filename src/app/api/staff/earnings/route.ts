@@ -76,7 +76,7 @@ function getMonthRange(offset: number = 0): { from: Date; to: Date } {
 
 function parseDate(dateStr: string): Date | null {
   const parsed = new Date(dateStr);
-  if (isNaN(parsed.getTime())) {
+  if (Number.isNaN(parsed.getTime())) {
     return null;
   }
   return parsed;

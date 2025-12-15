@@ -227,9 +227,9 @@ export function getEntitledModules(
     utilization: false,
   };
 
-  for (const module of Object.keys(MODULE_TO_ENTITLEMENT) as ModuleKey[]) {
-    const [group, key] = MODULE_TO_ENTITLEMENT[module];
-    result[module] = resolveEntitlement(features, group, key);
+  for (const moduleId of Object.keys(MODULE_TO_ENTITLEMENT) as ModuleKey[]) {
+    const [group, key] = MODULE_TO_ENTITLEMENT[moduleId];
+    result[moduleId] = resolveEntitlement(features, group, key);
   }
 
   return result;

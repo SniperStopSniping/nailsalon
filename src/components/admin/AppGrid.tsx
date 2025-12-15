@@ -208,7 +208,9 @@ type AppGridProps = {
   onAppTap?: (appId: string) => void;
 };
 
-export function AppGrid({ theme = 'apple', badges = {}, onAppTap }: AppGridProps) {
+const DEFAULT_BADGES: Record<string, number> = {};
+
+export function AppGrid({ theme = 'apple', badges = DEFAULT_BADGES, onAppTap }: AppGridProps) {
   // Merge badges into apps
   const appsWithBadges = APPS.map(app => ({
     ...app,

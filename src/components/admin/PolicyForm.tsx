@@ -177,12 +177,13 @@ export function SalonPolicyForm({
           {/* Before Photo to Start */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-before-photo" className="text-sm font-medium text-gray-700">
                 Before Photo to Start
               </label>
               <p className="text-xs text-gray-500">Require photo before starting service</p>
             </div>
             <select
+              id="policy-before-photo"
               value={policy.requireBeforePhotoToStart}
               onChange={e => updatePolicy('requireBeforePhotoToStart', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireBeforePhotoToStart')}
@@ -197,12 +198,13 @@ export function SalonPolicyForm({
           {/* After Photo to Finish */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-after-photo-finish" className="text-sm font-medium text-gray-700">
                 After Photo to Finish
               </label>
               <p className="text-xs text-gray-500">Require photo before completing</p>
             </div>
             <select
+              id="policy-after-photo-finish"
               value={policy.requireAfterPhotoToFinish}
               onChange={e => updatePolicy('requireAfterPhotoToFinish', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireAfterPhotoToFinish')}
@@ -217,12 +219,13 @@ export function SalonPolicyForm({
           {/* After Photo to Pay */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-after-photo-pay" className="text-sm font-medium text-gray-700">
                 After Photo to Pay
               </label>
               <p className="text-xs text-gray-500">Require photo before payment</p>
             </div>
             <select
+              id="policy-after-photo-pay"
               value={policy.requireAfterPhotoToPay}
               onChange={e => updatePolicy('requireAfterPhotoToPay', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireAfterPhotoToPay')}
@@ -247,12 +250,13 @@ export function SalonPolicyForm({
           {/* Enable Auto-Post */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-autopost-toggle" className="text-sm font-medium text-gray-700">
                 Enable Auto-Post
               </label>
               <p className="text-xs text-gray-500">Automatically post after photos to social media</p>
             </div>
             <button
+              id="policy-autopost-toggle"
               type="button"
               onClick={() => updatePolicy('autoPostEnabled', !policy.autoPostEnabled)}
               disabled={isOverridden('autoPostEnabled')}
@@ -272,9 +276,9 @@ export function SalonPolicyForm({
           {policy.autoPostEnabled && (
             <>
               <div className="border-t pt-2">
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <span className="mb-2 block text-sm font-medium text-gray-700">
                   Platforms
-                </label>
+                </span>
                 <div className="flex gap-3">
                   <button
                     type="button"
@@ -305,9 +309,9 @@ export function SalonPolicyForm({
 
               {/* Caption Options */}
               <div className="border-t pt-2">
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <span className="mb-2 block text-sm font-medium text-gray-700">
                   Caption Options
-                </label>
+                </span>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2">
                     <input
@@ -344,13 +348,14 @@ export function SalonPolicyForm({
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4 text-amber-500" />
                   <div>
-                    <label className="text-sm font-medium text-gray-700">
+                    <label htmlFor="policy-ai-caption" className="text-sm font-medium text-gray-700">
                       AI Caption
                     </label>
                     <p className="text-xs text-gray-500">Generate captions with AI</p>
                   </div>
                 </div>
                 <button
+                  id="policy-ai-caption"
                   type="button"
                   onClick={() => updatePolicy('autoPostAiCaptionEnabled', !policy.autoPostAiCaptionEnabled)}
                   disabled={isOverridden('autoPostAiCaptionEnabled')}

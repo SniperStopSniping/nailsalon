@@ -145,63 +145,63 @@ export function ClientsTab({ technicianId }: ClientsTabProps) {
       </p>
 
       {/* Client List */}
-      {loading && clients.length === 0 ? (
-        <LoadingSkeleton />
-      ) : clients.length === 0 ? (
-        <EmptyState searchQuery={searchQuery} />
-      ) : (
-        <div className="overflow-hidden rounded-[12px] bg-white">
-          {clients.map((client, index) => (
-            <div
-              key={client.clientPhone}
-              className={`flex items-center p-4 ${
-                index !== clients.length - 1 ? 'border-b border-gray-100' : ''
-              }`}
-            >
-              {/* Avatar */}
-              <div className="mr-3 flex size-12 items-center justify-center rounded-full bg-[#F2F2F7] text-[#8E8E93]">
-                <User className="size-6" />
-              </div>
+      {loading && clients.length === 0
+        ? (<LoadingSkeleton />)
+        : clients.length === 0
+          ? (<EmptyState searchQuery={searchQuery} />)
+          : (
+              <div className="overflow-hidden rounded-[12px] bg-white">
+                {clients.map((client, index) => (
+                  <div
+                    key={client.clientPhone}
+                    className={`flex items-center p-4 ${
+                      index !== clients.length - 1 ? 'border-b border-gray-100' : ''
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div className="mr-3 flex size-12 items-center justify-center rounded-full bg-[#F2F2F7] text-[#8E8E93]">
+                      <User className="size-6" />
+                    </div>
 
-              {/* Info */}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[17px] font-medium text-[#1C1C1E]">
-                  {client.clientName}
-                </div>
-                <div className="text-[13px] text-[#8E8E93]">
-                  {client.totalVisits}
-                  {' '}
-                  visit
-                  {client.totalVisits !== 1 ? 's' : ''}
-                  {' '}
-                  · Last:
-                  {formatDate(client.lastVisit)}
-                </div>
-              </div>
+                    {/* Info */}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[17px] font-medium text-[#1C1C1E]">
+                        {client.clientName}
+                      </div>
+                      <div className="text-[13px] text-[#8E8E93]">
+                        {client.totalVisits}
+                        {' '}
+                        visit
+                        {client.totalVisits !== 1 ? 's' : ''}
+                        {' '}
+                        · Last:
+                        {formatDate(client.lastVisit)}
+                      </div>
+                    </div>
 
-              {/* Total Spent */}
-              <div className="text-right">
-                <div className="text-[15px] font-semibold text-[#34C759]">
-                  {formatCurrency(client.totalSpent)}
-                </div>
-                <div className="text-[11px] text-[#8E8E93]">total</div>
-              </div>
-            </div>
-          ))}
+                    {/* Total Spent */}
+                    <div className="text-right">
+                      <div className="text-[15px] font-semibold text-[#34C759]">
+                        {formatCurrency(client.totalSpent)}
+                      </div>
+                      <div className="text-[11px] text-[#8E8E93]">total</div>
+                    </div>
+                  </div>
+                ))}
 
-          {/* Load More */}
-          {hasMore && (
-            <button
-              type="button"
-              onClick={loadMore}
-              disabled={loading}
-              className="w-full border-t border-gray-100 py-3 text-[15px] font-medium text-[#007AFF]"
-            >
-              {loading ? 'Loading...' : 'Load More'}
-            </button>
-          )}
-        </div>
-      )}
+                {/* Load More */}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={loadMore}
+                    disabled={loading}
+                    className="w-full border-t border-gray-100 py-3 text-[15px] font-medium text-[#007AFF]"
+                  >
+                    {loading ? 'Loading...' : 'Load More'}
+                  </button>
+                )}
+              </div>
+            )}
     </div>
   );
 }

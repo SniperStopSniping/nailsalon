@@ -485,7 +485,7 @@ export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: Schedule
 
                 {/* Reason */}
                 <div>
-                  <label className="mb-1 block text-[13px] text-[#8E8E93]">Reason</label>
+                  <span className="mb-1 block text-[13px] text-[#8E8E93]">Reason</span>
                   <div className="flex flex-wrap gap-2">
                     {REASON_OPTIONS.map(option => (
                       <button
@@ -506,8 +506,9 @@ export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: Schedule
 
                 {/* Notes */}
                 <div>
-                  <label className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
+                  <label htmlFor="timeoff-notes" className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
                   <textarea
+                    id="timeoff-notes"
                     value={newTimeOff.notes}
                     onChange={e => setNewTimeOff(prev => ({ ...prev, notes: e.target.value }))}
                     placeholder="Additional details..."

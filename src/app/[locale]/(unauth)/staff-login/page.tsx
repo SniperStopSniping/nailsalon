@@ -195,81 +195,88 @@ function StaffLoginContent() {
       {/* Form */}
       <div className="flex-1 px-6">
         <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
-          {step === 'phone' ? (
-            <>
-              {/* Phone Input */}
-              <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  value={formatPhoneDisplay(phone)}
-                  onChange={handlePhoneChange}
-                  placeholder="(416) 555-1234"
-                  autoFocus
-                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
-                />
-              </div>
+          {step === 'phone'
+            ? (
+                <>
+                  {/* Phone Input */}
+                  <div className="mb-4">
+                    <label htmlFor="staff-phone" className="mb-2 block text-sm font-medium text-[#4A4A4A]">
+                      Phone Number
+                    </label>
+                    <input
+                      id="staff-phone"
+                      type="tel"
+                      value={formatPhoneDisplay(phone)}
+                      onChange={handlePhoneChange}
+                      placeholder="(416) 555-1234"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus -- login form first field
+                      autoFocus
+                      className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
+                    />
+                  </div>
 
-              {/* Salon Input */}
-              <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
-                  Salon Code
-                </label>
-                <input
-                  type="text"
-                  value={salonSlug}
-                  onChange={(e) => {
-                    setSalonSlug(e.target.value.trim().toLowerCase());
-                    setError('');
-                  }}
-                  placeholder="e.g. luxe-nails"
-                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
-                />
-                <p className="mt-1.5 text-xs text-[#8B8B8B]">
-                  Enter your salon&apos;s code or use the link from your invite SMS
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Code Input */}
-              <div className="mb-4">
-                <label className="mb-2 block text-sm font-medium text-[#4A4A4A]">
-                  Verification Code
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={code}
-                  onChange={handleCodeChange}
-                  placeholder="123456"
-                  autoFocus
-                  maxLength={6}
-                  className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
-                />
-                <p className="mt-2 text-center text-sm text-[#6B6B6B]">
-                  We sent a 6-digit code to
-                  {' '}
-                  {formatPhoneDisplay(phone)}
-                </p>
-              </div>
+                  {/* Salon Input */}
+                  <div className="mb-4">
+                    <label htmlFor="staff-salon-code" className="mb-2 block text-sm font-medium text-[#4A4A4A]">
+                      Salon Code
+                    </label>
+                    <input
+                      id="staff-salon-code"
+                      type="text"
+                      value={salonSlug}
+                      onChange={(e) => {
+                        setSalonSlug(e.target.value.trim().toLowerCase());
+                        setError('');
+                      }}
+                      placeholder="e.g. luxe-nails"
+                      className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-lg text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
+                    />
+                    <p className="mt-1.5 text-xs text-[#8B8B8B]">
+                      Enter your salon&apos;s code or use the link from your invite SMS
+                    </p>
+                  </div>
+                </>
+              )
+            : (
+                <>
+                  {/* Code Input */}
+                  <div className="mb-4">
+                    <label htmlFor="staff-code" className="mb-2 block text-sm font-medium text-[#4A4A4A]">
+                      Verification Code
+                    </label>
+                    <input
+                      id="staff-code"
+                      type="text"
+                      inputMode="numeric"
+                      value={code}
+                      onChange={handleCodeChange}
+                      placeholder="123456"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus -- OTP input after step transition
+                      autoFocus
+                      maxLength={6}
+                      className="w-full rounded-xl border border-[#E0D6CC] bg-white px-4 py-3 text-center font-mono text-lg tracking-[0.5em] text-[#2C2C2C] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#D4A574]"
+                    />
+                    <p className="mt-2 text-center text-sm text-[#6B6B6B]">
+                      We sent a 6-digit code to
+                      {' '}
+                      {formatPhoneDisplay(phone)}
+                    </p>
+                  </div>
 
-              {/* Back button */}
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('phone');
-                  setCode('');
-                  setError('');
-                }}
-                className="mb-3 w-full text-sm font-medium text-[#D4A574]"
-              >
-                ← Use a different number
-              </button>
-            </>
-          )}
+                  {/* Back button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep('phone');
+                      setCode('');
+                      setError('');
+                    }}
+                    className="mb-3 w-full text-sm font-medium text-[#D4A574]"
+                  >
+                    ← Use a different number
+                  </button>
+                </>
+              )}
 
           {/* Error Message */}
           {error && (

@@ -981,7 +981,8 @@ const ProfileEditSheet = ({
             {/* Form */}
             <form
               onSubmit={(e) => {
-                e.preventDefault(); handleSubmit();
+                e.preventDefault();
+                handleSubmit();
               }}
               className="space-y-4"
             >
