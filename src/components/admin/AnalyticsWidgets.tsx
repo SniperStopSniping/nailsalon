@@ -369,12 +369,14 @@ export function AnalyticsWidgets({
                   transition={{ duration: 0.15 }}
                   className="absolute left-0 top-full z-50 mt-2 rounded-xl bg-white p-4 shadow-[0_8px_32px_rgba(0,0,0,0.12)]"
                 >
-                  <p className="mb-2 text-[13px] font-medium text-[#8E8E93]">Jump to date</p>
+                  <label htmlFor="analytics-date-picker" className="mb-2 block text-[13px] font-medium text-[#8E8E93]">Jump to date</label>
                   <input
+                    id="analytics-date-picker"
                     type="date"
                     value={anchorDate || ''}
                     onChange={handleDatePickerChange}
                     max={new Date().toISOString().slice(0, 10)}
+                    title="Select a date"
                     className="w-full rounded-lg border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/20"
                   />
                   <button

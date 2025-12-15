@@ -258,6 +258,7 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
               accept="image/*"
               className="hidden"
               onChange={e => handleFileSelect(e, 'before')}
+              aria-label="Upload before photo"
             />
 
             {beforeUpload.error && (
@@ -317,6 +318,7 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
               accept="image/*"
               className="hidden"
               onChange={e => handleFileSelect(e, 'after')}
+              aria-label="Upload after photo"
             />
 
             {afterUpload.error && (

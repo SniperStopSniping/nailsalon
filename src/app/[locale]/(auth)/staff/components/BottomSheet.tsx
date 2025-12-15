@@ -258,12 +258,9 @@ export function BottomSheet({
       >
         {/* Drag Handle */}
         <div
-          role="slider"
+          role="button"
           tabIndex={0}
-          aria-label="Drag to resize"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={50}
+          aria-label="Drag handle to resize bottom sheet"
           className="flex h-8 cursor-grab items-center justify-center active:cursor-grabbing"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}

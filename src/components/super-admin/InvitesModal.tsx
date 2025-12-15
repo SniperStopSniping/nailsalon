@@ -311,6 +311,7 @@ export function InvitesModal({ onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close modal"
               className="rounded-lg p-2 transition-colors hover:bg-gray-100"
             >
               <X className="size-5 text-gray-500" />

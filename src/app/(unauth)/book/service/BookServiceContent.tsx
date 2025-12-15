@@ -291,6 +291,7 @@ export default function BookServiceContent() {
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="ml-2 flex size-5 items-center justify-center rounded-full transition-colors hover:bg-[var(--n5-bg-surface)]"
+                aria-label="Clear search"
               >
                 <svg
                   width="12"
@@ -298,6 +299,7 @@ export default function BookServiceContent() {
                   viewBox="0 0 12 12"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   <path
                     d="M9 3L3 9M3 3L9 9"

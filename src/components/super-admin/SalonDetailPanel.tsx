@@ -913,14 +913,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                           </div>
                           <button
                             type="button"
-                            role="switch"
-                            aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
                             onClick={() => {
                               setIsMultiLocationEnabled(!isMultiLocationEnabled);
                               markDirty();
                             }}
                             disabled={plan === 'single_salon' || plan === 'free'}
-                            aria-label="Toggle multi-location features"
+                            aria-label={`Multi-location features ${isMultiLocationEnabled ? 'enabled' : 'disabled'}`}
                             className={`relative h-6 w-11 rounded-full transition-colors ${
                               isMultiLocationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
                             } ${plan === 'single_salon' || plan === 'free' ? 'cursor-not-allowed opacity-50' : ''}`}
@@ -955,14 +953,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.onlineBooking ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, onlineBooking: !f.onlineBooking }));
                                 setOnlineBookingEnabled(!features.onlineBooking);
                                 markDirty();
                               }}
-                              aria-label="Toggle online booking"
+                              aria-label={`Online booking ${features.onlineBooking ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.onlineBooking ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -983,14 +979,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.smsReminders ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, smsReminders: !f.smsReminders }));
                                 setSmsRemindersEnabled(!features.smsReminders);
                                 markDirty();
                               }}
-                              aria-label="Toggle SMS reminders"
+                              aria-label={`SMS reminders ${features.smsReminders ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.smsReminders ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1011,14 +1005,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.rewards ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, rewards: !f.rewards }));
                                 setRewardsEnabled(!features.rewards);
                                 markDirty();
                               }}
-                              aria-label="Toggle rewards program"
+                              aria-label={`Rewards program ${features.rewards ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.rewards ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1039,14 +1031,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.profilePage ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, profilePage: !f.profilePage }));
                                 setProfilePageEnabled(!features.profilePage);
                                 markDirty();
                               }}
-                              aria-label="Toggle public profile"
+                              aria-label={`Public profile ${features.profilePage ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.profilePage ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1067,13 +1057,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={bookingFlowCustomizationEnabled ? 'true' : 'false'}
                               onClick={() => {
                                 setBookingFlowCustomizationEnabled(!bookingFlowCustomizationEnabled);
                                 markDirty();
                               }}
-                              aria-label="Toggle booking flow customization"
+                              aria-label={`Booking flow customization ${bookingFlowCustomizationEnabled ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 bookingFlowCustomizationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1103,13 +1091,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.visibilityControls ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, visibilityControls: !f.visibilityControls }));
                                 markDirty();
                               }}
-                              aria-label="Toggle visibility controls"
+                              aria-label={`Visibility controls ${features.visibilityControls ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.visibilityControls ? 'bg-amber-500' : 'bg-gray-200'
                               }`}
@@ -1130,13 +1116,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.multiLocation ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, multiLocation: !f.multiLocation }));
                                 markDirty();
                               }}
-                              aria-label="Toggle multi-location"
+                              aria-label={`Multi-location ${features.multiLocation ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.multiLocation ? 'bg-amber-500' : 'bg-gray-200'
                               }`}
@@ -1157,13 +1141,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.advancedAnalytics ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, advancedAnalytics: !f.advancedAnalytics }));
                                 markDirty();
                               }}
-                              aria-label="Toggle advanced analytics"
+                              aria-label={`Advanced analytics ${features.advancedAnalytics ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.advancedAnalytics ? 'bg-amber-500' : 'bg-gray-200'
                               }`}
@@ -1184,13 +1166,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.customBranding ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, customBranding: !f.customBranding }));
                                 markDirty();
                               }}
-                              aria-label="Toggle custom branding"
+                              aria-label={`Custom branding ${features.customBranding ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.customBranding ? 'bg-amber-500' : 'bg-gray-200'
                               }`}
@@ -1211,13 +1191,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={features.apiAccess ? 'true' : 'false'}
                               onClick={() => {
                                 setFeatures(f => ({ ...f, apiAccess: !f.apiAccess }));
                                 markDirty();
                               }}
-                              aria-label="Toggle API access"
+                              aria-label={`API access ${features.apiAccess ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 features.apiAccess ? 'bg-amber-500' : 'bg-gray-200'
                               }`}
@@ -1321,13 +1299,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={reviewsEnabled ? 'true' : 'false'}
                               onClick={() => {
                                 setReviewsEnabled(!reviewsEnabled);
                                 markDirty();
                               }}
-                              aria-label="Toggle reviews"
+                              aria-label={`Reviews ${reviewsEnabled ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 reviewsEnabled ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1348,13 +1324,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                             <button
                               type="button"
-                              role="switch"
-                              aria-checked={rewardsEnabled ? 'true' : 'false'}
                               onClick={() => {
                                 setRewardsEnabled(!rewardsEnabled);
                                 markDirty();
                               }}
-                              aria-label="Toggle rewards"
+                              aria-label={`Rewards ${rewardsEnabled ? 'enabled' : 'disabled'}`}
                               className={`relative h-6 w-11 rounded-full transition-colors ${
                                 rewardsEnabled ? 'bg-indigo-600' : 'bg-gray-200'
                               }`}
@@ -1938,7 +1912,6 @@ function CollapsibleSection({
   variant = 'default',
 }: CollapsibleSectionProps) {
   const borderColor = variant === 'danger' ? 'border-red-200' : 'border-gray-200';
-  const headerBg = variant === 'danger' ? 'bg-red-50' : 'bg-gray-50';
   const iconColor = variant === 'danger' ? 'text-red-500' : 'text-gray-500';
 
   return (
@@ -1946,7 +1919,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex w-full items-center justify-between px-4 py-3 ${headerBg} transition-colors hover:bg-opacity-80`}
+        className={`flex w-full items-center justify-between px-4 py-3 transition-colors ${variant === 'danger' ? 'bg-red-50 hover:bg-red-50/80' : 'bg-gray-50 hover:bg-gray-50/80'}`}
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>

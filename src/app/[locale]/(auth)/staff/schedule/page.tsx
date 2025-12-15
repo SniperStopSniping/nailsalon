@@ -121,6 +121,7 @@ function DayScheduleEditor({
                     value={schedule?.start || '09:00'}
                     onChange={e => onChange({ start: e.target.value, end: schedule?.end || '17:00' })}
                     className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
+                    aria-label={`${label} start time`}
                   >
                     {TIME_OPTIONS.map(t => (
                       <option key={t} value={t}>{t}</option>
@@ -131,6 +132,7 @@ function DayScheduleEditor({
                     value={schedule?.end || '17:00'}
                     onChange={e => onChange({ start: schedule?.start || '09:00', end: e.target.value })}
                     className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
+                    aria-label={`${label} end time`}
                   >
                     {TIME_OPTIONS.map(t => (
                       <option key={t} value={t}>{t}</option>

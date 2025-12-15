@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
-import { requireSuperAdmin } from '@/libs/superAdmin';
+import { requireSuperAdminGuard } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -44,9 +44,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const guard = await requireSuperAdmin();
-  if (guard) {
-    return guard;
+  const guard = await requireSuperAdminGuard();
+  if (!guard.ok) {
+    return guard.response;
   }
 
   try {
@@ -207,9 +207,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const guard = await requireSuperAdmin();
-  if (guard) {
-    return guard;
+  const guard = await requireSuperAdminGuard();
+  if (!guard.ok) {
+    return guard.response;
   }
 
   try {

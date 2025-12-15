@@ -214,8 +214,9 @@ export default function StaffClientProfilePage() {
               type="button"
               onClick={() => router.back()}
               className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
+              aria-label="Go back"
             >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
