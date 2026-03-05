@@ -78,3 +78,5 @@ CREATE INDEX IF NOT EXISTS appt_audit_performer_idx ON appointment_audit_log(per
 CREATE INDEX IF NOT EXISTS appointment_locked_at_idx ON appointment(locked_at) WHERE locked_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS salon_client_blocked_idx ON salon_client(salon_id, is_blocked) WHERE is_blocked = true;
 
+
+
