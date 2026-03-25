@@ -1,3 +1,15 @@
+# [1.4.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.3.0...v1.4.0) (2026-03-25)
+
+
+### Bug Fixes
+
+* remove unused variables in BookTechClient ([d3b686f](https://github.com/SniperStopSniping/nailsalon/commit/d3b686fb86585919fe4a934b3d3b04123deb51a6))
+
+
+### Features
+
+* add booking flow enhancements, rewards system, and admin improvements ([bed2bbe](https://github.com/SniperStopSniping/nailsalon/commit/bed2bbe9af11583bf0845286fa57f6166b41be8a))
+
 # [1.3.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.2.0...v1.3.0) (2025-12-13)
 
 
