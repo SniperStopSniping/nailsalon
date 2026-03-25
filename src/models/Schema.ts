@@ -1133,6 +1133,48 @@ export const adminSessionSchema = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// ClientSession - Server-side sessions for customer auth
+// -----------------------------------------------------------------------------
+export const clientSessionSchema = pgTable(
+  'client_session',
+  {
+    id: text('id').primaryKey(), // UUID, stored in cookie
+    clientPhone: text('client_phone').notNull(), // E.164 phone used for auth
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    phoneIdx: index('client_session_phone_idx').on(table.clientPhone),
+    expiresIdx: index('client_session_expires_idx').on(table.expiresAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// StaffSession - Server-side sessions for staff auth
+// -----------------------------------------------------------------------------
+export const staffSessionSchema = pgTable(
+  'staff_session',
+  {
+    id: text('id').primaryKey(), // UUID, stored in cookie
+    technicianId: text('technician_id')
+      .notNull()
+      .references(() => technicianSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    technicianIdx: index('staff_session_technician_idx').on(table.technicianId),
+    salonIdx: index('staff_session_salon_idx').on(table.salonId),
+    expiresIdx: index('staff_session_expires_idx').on(table.expiresAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
 // AdminInvite - Invites for admin access (invite-only system)
 // -----------------------------------------------------------------------------
 export const adminInviteSchema = pgTable(
@@ -1259,6 +1301,12 @@ export type NewAdminUser = typeof adminUserSchema.$inferInsert;
 
 export type AdminSession = typeof adminSessionSchema.$inferSelect;
 export type NewAdminSession = typeof adminSessionSchema.$inferInsert;
+
+export type ClientSession = typeof clientSessionSchema.$inferSelect;
+export type NewClientSession = typeof clientSessionSchema.$inferInsert;
+
+export type StaffSession = typeof staffSessionSchema.$inferSelect;
+export type NewStaffSession = typeof staffSessionSchema.$inferInsert;
 
 export type AdminInvite = typeof adminInviteSchema.$inferSelect;
 export type NewAdminInvite = typeof adminInviteSchema.$inferInsert;

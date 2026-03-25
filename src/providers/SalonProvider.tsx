@@ -9,13 +9,13 @@ import {
 
 import type { SalonStatus } from '@/models/Schema';
 
-// Default values for development when no salon is fetched
-const DEFAULT_SALON = {
-  id: 'salon_nail-salon-no5',
-  name: 'Nail Salon No.5',
-  slug: 'nail-salon-no5',
-  themeKey: 'nail-salon-no5',
-  status: 'active' as SalonStatus,
+// Empty values force callers to resolve tenant context explicitly.
+const EMPTY_SALON = {
+  id: '',
+  name: '',
+  slug: '',
+  themeKey: '',
+  status: null as SalonStatus | null,
 };
 
 /**
@@ -37,12 +37,12 @@ export type SalonContextValue = {
 };
 
 const SalonContext = createContext<SalonContextValue>({
-  salonId: DEFAULT_SALON.id,
-  salonName: DEFAULT_SALON.name,
-  salonSlug: DEFAULT_SALON.slug,
-  themeKey: DEFAULT_SALON.themeKey,
-  status: DEFAULT_SALON.status,
-  isAccessible: true,
+  salonId: EMPTY_SALON.id,
+  salonName: EMPTY_SALON.name,
+  salonSlug: EMPTY_SALON.slug,
+  themeKey: EMPTY_SALON.themeKey,
+  status: EMPTY_SALON.status,
+  isAccessible: false,
 });
 
 export type SalonProviderProps = {
@@ -67,7 +67,7 @@ export type SalonProviderProps = {
  * - URL/subdomain parsing
  * - Environment variable
  *
- * Falls back to DEFAULT_SALON values if not provided.
+ * Leaves salon fields empty if tenant context has not been resolved yet.
  *
  * @example
  * // In layout.tsx (server component)
@@ -92,15 +92,15 @@ export function SalonProvider({
   status,
 }: SalonProviderProps) {
   const value = useMemo<SalonContextValue>(() => {
-    const currentStatus = status ?? DEFAULT_SALON.status;
+    const currentStatus = status ?? EMPTY_SALON.status;
     // Salon is accessible if status is active or trial (not suspended or cancelled)
     const isAccessible = currentStatus === 'active' || currentStatus === 'trial';
 
     return {
-      salonId: salonId || DEFAULT_SALON.id,
-      salonName: salonName || DEFAULT_SALON.name,
-      salonSlug: salonSlug || DEFAULT_SALON.slug,
-      themeKey: themeKey || DEFAULT_SALON.themeKey,
+      salonId: salonId || EMPTY_SALON.id,
+      salonName: salonName || EMPTY_SALON.name,
+      salonSlug: salonSlug || EMPTY_SALON.slug,
+      themeKey: themeKey || EMPTY_SALON.themeKey,
       status: currentStatus,
       isAccessible,
     };

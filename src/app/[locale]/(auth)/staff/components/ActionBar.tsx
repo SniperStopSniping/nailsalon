@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import type { AppointmentData } from './StaffAppointmentCard';
@@ -43,7 +42,6 @@ export function ActionBar({
   requireBeforePhoto = false,
   requireAfterPhoto = false,
 }: ActionBarProps) {
-  const router = useRouter();
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,20 +67,27 @@ export function ActionBar({
     setError(null);
 
     try {
-      const response = await fetch(`/api/appointments/${appointment.id}/transition`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to }),
-      });
+      const response = to === 'complete'
+        ? await fetch(`/api/appointments/${appointment.id}/complete`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        : await fetch(`/api/appointments/${appointment.id}/transition`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to }),
+        });
 
       if (!response.ok) {
         const data = await response.json();
-        const reason = data.error?.reason || data.error?.message || 'Transition failed';
+        const reason = data.error?.reason || data.error?.code || data.error?.message || 'Transition failed';
 
         // Map reason codes to friendly messages
         const friendlyMessages: Record<string, string> = {
           before_photo_required_to_start: '☕️ Before photo required to start.',
           after_photo_required_to_complete: '☕️ Final photo required to complete.',
+          PHOTOS_REQUIRED: '☕️ Final photo required to complete.',
           already_terminal: 'This appointment is already completed.',
           invalid_transition: 'This action is not available right now.',
         };
@@ -91,8 +96,6 @@ export function ActionBar({
         return;
       }
 
-      // Success - refresh to get updated data
-      router.refresh();
       onClose();
     } catch (err) {
       setError('Something went wrong. Please try again.');
@@ -119,9 +122,16 @@ export function ActionBar({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isTransitioning) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !isTransitioning) {
           onClose();
         }
       }}
@@ -211,6 +221,7 @@ export function ActionBar({
             {canvasState === 'waiting' && (
               <button
                 type="button"
+                data-testid="staff-action-start"
                 onClick={() => handleTransition('working')}
                 disabled={isTransitioning || !canStart}
                 className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
@@ -240,6 +251,7 @@ export function ActionBar({
             {(canvasState === 'wrap_up' || canvasState === 'working') && (
               <button
                 type="button"
+                data-testid="staff-action-complete"
                 onClick={() => handleTransition('complete')}
                 disabled={isTransitioning || !canComplete}
                 className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"

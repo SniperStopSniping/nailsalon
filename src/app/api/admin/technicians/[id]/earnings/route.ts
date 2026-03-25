@@ -1,9 +1,9 @@
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { getSalonBySlug } from '@/libs/queries';
 import { appointmentSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -61,18 +61,9 @@ export async function GET(
 
     const { salonSlug, groupBy } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Step 16.3: Check if staffEarnings module is enabled

@@ -49,11 +49,11 @@ function formatPhoneE164(phone: string): string {
 // =============================================================================
 
 const listQuerySchema = z.object({
-  q: z.string().optional(),
-  plan: z.enum(SALON_PLANS).optional(),
-  status: z.enum(SALON_STATUSES).optional(),
-  page: z.coerce.number().min(1).optional().default(1),
-  pageSize: z.coerce.number().min(1).max(100).optional().default(20),
+  q: z.preprocess(value => value === '' ? undefined : value, z.string().optional()),
+  plan: z.preprocess(value => value === '' ? undefined : value, z.enum(SALON_PLANS).optional()),
+  status: z.preprocess(value => value === '' ? undefined : value, z.enum(SALON_STATUSES).optional()),
+  page: z.preprocess(value => value === '' ? undefined : value, z.coerce.number().min(1).optional().default(1)),
+  pageSize: z.preprocess(value => value === '' ? undefined : value, z.coerce.number().min(1).max(100).optional().default(20)),
 });
 
 const createSalonSchema = z.object({

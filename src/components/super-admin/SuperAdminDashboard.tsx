@@ -89,6 +89,21 @@ function formatPhoneDisplay(phone: string): string {
   return phone;
 }
 
+async function getErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json();
+    if (typeof data?.error === 'string' && data.error.trim()) {
+      return data.error;
+    }
+    if (typeof data?.error?.message === 'string' && data.error.message.trim()) {
+      return data.error.message;
+    }
+  } catch {
+    // ignore invalid JSON and fall back to the default message
+  }
+  return fallback;
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -142,13 +157,14 @@ export function SuperAdminDashboard() {
 
     try {
       const params = new URLSearchParams();
-      if (debouncedSearch) {
-        params.set('q', debouncedSearch);
+      const trimmedSearch = debouncedSearch.trim();
+      if (trimmedSearch) {
+        params.set('q', trimmedSearch);
       }
-      if (planFilter !== 'all') {
+      if (planFilter && planFilter !== 'all') {
         params.set('plan', planFilter);
       }
-      if (statusFilter !== 'all') {
+      if (statusFilter && statusFilter !== 'all') {
         params.set('status', statusFilter);
       }
       params.set('page', String(page));
@@ -156,7 +172,7 @@ export function SuperAdminDashboard() {
 
       const response = await fetch(`/api/super-admin/organizations?${params}`);
       if (!response.ok) {
-        throw new Error('Failed to fetch salons');
+        throw new Error(await getErrorMessage(response, 'Failed to fetch salons'));
       }
 
       const data: ListResponse = await response.json();

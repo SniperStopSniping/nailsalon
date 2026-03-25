@@ -1,10 +1,7 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import GalleryContent from './GalleryContent';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
 
 /**
  * Gallery Page (Server Component)
@@ -12,12 +9,22 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * Fetches page appearance settings and conditionally wraps
  * the content with ThemeProvider if theme mode is enabled.
  */
-export default async function GalleryPage() {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'gallery');
+export default async function GalleryPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const context = await getPublicPageContext('gallery', searchParams, params);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="gallery">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="gallery"
+      salon={context.salon}
+    >
       <GalleryContent />
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

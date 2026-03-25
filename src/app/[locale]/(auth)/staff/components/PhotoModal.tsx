@@ -2,7 +2,6 @@
 
 import { nanoid } from 'nanoid';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 import type { AppointmentData, AppointmentPhoto } from './StaffAppointmentCard';
@@ -40,7 +39,6 @@ type UploadState = {
 // =============================================================================
 
 export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
-  const router = useRouter();
   const beforeInputRef = useRef<HTMLInputElement>(null);
   const afterInputRef = useRef<HTMLInputElement>(null);
 
@@ -150,11 +148,7 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
         throw new Error(err.error?.message || 'Failed to confirm upload');
       }
 
-      // =================================================================
-      // Step 4: Revalidate (NO STALE DATA)
-      // =================================================================
       setState({ uploading: false, error: null, progress: 'done' });
-      router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       setState({ uploading: false, error: message, progress: 'idle' });
@@ -183,9 +177,16 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isUploading) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !isUploading) {
           onClose();
         }
       }}

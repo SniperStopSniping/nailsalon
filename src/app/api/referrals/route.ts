@@ -1,8 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromQuery,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { type Referral, referralSchema, type ReferralStatus, rewardSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -13,7 +16,6 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 
 const getReferralsSchema = z.object({
-  phone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
@@ -56,22 +58,24 @@ type ErrorResponse = {
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse query parameters
     const { searchParams } = new URL(request.url);
-    const phone = searchParams.get('phone');
     const salonSlug = searchParams.get('salonSlug');
 
     // 2. Validate parameters
-    const parsed = getReferralsSchema.safeParse({ phone, salonSlug });
+    const parsed = getReferralsSchema.safeParse({ salonSlug });
 
     if (!parsed.success) {
       // Create a user-friendly error message based on which field failed
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request parameters';
 
-      if (fieldErrors.phone) {
-        userMessage = 'Your phone number is invalid. Please book an appointment first.';
-      } else if (fieldErrors.salonSlug) {
+      if (fieldErrors.salonSlug) {
         userMessage = 'Unable to identify salon. Please refresh and try again.';
       }
 
@@ -87,19 +91,12 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Resolve salon from slug
-    const salon = await getSalonBySlug(parsed.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${parsed.data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 3. Resolve salon from slug or active tenant cookie
+    const salonGuard = await requireClientSalonFromQuery(searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 4. Fetch referrals for this phone number and salon
     const referrals = await db
@@ -108,7 +105,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(referralSchema.salonId, salon.id),
-          eq(referralSchema.referrerPhone, parsed.data.phone),
+          eq(referralSchema.referrerPhone, auth.normalizedPhone),
         ),
       )
       .orderBy(desc(referralSchema.createdAt));
@@ -121,7 +118,7 @@ export async function GET(request: Request): Promise<Response> {
         .from(rewardSchema)
         .where(
           and(
-            eq(rewardSchema.clientPhone, parsed.data.phone),
+            eq(rewardSchema.clientPhone, auth.normalizedPhone),
             eq(rewardSchema.type, 'referral_referrer'),
           ),
         )

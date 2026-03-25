@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
+
 /**
  * Admin Dashboard Layout
  *
@@ -21,6 +23,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif',
       }}
     >
+      <AdminImpersonationBanner />
       {children}
     </div>
   );

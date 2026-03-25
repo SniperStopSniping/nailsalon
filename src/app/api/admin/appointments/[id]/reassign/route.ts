@@ -10,13 +10,12 @@
  * - Full audit logging
  */
 
-import { auth } from '@clerk/nextjs/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentSchema,
   technicianSchema,
@@ -56,23 +55,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    // 1. Auth check (Clerk)
-    const { userId } = await auth();
-    if (!userId) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
-    }
-
     const { id: appointmentId } = await params;
 
-    // 2. Parse request body
+    // 1. Parse request body
     const body = await request.json();
     const parsed = reassignSchema.safeParse(body);
 
@@ -90,58 +75,29 @@ export async function PUT(
 
     const { salonSlug, technicianId, reason, overrideLock } = parsed.data;
 
-    // 3. Resolve salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
+    // 2. Resolve salon and verify admin auth
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
+    }
+
+    const adminSession = await getAdminSession();
+    if (!adminSession) {
       return Response.json(
         {
           error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required',
           },
         } satisfies ErrorResponse,
-        { status: 404 },
+        { status: 401 },
       );
     }
 
-    // 4. Verify user is admin for this salon
-    const isOwner = salon.ownerClerkUserId === userId;
+    const adminId = adminSession.id;
+    const adminName = adminSession.name ?? 'Admin';
 
-    let isAdmin = isOwner;
-    let adminName = 'Admin';
-
-    if (!isOwner) {
-      const [tech] = await db
-        .select()
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.salonId, salon.id),
-            eq(technicianSchema.userId, userId),
-            eq(technicianSchema.isActive, true),
-          ),
-        )
-        .limit(1);
-
-      isAdmin = tech?.role === 'admin' || tech?.role === 'owner';
-      if (tech) {
-        adminName = tech.name;
-      }
-    }
-
-    if (!isAdmin) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Admin access required to reassign appointments',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
-    // 5. Get the appointment
+    // 3. Get the appointment
     const [appointment] = await db
       .select()
       .from(appointmentSchema)
@@ -165,7 +121,7 @@ export async function PUT(
       );
     }
 
-    // 6. Check if appointment is in a terminal state
+    // 4. Check if appointment is in a terminal state
     const terminalStates = ['complete', 'cancelled', 'no_show'];
     if (terminalStates.includes(appointment.status)
       || (appointment.canvasState && terminalStates.includes(appointment.canvasState))) {
@@ -180,7 +136,7 @@ export async function PUT(
       );
     }
 
-    // 7. Check if appointment is locked
+    // 5. Check if appointment is locked
     if (appointment.lockedAt && !overrideLock) {
       return Response.json(
         {
@@ -193,7 +149,7 @@ export async function PUT(
       );
     }
 
-    // 8. Validate new technician exists and belongs to salon
+    // 6. Validate new technician exists and belongs to salon
     const [newTech] = await db
       .select()
       .from(technicianSchema)
@@ -218,7 +174,7 @@ export async function PUT(
       );
     }
 
-    // 9. Check for conflicts with new technician's schedule
+    // 7. Check for conflicts with new technician's schedule
     const startTime = new Date(appointment.startTime);
     const endTime = new Date(appointment.endTime);
 
@@ -260,7 +216,7 @@ export async function PUT(
       );
     }
 
-    // 10. Get previous technician info for audit
+    // 8. Get previous technician info for audit
     let previousTechName: string | null = null;
     if (appointment.technicianId) {
       const [prevTech] = await db
@@ -271,7 +227,7 @@ export async function PUT(
       previousTechName = prevTech?.name ?? null;
     }
 
-    // 11. Update the appointment
+    // 9. Update the appointment
     const [updated] = await db
       .update(appointmentSchema)
       .set({
@@ -281,11 +237,11 @@ export async function PUT(
       .where(eq(appointmentSchema.id, appointmentId))
       .returning();
 
-    // 12. Audit logging
+    // 10. Audit logging
     await logTechReassignment(
       appointmentId,
       salon.id,
-      userId,
+      adminId,
       'admin',
       appointment.technicianId,
       technicianId,
@@ -298,7 +254,7 @@ export async function PUT(
       await logAdminOverride(
         appointmentId,
         salon.id,
-        userId,
+        adminId,
         adminName,
         'tech_reassignment_override',
         {

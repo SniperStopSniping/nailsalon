@@ -18,10 +18,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'framer-motion';
-import { Plus, Search, User, X } from 'lucide-react';
+import { Plus, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
+import { AdminSearchField } from '@/components/admin/AdminSearchField';
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
+import { ListSurface } from '@/components/ui/list-surface';
 
 import { StaffCard, type StaffCardData } from './StaffCard';
 
@@ -72,6 +75,7 @@ function SortableStaffCard({ staff, isLast, onClick, isDraggable }: SortableStaf
 }
 
 type StaffListViewProps = {
+  salonSlug: string | null;
   onStaffSelect: (staff: StaffCardData) => void;
   onAddStaff: () => void;
 };
@@ -93,8 +97,7 @@ const FILTER_TABS: { value: FilterTab; label: string }[] = [
 // Component
 // =============================================================================
 
-export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps) {
-  const { salonSlug } = useSalon();
+export function StaffListView({ salonSlug, onStaffSelect, onAddStaff }: StaffListViewProps) {
   const [staff, setStaff] = useState<StaffCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,34 +205,15 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
   }, [fetchStaff]);
 
   // Clear search
-  const clearSearch = () => {
-    setSearchQuery('');
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Search Bar */}
       <div className="px-4 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E8E93]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search staff..."
-            className="w-full rounded-xl bg-[#E5E5EA] px-10 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={clearSearch}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full bg-[#8E8E93]"
-            >
-              <X className="size-3 text-white" />
-            </button>
-          )}
-        </div>
+        <AdminSearchField
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search staff..."
+        />
       </div>
 
       {/* Filter Tabs */}
@@ -260,18 +244,37 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto pb-20">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-24">
         {loading
           ? (
-              <LoadingSkeleton />
+              <AsyncStatePanel
+                loading
+                title="Loading staff"
+                description="Pulling the latest technician roster."
+                className="mx-4 my-8"
+              />
             )
           : error
             ? (
-                <ErrorState message={error} onRetry={fetchStaff} />
+                <AsyncStatePanel
+                  tone="error"
+                  title="Unable to load staff"
+                  description={error}
+                  className="mx-4 my-8"
+                  action={(
+                    <Button type="button" variant="brandSoft" size="pillSm" onClick={fetchStaff}>
+                      Try again
+                    </Button>
+                  )}
+                />
               )
             : staff.length === 0
               ? (
-                  <EmptyState filter={activeFilter} searchQuery={searchQuery} />
+                  <EmptyState
+                    filter={activeFilter}
+                    searchQuery={searchQuery}
+                    onAddStaff={onAddStaff}
+                  />
                 )
               : (
                   <DndContext
@@ -283,7 +286,7 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
                       items={staff.map(s => s.id)}
                       strategy={verticalListSortingStrategy}
                     >
-                      <div className="mx-4 overflow-hidden rounded-[12px] bg-white shadow-sm">
+                      <ListSurface className="mx-4">
                         {staff.map((member, index) => (
                           <SortableStaffCard
                             key={member.id}
@@ -293,7 +296,7 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
                             isDraggable={isDraggable}
                           />
                         ))}
-                      </div>
+                      </ListSurface>
                     </SortableContext>
                   </DndContext>
                 )}
@@ -304,7 +307,7 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
         type="button"
         onClick={onAddStaff}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-24 right-5 flex size-14 items-center justify-center rounded-full bg-[#007AFF] shadow-lg"
+        className="absolute bottom-5 right-5 z-10 flex size-14 items-center justify-center rounded-full bg-[#007AFF] shadow-lg"
         style={{
           boxShadow: '0 4px 20px rgba(0, 122, 255, 0.4)',
         }}
@@ -316,30 +319,18 @@ export function StaffListView({ onStaffSelect, onAddStaff }: StaffListViewProps)
 }
 
 // =============================================================================
-// Loading Skeleton
-// =============================================================================
-
-function LoadingSkeleton() {
-  return (
-    <div className="mx-4 animate-pulse overflow-hidden rounded-[12px] bg-white shadow-sm">
-      {[1, 2, 3, 4].map(i => (
-        <div key={i} className="flex items-center p-4">
-          <div className="mr-3 size-14 rounded-full bg-gray-200" />
-          <div className="flex-1">
-            <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
-            <div className="h-3 w-20 rounded bg-gray-100" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// =============================================================================
 // Empty State
 // =============================================================================
 
-function EmptyState({ filter, searchQuery }: { filter: FilterTab; searchQuery: string }) {
+function EmptyState({
+  filter,
+  searchQuery,
+  onAddStaff,
+}: {
+  filter: FilterTab;
+  searchQuery: string;
+  onAddStaff: () => void;
+}) {
   let title = 'No Staff Members';
   let message = 'Add staff members to manage your team';
 
@@ -353,35 +344,18 @@ function EmptyState({ filter, searchQuery }: { filter: FilterTab; searchQuery: s
   }
 
   return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
-        <User className="size-8 text-[#8E8E93]" />
-      </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">{title}</h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">{message}</p>
-    </div>
-  );
-}
-
-// =============================================================================
-// Error State
-// =============================================================================
-
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-red-100">
-        <X className="size-8 text-red-500" />
-      </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">Error</h3>
-      <p className="mb-4 text-center text-[15px] text-[#8E8E93]">{message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="rounded-lg bg-[#007AFF] px-4 py-2 text-[15px] font-medium text-white"
-      >
-        Try Again
-      </button>
-    </div>
+    <AsyncStatePanel
+      icon={<User className="mx-auto size-8 text-[#8E8E93]" />}
+      title={title}
+      description={message}
+      className="mx-4 my-8"
+      action={!searchQuery
+        ? (
+            <Button type="button" variant="brandSoft" size="pillSm" onClick={onAddStaff}>
+              Add Staff
+            </Button>
+          )
+        : undefined}
+    />
   );
 }

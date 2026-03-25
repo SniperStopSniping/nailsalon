@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { FormInput } from '@/components/FormInput';
-import { MainCard } from '@/components/MainCard';
-import { PrimaryButton } from '@/components/PrimaryButton';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { themeVars } from '@/theme';
+import { getApiErrorMessage } from '@/utils/apiError';
 
 type AuthState = 'loggedOut' | 'verify' | 'loggedIn';
 
@@ -26,12 +27,25 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const sendInFlightRef = useRef(false);
+  const verifyInFlightRef = useRef(false);
+  const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifySucceededRef = useRef(false);
+  const lastSubmittedCodeRef = useRef<string | null>(null);
+
+  const clearVerifyTimer = useCallback(() => {
+    if (verifyTimerRef.current) {
+      clearTimeout(verifyTimerRef.current);
+      verifyTimerRef.current = null;
+    }
+  }, []);
 
   const handleSendCode = async () => {
-    if (!phone.trim() || phone.length < 10 || isLoading) {
+    if (!phone.trim() || phone.length < 10 || isLoading || sendInFlightRef.current) {
       return;
     }
 
+    sendInFlightRef.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -45,24 +59,35 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Failed to send code');
-        setIsLoading(false);
+        setError(getApiErrorMessage(data, 'Failed to send code'));
         return;
       }
 
-      setIsLoading(false);
       setAuthState('verify');
     } catch {
       setError('Network error. Please try again.');
+    } finally {
+      sendInFlightRef.current = false;
       setIsLoading(false);
     }
   };
 
-  const handleVerifyCode = async () => {
-    if (code.trim().length < 6 || isLoading) {
+  const handleVerifyCode = useCallback(async () => {
+    clearVerifyTimer();
+    const currentCode = code.trim();
+
+    if (
+      currentCode.length < 6
+      || isLoading
+      || verifyInFlightRef.current
+      || verifySucceededRef.current
+      || lastSubmittedCodeRef.current === currentCode
+    ) {
       return;
     }
 
+    lastSubmittedCodeRef.current = currentCode;
+    verifyInFlightRef.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -76,19 +101,23 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Invalid code');
-        setIsLoading(false);
+        setError(getApiErrorMessage(
+          data,
+          'This verification code is incorrect or expired. Please request a new code and try again.',
+        ));
         return;
       }
 
-      setIsLoading(false);
+      verifySucceededRef.current = true;
       setAuthState('loggedIn');
-      onLoginSuccess(phone);
+      onLoginSuccess(data.phone || phone);
     } catch {
       setError('Network error. Please try again.');
+    } finally {
+      verifyInFlightRef.current = false;
       setIsLoading(false);
     }
-  };
+  }, [clearVerifyTimer, code, isLoading, onLoginSuccess, phone]);
 
   // Auto-send code when phone number is complete (10 digits)
   useEffect(() => {
@@ -99,17 +128,29 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, authState]);
+  }, [phone, authState, isLoading]);
 
   // Auto-verify when code is complete (6 digits)
   useEffect(() => {
-    if (code.length === 6 && authState === 'verify' && !isLoading) {
-      const timer = setTimeout(() => handleVerifyCode(), 150);
-      return () => clearTimeout(timer);
+    clearVerifyTimer();
+
+    if (
+      code.length === 6
+      && authState === 'verify'
+      && !isLoading
+      && !verifySucceededRef.current
+      && lastSubmittedCodeRef.current !== code
+    ) {
+      verifyTimerRef.current = setTimeout(() => {
+        void handleVerifyCode();
+      }, 150);
+      return () => clearVerifyTimer();
     }
+
     return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, authState]);
+  }, [authState, clearVerifyTimer, code, handleVerifyCode, isLoading]);
+
+  useEffect(() => clearVerifyTimer, [clearVerifyTimer]);
 
   // Focus code input when switching to verify state
   useEffect(() => {
@@ -124,7 +165,8 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
   }
 
   return (
-    <MainCard className="mt-4">
+    <Card className="mt-4">
+      <CardContent className="space-y-3">
       {authState === 'loggedOut' && (
         <div className="space-y-3">
           <p className="text-lg font-bold text-neutral-800">
@@ -144,7 +186,9 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
             <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
               +1
             </div>
-            <FormInput
+            <Input
+              aria-label="Customer phone number"
+              data-testid="booking-login-phone"
               type="tel"
               value={phone}
               onChange={(e) => {
@@ -153,16 +197,18 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
                 setError(null);
               }}
               placeholder="Phone number"
-              className="!px-4 !py-2.5 !text-base"
+              className="h-10 rounded-full border-neutral-200 bg-neutral-50 px-4 text-base shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
             />
-            <PrimaryButton
+            <Button
+              data-testid="booking-login-send"
               onClick={handleSendCode}
               disabled={!phone.trim() || phone.length < 10 || isLoading}
-              size="sm"
-              fullWidth={false}
+              variant="brand"
+              size="pillSm"
+              className="min-w-12 px-4"
             >
               {isLoading ? '...' : '→'}
-            </PrimaryButton>
+            </Button>
           </div>
           {error && (
             <p className="text-xs text-red-500">{error}</p>
@@ -181,26 +227,41 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
             {phone}
           </p>
           <div className="flex items-center gap-2">
-            <FormInput
+            <Input
               ref={codeInputRef}
+              aria-label="Customer verification code"
+              data-testid="booking-login-code"
               type="tel"
               inputMode="numeric"
               value={code}
               onChange={(e) => {
-                setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                const nextCode = e.target.value.replace(/\D/g, '').slice(0, 6);
+                if (nextCode.length < 6) {
+                  lastSubmittedCodeRef.current = null;
+                }
+                setCode(nextCode);
                 setError(null);
+                verifySucceededRef.current = false;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleVerifyCode();
+                }
               }}
               placeholder="• • • • • •"
-              className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
+              className="h-10 rounded-full border-neutral-200 bg-neutral-50 px-4 text-center text-lg tracking-[0.3em] shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
             />
-            <PrimaryButton
-              onClick={handleVerifyCode}
+            <Button
+              data-testid="booking-login-verify"
+              onClick={() => void handleVerifyCode()}
               disabled={code.trim().length < 6 || isLoading}
-              size="sm"
-              fullWidth={false}
+              variant="brand"
+              size="pillSm"
+              className="min-w-24 px-4"
             >
               {isLoading ? '...' : 'Verify'}
-            </PrimaryButton>
+            </Button>
           </div>
           {error && (
             <p className="text-xs text-red-500">{error}</p>
@@ -208,6 +269,9 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
           <button
             type="button"
             onClick={() => {
+              clearVerifyTimer();
+              verifySucceededRef.current = false;
+              lastSubmittedCodeRef.current = null;
               setAuthState('loggedOut');
               setPhone('');
               setCode('');
@@ -220,6 +284,7 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
           </button>
         </div>
       )}
-    </MainCard>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * ModuleDisabledState Component
  *
@@ -14,7 +12,8 @@
  * ```
  */
 
-import { themeVars } from '@/theme';
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { SectionCard } from '@/components/ui/section-card';
 
 // =============================================================================
 // PROPS
@@ -42,23 +41,12 @@ export function ModuleDisabledState({
     = message || 'This feature is disabled by your salon admin.';
 
   return (
-    <div
-      className={`rounded-2xl p-8 text-center ${className}`}
-      style={{
-        backgroundColor: themeVars.surfaceAlt,
-        borderColor: themeVars.cardBorder,
-        borderWidth: 1,
-      }}
-    >
-      <div className="mb-3 text-4xl">🔒</div>
-      <h3
-        className="mb-2 text-lg font-semibold"
-        style={{ color: themeVars.titleText }}
-      >
-        {featureName ? `${featureName} Disabled` : 'Feature Disabled'}
-      </h3>
-      <p className="text-sm text-neutral-500">{displayMessage}</p>
-    </div>
+    <AsyncStatePanel
+      className={className}
+      icon="🔒"
+      title={featureName ? `${featureName} Disabled` : 'Feature Disabled'}
+      description={displayMessage}
+    />
   );
 }
 
@@ -77,17 +65,10 @@ type ModuleSkeletonProps = {
  */
 export function ModuleSkeleton({ className = '' }: ModuleSkeletonProps) {
   return (
-    <div
-      className={`animate-pulse rounded-2xl p-8 ${className}`}
-      style={{
-        backgroundColor: themeVars.surfaceAlt,
-        borderColor: themeVars.cardBorder,
-        borderWidth: 1,
-      }}
-    >
+    <SectionCard className={`animate-pulse ${className}`} contentClassName="py-8">
       <div className="mx-auto mb-4 size-10 rounded-full bg-neutral-200" />
       <div className="mx-auto mb-2 h-5 w-32 rounded bg-neutral-200" />
       <div className="mx-auto h-4 w-48 rounded bg-neutral-200" />
-    </div>
+    </SectionCard>
   );
 }

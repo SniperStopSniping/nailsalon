@@ -3,8 +3,6 @@
 import { Search, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -19,6 +17,7 @@ type ClientData = {
 };
 
 type ClientsTabProps = {
+  salonSlug: string | null;
   technicianId: string;
 };
 
@@ -50,8 +49,7 @@ function formatDate(dateString: string | null): string {
 // Component
 // =============================================================================
 
-export function ClientsTab({ technicianId }: ClientsTabProps) {
-  const { salonSlug } = useSalon();
+export function ClientsTab({ salonSlug, technicianId }: ClientsTabProps) {
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');

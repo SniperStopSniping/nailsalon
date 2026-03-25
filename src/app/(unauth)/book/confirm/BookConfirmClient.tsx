@@ -1,15 +1,14 @@
 'use client';
 
 import confetti from 'canvas-confetti';
-import { AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircle,
   Calendar,
   Check,
-  Clock,
   CreditCard,
-  Gift,
   Home,
+  MapPin,
   RefreshCw,
   Sparkles,
   Star,
@@ -19,9 +18,15 @@ import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { SectionCard } from '@/components/ui/section-card';
+import { StateCard } from '@/components/ui/state-card';
+import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
+import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams';
+import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
@@ -61,29 +66,6 @@ type BookConfirmClientProps = {
 };
 
 // --- Helpers ---
-
-/**
- * Normalize phone number to 10 digits.
- * - Strips all non-digit characters
- * - Drops leading '1' if 11 digits (US country code)
- * - Returns null if result is not exactly 10 digits
- */
-const normalizePhone = (phone: string): string | null => {
-  // Strip all non-digit characters
-  let digits = phone.replace(/\D/g, '');
-
-  // If 11 digits starting with '1', drop the leading '1' (US country code)
-  if (digits.length === 11 && digits.startsWith('1')) {
-    digits = digits.slice(1);
-  }
-
-  // Must be exactly 10 digits
-  if (digits.length !== 10) {
-    return null;
-  }
-
-  return digits;
-};
 
 const triggerLuxuryConfetti = () => {
   if (typeof window !== 'undefined') {
@@ -137,9 +119,50 @@ const triggerLuxuryConfetti = () => {
 
 // --- Subcomponents ---
 
-/**
- * Premium Balance-style Card for Booking Summary
- */
+const SummaryRow = ({
+  icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail?: string | null;
+}) => (
+  <div
+    className="flex items-start gap-3 rounded-2xl border px-4 py-3"
+    style={{
+      borderColor: 'var(--n5-border-muted)',
+      backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, white)',
+    }}
+  >
+    <div
+      className="flex size-10 shrink-0 items-center justify-center"
+      style={{
+        borderRadius: n5.radiusMd,
+        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+        color: 'var(--n5-accent)',
+      }}
+    >
+      {icon}
+    </div>
+    <div className="min-w-0 flex-1">
+      <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+        {label}
+      </p>
+      <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+        {value}
+      </p>
+      {detail && (
+        <p className="font-body mt-1 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
+          {detail}
+        </p>
+      )}
+    </div>
+  </div>
+);
+
 const BookingCard = ({
   services,
   technician,
@@ -159,34 +182,6 @@ const BookingCard = ({
   pointsEarned: number;
   location: LocationSummary;
 }) => {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const shouldReduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || shouldReduceMotion) {
-      return;
-    }
-
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      const gamma = e.gamma;
-      const beta = e.beta;
-      if (gamma === null || beta === null) {
-        return;
-      }
-      const clampedX = Math.min(Math.max(gamma, -20), 20);
-      const clampedY = Math.min(Math.max(beta, -20), 20);
-      x.set(clampedX * 2);
-      y.set(clampedY * 2);
-    };
-
-    window.addEventListener('deviceorientation', handleOrientation);
-    return () => window.removeEventListener('deviceorientation', handleOrientation);
-  }, [x, y, shouldReduceMotion]);
-
-  const rotateX = useTransform(y, [-100, 100], [5, -5]);
-  const rotateY = useTransform(x, [-100, 100], [-5, 5]);
-
   const serviceNames = services.map(s => s.name).join(' + ');
 
   const formatDate = (dateString: string) => {
@@ -211,149 +206,88 @@ const BookingCard = ({
   };
 
   return (
-    <motion.div
-      style={{
-        rotateX: shouldReduceMotion ? 0 : rotateX,
-        rotateY: shouldReduceMotion ? 0 : rotateY,
-        perspective: 1000,
-      }}
-      className="relative z-10 w-full select-none"
-    >
-      <div
-        className="relative overflow-hidden border border-white/10 bg-[var(--n5-ink-main)]"
-        style={{
-          borderRadius: n5.radiusCard,
-          boxShadow: n5.shadowLg,
-        }}
+    <motion.div className="relative z-10 w-full">
+      <SectionCard
+        title="Appointment summary"
+        description="Review the details below before you confirm."
+        className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+        actions={(
+          <div className="text-right">
+            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+              Total
+            </p>
+            <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
+              $
+              {totalPrice}
+            </p>
+          </div>
+        )}
+        contentClassName="space-y-3"
       >
-        {/* Decorative blurs */}
-        <div className="absolute inset-0 opacity-50">
-          <div className="absolute left-[-20%] top-[-50%] h-full w-4/5 rounded-full bg-[#5D4037] blur-[90px]" />
-          <div className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[#8D6E63] opacity-40 mix-blend-overlay blur-[60px]" />
-        </div>
-
-        {/* Content */}
-        <div className="relative z-10 p-6 text-[var(--n5-ink-inverse)]">
-          {/* Header with Tech & Price */}
-          <div className="mb-5 flex items-center gap-4">
-            {technician
-              ? (
-                  <div
-                    className="relative size-14 shrink-0 overflow-hidden border-2 border-white/30"
-                    style={{ borderRadius: n5.radiusPill }}
-                  >
-                    <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-                  </div>
-                )
-              : (
-                  <div
-                    className="flex size-14 shrink-0 items-center justify-center bg-white/10 text-2xl"
-                    style={{ borderRadius: n5.radiusPill }}
-                  >
-                    🎲
-                  </div>
-                )}
-            <div className="flex-1">
-              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Your Artist</p>
-              <p className="font-heading text-lg font-semibold">{technician?.name ?? 'Any Available'}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Total</p>
-              <p className="font-heading text-3xl font-bold text-[var(--n5-accent)]">
-                $
-                {totalPrice}
-              </p>
-            </div>
+        <div className="flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
+          {technician
+            ? (
+                <div
+                  className="relative size-12 shrink-0 overflow-hidden"
+                  style={{ borderRadius: n5.radiusPill }}
+                >
+                  <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
+                </div>
+              )
+            : (
+                <div
+                  className="flex size-12 shrink-0 items-center justify-center"
+                  style={{
+                    borderRadius: n5.radiusPill,
+                    backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+                  }}
+                >
+                  <User className="size-5 text-[var(--n5-accent)]" />
+                </div>
+              )}
+          <div className="min-w-0 flex-1">
+            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+              Artist
+            </p>
+            <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+              {technician?.name ?? 'Any available artist'}
+            </p>
           </div>
-
-          {/* Service */}
-          <div className="mb-4 flex items-center gap-3">
-            <div
-              className="flex size-10 items-center justify-center bg-white/10 text-lg"
-              style={{ borderRadius: n5.radiusMd }}
-            >
-              💅
-            </div>
-            <div className="flex-1">
-              <p className="font-body text-xs opacity-70">Service</p>
-              <p className="font-body font-semibold">{serviceNames}</p>
-            </div>
-            <div className="font-body flex items-center gap-1 text-sm opacity-70">
-              <Clock className="size-3.5" />
-              <span>
-                {totalDuration}
-                {' '}
-                min
-              </span>
-            </div>
-          </div>
-
-          {/* Date & Time */}
-          <div className="mb-4 flex items-center gap-3">
-            <div
-              className="flex size-10 items-center justify-center bg-white/10 text-lg"
-              style={{ borderRadius: n5.radiusMd }}
-            >
-              📅
-            </div>
-            <div className="flex-1">
-              <p className="font-body text-xs opacity-70">When</p>
-              <p className="font-body font-semibold">
-                {formatDate(dateStr)}
-                {' '}
-                at
-                {' '}
-                {formatTime(timeStr)}
-              </p>
-            </div>
-          </div>
-
-          {/* Location */}
-          {location && (
-            <div className="mb-4 flex items-center gap-3">
-              <div
-                className="flex size-10 items-center justify-center bg-white/10 text-lg"
-                style={{ borderRadius: n5.radiusMd }}
-              >
-                📍
-              </div>
-              <div className="flex-1">
-                <p className="font-body text-xs opacity-70">Location</p>
-                <p className="font-body font-semibold">
-                  {location.name}
-                </p>
-                {location.address && (
-                  <p className="font-body text-xs opacity-70">
-                    {location.address}
-                    {location.city && `, ${location.city}`}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Points Earned */}
           <div
-            className="flex items-center gap-3 border-t border-white/10 pt-4"
+            className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, white)',
+              color: 'var(--n5-accent)',
+            }}
           >
-            <div
-              className="flex size-10 items-center justify-center bg-[var(--n5-accent)] text-lg"
-              style={{ borderRadius: n5.radiusMd }}
-            >
-              ⭐
-            </div>
-            <div className="flex-1">
-              <p className="font-body text-xs opacity-70">Estimated points after completion</p>
-              <p className="font-body font-semibold text-[var(--n5-accent)]">
-                +
-                {pointsEarned.toLocaleString()}
-                {' '}
-                points
-              </p>
-            </div>
+            {totalDuration}
+            {' '}
+            min
           </div>
         </div>
-      </div>
+
+        <SummaryRow
+          icon={<Star className="size-4" />}
+          label="Service"
+          value={serviceNames}
+          detail={`Estimated reward after completion: +${pointsEarned.toLocaleString()} points`}
+        />
+        <SummaryRow
+          icon={<Calendar className="size-4" />}
+          label="When"
+          value={`${formatDate(dateStr)} at ${formatTime(timeStr)}`}
+        />
+        {location && (
+          <SummaryRow
+            icon={<MapPin className="size-4" />}
+            label="Location"
+            value={location.name}
+            detail={location.address
+              ? `${location.address}${location.city ? `, ${location.city}` : ''}`
+              : null}
+          />
+        )}
+      </SectionCard>
     </motion.div>
   );
 };
@@ -396,7 +330,7 @@ const LoadingState = () => (
         transition={{ delay: 0.3, duration: 0.5 }}
         className="font-heading text-sm uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]"
       >
-        Confirming
+        Confirming your appointment
       </motion.p>
     </motion.div>
   </div>
@@ -411,67 +345,29 @@ const ExistingAppointmentState = ({
   onViewProfile: () => void;
 }) => (
   <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-md text-center"
-    >
-      {/* Icon */}
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="bg-[var(--n5-warning)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
-        style={{ borderRadius: n5.radiusPill }}
-      >
-        <Calendar className="size-12 text-[var(--n5-warning)]" />
-      </motion.div>
-
-      <h1 className="font-heading mb-3 text-2xl font-bold text-[var(--n5-ink-main)]">
-        You Already Have an Appointment!
-      </h1>
-      <p className="font-body mb-8 text-sm leading-relaxed text-[var(--n5-ink-muted)]">
-        Please change or cancel your existing appointment from your profile instead of booking a new one.
-      </p>
-
-      {/* Primary Button */}
-      <motion.button
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+    <div className="w-full max-w-md space-y-3">
+      <StateCard
+        tone="warning"
+        icon={<Calendar className="mx-auto size-10 text-[var(--n5-warning)]" />}
+        title="You already have a booking"
+        description="To avoid duplicate bookings, update or cancel your current appointment from your profile."
+        contentClassName="py-7"
+      />
+      <button
         type="button"
         onClick={() => {
           triggerHaptic('select');
           onViewProfile();
         }}
-        className="font-body mb-3 w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+        className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
         }}
       >
-        View / Change Appointment
-      </motion.button>
-
-      {/* Secondary Button */}
-      <motion.button
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        type="button"
-        onClick={() => {
-          triggerHaptic('select');
-          onViewProfile();
-        }}
-        className="font-body w-full border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-        style={{
-          borderRadius: n5.radiusMd,
-          borderColor: 'var(--n5-accent)',
-        }}
-      >
-        View Profile
-      </motion.button>
-    </motion.div>
+        Manage current appointment
+      </button>
+    </div>
   </div>
 );
 
@@ -486,28 +382,14 @@ const ErrorState = ({
   onGoBack: () => void;
 }) => (
   <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-md text-center"
-    >
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-        className="bg-[var(--n5-error)]/10 mx-auto mb-6 flex size-24 items-center justify-center"
-        style={{ borderRadius: n5.radiusPill }}
-      >
-        <AlertCircle className="size-12 text-[var(--n5-error)]" />
-      </motion.div>
-
-      <h1 className="font-heading mb-3 text-2xl font-bold text-[var(--n5-ink-main)]">
-        Oops!
-      </h1>
-      <p className="font-body mb-8 text-sm text-[var(--n5-ink-muted)]">
-        {message}
-      </p>
-
+    <div className="w-full max-w-md space-y-3">
+      <StateCard
+        tone="error"
+        icon={<AlertCircle className="mx-auto size-10 text-[var(--n5-error)]" />}
+        title="We couldn&apos;t confirm your appointment"
+        description={message}
+        contentClassName="py-7"
+      />
       <button
         type="button"
         onClick={() => {
@@ -520,9 +402,220 @@ const ErrorState = ({
           boxShadow: n5.shadowSm,
         }}
       >
-        Go Back
+        Return to booking
       </button>
-    </motion.div>
+    </div>
+  </div>
+);
+
+const SessionRequiredState = ({
+  onLoginSuccess,
+  onGoBack,
+}: {
+  onLoginSuccess: (phone: string) => void;
+  onGoBack: () => void;
+}) => (
+  <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
+    <div className="w-full max-w-md space-y-4">
+      <StateCard
+        icon={<User className="mx-auto size-10 text-[var(--n5-accent)]" />}
+        title="Sign in to finish booking"
+        description="Confirming an appointment requires your verified client session."
+        contentClassName="py-7"
+      />
+
+      <BookingPhoneLogin onLoginSuccess={onLoginSuccess} />
+
+      <button
+        type="button"
+        onClick={onGoBack}
+        className="font-body mt-4 w-full border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+        style={{
+          borderRadius: n5.radiusMd,
+          borderColor: 'var(--n5-accent)',
+        }}
+      >
+        Return to booking
+      </button>
+    </div>
+  </div>
+);
+
+/**
+ * Review State - explicit submit before writing booking
+ */
+const ConfirmContent = ({
+  services,
+  technician,
+  totalPrice,
+  totalDuration,
+  dateStr,
+  timeStr,
+  pointsEarned,
+  onConfirm,
+  onEditSelection,
+  isSubmitting,
+  location,
+}: {
+  services: ServiceSummary[];
+  technician: TechnicianSummary;
+  totalPrice: number;
+  totalDuration: number;
+  dateStr: string;
+  timeStr: string;
+  pointsEarned: number;
+  onConfirm: () => void;
+  onEditSelection: () => void;
+  isSubmitting: boolean;
+  location: LocationSummary;
+}) => (
+  <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+    <nav
+      className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
+      style={{
+        backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
+        borderColor: 'var(--n5-border-muted)',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          triggerHaptic('select');
+          onEditSelection();
+        }}
+        className="font-body text-sm font-medium text-[var(--n5-ink-muted)]"
+      >
+        Edit
+      </button>
+      <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
+        Confirm
+      </span>
+      <div className="w-10" />
+    </nav>
+
+    <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+          className="bg-[var(--n5-accent)]/10 mx-auto mb-4 flex size-20 items-center justify-center"
+          style={{ borderRadius: n5.radiusPill }}
+        >
+          <Check className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />
+        </motion.div>
+        <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
+          Review your appointment
+        </h1>
+        <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
+          Nothing is booked yet. Confirm below to reserve this time.
+        </p>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <BookingCard
+          services={services}
+          technician={technician}
+          totalPrice={totalPrice}
+          totalDuration={totalDuration}
+          dateStr={dateStr}
+          timeStr={timeStr}
+          pointsEarned={pointsEarned}
+          location={location}
+        />
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="space-y-3"
+      >
+        <SectionCard
+          title="Before you confirm"
+          description="This will reserve the time above and block duplicate bookings on the same account."
+          className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+          contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
+        >
+          <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
+            <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+              Duration
+            </span>
+            <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+              {totalDuration}
+              {' '}
+              minutes
+            </p>
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
+            <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+              Rewards
+            </span>
+            <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+              +
+              {pointsEarned}
+              {' '}
+              points after completion
+            </p>
+          </div>
+        </SectionCard>
+
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic('confirm');
+            onConfirm();
+          }}
+          disabled={isSubmitting}
+          className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            borderRadius: n5.radiusMd,
+            boxShadow: n5.shadowSm,
+          }}
+        >
+          {isSubmitting
+            ? (
+                <>
+                  <RefreshCw className="size-5 animate-spin" />
+                  <span>Confirming appointment...</span>
+                </>
+              )
+            : (
+                <>
+                  <Check className="size-5" />
+                  <span>
+                    Confirm appointment · $
+                    {totalPrice}
+                  </span>
+                </>
+              )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic('select');
+            onEditSelection();
+          }}
+          className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+          style={{
+            borderRadius: n5.radiusMd,
+            borderColor: 'var(--n5-accent)',
+          }}
+        >
+          <RefreshCw className="size-4" />
+          <span>Change time or services</span>
+        </button>
+      </motion.div>
+    </main>
   </div>
 );
 
@@ -539,9 +632,11 @@ const SuccessContent = ({
   pointsEarned,
   appointmentId,
   onViewRewards,
-  onPayNow,
+  onManagePayment,
   onViewAppointment,
+  onOpenDirections,
   onGoToProfile,
+  onGoHome,
   location,
 }: {
   services: ServiceSummary[];
@@ -553,12 +648,14 @@ const SuccessContent = ({
   pointsEarned: number;
   appointmentId: string | null;
   onViewRewards: () => void;
-  onPayNow: () => void;
+  onManagePayment: () => void;
   onViewAppointment: () => void;
+  onOpenDirections: () => void;
   onGoToProfile: () => void;
+  onGoHome: () => void;
   location: LocationSummary;
 }) => {
-  const router = useRouter();
+  const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
@@ -572,13 +669,13 @@ const SuccessContent = ({
       >
         <div className="w-10" />
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
-          Confirmed!
+          Confirmed
         </span>
         <div className="w-10" />
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-6 px-5 pb-8 pt-28">
+      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
         {/* Success Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -595,10 +692,10 @@ const SuccessContent = ({
             <Check className="size-10 text-white" strokeWidth={3} />
           </motion.div>
           <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
-            You're All Set! 💅
+            Appointment confirmed
           </h1>
           <p className="font-body text-sm text-[var(--n5-ink-muted)]">
-            Your appointment is confirmed
+            Your time is reserved
           </p>
         </motion.div>
 
@@ -627,12 +724,11 @@ const SuccessContent = ({
           transition={{ delay: 0.4 }}
           className="space-y-3"
         >
-          {/* Pay Now */}
           <button
             type="button"
             onClick={() => {
               triggerHaptic('confirm');
-              onPayNow();
+              onViewAppointment();
             }}
             className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
             style={{
@@ -640,18 +736,46 @@ const SuccessContent = ({
               boxShadow: n5.shadowSm,
             }}
           >
-            <CreditCard className="size-5" />
-            <span>
-              Pay Now · $
-              {totalPrice}
-            </span>
+            <RefreshCw className="size-5" />
+            <span>Manage this appointment</span>
           </button>
 
-          <p className="font-body text-center text-xs text-[var(--n5-ink-muted)]">
-            or pay at the salon
-          </p>
+          <div className={`grid gap-3 ${directionsUrl ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+            {directionsUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('select');
+                  onOpenDirections();
+                }}
+                className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+                style={{
+                  borderRadius: n5.radiusMd,
+                  borderColor: 'var(--n5-border)',
+                }}
+              >
+                <MapPin className="size-4 text-[var(--n5-accent)]" />
+                <span>Directions</span>
+              </button>
+            )}
 
-          {/* View Rewards */}
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('confirm');
+                onManagePayment();
+              }}
+              className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              style={{
+                borderRadius: n5.radiusMd,
+                borderColor: 'var(--n5-border)',
+              }}
+            >
+              <CreditCard className="size-4 text-[var(--n5-accent)]" />
+              <span>Manage payment methods</span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={() => {
@@ -665,42 +789,35 @@ const SuccessContent = ({
             }}
           >
             <Star className="size-4 text-[var(--n5-accent)]" />
-            <span>
-              View Rewards (+
-              {pointsEarned}
-              {' '}
-              pts)
-            </span>
+            <span>View rewards &amp; pending points</span>
           </button>
 
-          {/* View/Change Appointment */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('select');
-              onViewAppointment();
-            }}
-            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-            style={{
-              borderRadius: n5.radiusMd,
-              borderColor: 'var(--n5-accent)',
-            }}
-          >
-            <RefreshCw className="size-4" />
-            <span>View or Change Appointment</span>
-          </button>
-
-          {/* Go to Profile */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('select');
-              onGoToProfile();
-            }}
-            className="font-body w-full py-3 text-center font-medium text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
-          >
-            Back to Profile →
-          </button>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('select');
+                onGoHome();
+              }}
+              className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              style={{ borderColor: 'var(--n5-border)' }}
+            >
+              <Home className="size-4" />
+              <span>Back to booking</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('select');
+                onGoToProfile();
+              }}
+              className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+              style={{ borderColor: 'var(--n5-accent)' }}
+            >
+              <User className="size-4" />
+              <span>Profile</span>
+            </button>
+          </div>
         </motion.div>
 
         {/* Footer */}
@@ -712,14 +829,14 @@ const SuccessContent = ({
         >
           <div className="mb-2 flex items-center justify-center gap-2">
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
-            <span className="font-body text-sm text-[var(--n5-ink-muted)]">We can't wait to see you!</span>
+            <span className="font-body text-sm text-[var(--n5-ink-muted)]">We&apos;re looking forward to your visit.</span>
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
           </div>
           <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-            📱 We'll send you a text reminder
+            We&apos;ll text you before your visit
           </p>
           <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-            Free cancellation up to 24 hours before
+            You can change or cancel up to 24 hours before
           </p>
           {appointmentId && (
             <p className="font-body mt-2 text-[10px] text-[var(--n5-border)]">
@@ -731,53 +848,6 @@ const SuccessContent = ({
         </motion.div>
       </main>
 
-      {/* Floating Dock */}
-      <div
-        className="bg-[var(--n5-bg-card)]/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8 backdrop-blur-xl"
-        style={{
-          borderRadius: n5.radiusCard,
-          boxShadow: n5.shadowDock,
-          borderWidth: 1,
-          borderColor: 'var(--n5-border)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic('select');
-            router.push('/book');
-          }}
-          className="p-2 text-[var(--n5-ink-muted)] transition-colors"
-          aria-label="Go to Home"
-        >
-          <Home strokeWidth={2} className="size-6" />
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic('select');
-            onViewRewards();
-          }}
-          className="p-2 text-[var(--n5-ink-muted)] transition-colors"
-          aria-label="View Rewards"
-        >
-          <Gift strokeWidth={2} className="size-6" />
-        </button>
-        <div className="relative p-2">
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('select');
-              onGoToProfile();
-            }}
-            className="text-[var(--n5-accent)]"
-            aria-label="Go to Profile"
-          >
-            <User strokeWidth={2} className="size-6" />
-          </button>
-          <div className="absolute bottom-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-[var(--n5-accent)]" />
-        </div>
-      </div>
     </div>
   );
 };
@@ -905,9 +975,16 @@ export function BookConfirmClient({
   const searchParams = useSearchParams();
   useSalon();
   const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const techId = searchParams.get('techId') || '';
-  const clientPhone = searchParams.get('clientPhone') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const {
+    isLoggedIn,
+    isCheckingSession,
+    handleLoginSuccess,
+    validateSession,
+    clientName,
+  } = useClientSession();
 
   // Sync booking state from URL on mount (for consistency)
   const { syncFromUrl } = useBookingState();
@@ -948,10 +1025,8 @@ export function BookConfirmClient({
     setBookingError(null);
 
     try {
-      // Normalize phone number (strip formatting, handle +1 country code)
-      const normalizedPhone = normalizePhone(clientPhone);
-      if (!normalizedPhone) {
-        throw new Error('Invalid phone number. Please go back and enter a valid 10-digit phone number.');
+      if (!isLoggedIn) {
+        throw new Error('Please sign in again before confirming this appointment.');
       }
 
       const [hours, minutes] = timeStr.split(':').map(Number);
@@ -962,7 +1037,6 @@ export function BookConfirmClient({
         salonSlug,
         serviceIds: services.map(s => s.id),
         technicianId: techId === 'any' ? null : techId,
-        clientPhone: normalizedPhone,
         startTime: startTime.toISOString(),
         ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
@@ -997,6 +1071,7 @@ export function BookConfirmClient({
         if (errorData.error?.code === 'EXISTING_APPOINTMENT') {
           setHasExistingAppointment(true);
           setBookingError(errorData.error?.message || 'You already have an upcoming appointment.');
+          bookingInitiatedRef.current = false;
           return;
         }
 
@@ -1015,32 +1090,23 @@ export function BookConfirmClient({
     } catch (error) {
       console.error('Booking error:', error);
       setBookingError(error instanceof Error ? error.message : 'Failed to create booking');
+      bookingInitiatedRef.current = false;
     } finally {
       setIsBooking(false);
     }
-  }, [dateStr, timeStr, salonSlug, services, techId, clientPhone, originalAppointmentId, location]);
-
-  useEffect(() => {
-    if (services.length > 0 && dateStr && timeStr) {
-      createBooking();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dateStr, isLoggedIn, timeStr, salonSlug, services, techId, originalAppointmentId, location]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
       nameCheckInitiatedRef.current = true;
 
-      const clientNameCookie = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('client_name='));
-
-      if (!clientNameCookie) {
+      if (!clientName?.trim()) {
         const timer = setTimeout(() => setShowNameModal(true), 1500);
         return () => clearTimeout(timer);
       }
     }
     return undefined;
-  }, [bookingComplete]);
+  }, [bookingComplete, clientName]);
 
   const handleSaveName = async () => {
     if (!firstName.trim() || isSavingName) {
@@ -1049,14 +1115,17 @@ export function BookConfirmClient({
 
     setIsSavingName(true);
     try {
-      await fetch('/api/client/update-name', {
+      const response = await fetch('/api/client/update-name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: clientPhone,
           firstName: firstName.trim(),
         }),
       });
+
+      if (response.ok) {
+        await validateSession();
+      }
 
       setShowNameModal(false);
     } catch (error) {
@@ -1068,17 +1137,44 @@ export function BookConfirmClient({
   };
 
   const handleViewAppointment = () => {
-    const bookedServiceIds = services.map(s => s.id).join(',');
-    const bookedTechId = technician?.id || 'any';
-
-    let changeUrl = `/${locale}/change-appointment?serviceIds=${bookedServiceIds}&techId=${bookedTechId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(clientPhone)}`;
-
-    if (appointmentId) {
-      changeUrl += `&originalAppointmentId=${encodeURIComponent(appointmentId)}`;
+    if (!appointmentId) {
+      return;
     }
 
-    router.push(changeUrl);
+    router.push(buildChangeAppointmentUrl({
+      basePath: `/${locale}/change-appointment`,
+      salonSlug,
+      serviceIds: services.map(s => s.id),
+      techId: technician?.id || 'any',
+      locationId: location?.id ?? null,
+      originalAppointmentId: appointmentId,
+      startTime: new Date(`${dateStr}T${timeStr}:00`).toISOString(),
+      tenantRoute: {
+        routeSalonSlug,
+        locale,
+      },
+    }));
   };
+
+  const handleOpenDirections = useCallback(() => {
+    openGoogleMapsDirections(location);
+  }, [location]);
+
+  if (isCheckingSession) {
+    return <LoadingState />;
+  }
+
+  if (!isLoggedIn) {
+    return (
+        <SessionRequiredState
+          onLoginSuccess={handleLoginSuccess}
+          onGoBack={() => router.push(appendSalonSlug(`/${locale}/book`, salonSlug, {
+            routeSalonSlug,
+            locale,
+          }))}
+        />
+    );
+  }
 
   // Loading state
   if (isBooking) {
@@ -1089,7 +1185,10 @@ export function BookConfirmClient({
   if (hasExistingAppointment) {
     return (
       <ExistingAppointmentState
-        onViewProfile={() => router.push(`/${locale}/profile`)}
+        onViewProfile={() => router.push(appendSalonSlug(`/${locale}/profile`, salonSlug, {
+          routeSalonSlug,
+          locale,
+        }))}
       />
     );
   }
@@ -1117,10 +1216,24 @@ export function BookConfirmClient({
           timeStr={timeStr}
           pointsEarned={pointsEarned}
           appointmentId={appointmentId}
-          onViewRewards={() => router.push(`/${locale}/rewards`)}
-          onPayNow={() => router.push(`/${locale}/payment?amount=${totalPrice}`)}
+          onViewRewards={() => router.push(appendSalonSlug(`/${locale}/rewards`, salonSlug, {
+            routeSalonSlug,
+            locale,
+          }))}
+          onManagePayment={() => router.push(appendSalonSlug(`/${locale}/payment-methods`, salonSlug, {
+            routeSalonSlug,
+            locale,
+          }))}
           onViewAppointment={handleViewAppointment}
-          onGoToProfile={() => router.push(`/${locale}/profile`)}
+          onOpenDirections={handleOpenDirections}
+          onGoToProfile={() => router.push(appendSalonSlug(`/${locale}/profile`, salonSlug, {
+            routeSalonSlug,
+            locale,
+          }))}
+          onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, {
+            routeSalonSlug,
+            locale,
+          }))}
           location={location}
         />
         <NameCaptureModal
@@ -1135,6 +1248,28 @@ export function BookConfirmClient({
     );
   }
 
-  // Default loading
-  return <LoadingState />;
+  if (services.length === 0 || !dateStr || !timeStr) {
+    return (
+      <ErrorState
+        message="Your booking details are incomplete. Please go back and select your service, date, and time again."
+        onGoBack={() => router.back()}
+      />
+    );
+  }
+
+  return (
+    <ConfirmContent
+      services={services}
+      technician={technician}
+      totalPrice={totalPrice}
+      totalDuration={totalDuration}
+      dateStr={dateStr}
+      timeStr={timeStr}
+      pointsEarned={pointsEarned}
+      onConfirm={createBooking}
+      onEditSelection={() => router.back()}
+      isSubmitting={isBooking}
+      location={location}
+    />
+  );
 }

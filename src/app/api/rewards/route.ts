@@ -6,12 +6,16 @@
  * GET /api/rewards?phone=1234567890&salonSlug=nail-salon-no5
  */
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromQuery,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
-import { type Reward, rewardSchema, salonClientSchema } from '@/models/Schema';
+import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { appointmentSchema, type Reward, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -21,7 +25,6 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 
 const getRewardsSchema = z.object({
-  phone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
@@ -44,6 +47,8 @@ type SuccessResponse = {
     activeCount: number;
     totalPoints: number;
     activePoints: number; // The client's actual loyalty points balance
+    pendingPoints: number;
+    pendingAppointments: number;
     totalVisits?: number;
   };
 };
@@ -62,21 +67,23 @@ type ErrorResponse = {
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse query parameters
     const { searchParams } = new URL(request.url);
-    const phone = searchParams.get('phone');
     const salonSlug = searchParams.get('salonSlug');
 
     // 2. Validate parameters
-    const parsed = getRewardsSchema.safeParse({ phone, salonSlug });
+    const parsed = getRewardsSchema.safeParse({ salonSlug });
 
     if (!parsed.success) {
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request parameters';
 
-      if (fieldErrors.phone) {
-        userMessage = 'Your phone number is invalid.';
-      } else if (fieldErrors.salonSlug) {
+      if (fieldErrors.salonSlug) {
         userMessage = 'Unable to identify salon.';
       }
 
@@ -92,26 +99,22 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Resolve salon from slug
-    const salon = await getSalonBySlug(parsed.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${parsed.data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 3. Resolve salon from slug or active tenant cookie
+    const salonGuard = await requireClientSalonFromQuery(searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 4. Fetch the client's loyalty points balance from salonClient
     // Try multiple phone formats
-    const phoneVariants = [
-      parsed.data.phone,
-      `+1${parsed.data.phone}`,
-    ];
+    const phoneVariants = [...new Set([
+      auth.normalizedPhone,
+      auth.session.phone,
+      `+1${auth.normalizedPhone}`,
+      `1${auth.normalizedPhone}`,
+      auth.session.phone.replace(/\D/g, ''),
+    ])];
 
     const salonClients = await db
       .select({
@@ -130,6 +133,24 @@ export async function GET(request: Request): Promise<Response> {
     const clientLoyaltyPoints = salonClients[0]?.loyaltyPoints ?? 0;
     const totalVisits = salonClients[0]?.totalVisits ?? 0;
 
+    const pendingStats = await db
+      .select({
+        pendingTotalCents: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}), 0)::int`,
+        pendingAppointments: sql<number>`count(*)::int`,
+      })
+      .from(appointmentSchema)
+      .where(
+        and(
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+          inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
+        ),
+      );
+
+    const pendingTotalCents = pendingStats[0]?.pendingTotalCents ?? 0;
+    const pendingPoints = computeEarnedPointsFromCents(pendingTotalCents);
+    const pendingAppointments = pendingStats[0]?.pendingAppointments ?? 0;
+
     // 5. Fetch rewards for this phone and salon
     const rewards = await db
       .select()
@@ -137,7 +158,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(rewardSchema.salonId, salon.id),
-          eq(rewardSchema.clientPhone, parsed.data.phone),
+          eq(rewardSchema.clientPhone, auth.normalizedPhone),
         ),
       )
       .orderBy(desc(rewardSchema.createdAt));
@@ -204,6 +225,8 @@ export async function GET(request: Request): Promise<Response> {
         activeCount,
         totalPoints: rewardPoints,
         activePoints: clientLoyaltyPoints, // This is the real points balance!
+        pendingPoints,
+        pendingAppointments,
         totalVisits,
       },
     };

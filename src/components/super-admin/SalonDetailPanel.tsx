@@ -22,6 +22,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -314,6 +315,8 @@ function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
 }
 
 export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPanelProps) {
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const [salon, setSalon] = useState<SalonDetail | null>(null);
   const [metrics, setMetrics] = useState<SalonMetrics | null>(null);
   const [owner, setOwner] = useState<OwnerInfo | null>(null);
@@ -493,6 +496,14 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
 
       const data = await response.json();
       setSalon(data.salon);
+      if (data.salon.features) {
+        setFeatures(data.salon.features);
+      }
+      setOnlineBookingEnabled(data.salon.onlineBookingEnabled ?? true);
+      setSmsRemindersEnabled(data.salon.smsRemindersEnabled ?? true);
+      setRewardsEnabled(data.salon.rewardsEnabled ?? true);
+      setProfilePageEnabled(data.salon.profilePageEnabled ?? true);
+      setBookingFlowCustomizationEnabled(data.salon.bookingFlowCustomizationEnabled ?? false);
 
       // Mark form as clean and show "Saved" feedback
       setIsDirty(false);
@@ -662,7 +673,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       }
 
       const data = await response.json();
-      window.open(data.redirectUrl, '_blank');
+      const redirectTarget = salon?.slug
+        ? `/${locale}/admin?salon=${encodeURIComponent(salon.slug)}`
+        : data.redirectUrl;
+      window.location.assign(redirectTarget);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     }
@@ -722,6 +736,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
               <button
                 type="button"
                 onClick={handleImpersonate}
+                data-testid="impersonate-salon-button"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
               >
                 <ExternalLink className="size-3.5" />

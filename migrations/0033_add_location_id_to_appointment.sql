@@ -1,6 +1,6 @@
 -- Add locationId column to appointment table for multi-location support
 -- This migration adds a column to track which salon location an appointment is booked at
-ALTER TABLE "appointment" ADD COLUMN "location_id" text;
+ALTER TABLE "appointment" ADD COLUMN IF NOT EXISTS "location_id" text;
 
 -- Rename duplicate audit log indexes to prevent conflicts
 DROP INDEX IF EXISTS "audit_log_salon_idx";

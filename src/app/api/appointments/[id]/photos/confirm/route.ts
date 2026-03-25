@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
@@ -8,7 +7,8 @@ import { getIdempotencyKey, getPresignKey, TTL } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { verifyUploadExists } from '@/core/storage/storageClient';
 import { db } from '@/libs/DB';
-import { getAppointmentById, getSalonBySlug } from '@/libs/queries';
+import { getSalonById } from '@/libs/queries';
+import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
   appointmentSchema,
@@ -62,21 +62,25 @@ export async function POST(
       );
     }
 
-    // 2. Auth: Read staff cookies
-    const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
+    const access = await requireStaffAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      assignmentForbiddenMessage: 'You can only confirm photos for your own appointments',
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+    const { session } = access;
 
-    if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
+    const salon = await getSalonById(session.salonId);
+    if (!salon) {
       return Response.json(
         {
           error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
+            code: 'SALON_NOT_FOUND',
+            message: 'Salon not found',
           },
         } satisfies ErrorResponse,
-        { status: 401 },
+        { status: 404 },
       );
     }
 
@@ -123,46 +127,6 @@ export async function POST(
       return Response.json({
         data: { ...cachedResult, alreadyConfirmed: true },
       });
-    }
-
-    // 6. Resolve salon
-    const salon = await getSalonBySlug(staffSalon.value);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // 7. Verify appointment exists and belongs to salon
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    if (appointment.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You do not have access to this appointment',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
     }
 
     // 8. Validate against pending presign in Redis (replay safety)

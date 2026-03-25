@@ -26,6 +26,9 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
+
 import { BackButton, ModalHeader } from './AppModal';
 
 type NotificationsModalProps = {
@@ -213,38 +216,12 @@ function SectionHeader({ title }: { title: string }) {
  */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-20 items-center justify-center rounded-full bg-[#F2F2F7]">
-        <Bell className="size-10 text-[#8E8E93]" />
-      </div>
-      <h3 className="mb-1 text-[20px] font-semibold text-[#1C1C1E]">
-        All Caught Up
-      </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
-        No recent activity to show
-      </p>
-    </div>
-  );
-}
-
-/**
- * Loading Skeleton
- */
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse space-y-3 px-4">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="rounded-[16px] bg-white p-4">
-          <div className="flex items-start gap-3">
-            <div className="size-10 rounded-full bg-gray-200" />
-            <div className="flex-1">
-              <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
-              <div className="h-3 w-full rounded bg-gray-100" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+    <AsyncStatePanel
+      icon={<Bell className="mx-auto size-10 text-[#8E8E93]" />}
+      title="No recent activity"
+      description="New bookings, cancellations, and reviews will appear here."
+      className="mx-4 my-8"
+    />
   );
 }
 
@@ -389,14 +366,14 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
           subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'Recent Activity'}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={
-            notifications.length > 0
+            unreadCount > 0
               ? (
                   <button
                     type="button"
                     onClick={handleMarkAllRead}
                     className="text-[15px] font-medium text-[#007AFF] transition-opacity active:opacity-50"
                   >
-                    Mark Read
+                    Mark all read
                   </button>
                 )
               : null
@@ -407,25 +384,36 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-10">
         {loading ? (
-          <LoadingSkeleton />
+          <AsyncStatePanel
+            loading
+            title="Loading activity"
+            description="Collecting recent alerts and salon activity."
+          />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center px-8 py-20">
-            <p className="mb-2 text-sm text-red-600">{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setHasLoaded(false); fetchActivity();
-              }}
-              className="text-sm font-medium text-[#007AFF]"
-            >
-              Try again
-            </button>
-          </div>
+          <AsyncStatePanel
+            tone="error"
+            title="Unable to load activity"
+            description={error}
+            className="my-8"
+            action={(
+              <Button
+                type="button"
+                variant="brandSoft"
+                size="pillSm"
+                onClick={() => {
+                  setHasLoaded(false);
+                  fetchActivity();
+                }}
+              >
+                Try again
+              </Button>
+            )}
+          />
         ) : notifications.length === 0 ? (
           <EmptyState />
         ) : (
           <>
-            {/* Clear All Button */}
+            {/* Clear activity button */}
             {notifications.length > 0 && (
               <div className="mb-4 flex justify-end">
                 <button
@@ -433,7 +421,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
                   onClick={handleClearAll}
                   className="text-[13px] font-medium text-[#FF3B30] transition-opacity active:opacity-50"
                 >
-                  Clear All
+                  Clear activity
                 </button>
               </div>
             )}

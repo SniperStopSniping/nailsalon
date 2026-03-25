@@ -1,9 +1,11 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { and, eq } from 'drizzle-orm';
+import { mkdir, readdir, unlink, writeFile } from 'fs/promises';
+import path from 'path';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -28,6 +30,82 @@ type ErrorResponse = {
   };
 };
 
+const LOCAL_AVATAR_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'] as const;
+
+function getAvatarExtension(file: File): string | null {
+  switch (file.type) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    default:
+      return null;
+  }
+}
+
+async function removeLocalAvatarVariants(directory: string, avatarBaseName: string) {
+  try {
+    const entries = await readdir(directory);
+    await Promise.all(
+      entries
+        .filter(name => LOCAL_AVATAR_EXTENSIONS.some(ext => name === `${avatarBaseName}.${ext}`))
+        .map(name => unlink(path.join(directory, name)).catch(() => {})),
+    );
+  } catch {
+    // Ignore cleanup failures; upload/delete should still proceed.
+  }
+}
+
+async function saveLocalAvatar({
+  file,
+  salonId,
+  technicianId,
+}: {
+  file: File;
+  salonId: string;
+  technicianId: string;
+}): Promise<string> {
+  const extension = getAvatarExtension(file);
+  if (!extension) {
+    throw new Error('Only JPEG, PNG, and WebP images are allowed');
+  }
+
+  const avatarBaseName = `avatar_${technicianId}`;
+  const relativeDirectory = path.join('uploads', 'staff', salonId);
+  const absoluteDirectory = path.join(process.cwd(), 'public', relativeDirectory);
+  const fileName = `${avatarBaseName}.${extension}`;
+  const absolutePath = path.join(absoluteDirectory, fileName);
+  const relativeUrl = `/${path.posix.join(relativeDirectory.replaceAll(path.sep, '/'), fileName)}`;
+
+  await mkdir(absoluteDirectory, { recursive: true });
+  await removeLocalAvatarVariants(absoluteDirectory, avatarBaseName);
+
+  const arrayBuffer = await file.arrayBuffer();
+  await writeFile(absolutePath, Buffer.from(arrayBuffer));
+
+  return relativeUrl;
+}
+
+async function deleteLocalAvatarIfPresent(avatarUrl: string | null) {
+  if (!avatarUrl?.startsWith('/uploads/staff/')) {
+    return;
+  }
+
+  const cleanPath = avatarUrl.split('?')[0];
+  if (!cleanPath) {
+    return;
+  }
+
+  const absolutePath = path.join(process.cwd(), 'public', cleanPath.replace(/^\//, ''));
+  try {
+    await unlink(absolutePath);
+  } catch {
+    // Ignore missing-file cleanup errors.
+  }
+}
+
 // =============================================================================
 // POST /api/admin/technicians/[id]/avatar - Upload staff photo
 // =============================================================================
@@ -38,19 +116,6 @@ export async function POST(
 ): Promise<Response> {
   try {
     const { id } = await params;
-
-    // Check Cloudinary configuration
-    if (!isCloudinaryConfigured()) {
-      return Response.json(
-        {
-          error: {
-            code: 'CLOUDINARY_NOT_CONFIGURED',
-            message: 'Image upload is not configured',
-          },
-        } satisfies ErrorResponse,
-        { status: 500 },
-      );
-    }
 
     // Parse form data
     const formData = await request.formData();
@@ -78,6 +143,26 @@ export async function POST(
           },
         } satisfies ErrorResponse,
         { status: 400 },
+      );
+    }
+
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
+    }
+
+    const canUseCloudinary = isCloudinaryConfigured();
+    const canUseLocalFallback = process.env.NODE_ENV !== 'production';
+
+    if (!canUseCloudinary && !canUseLocalFallback) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLOUDINARY_NOT_CONFIGURED',
+            message: 'Image upload is not configured',
+          },
+        } satisfies ErrorResponse,
+        { status: 500 },
       );
     }
 
@@ -109,20 +194,6 @@ export async function POST(
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
     // Verify technician exists and belongs to salon
     const [technician] = await db
       .select()
@@ -147,45 +218,56 @@ export async function POST(
       );
     }
 
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    let avatarUrl: string;
+    if (canUseCloudinary) {
+      // Convert file to buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-    // Upload to Cloudinary
-    const folder = `salons/${salon.id}/staff`;
+      // Upload to Cloudinary
+      const folder = `salons/${salon.id}/staff`;
 
-    const uploadResult = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
-      cloudinary.uploader
-        .upload_stream(
-          {
-            folder,
-            resource_type: 'image',
-            public_id: `avatar_${id}`,
-            overwrite: true,
-            transformation: [
-              { width: 400, height: 400, crop: 'fill', gravity: 'face' },
-            ],
-          },
-          (error, result) => {
-            if (error) {
-              reject(new Error(`Cloudinary upload failed: ${error.message}`));
-              return;
-            }
-            if (!result) {
-              reject(new Error('Cloudinary upload returned no result'));
-              return;
-            }
-            resolve({ secure_url: result.secure_url, public_id: result.public_id });
-          },
-        )
-        .end(buffer);
-    });
+      const uploadResult = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
+        cloudinary.uploader
+          .upload_stream(
+            {
+              folder,
+              resource_type: 'image',
+              public_id: `avatar_${id}`,
+              overwrite: true,
+              transformation: [
+                { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+              ],
+            },
+            (error, result) => {
+              if (error) {
+                reject(new Error(`Cloudinary upload failed: ${error.message}`));
+                return;
+              }
+              if (!result) {
+                reject(new Error('Cloudinary upload returned no result'));
+                return;
+              }
+              resolve({ secure_url: result.secure_url, public_id: result.public_id });
+            },
+          )
+          .end(buffer);
+      });
+
+      avatarUrl = uploadResult.secure_url;
+    } else {
+      avatarUrl = await saveLocalAvatar({
+        file,
+        salonId: salon.id,
+        technicianId: id,
+      });
+    }
 
     // Update technician's avatarUrl
     const [_updated] = await db
       .update(technicianSchema)
       .set({
-        avatarUrl: uploadResult.secure_url,
+        avatarUrl,
         updatedAt: new Date(),
       })
       .where(eq(technicianSchema.id, id))
@@ -194,7 +276,7 @@ export async function POST(
     return Response.json({
       data: {
         technicianId: id,
-        avatarUrl: uploadResult.secure_url,
+        avatarUrl,
       },
       meta: {
         timestamp: new Date().toISOString(),
@@ -239,18 +321,9 @@ export async function DELETE(
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Verify technician exists and belongs to salon
@@ -287,6 +360,8 @@ export async function DELETE(
         // Continue anyway - we'll still clear the URL
       }
     }
+
+    await deleteLocalAvatarIfPresent(technician.avatarUrl);
 
     // Clear avatarUrl
     const [_updated] = await db

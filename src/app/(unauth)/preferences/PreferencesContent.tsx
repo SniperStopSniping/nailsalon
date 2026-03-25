@@ -1,9 +1,11 @@
 'use client';
 
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 
 // Type for preferences data from API
@@ -133,7 +135,11 @@ type PreferencesContentProps = {
 
 export default function PreferencesContent({ technicians }: PreferencesContentProps) {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { salonName, salonSlug } = useSalon();
+  const { phone: sessionPhone } = useClientSession();
 
   const [mounted, setMounted] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -141,7 +147,7 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Client phone from cookie
+  // Client phone from validated session
   const [clientPhone, setClientPhone] = useState('');
 
   // Form state - start with empty/default values
@@ -159,25 +165,13 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
   const [conversationLevel, setConversationLevel] = useState<string | null>(null);
   const [beveragePreference, setBeveragePreference] = useState<string[]>([]);
 
-  // Normalize phone number to 10 digits
-  const normalizePhone = useCallback((phone: string): string => {
-    return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-  }, []);
-
-  // Load client phone from cookie
   useEffect(() => {
     setMounted(true);
-
-    const clientPhoneCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_phone='));
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setClientPhone(phone);
-      }
-    }
   }, []);
+
+  useEffect(() => {
+    setClientPhone(sessionPhone);
+  }, [sessionPhone]);
 
   // Fetch existing preferences from API
   useEffect(() => {
@@ -187,15 +181,9 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
         return;
       }
 
-      const normalizedPhone = normalizePhone(clientPhone);
-      if (normalizedPhone.length !== 10) {
-        setLoading(false);
-        return;
-      }
-
       try {
         const response = await fetch(
-          `/api/client/preferences?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+          `/api/client/preferences?salonSlug=${salonSlug}`,
         );
 
         if (response.ok) {
@@ -232,7 +220,7 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
       // No phone, stop loading
       setLoading(false);
     }
-  }, [clientPhone, salonSlug, normalizePhone, mounted]);
+  }, [clientPhone, salonSlug, mounted]);
 
   const handleBack = () => {
     router.back();
@@ -256,12 +244,6 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
       return;
     }
 
-    const normalizedPhone = normalizePhone(clientPhone);
-    if (normalizedPhone.length !== 10) {
-      setError('Invalid phone number format.');
-      return;
-    }
-
     setSaving(true);
     setError(null);
 
@@ -270,7 +252,6 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: normalizedPhone,
           salonSlug,
           favoriteTechId: favoriteTech,
           favoriteServices: favoriteServices.length > 0 ? favoriteServices : null,
@@ -295,7 +276,10 @@ export default function PreferencesContent({ technicians }: PreferencesContentPr
 
       setSaved(true);
       setTimeout(() => {
-        router.push('/profile');
+        router.push(appendSalonSlug('/profile', salonSlug, {
+          routeSalonSlug,
+          locale,
+        }));
       }, 1500);
     } catch (err) {
       console.error('Error saving preferences:', err);

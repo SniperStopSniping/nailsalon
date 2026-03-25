@@ -9,13 +9,16 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
-import { getSalonBySlug, upsertSalonClient } from '@/libs/queries';
+import { upsertSalonClient } from '@/libs/queries';
 import { clientSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -23,7 +26,6 @@ import { clientSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
 // =============================================================================
 
 const completeProfileSchema = z.object({
-  phone: z.string().min(10, 'Phone number is required'),
   firstName: z.string()
     .min(1, 'First name is required')
     .max(50, 'Name too long')
@@ -41,6 +43,11 @@ const completeProfileSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const parsed = completeProfileSchema.safeParse(body);
@@ -58,38 +65,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const { phone, firstName, email, salonSlug } = parsed.data;
-
-    // Normalize phone to 10-digit format
-    const normalizedPhone = phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-    if (normalizedPhone.length !== 10) {
-      return NextResponse.json(
-        {
-          error: {
-            code: 'INVALID_PHONE',
-            message: 'Phone number must be 10 digits',
-          },
-        },
-        { status: 400 },
-      );
-    }
-
-    // Phone format for DB storage (with +1 prefix)
-    const phoneForDb = `+1${normalizedPhone}`;
+    const { firstName, email, salonSlug } = parsed.data;
+    const normalizedPhone = auth.normalizedPhone;
+    const phoneForDb = auth.session.phone;
 
     // 1. Resolve salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return NextResponse.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon not found`,
-          },
-        },
-        { status: 404 },
-      );
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // Resolve effective loyalty points for this salon
     const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
@@ -188,25 +173,6 @@ export async function POST(request: Request) {
       // eslint-disable-next-line no-console
       console.warn(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
     }
-
-    // 5. Set cookies for client-side access
-    const cookieStore = await cookies();
-
-    cookieStore.set('client_name', firstName, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
-
-    cookieStore.set('client_email', email, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
 
     // eslint-disable-next-line no-console
     console.warn(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);

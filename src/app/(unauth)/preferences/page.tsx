@@ -1,12 +1,10 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
-import { getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getTechniciansBySalonId } from '@/libs/queries';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import PreferencesContent from './PreferencesContent';
 
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
+export const dynamic = 'force-dynamic';
 
 /**
  * Preferences Page (Server Component)
@@ -14,12 +12,15 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  * Fetches page appearance settings and technicians, conditionally wraps
  * the content with ThemeProvider if theme mode is enabled.
  */
-export default async function PreferencesPage() {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'preferences');
-
-  // Fetch salon and technicians from database
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-  const technicians = salon ? await getTechniciansBySalonId(salon.id) : [];
+export default async function PreferencesPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const context = await getPublicPageContext('preferences', searchParams, params);
+  const technicians = await getTechniciansBySalonId(context.salon.id);
 
   // Map to the shape expected by the client component
   const technicianData = technicians.map(tech => ({
@@ -29,8 +30,12 @@ export default async function PreferencesPage() {
   }));
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="preferences">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="preferences"
+      salon={context.salon}
+    >
       <PreferencesContent technicians={technicianData} />
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

@@ -1,9 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { getSalonBySlug } from '@/libs/queries';
 import { sendReferralInvite } from '@/libs/SMS';
 import { appointmentSchema, clientSchema, referralSchema } from '@/models/Schema';
 
@@ -13,12 +16,9 @@ import { appointmentSchema, clientSchema, referralSchema } from '@/models/Schema
 
 const sendReferralSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  referrerPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
-  referrerName: z.string().min(1, 'Referrer name is required'),
+  referrerName: z.string().min(1, 'Referrer name is required').optional(),
   refereePhone: z.string().regex(/^\d{10}$/, 'Friend phone must be 10 digits'),
 });
-
-type SendReferralRequest = z.infer<typeof sendReferralSchema>;
 
 // =============================================================================
 // RESPONSE TYPES
@@ -44,10 +44,16 @@ type ErrorResponse = {
 
 // =============================================================================
 // POST /api/referrals/send - Send a referral to a friend
+// Caller identity is derived from the authenticated client session.
 // =============================================================================
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse and validate request body
     const body = await request.json();
     const parsed = sendReferralSchema.safeParse(body);
@@ -57,9 +63,7 @@ export async function POST(request: Request): Promise<Response> {
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request data';
 
-      if (fieldErrors.referrerPhone) {
-        userMessage = 'Your phone number is invalid. Please try again or contact support.';
-      } else if (fieldErrors.refereePhone) {
+      if (fieldErrors.refereePhone) {
         userMessage = 'Please enter a valid 10-digit phone number for your friend.';
       } else if (fieldErrors.salonSlug) {
         userMessage = 'Unable to identify salon. Please refresh and try again.';
@@ -79,10 +83,11 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const data: SendReferralRequest = parsed.data;
+    const { salonSlug, referrerName, refereePhone } = parsed.data;
+    const resolvedReferrerName = auth.session.clientName ?? referrerName ?? 'Your friend';
 
     // 2. Validate: can't refer yourself
-    if (data.referrerPhone === data.refereePhone) {
+    if (auth.normalizedPhone === refereePhone) {
       return Response.json(
         {
           error: {
@@ -94,19 +99,12 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Resolve salon from slug
-    const salon = await getSalonBySlug(data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 3. Resolve salon from tenant context
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 3.5. Check if referrals module is enabled (Step 16.3)
     // Uses effective gating: entitled AND adminEnabled
@@ -122,8 +120,8 @@ export async function POST(request: Request): Promise<Response> {
       .where(
         and(
           eq(referralSchema.salonId, salon.id),
-          eq(referralSchema.referrerPhone, data.referrerPhone),
-          eq(referralSchema.refereePhone, data.refereePhone),
+          eq(referralSchema.referrerPhone, auth.normalizedPhone),
+          eq(referralSchema.refereePhone, refereePhone),
         ),
       )
       .limit(1);
@@ -143,9 +141,9 @@ export async function POST(request: Request): Promise<Response> {
     // 5. Check if referee phone belongs to an existing client
     // This prevents referrals to people who already have accounts
     const phoneVariants = [
-      data.refereePhone,
-      `+1${data.refereePhone}`,
-      `+${data.refereePhone}`,
+      refereePhone,
+      `+1${refereePhone}`,
+      `+${refereePhone}`,
     ];
 
     // Check appointments table for existing bookings at this salon
@@ -197,16 +195,16 @@ export async function POST(request: Request): Promise<Response> {
     await db.insert(referralSchema).values({
       id: referralId,
       salonId: salon.id,
-      referrerPhone: data.referrerPhone,
-      referrerName: data.referrerName,
-      refereePhone: data.refereePhone,
+      referrerPhone: auth.normalizedPhone,
+      referrerName: resolvedReferrerName,
+      refereePhone,
       status: 'sent', // Use 'sent' to match schema definition
     });
 
     // 7. Send the SMS with claim link (gated by smsRemindersEnabled toggle)
     const smsSent = await sendReferralInvite(salon.id, {
-      refereePhone: data.refereePhone,
-      referrerName: data.referrerName,
+      refereePhone,
+      referrerName: resolvedReferrerName,
       salonName: salon.name,
       referralId,
     });

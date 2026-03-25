@@ -2,6 +2,9 @@
 
 import Image from 'next/image';
 
+import { Button } from '@/components/ui/button';
+import { themeVars } from '@/theme';
+
 import { ProgressRing } from './ProgressRing';
 
 // =============================================================================
@@ -27,19 +30,6 @@ export type AppointmentData = {
   services: Array<{ name: string }>;
   totalPrice: number;
   photos: AppointmentPhoto[];
-};
-
-// =============================================================================
-// Cappuccino Design Tokens
-// =============================================================================
-
-const cappuccino = {
-  title: '#6F4E37',
-  cardBg: '#FAF8F5',
-  cardBorder: '#E6DED6',
-  primary: '#4B2E1E',
-  secondary: '#EADBC8',
-  secondaryText: '#4B2E1E',
 };
 
 // =============================================================================
@@ -122,11 +112,10 @@ export function StaffAppointmentCard({
 
   return (
     <div
-      className="overflow-hidden rounded-2xl shadow-sm"
+      data-testid={`staff-appointment-${appointment.id}`}
+      className="overflow-hidden rounded-2xl border bg-white shadow-sm"
       style={{
-        backgroundColor: cappuccino.cardBg,
-        borderWidth: 1,
-        borderColor: cappuccino.cardBorder,
+        borderColor: themeVars.cardBorder,
       }}
     >
       <div className="p-4">
@@ -139,10 +128,7 @@ export function StaffAppointmentCard({
               onClick={() => onViewClient?.(appointment.clientPhone)}
               className="text-left transition-opacity hover:opacity-70"
             >
-              <div
-                className="text-lg font-semibold"
-                style={{ color: cappuccino.title }}
-              >
+              <div className="text-lg font-semibold text-neutral-900">
                 {appointment.clientName || 'Client'}
               </div>
               <div className="text-xs text-neutral-500">
@@ -159,10 +145,7 @@ export function StaffAppointmentCard({
             </div>
 
             {/* Services */}
-            <div
-              className="mt-1 text-sm font-medium"
-              style={{ color: cappuccino.primary }}
-            >
+            <div className="mt-1 text-sm font-medium" style={{ color: themeVars.accent }}>
               {appointment.services.map(s => s.name).join(', ')}
             </div>
           </div>
@@ -171,10 +154,7 @@ export function StaffAppointmentCard({
           <div className="flex items-start gap-2">
             <ProgressRing state={canvasState} size={36} />
             <div className="text-right">
-              <div
-                className="text-lg font-bold"
-                style={{ color: cappuccino.title }}
-              >
+              <div className="text-lg font-bold" style={{ color: themeVars.titleText }}>
                 {formatPrice(appointment.totalPrice)}
               </div>
               <div className="mt-1">
@@ -228,14 +208,15 @@ export function StaffAppointmentCard({
         </div>
 
         {/* Action Button */}
-        <button
-          type="button"
+        <Button
           onClick={() => onOpenActions(appointment)}
-          className="mt-4 w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
-          style={{ backgroundColor: cappuccino.primary }}
+          data-testid={`staff-appointment-action-${appointment.id}`}
+          variant="brand"
+          size="sm"
+          className="mt-4 w-full"
         >
           Manage Appointment
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -7,9 +7,13 @@
  * Body: { phone: string, code: string }
  */
 
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+import {
+  assertClientSessionStorageReady,
+  createClientSession,
+  setClientSessionCookies,
+} from '@/libs/clientAuth';
 import { getClientByPhone } from '@/libs/queries';
 
 // =============================================================================
@@ -27,6 +31,8 @@ type TwilioVerifyCheckResponse = {
   to: string;
   channel: string;
   valid: boolean;
+  code?: number;
+  message?: string;
 };
 
 // =============================================================================
@@ -63,14 +69,41 @@ function formatPhoneE164(phone: string): string {
   throw new Error('Invalid phone number format');
 }
 
-/**
- * Generate a simple session token
- * In production, use a proper JWT or session library
- */
-function generateSessionToken(phone: string): string {
-  const timestamp = Date.now();
-  const data = `${phone}:${timestamp}`;
-  return Buffer.from(data).toString('base64');
+function getClientSessionSetupErrorMessage(error: unknown): string {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  const message = typeof error === 'object' && error !== null && 'message' in error
+    ? String((error as { message?: unknown }).message)
+    : '';
+
+  if (
+    code === '42P01'
+    || code === '42703'
+    || message.includes('client_session')
+  ) {
+    return 'Verification succeeded, but customer login storage is not ready. Run the latest database migrations and try again.';
+  }
+
+  return 'Verification succeeded, but we could not create your login session. Please try again.';
+}
+
+function handleClientSessionSetupError(stage: string, error: unknown) {
+  console.error(`${stage}:`, error);
+
+  return NextResponse.json(
+    { error: getClientSessionSetupErrorMessage(error) },
+    { status: 500 },
+  );
+}
+
+async function finalizeClientLogin(formattedPhone: string, clientName?: string | null) {
+  const sessionId = await createClientSession(formattedPhone);
+  await setClientSessionCookies({
+    sessionId,
+    phone: formattedPhone,
+    clientName: clientName ?? null,
+  });
 }
 
 // =============================================================================
@@ -100,6 +133,12 @@ export async function POST(request: Request) {
 
     const formattedPhone = formatPhoneE164(phone);
 
+    try {
+      await assertClientSessionStorageReady();
+    } catch (error) {
+      return handleClientSessionSetupError('Verify OTP session storage check failed', error);
+    }
+
     // ==========================================================================
     // DEVELOPMENT MODE: Accept "123456" as valid code
     // ==========================================================================
@@ -107,45 +146,20 @@ export async function POST(request: Request) {
       if (code === '123456') {
         console.warn(`[DEV MODE] OTP verified for ${formattedPhone}`);
 
-        // Set session cookie
-        const sessionToken = generateSessionToken(formattedPhone);
-        const cookieStore = await cookies();
-        cookieStore.set('client_session', sessionToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
-        });
+        try {
+          const existingClient = await getClientByPhone(formattedPhone);
+          await finalizeClientLogin(formattedPhone, existingClient?.firstName);
 
-        // Also set a client-readable cookie for phone
-        cookieStore.set('client_phone', formattedPhone, {
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
-        });
-
-        // Check if client has a name saved and set cookie
-        const existingClient = await getClientByPhone(formattedPhone);
-        if (existingClient?.firstName) {
-          cookieStore.set('client_name', existingClient.firstName, {
-            httpOnly: false,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 60 * 60 * 24 * 365, // 1 year
-            path: '/',
+          return NextResponse.json({
+            success: true,
+            message: 'Verification successful (dev mode)',
+            phone: formattedPhone,
+            clientName: existingClient?.firstName,
+            devMode: true,
           });
+        } catch (error) {
+          return handleClientSessionSetupError('Verify OTP session creation failed', error);
         }
-
-        return NextResponse.json({
-          success: true,
-          message: 'Verification successful (dev mode)',
-          phone: formattedPhone,
-          clientName: existingClient?.firstName,
-          devMode: true,
-        });
       }
 
       return NextResponse.json(
@@ -176,54 +190,40 @@ export async function POST(request: Request) {
 
     // Check if verification was successful
     if (!response.ok || data.status !== 'approved') {
-      console.warn(`OTP verification failed for ${formattedPhone}:`, data);
+      const error =
+        data.status === 'canceled'
+          ? 'This verification code has expired or was already used. Please request a new code.'
+          : 'This verification code is incorrect or no longer current. Please request a new code and try again.';
+
+      console.warn(`OTP verification failed for ${formattedPhone}:`, {
+        httpStatus: response.status,
+        twilioStatus: data.status,
+        valid: data.valid,
+        code: data.code,
+        message: data.message,
+      });
 
       return NextResponse.json(
-        { error: 'Invalid verification code' },
+        { error },
         { status: 401 },
       );
     }
 
     console.warn(`OTP verified for ${formattedPhone}, SID: ${data.sid}`);
 
-    // Set session cookie
-    const sessionToken = generateSessionToken(formattedPhone);
-    const cookieStore = await cookies();
-    cookieStore.set('client_session', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
+    try {
+      const existingClient = await getClientByPhone(formattedPhone);
+      await finalizeClientLogin(formattedPhone, existingClient?.firstName);
 
-    // Also set a client-readable cookie for phone
-    cookieStore.set('client_phone', formattedPhone, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
-
-    // Check if client has a name saved and set cookie
-    const existingClient = await getClientByPhone(formattedPhone);
-    if (existingClient?.firstName) {
-      cookieStore.set('client_name', existingClient.firstName, {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 365, // 1 year
-        path: '/',
+      return NextResponse.json({
+        success: true,
+        message: 'Verification successful',
+        phone: formattedPhone,
+        clientName: existingClient?.firstName,
       });
+    } catch (error) {
+      return handleClientSessionSetupError('Verify OTP session creation failed', error);
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Verification successful',
-      phone: formattedPhone,
-      clientName: existingClient?.firstName,
-    });
   } catch (error) {
     console.error('Verify OTP error:', error);
 

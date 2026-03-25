@@ -5,7 +5,6 @@ import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Pool } from 'pg';
@@ -19,7 +18,6 @@ type GlobalWithDb = typeof globalThis & {
   // PostgreSQL pool
   pgPool?: Pool;
   pgDrizzle?: NodePgDatabase<typeof schema>;
-  pgMigrated?: boolean;
   // PGlite
   pgliteClient?: PGlite;
   pgliteDrizzle?: PgliteDatabase<typeof schema>;
@@ -123,7 +121,9 @@ if (Env.DATABASE_URL) {
       // Pool configuration for resilience
       max: 10, // Maximum connections in pool
       idleTimeoutMillis: 30000, // Close idle connections after 30s
-      connectionTimeoutMillis: 5000, // Timeout after 5s if can't connect
+      // Remote Neon cold starts can exceed 5s in local/staging-like environments.
+      // Use a slightly longer connect window to reduce false startup/request failures.
+      connectionTimeoutMillis: 15000,
     });
 
     // Handle pool errors gracefully
@@ -135,14 +135,6 @@ if (Env.DATABASE_URL) {
   }
 
   drizzle = globalForDb.pgDrizzle!;
-
-  // Run migrations only once
-  if (!globalForDb.pgMigrated) {
-    await migratePg(globalForDb.pgDrizzle!, {
-      migrationsFolder: path.join(process.cwd(), 'migrations'),
-    });
-    globalForDb.pgMigrated = true;
-  }
 } else {
   // Fallback: PGlite in-memory database (data lost on restart)
   // Only used when no DATABASE_URL is configured at all

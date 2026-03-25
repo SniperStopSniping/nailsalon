@@ -5,6 +5,7 @@ import { db } from '@/libs/DB';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { getAppointmentById, getOrCreateSalonClient, updateSalonClientStats } from '@/libs/queries';
+import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { appointmentPhotoSchema, appointmentSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -55,6 +56,15 @@ export async function PATCH(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
+    const access = await requireAppointmentManagerAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can complete this appointment',
+      assignmentForbiddenMessage: 'You can only complete your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
+    }
 
     // 1. Parse and validate request body
     let body = {};
@@ -80,19 +90,6 @@ export async function PATCH(
     }
 
     // 2. Verify appointment exists (initial check for 404 and photo validation)
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
     // 3. Check for required "after" photos (unless bypassed)
     // Do this BEFORE the atomic update to fail fast
     if (!validated.data.skipPhotoValidation) {
@@ -135,6 +132,8 @@ export async function PATCH(
         .set({
           status: 'completed',
           paymentStatus: 'paid', // HARD-CODED: fraud queries filter payment_status='paid'
+          canvasState: 'complete',
+          canvasStateUpdatedAt: now,
           completedAt: now,
           updatedAt: now,
         })

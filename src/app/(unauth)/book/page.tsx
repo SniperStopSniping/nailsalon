@@ -1,12 +1,10 @@
 import { redirect } from 'next/navigation';
 
 import { type BookingStep, getFirstStep } from '@/libs/bookingFlow';
-import { getSalonBySlug } from '@/libs/queries';
+import { buildBookingUrl } from '@/libs/bookingParams';
+import { requireResolvedSalon } from '@/libs/tenant';
 
 export const dynamic = 'force-dynamic';
-
-// Demo salon slug - in production, this would come from auth context or subdomain
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 /**
  * Canonical Booking Entry Page
@@ -21,17 +19,26 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  *
  * This way, when a salon reorders or disables steps, external links don't need to change.
  */
-export default async function BookEntryPage() {
+export default async function BookEntryPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
   // Fetch salon data to get the booking flow
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-
-  if (!salon) {
-    redirect('/not-found');
-  }
+  const salon = await requireResolvedSalon(searchParams, params);
 
   // Get the first step in the booking flow
   const firstStep = getFirstStep(salon.bookingFlow as BookingStep[] | null);
 
   // Redirect to the first step
-  redirect(`/book/${firstStep}`);
+  const localePrefix = params?.locale ? `/${params.locale}` : '';
+
+  redirect(buildBookingUrl(`${localePrefix}/book/${firstStep}`, {
+    salonSlug: searchParams.salonSlug ?? salon.slug,
+  }, {
+    routeSalonSlug: params?.slug,
+    locale: params?.locale,
+  }));
 }

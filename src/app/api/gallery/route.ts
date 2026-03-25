@@ -1,8 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromQuery,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentPhotoSchema,
   appointmentSchema,
@@ -19,7 +22,6 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 
 const querySchema = z.object({
-  phone: z.string().min(10).max(10), // Normalized 10-digit phone
   salonSlug: z.string().min(1),
 });
 
@@ -58,46 +60,37 @@ type SuccessResponse = {
 };
 
 // =============================================================================
-// Helper: Normalize phone number to 10 digits
-// =============================================================================
-
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-}
-
-// =============================================================================
 // GET /api/gallery - Get all photos for a client
 // =============================================================================
 // Query params:
-//   - phone: The client's phone number (will be normalized)
 //   - salonSlug: The salon slug to filter by
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse query parameters
     const { searchParams } = new URL(request.url);
-    const rawPhone = searchParams.get('phone');
     const salonSlug = searchParams.get('salonSlug');
 
     // 2. Validate required params
-    if (!rawPhone || !salonSlug) {
+    if (!salonSlug) {
       return Response.json(
         {
           error: {
             code: 'MISSING_PARAMETERS',
-            message: 'Both phone and salonSlug are required',
+            message: 'Salon slug is required',
           },
         } satisfies ErrorResponse,
         { status: 400 },
       );
     }
 
-    // 3. Normalize and validate phone
-    const normalizedClientPhone = normalizePhone(rawPhone);
-
     const validated = querySchema.safeParse({
-      phone: normalizedClientPhone,
       salonSlug,
     });
 
@@ -115,18 +108,11 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // 4. Verify salon exists
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon "${salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const salonGuard = await requireClientSalonFromQuery(searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 5. Fetch photos with appointment details
     const photos = await db
@@ -156,7 +142,7 @@ export async function GET(request: Request): Promise<Response> {
       )
       .where(
         and(
-          eq(appointmentPhotoSchema.normalizedClientPhone, normalizedClientPhone),
+          eq(appointmentPhotoSchema.normalizedClientPhone, auth.normalizedPhone),
           eq(appointmentPhotoSchema.salonId, salon.id),
         ),
       )

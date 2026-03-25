@@ -1,107 +1,45 @@
-import { and, eq, gte, inArray, lt, lte } from 'drizzle-orm';
-
-import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
-import { guardSalonApiRoute } from '@/libs/salonStatus';
 import {
-  appointmentSchema,
-  technicianScheduleOverrideSchema,
-  technicianSchema,
-  technicianTimeOffSchema,
-  type WeeklySchedule,
-} from '@/models/Schema';
+  buildSlotWindow,
+  canTechnicianTakeAppointment,
+  loadBookingPolicy,
+  resolveTechnicianCapabilityMode,
+  type RequestedService,
+} from '@/libs/bookingPolicy';
+import {
+  getLocationById,
+  getSalonBySlug,
+  getServicesByIds,
+  getTechnicianById,
+  getTechniciansBySalonId,
+} from '@/libs/queries';
+import { guardSalonApiRoute } from '@/libs/salonStatus';
+import { type WeeklySchedule } from '@/models/Schema';
 
-// Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
 
-// =============================================================================
-// GET /api/appointments/availability
-// Returns booked time slots for a given date and optional technician
-// This considers:
-// - Appointment DURATION + BUFFER
-// - Technician's weekly schedule (working hours)
-// =============================================================================
+const DEFAULT_DURATION_MINUTES = 30;
 
-// Buffer time between appointments (cleanup time)
-const BUFFER_MINUTES = 10;
+function getAllSlots(): string[] {
+  const slots: string[] = [];
 
-// Toronto timezone - all schedule times are stored in Toronto local time
-const TORONTO_TZ = 'America/Toronto';
-
-// Days of week mapping
-const DAY_NAMES: (keyof WeeklySchedule)[] = [
-  'sunday',
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-];
-
-// Helper to check if a time slot is within a technician's working hours
-function isSlotWithinSchedule(
-  slotTime: string, // "HH:MM"
-  daySchedule: { start: string; end: string } | null | undefined,
-): boolean {
-  if (!daySchedule) {
-    return false;
-  } // Day off
-
-  const [slotHour, slotMin] = slotTime.split(':').map(Number);
-  const [startHour, startMin] = daySchedule.start.split(':').map(Number);
-  const [endHour, endMin] = daySchedule.end.split(':').map(Number);
-
-  const slotMinutes = (slotHour || 0) * 60 + (slotMin || 0);
-  const startMinutes = (startHour || 0) * 60 + (startMin || 0);
-  const endMinutes = (endHour || 0) * 60 + (endMin || 0);
-
-  // Slot must start at or after working hours start, and before end (with 30 min buffer for service)
-  return slotMinutes >= startMinutes && slotMinutes < endMinutes - 30;
-}
-
-// Type for schedule override
-type ScheduleOverride = {
-  technicianId: string;
-  type: string;
-  startTime: string | null;
-  endTime: string | null;
-};
-
-// Get effective schedule for a technician on a specific date
-// Returns: { available: false } for off days, { available: true, schedule: {...} } for working days
-function getEffectiveSchedule(
-  technicianId: string,
-  daySchedule: { start: string; end: string } | null | undefined,
-  overrides: Map<string, ScheduleOverride>,
-): { available: false } | { available: true; schedule: { start: string; end: string } } {
-  const override = overrides.get(technicianId);
-
-  if (override) {
-    // Override exists - use it instead of weekly schedule
-    if (override.type === 'off') {
-      return { available: false };
-    }
-    if (override.type === 'hours' && override.startTime && override.endTime) {
-      return { available: true, schedule: { start: override.startTime, end: override.endTime } };
-    }
+  for (let hour = 0; hour < 24; hour++) {
+    slots.push(`${hour}:00`);
+    slots.push(`${hour}:30`);
   }
 
-  // No override - use weekly schedule
-  if (!daySchedule) {
-    return { available: false };
-  }
-
-  return { available: true, schedule: daySchedule };
+  return slots;
 }
 
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
-  const date = searchParams.get('date'); // YYYY-MM-DD format
+  const date = searchParams.get('date');
   const salonSlug = searchParams.get('salonSlug');
-  const technicianId = searchParams.get('technicianId'); // Optional
+  const technicianId = searchParams.get('technicianId');
+  const originalAppointmentId = searchParams.get('originalAppointmentId');
+  const durationParam = searchParams.get('durationMinutes');
+  const locationId = searchParams.get('locationId');
+  const serviceIdList = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
 
-  // Validate required params
   if (!date || !salonSlug) {
     return Response.json(
       { error: { code: 'INVALID_REQUEST', message: 'date and salonSlug are required' } },
@@ -109,17 +47,25 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  // Validate date format
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(date)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return Response.json(
       { error: { code: 'INVALID_DATE', message: 'Date must be in YYYY-MM-DD format' } },
       { status: 400 },
     );
   }
 
+  const durationMinutes = durationParam
+    ? Number.parseInt(durationParam, 10)
+    : DEFAULT_DURATION_MINUTES;
+
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    return Response.json(
+      { error: { code: 'INVALID_DURATION', message: 'durationMinutes must be a positive integer' } },
+      { status: 400 },
+    );
+  }
+
   try {
-    // Get salon
     const salon = await getSalonBySlug(salonSlug);
     if (!salon) {
       return Response.json(
@@ -128,275 +74,149 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // Check salon status - block availability checks for suspended/cancelled salons
     const statusGuard = await guardSalonApiRoute(salon.id);
     if (statusGuard) {
       return statusGuard;
     }
 
-    // Parse the date to get day of week
-    // Use Toronto timezone to ensure correct day-of-week calculation on UTC servers
     const [year, month, day] = date.split('-').map(Number);
     const selectedDate = new Date(year!, month! - 1, day!);
-    // Convert to Toronto timezone before getting day of week
-    const selectedDateInToronto = new Date(selectedDate.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
-    const dayOfWeek = selectedDateInToronto.getDay(); // 0 = Sunday, 6 = Saturday
-    const dayName = DAY_NAMES[dayOfWeek]!;
-
-    // Calculate date range for the given day
     const startOfDay = new Date(`${date}T00:00:00`);
-    const endOfDay = new Date(`${date}T23:59:59`);
+    const endOfDay = new Date(`${date}T23:59:59.999`);
+    const allSlots = getAllSlots();
+    const requestedServices = serviceIdList.length > 0
+      ? await getServicesByIds(serviceIdList, salon.id)
+      : [];
 
-    // Generate all possible time slots (9 AM to 5:30 PM in 30-min increments)
-    const allSlots: string[] = [];
-    for (let hour = 9; hour < 18; hour++) {
-      allSlots.push(`${hour}:00`);
-      allSlots.push(`${hour}:30`);
+    if (requestedServices.length !== serviceIdList.length) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_SERVICES',
+            message: 'One or more services not found for this salon',
+          },
+        },
+        { status: 400 },
+      );
     }
 
-    // Get technician(s) to check
-    let technicians: { id: string; weeklySchedule: WeeklySchedule | null }[] = [];
+    const location = locationId
+      ? await getLocationById(locationId, salon.id)
+      : null;
+
+    if (locationId && !location) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_LOCATION',
+            message: 'Location not found for this salon',
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    let technicians: Array<{
+      id: string;
+      weeklySchedule: WeeklySchedule | null;
+      enabledServiceIds?: string[];
+      serviceIds?: string[];
+      specialties?: string[] | null;
+      primaryLocationId?: string | null;
+    }> = [];
 
     if (technicianId && technicianId !== 'any') {
-      // Specific technician
-      const tech = await db
-        .select({
-          id: technicianSchema.id,
-          weeklySchedule: technicianSchema.weeklySchedule,
-        })
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.id, technicianId),
-            eq(technicianSchema.salonId, salon.id),
-            eq(technicianSchema.isActive, true),
-          ),
-        )
-        .limit(1);
-
-      if (tech.length > 0) {
-        technicians = tech;
-      }
+      const technician = await getTechnicianById(technicianId, salon.id);
+      technicians = technician ? [technician] : [];
     } else {
-      // "Any" technician - get all active technicians
-      technicians = await db
-        .select({
-          id: technicianSchema.id,
-          weeklySchedule: technicianSchema.weeklySchedule,
-        })
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.salonId, salon.id),
-            eq(technicianSchema.isActive, true),
-          ),
-        );
+      technicians = await getTechniciansBySalonId(salon.id);
     }
 
-    // Fetch schedule overrides for all technicians on this date
-    const overridesMap = new Map<string, ScheduleOverride>();
-    if (technicians.length > 0) {
-      try {
-        const techIds = technicians.map(t => t.id);
-        const overrides = await db
-          .select({
-            technicianId: technicianScheduleOverrideSchema.technicianId,
-            type: technicianScheduleOverrideSchema.type,
-            startTime: technicianScheduleOverrideSchema.startTime,
-            endTime: technicianScheduleOverrideSchema.endTime,
-          })
-          .from(technicianScheduleOverrideSchema)
-          .where(
-            and(
-              inArray(technicianScheduleOverrideSchema.technicianId, techIds),
-              eq(technicianScheduleOverrideSchema.date, date),
-            ),
-          );
-
-        for (const override of overrides) {
-          overridesMap.set(override.technicianId, override);
-        }
-      } catch (overrideError) {
-        // Table might not exist yet - continue without override filtering
-        console.warn('Schedule override query failed (table may not exist):', overrideError);
-      }
-    }
-
-    // Filter out technicians who are on time off for this date (legacy table)
-    if (technicians.length > 0) {
-      try {
-        const techIds = technicians.map(t => t.id);
-        const techsOnTimeOff = await db
-          .select({ technicianId: technicianTimeOffSchema.technicianId })
-          .from(technicianTimeOffSchema)
-          .where(
-            and(
-              inArray(technicianTimeOffSchema.technicianId, techIds),
-              lte(technicianTimeOffSchema.startDate, selectedDate),
-              gte(technicianTimeOffSchema.endDate, selectedDate),
-            ),
-          );
-
-        if (techsOnTimeOff.length > 0) {
-          const timeOffTechIds = new Set(techsOnTimeOff.map(t => t.technicianId));
-          technicians = technicians.filter(t => !timeOffTechIds.has(t.id));
-        }
-      } catch (timeOffError) {
-        // Table might not exist yet - continue without time off filtering
-        console.warn('Time off query failed (table may not exist):', timeOffError);
-      }
-    }
-
-    // If no technicians found, all slots are unavailable
     if (technicians.length === 0) {
       return Response.json({
         date,
         salonSlug,
         technicianId: technicianId || null,
-        bookedSlots: allSlots, // All slots unavailable
+        visibleSlots: [],
+        bookedSlots: [],
         appointmentCount: 0,
         reason: 'no_technicians',
       });
     }
 
-    // For "any" technician: a slot is available if ANY tech can take it
-    // For specific technician: check only their schedule and appointments
+    const capabilityMode = resolveTechnicianCapabilityMode(
+      technicians,
+      requestedServices as RequestedService[],
+    );
+
+    const bookingPolicy = await loadBookingPolicy({
+      salonId: salon.id,
+      technicianIds: technicians.map(tech => tech.id),
+      date,
+      selectedDate,
+      startOfDay,
+      endOfDay,
+      excludedAppointmentId: originalAppointmentId,
+    });
+
+    const visibleSlots: string[] = [];
     const blockedSlots = new Set<string>();
 
-    if (technicianId && technicianId !== 'any') {
-      // Single technician mode
-      const tech = technicians[0]!;
-      const schedule = tech.weeklySchedule as WeeklySchedule | null;
-      const daySchedule = schedule?.[dayName];
+    for (const slot of allSlots) {
+      const { startTime, endTime } = buildSlotWindow(startOfDay, slot, durationMinutes);
 
-      // Get effective schedule (override takes precedence over weekly schedule)
-      const effectiveSchedule = getEffectiveSchedule(tech.id, daySchedule, overridesMap);
-
-      // If tech is off (via override or weekly schedule), block all slots
-      if (!effectiveSchedule.available) {
-        return Response.json({
-          date,
-          salonSlug,
-          technicianId: technicianId || null,
-          bookedSlots: allSlots, // All slots unavailable
-          appointmentCount: 0,
-          reason: 'technician_off',
+      const anyTechVisible = technicians.some((tech) => {
+        const visibleDecision = canTechnicianTakeAppointment({
+          startTime,
+          endTime,
+          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
+          override: bookingPolicy.overridesByTechnician.get(tech.id),
+          isOnTimeOff: bookingPolicy.timeOffTechnicianIds.has(tech.id),
+          blockedSlots: bookingPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
+          requestedServices,
+          capabilityMode,
+          enabledServiceIds: tech.enabledServiceIds ?? [],
+          specialties: tech.specialties ?? [],
+          locationId: location?.id ?? null,
+          primaryLocationId: tech.primaryLocationId ?? null,
+          locationBusinessHours: location?.businessHours ?? null,
+          existingAppointments: [],
+          excludedAppointmentId: originalAppointmentId,
         });
+
+        return visibleDecision.available;
+      });
+
+      if (!anyTechVisible) {
+        continue;
       }
 
-      // First, block all slots outside working hours (using effective schedule)
-      for (const slot of allSlots) {
-        if (!isSlotWithinSchedule(slot, effectiveSchedule.schedule)) {
-          blockedSlots.add(slot);
-        }
-      }
+      visibleSlots.push(slot);
 
-      // Then, block slots that overlap with existing appointments
-      const appointments = await db
-        .select({
-          startTime: appointmentSchema.startTime,
-          endTime: appointmentSchema.endTime,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            eq(appointmentSchema.salonId, salon.id),
-            eq(appointmentSchema.technicianId, technicianId),
-            gte(appointmentSchema.startTime, startOfDay),
-            lt(appointmentSchema.startTime, endOfDay),
-            inArray(appointmentSchema.status, ['pending', 'confirmed']),
-          ),
-        );
+      const anyTechAvailable = technicians.some((tech) => {
+        const decision = canTechnicianTakeAppointment({
+          startTime,
+          endTime,
+          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
+          override: bookingPolicy.overridesByTechnician.get(tech.id),
+          isOnTimeOff: bookingPolicy.timeOffTechnicianIds.has(tech.id),
+          blockedSlots: bookingPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
+          requestedServices,
+          capabilityMode,
+          enabledServiceIds: tech.enabledServiceIds ?? [],
+          specialties: tech.specialties ?? [],
+          locationId: location?.id ?? null,
+          primaryLocationId: tech.primaryLocationId ?? null,
+          locationBusinessHours: location?.businessHours ?? null,
+          existingAppointments: bookingPolicy.appointmentsByTechnician.get(tech.id) ?? [],
+          excludedAppointmentId: originalAppointmentId,
+        });
 
-      for (const apt of appointments) {
-        const aptStart = new Date(apt.startTime);
-        const aptEnd = new Date(apt.endTime);
-        const aptEndWithBuffer = new Date(aptEnd.getTime() + BUFFER_MINUTES * 60 * 1000);
+        return decision.available;
+      });
 
-        for (const slot of allSlots) {
-          const [hours, minutes] = slot.split(':').map(Number);
-          const slotStart = new Date(startOfDay);
-          slotStart.setHours(hours || 0, minutes || 0, 0, 0);
-          const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
-
-          const overlaps = !(slotEnd <= aptStart || slotStart >= aptEndWithBuffer);
-          if (overlaps) {
-            blockedSlots.add(slot);
-          }
-        }
-      }
-    } else {
-      // "Any" technician mode - slot is blocked only if ALL technicians are unavailable
-      for (const slot of allSlots) {
-        let anyTechAvailable = false;
-
-        for (const tech of technicians) {
-          const schedule = tech.weeklySchedule as WeeklySchedule | null;
-          const daySchedule = schedule?.[dayName];
-
-          // Get effective schedule (override takes precedence)
-          const effectiveSchedule = getEffectiveSchedule(tech.id, daySchedule, overridesMap);
-
-          // Check if this tech is available on this day
-          if (!effectiveSchedule.available) {
-            continue; // This tech is off today
-          }
-
-          // Check if this tech works at this time
-          if (!isSlotWithinSchedule(slot, effectiveSchedule.schedule)) {
-            continue; // This tech doesn't work at this time
-          }
-
-          // Check if this tech has an appointment at this time
-          const [hours, minutes] = slot.split(':').map(Number);
-          const slotStart = new Date(startOfDay);
-          slotStart.setHours(hours || 0, minutes || 0, 0, 0);
-          const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
-
-          const appointments = await db
-            .select({ id: appointmentSchema.id, endTime: appointmentSchema.endTime })
-            .from(appointmentSchema)
-            .where(
-              and(
-                eq(appointmentSchema.salonId, salon.id),
-                eq(appointmentSchema.technicianId, tech.id),
-                gte(appointmentSchema.startTime, startOfDay),
-                lt(appointmentSchema.startTime, endOfDay),
-                inArray(appointmentSchema.status, ['pending', 'confirmed']),
-              ),
-            );
-
-          // Check if any appointment overlaps with this slot
-          let hasOverlap = false;
-          for (const apt of appointments) {
-            // We need the start time too - let me fetch it properly
-            const fullApt = await db
-              .select({ startTime: appointmentSchema.startTime, endTime: appointmentSchema.endTime })
-              .from(appointmentSchema)
-              .where(eq(appointmentSchema.id, apt.id))
-              .limit(1);
-
-            if (fullApt.length > 0) {
-              const aptStart = new Date(fullApt[0]!.startTime);
-              const aptEnd = new Date(fullApt[0]!.endTime);
-              const aptEndBuf = new Date(aptEnd.getTime() + BUFFER_MINUTES * 60 * 1000);
-
-              if (!(slotEnd <= aptStart || slotStart >= aptEndBuf)) {
-                hasOverlap = true;
-                break;
-              }
-            }
-          }
-
-          if (!hasOverlap) {
-            anyTechAvailable = true;
-            break; // At least one tech is available for this slot
-          }
-        }
-
-        if (!anyTechAvailable) {
-          blockedSlots.add(slot);
-        }
+      if (!anyTechAvailable) {
+        blockedSlots.add(slot);
       }
     }
 
@@ -406,13 +226,35 @@ export async function GET(request: Request): Promise<Response> {
       date,
       salonSlug,
       technicianId: technicianId || null,
+      durationMinutes,
+      visibleSlots,
       bookedSlots,
       appointmentCount: bookedSlots.length,
     });
   } catch (error) {
-    console.error('[Availability API] Error:', error);
+    console.error('[Availability API] Error:', {
+      date,
+      salonSlug,
+      technicianId,
+      durationMinutes,
+      serviceIds: serviceIdList,
+      locationId,
+      originalAppointmentId,
+      error: error instanceof Error
+        ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        }
+        : error,
+    });
     return Response.json(
-      { error: { code: 'SERVER_ERROR', message: 'Failed to fetch availability' } },
+      {
+        error: {
+          code: 'SERVER_ERROR',
+          message: 'Unable to evaluate availability for the selected day.',
+        },
+      },
       { status: 500 },
     );
   }

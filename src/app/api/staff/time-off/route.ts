@@ -12,7 +12,7 @@ import { and, eq, gte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { technicianSchema, technicianTimeOffSchema, TIME_OFF_REASONS } from '@/models/Schema';
 
@@ -53,18 +53,10 @@ type ErrorResponse = {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    // 1. Require admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    // 1. Require active-salon admin session
+    const { salon, admin, error } = await requireActiveAdminSalon();
+    if (error || !salon || !admin) {
+      return error!;
     }
 
     const { searchParams } = new URL(request.url);
@@ -85,14 +77,19 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 2. Get technician and verify admin has access to their salon
+    // 2. Get technician inside the active salon only
     const [technician] = await db
       .select({
         id: technicianSchema.id,
         salonId: technicianSchema.salonId,
       })
       .from(technicianSchema)
-      .where(eq(technicianSchema.id, validated.data.technicianId))
+      .where(
+        and(
+          eq(technicianSchema.id, validated.data.technicianId),
+          eq(technicianSchema.salonId, salon.id),
+        ),
+      )
       .limit(1);
 
     if (!technician) {
@@ -107,23 +104,7 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Enforce admin salon scope
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === technician.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          {
-            error: {
-              code: 'FORBIDDEN',
-              message: 'No access to this salon',
-            },
-          } satisfies ErrorResponse,
-          { status: 403 },
-        );
-      }
-    }
-
-    // 4. Get time-off entries (only future or current)
+    // 3. Get time-off entries (only future or current)
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
@@ -171,18 +152,10 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    // 1. Require admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    // 1. Require active-salon admin session
+    const { salon, admin, error } = await requireActiveAdminSalon();
+    if (error || !salon || !admin) {
+      return error!;
     }
 
     const body = await request.json();
@@ -201,7 +174,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 2. Get technician and verify admin has access to their salon
+    // 2. Get technician inside the active salon only
     const [technician] = await db
       .select({
         id: technicianSchema.id,
@@ -209,7 +182,12 @@ export async function POST(request: Request): Promise<Response> {
         name: technicianSchema.name,
       })
       .from(technicianSchema)
-      .where(eq(technicianSchema.id, validated.data.technicianId))
+      .where(
+        and(
+          eq(technicianSchema.id, validated.data.technicianId),
+          eq(technicianSchema.salonId, salon.id),
+        ),
+      )
       .limit(1);
 
     if (!technician) {
@@ -224,23 +202,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Enforce admin salon scope
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === technician.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          {
-            error: {
-              code: 'FORBIDDEN',
-              message: 'No access to this salon',
-            },
-          } satisfies ErrorResponse,
-          { status: 403 },
-        );
-      }
-    }
-
-    // 4. Validate dates
+    // 3. Validate dates
     const startDate = new Date(validated.data.startDate);
     const endDate = new Date(validated.data.endDate);
 
@@ -256,7 +218,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 5. Create time-off entry
+    // 4. Create time-off entry
     const timeOffId = `timeoff_${nanoid()}`;
 
     const [newEntry] = await db

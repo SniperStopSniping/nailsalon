@@ -9,17 +9,13 @@
  * - Audit logged (without exposing note content)
  */
 
-import { and, eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logNotesUpdated } from '@/libs/appointmentAudit';
+import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import { db } from '@/libs/DB';
-import {
-  appointmentSchema,
-  salonSchema,
-  technicianSchema,
-} from '@/models/Schema';
+import { appointmentSchema } from '@/models/Schema';
 
 // =============================================================================
 // Types
@@ -41,93 +37,6 @@ const updateNotesSchema = z.object({
 });
 
 // =============================================================================
-// Helper: Get Staff Session
-// =============================================================================
-
-async function getStaffSession(): Promise<
-  | { technician: { id: string; name: string }; salon: { id: string; slug: string } }
-  | { error: Response }
-> {
-  const cookieStore = await cookies();
-  const staffSession = cookieStore.get('staff_session');
-  const staffPhone = cookieStore.get('staff_phone');
-  const staffSalon = cookieStore.get('staff_salon');
-
-  if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      ),
-    };
-  }
-
-  // Get salon
-  const [salon] = await db
-    .select({ id: salonSchema.id, slug: salonSchema.slug })
-    .from(salonSchema)
-    .where(eq(salonSchema.slug, staffSalon.value))
-    .limit(1);
-
-  if (!salon) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      ),
-    };
-  }
-
-  // Normalize phone
-  const normalizedPhone = staffPhone.value.replace(/\D/g, '');
-  const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-    ? normalizedPhone.slice(1)
-    : normalizedPhone;
-
-  // Get technician
-  const [technician] = await db
-    .select({ id: technicianSchema.id, name: technicianSchema.name })
-    .from(technicianSchema)
-    .where(
-      and(
-        eq(technicianSchema.salonId, salon.id),
-        eq(technicianSchema.phone, tenDigitPhone),
-        eq(technicianSchema.isActive, true),
-      ),
-    )
-    .limit(1);
-
-  if (!technician) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Staff member not found or inactive',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      ),
-    };
-  }
-
-  return {
-    technician: { id: technician.id, name: technician.name },
-    salon: { id: salon.id, slug: salon.slug },
-  };
-}
-
-// =============================================================================
 // PUT /api/staff/appointments/[id]/notes
 // =============================================================================
 
@@ -136,58 +45,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
-    }
-
-    const { technician, salon } = session;
     const { id: appointmentId } = await params;
-
-    // 1. Get the appointment
-    const [appointment] = await db
-      .select()
-      .from(appointmentSchema)
-      .where(eq(appointmentSchema.id, appointmentId))
-      .limit(1);
-
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: 'Appointment not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireStaffAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      assignmentForbiddenMessage: 'You can only edit notes for your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
     }
-
-    // 2. Verify appointment belongs to this salon
-    if (appointment.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Appointment does not belong to your salon',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
-    // 3. Verify the logged-in tech is assigned to this appointment
-    if (appointment.technicianId !== technician.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You can only edit notes for your own appointments',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
+    const { session } = access;
 
     // 4. Parse request body
     const body = await request.json();
@@ -218,9 +85,9 @@ export async function PUT(
     // 6. Audit log (note content is NOT logged for privacy)
     await logNotesUpdated(
       appointmentId,
-      salon.id,
-      technician.id,
-      technician.name,
+      session.salonId,
+      session.technicianId,
+      session.technicianName,
     );
 
     return Response.json({
@@ -255,63 +122,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
-    }
-
-    const { technician, salon } = session;
     const { id: appointmentId } = await params;
-
-    // 1. Get the appointment
-    const [appointment] = await db
-      .select({
-        id: appointmentSchema.id,
-        techNotes: appointmentSchema.techNotes,
-        technicianId: appointmentSchema.technicianId,
-        salonId: appointmentSchema.salonId,
-      })
-      .from(appointmentSchema)
-      .where(eq(appointmentSchema.id, appointmentId))
-      .limit(1);
-
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: 'Appointment not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireStaffAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      assignmentForbiddenMessage: 'You can only view notes for your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
     }
-
-    // 2. Verify appointment belongs to this salon
-    if (appointment.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Appointment does not belong to your salon',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
-    // 3. Verify the logged-in tech is assigned to this appointment
-    if (appointment.technicianId !== technician.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You can only view notes for your own appointments',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
+    const { appointment } = access;
 
     return Response.json({
       data: {

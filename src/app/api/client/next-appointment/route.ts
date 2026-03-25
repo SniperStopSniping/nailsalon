@@ -1,7 +1,9 @@
 import { and, asc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
+import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
+import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
+import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -11,9 +13,6 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-// Default salon slug - in production this would come from subdomain
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
-
 type ErrorResponse = {
   error: {
     code: string;
@@ -22,48 +21,21 @@ type ErrorResponse = {
 };
 
 /**
- * GET /api/client/next-appointment?phone=1234567890
+ * GET /api/client/next-appointment
  * Returns the client's next upcoming appointment with service and technician details
  */
 export async function GET(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const phone = url.searchParams.get('phone');
-
-    if (!phone) {
-      return Response.json(
-        {
-          error: {
-            code: 'MISSING_PHONE',
-            message: 'Phone number is required',
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
-
-    // Normalize phone to handle different formats
-    // Include 10-digit version (strip leading 1 if 11 digits) to match stored format
-    const normalizedPhone = phone.replace(/\D/g, '');
-    const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-      ? normalizedPhone.slice(1)
-      : normalizedPhone;
-    const phoneVariants = [
-      phone,
-      normalizedPhone,
-      tenDigitPhone,
-      `+1${tenDigitPhone}`,
-      `+${normalizedPhone}`,
-    ];
-
-    // Get the salon
-    const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-    if (!salon) {
-      return Response.json(
-        { data: { appointment: null } },
-        { status: 200 },
-      );
+    const salonGuard = await requireClientSalonFromQuery(url.searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // Find the next active appointment for this client (try multiple phone formats)
     const now = new Date();
@@ -72,7 +44,7 @@ export async function GET(request: Request): Promise<Response> {
       .from(appointmentSchema)
       .where(
         and(
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          inArray(appointmentSchema.clientPhone, auth.phoneVariants),
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
           gte(appointmentSchema.startTime, now),
@@ -121,6 +93,41 @@ export async function GET(request: Request): Promise<Response> {
       technician = techs[0] ?? null;
     }
 
+    const salonDirectionsFallback = buildDirectionsDestination({
+      address: salon.address,
+      city: salon.city,
+      state: salon.state,
+      zipCode: salon.zipCode,
+    })
+      ? {
+          id: appointment.locationId ?? `salon_${salon.id}`,
+          name: salon.name,
+          address: salon.address,
+          city: salon.city,
+          state: salon.state,
+          zipCode: salon.zipCode,
+        }
+      : null;
+
+    const appointmentLocation = appointment.locationId
+      ? await getLocationById(appointment.locationId, salon.id)
+      : null;
+    const primaryLocation = buildDirectionsDestination(appointmentLocation)
+      ? null
+      : await getPrimaryLocation(salon.id);
+    const resolvedLocation = resolveDirectionsLocation(appointmentLocation, primaryLocation);
+
+    const location = resolvedLocation
+      ? {
+          id: resolvedLocation.id,
+          name: resolvedLocation.name,
+          address: resolvedLocation.address,
+          city: resolvedLocation.city,
+          state: resolvedLocation.state,
+          zipCode: resolvedLocation.zipCode,
+        }
+      : salonDirectionsFallback;
+
     return Response.json({
       data: {
         appointment: {
@@ -130,7 +137,7 @@ export async function GET(request: Request): Promise<Response> {
           status: appointment.status,
           totalPrice: appointment.totalPrice,
           totalDurationMinutes: appointment.totalDurationMinutes,
-          clientPhone: appointment.clientPhone,
+          locationId: appointment.locationId,
         },
         services: services.map(s => ({
           id: s.id,
@@ -146,6 +153,7 @@ export async function GET(request: Request): Promise<Response> {
               avatarUrl: technician.avatarUrl,
             }
           : null,
+        location,
       },
       meta: {
         timestamp: new Date().toISOString(),

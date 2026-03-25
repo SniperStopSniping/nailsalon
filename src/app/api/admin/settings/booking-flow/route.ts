@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -49,18 +49,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const { salonSlug } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Salon not found',
-          },
-        },
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     return Response.json({
@@ -108,18 +99,9 @@ export async function PUT(request: Request): Promise<Response> {
 
     const { salonSlug, bookingFlow } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Salon not found',
-          },
-        },
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Check if feature is enabled for this salon

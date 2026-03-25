@@ -22,6 +22,10 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
+import { ListSurface } from '@/components/ui/list-surface';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -180,19 +184,14 @@ function ServiceRow({
  */
 function EmptyState({ category }: { category: string }) {
   return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
-        <Scissors className="size-8 text-[#8E8E93]" />
-      </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
-        No Services
-      </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
-        {category === 'all'
-          ? 'Add services to your catalog'
-          : `No ${category} services available`}
-      </p>
-    </div>
+    <AsyncStatePanel
+      icon={<Scissors className="mx-auto size-8 text-[#8E8E93]" />}
+      title="No Services"
+      description={category === 'all'
+        ? 'Add services to your catalog.'
+        : `No ${category} services available.`}
+      className="mx-4 my-8"
+    />
   );
 }
 
@@ -221,7 +220,7 @@ function ServiceDetail({
 
       <div className="p-4">
         {/* Hero Card */}
-        <div className="mb-4 rounded-[22px] bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+        <AdminDetailCard className="mb-4 rounded-[22px]" contentClassName="p-6">
           <div className="flex flex-col items-center">
             <div className={`size-20 rounded-[20px] bg-gradient-to-br ${getCategoryGradient(service.category)} mb-4 flex items-center justify-center shadow-lg`}>
               <Scissors className="size-10 text-white" />
@@ -244,11 +243,11 @@ function ServiceDetail({
                   )}
             </div>
           </div>
-        </div>
+        </AdminDetailCard>
 
         {/* Price & Duration */}
         <div className="mb-4 grid grid-cols-2 gap-4">
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard>
             <div className="flex items-center gap-2 text-[13px] font-medium uppercase text-[#8E8E93]">
               <DollarSign className="size-4" />
               Price
@@ -256,8 +255,8 @@ function ServiceDetail({
             <div className="mt-1 text-[32px] font-bold text-[#34C759]">
               {formatCurrency(service.price)}
             </div>
-          </div>
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          </AdminDetailCard>
+          <AdminDetailCard>
             <div className="flex items-center gap-2 text-[13px] font-medium uppercase text-[#8E8E93]">
               <Clock className="size-4" />
               Duration
@@ -265,38 +264,18 @@ function ServiceDetail({
             <div className="mt-1 text-[32px] font-bold text-[#1C1C1E]">
               {formatDuration(service.durationMinutes)}
             </div>
-          </div>
+          </AdminDetailCard>
         </div>
 
         {/* Description */}
         {service.description && (
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard>
             <div className="mb-2 text-[13px] font-medium uppercase text-[#8E8E93]">Description</div>
             <p className="text-[15px] leading-relaxed text-[#1C1C1E]">{service.description}</p>
-          </div>
+          </AdminDetailCard>
         )}
       </div>
     </motion.div>
-  );
-}
-
-/**
- * Loading Skeleton
- */
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse">
-      {[1, 2, 3, 4, 5].map(i => (
-        <div key={i} className="flex items-center p-4">
-          <div className="mr-3 size-12 rounded-[12px] bg-gray-200" />
-          <div className="flex-1">
-            <div className="mb-2 h-4 w-40 rounded bg-gray-200" />
-            <div className="h-3 w-24 rounded bg-gray-100" />
-          </div>
-          <div className="h-5 w-16 rounded bg-gray-200" />
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -388,27 +367,34 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {loading
           ? (
-              <LoadingSkeleton />
+              <div className="px-4 py-4">
+                <AsyncStatePanel
+                  loading
+                  title="Loading services"
+                  description="Fetching your live service catalog."
+                />
+              </div>
             )
           : error
             ? (
-                <div className="flex flex-col items-center justify-center px-8 py-20">
-                  <p className="mb-2 text-sm text-red-600">{error}</p>
-                  <button
-                    type="button"
-                    onClick={fetchServices}
-                    className="text-sm font-medium text-[#007AFF]"
-                  >
-                    Try again
-                  </button>
-                </div>
+                <AsyncStatePanel
+                  tone="error"
+                  title="Unable to load services"
+                  description={error}
+                  className="mx-4 my-8"
+                  action={(
+                    <Button type="button" variant="brandSoft" size="pillSm" onClick={fetchServices}>
+                      Try again
+                    </Button>
+                  )}
+                />
               )
             : filteredServices.length === 0
               ? (
                   <EmptyState category={activeCategory} />
                 )
               : (
-                  <div className="mx-4 overflow-hidden rounded-[10px] bg-white shadow-sm">
+                  <ListSurface className="mx-4 rounded-[10px]">
                     {filteredServices.map((service, index) => (
                       <ServiceRow
                         key={service.id}
@@ -417,7 +403,7 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
                         onClick={() => setSelectedService(service)}
                       />
                     ))}
-                  </div>
+                  </ListSurface>
                 )}
       </div>
 

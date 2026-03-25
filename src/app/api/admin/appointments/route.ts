@@ -4,17 +4,16 @@
  * GET /api/admin/appointments
  * Returns appointments for the authenticated admin's active salon.
  *
- * salonId is ALWAYS derived from session + __active_salon_slug cookie.
+ * salonId is ALWAYS derived from the active admin salon selection.
  * NEVER accepts salonId from query params.
  */
 
 import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, salonSchema, serviceSchema, technicianSchema } from '@/models/Schema';
+import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, serviceSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,62 +47,6 @@ function parseStatuses(statusParam: string | undefined): string[] | null {
   return statuses;
 }
 
-async function getActiveSalonId(): Promise<{
-  salonId: string | null;
-  error: Response | null;
-}> {
-  const admin = await getAdminSession();
-
-  if (!admin) {
-    return {
-      salonId: null,
-      error: Response.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } } satisfies ErrorResponse,
-        { status: 401 },
-      ),
-    };
-  }
-
-  const cookieStore = await cookies();
-  const activeSalonSlug = cookieStore.get('__active_salon_slug')?.value;
-
-  // Super admins can access any salon if slug is set
-  if (admin.isSuperAdmin && activeSalonSlug) {
-    const [salon] = await db
-      .select({ id: salonSchema.id })
-      .from(salonSchema)
-      .where(eq(salonSchema.slug, activeSalonSlug))
-      .limit(1);
-
-    if (salon) {
-      return { salonId: salon.id, error: null };
-    }
-  }
-
-  // Regular admins: find matching salon from memberships
-  if (activeSalonSlug) {
-    const membership = admin.salons.find(
-      s => s.salonSlug?.toLowerCase() === activeSalonSlug.toLowerCase(),
-    );
-    if (membership) {
-      return { salonId: membership.salonId, error: null };
-    }
-  }
-
-  // Fallback: first salon in memberships
-  if (admin.salons.length > 0) {
-    return { salonId: admin.salons[0]!.salonId, error: null };
-  }
-
-  return {
-    salonId: null,
-    error: Response.json(
-      { error: { code: 'NO_SALON_ACCESS', message: 'No salon access' } } satisfies ErrorResponse,
-      { status: 403 },
-    ),
-  };
-}
-
 function startOfUtcDay(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00.000Z`);
 }
@@ -116,10 +59,11 @@ function addUtcDays(date: Date, days: number): Date {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { salonId, error } = await getActiveSalonId();
-    if (error || !salonId) {
+    const { salon, error } = await requireActiveAdminSalon();
+    if (error || !salon) {
       return error!;
     }
+    const salonId = salon.id;
 
     const { searchParams } = new URL(request.url);
     const validated = querySchema.safeParse({

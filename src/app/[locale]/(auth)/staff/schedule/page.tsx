@@ -821,6 +821,7 @@ export default function StaffSchedulePage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
   const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
   const [showRequestTimeOff, setShowRequestTimeOff] = useState(false);
@@ -841,13 +842,61 @@ export default function StaffSchedulePage() {
   const { modules, loading: capabilitiesLoading } = useStaffCapabilities();
   const scheduleOverridesEnabled = modules?.scheduleOverrides ?? false;
 
-  // Fetch staff info from session
+  const fetchTimeOffRequests = useCallback(async () => {
+    const requestsResponse = await fetch('/api/staff/time-off-requests');
+    if (!requestsResponse.ok) {
+      throw new Error('Failed to fetch time-off requests');
+    }
+    const data = await requestsResponse.json();
+    setTimeOffRequests(data.data?.requests || []);
+  }, []);
+
+  const fetchOverrides = useCallback(async () => {
+    if (!scheduleOverridesEnabled) {
+      setOverrides([]);
+      setOverridesUpgradeRequired(false);
+      return;
+    }
+
+    const overridesResponse = await fetch('/api/staff/overrides');
+    if (overridesResponse.ok) {
+      const data = await overridesResponse.json();
+      setOverrides(data.data?.overrides || []);
+      setOverridesUpgradeRequired(false);
+      return;
+    }
+
+    const errorData = await overridesResponse.json().catch(() => ({}));
+    if (errorData.error?.code === 'UPGRADE_REQUIRED') {
+      setOverridesUpgradeRequired(true);
+      setOverrides([]);
+    } else if (errorData.error?.code === 'MODULE_DISABLED') {
+      setOverridesUpgradeRequired(false);
+      setOverrides([]);
+    } else {
+      throw new Error(errorData.error?.message || 'Failed to fetch schedule overrides');
+    }
+  }, [scheduleOverridesEnabled]);
+
+  // Fetch staff info and core schedule data in parallel on boot
   useEffect(() => {
-    const fetchStaffInfo = async () => {
+    const bootstrapSchedulePage = async () => {
+      setLoading(true);
       try {
-        const response = await fetch('/api/staff/me');
-        if (response.ok) {
-          const data = await response.json();
+        const [profileResult, availResult, requestsResult] = await Promise.allSettled([
+          fetch('/api/staff/me'),
+          fetch('/api/staff/availability'),
+          fetch('/api/staff/time-off-requests'),
+        ]);
+
+        if (profileResult.status !== 'fulfilled') {
+          throw profileResult.reason;
+        }
+
+        const profileResponse = profileResult.value;
+
+        if (profileResponse.ok) {
+          const data = await profileResponse.json();
           if (data.data?.technician?.id) {
             setTechnicianId(data.data.technician.id);
           }
@@ -858,83 +907,57 @@ export default function StaffSchedulePage() {
             setSalonName(data.data.salon.name);
           }
           setAuthState('authed');
-        } else if (response.status === 401) {
-          setAuthState('unauthed');
-          router.replace(`/${locale}/staff-login`);
         } else {
           setAuthState('unauthed');
           router.replace(`/${locale}/staff-login`);
+          return;
+        }
+
+        if (availResult.status === 'fulfilled') {
+          const availResponse = availResult.value;
+          if (availResponse.ok) {
+            const data = await availResponse.json();
+            setWeeklySchedule(data.data?.weeklySchedule || {});
+          } else {
+            console.error('Failed to fetch availability during bootstrap');
+          }
+        } else {
+          console.error('Failed to fetch availability during bootstrap:', availResult.reason);
+        }
+
+        if (requestsResult.status === 'fulfilled') {
+          const requestsResponse = requestsResult.value;
+          if (requestsResponse.ok) {
+            const data = await requestsResponse.json();
+            setTimeOffRequests(data.data?.requests || []);
+          } else {
+            console.error('Failed to fetch time-off requests during bootstrap');
+          }
+        } else {
+          console.error('Failed to fetch time-off requests during bootstrap:', requestsResult.reason);
         }
       } catch (error) {
-        console.error('Failed to fetch staff info:', error);
+        console.error('Failed to bootstrap staff schedule:', error);
         setAuthState('unauthed');
         router.replace(`/${locale}/staff-login`);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchStaffInfo();
+    bootstrapSchedulePage();
   }, [locale, router]);
-
-  // Fetch schedule data
-  const fetchData = useCallback(async () => {
-    if (!salonSlug || !technicianId) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Fetch availability
-      const availResponse = await fetch(
-        `/api/staff/availability?technicianId=${technicianId}&salonSlug=${salonSlug}`,
-      );
-      if (availResponse.ok) {
-        const data = await availResponse.json();
-        setWeeklySchedule(data.data?.weeklySchedule || {});
-      }
-
-      // Fetch time-off requests (new endpoint)
-      const requestsResponse = await fetch('/api/staff/time-off-requests');
-      if (requestsResponse.ok) {
-        const data = await requestsResponse.json();
-        setTimeOffRequests(data.data?.requests || []);
-      }
-
-      // Fetch schedule overrides if module enabled
-      if (scheduleOverridesEnabled) {
-        const overridesResponse = await fetch('/api/staff/overrides');
-        if (overridesResponse.ok) {
-          const data = await overridesResponse.json();
-          setOverrides(data.data?.overrides || []);
-          setOverridesUpgradeRequired(false);
-        } else {
-          const errorData = await overridesResponse.json().catch(() => ({}));
-          if (errorData.error?.code === 'UPGRADE_REQUIRED') {
-            setOverridesUpgradeRequired(true);
-            setOverrides([]);
-          } else if (errorData.error?.code === 'MODULE_DISABLED') {
-            setOverridesUpgradeRequired(false);
-            setOverrides([]);
-          }
-        }
-      } else {
-        setOverrides([]);
-        setOverridesUpgradeRequired(false);
-      }
-    } catch (error) {
-      console.error('Failed to fetch schedule:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [salonSlug, technicianId, scheduleOverridesEnabled]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (authState === 'authed' && salonSlug && technicianId) {
-      fetchData();
+    if (authState === 'authed' && !capabilitiesLoading) {
+      fetchOverrides().catch((error) => {
+        console.error('Failed to fetch schedule overrides:', error);
+      });
     }
-  }, [authState, salonSlug, technicianId, fetchData]);
+  }, [authState, capabilitiesLoading, fetchOverrides]);
 
   // Save weekly schedule
   const handleSaveSchedule = async () => {
@@ -943,22 +966,24 @@ export default function StaffSchedulePage() {
     }
 
     setSaving(true);
+    setScheduleError(null);
     try {
       const response = await fetch('/api/staff/availability', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          technicianId,
-          salonSlug,
           weeklySchedule,
         }),
       });
 
-      if (response.ok) {
-        // Success feedback could be added here
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error?.message ?? 'Failed to save schedule');
       }
+      setWeeklySchedule(result?.data?.weeklySchedule || weeklySchedule);
     } catch (error) {
       console.error('Failed to save schedule:', error);
+      setScheduleError(error instanceof Error ? error.message : 'Failed to save schedule');
     } finally {
       setSaving(false);
     }
@@ -983,7 +1008,7 @@ export default function StaffSchedulePage() {
       });
 
       if (response.ok) {
-        await fetchData();
+        await fetchTimeOffRequests();
         setShowRequestTimeOff(false);
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -1020,7 +1045,7 @@ export default function StaffSchedulePage() {
         });
 
         if (response.ok) {
-          await fetchData();
+          await fetchOverrides();
           setEditingOverride(null);
           setShowAddOverride(false);
         }
@@ -1032,7 +1057,7 @@ export default function StaffSchedulePage() {
         });
 
         if (response.ok) {
-          await fetchData();
+          await fetchOverrides();
           setShowAddOverride(false);
         }
       }
@@ -1171,6 +1196,12 @@ export default function StaffSchedulePage() {
                     />
                   ))}
                 </div>
+
+                {scheduleError && (
+                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                    {scheduleError}
+                  </div>
+                )}
               </div>
             </div>
 

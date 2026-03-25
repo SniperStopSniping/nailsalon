@@ -5,9 +5,25 @@
  * All authorization is server-enforced using cookies - NEVER trust client-passed IDs.
  */
 
+import { and, eq, gt } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
-import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
+import { db } from '@/libs/DB';
+import {
+  salonSchema,
+  staffSessionSchema,
+  technicianSchema,
+} from '@/models/Schema';
+
+export const STAFF_SESSION_COOKIE = 'staff_session';
+export const STAFF_SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+};
 
 // =============================================================================
 // TYPES
@@ -63,6 +79,81 @@ function notFoundResponse(message = 'Resource not found'): Response {
   );
 }
 
+export async function createStaffSession(args: {
+  salonId: string;
+  technicianId: string;
+}): Promise<string> {
+  const sessionId = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + STAFF_SESSION_DURATION_MS);
+
+  await db.insert(staffSessionSchema).values({
+    id: sessionId,
+    technicianId: args.technicianId,
+    salonId: args.salonId,
+    expiresAt,
+  });
+
+  return sessionId;
+}
+
+export async function deleteStaffSession(sessionId: string): Promise<void> {
+  await db.delete(staffSessionSchema).where(eq(staffSessionSchema.id, sessionId));
+}
+
+export async function setStaffSessionCookies(args: {
+  sessionId: string;
+}): Promise<void> {
+  const cookieStore = await cookies();
+
+  cookieStore.set(STAFF_SESSION_COOKIE, args.sessionId, {
+    ...COOKIE_OPTIONS,
+    maxAge: STAFF_SESSION_DURATION_MS / 1000,
+  });
+
+  for (const legacyCookie of ['staff_phone', 'staff_name', 'staff_salon']) {
+    cookieStore.set(legacyCookie, '', {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0,
+      path: '/',
+    });
+  }
+}
+
+export async function clearStaffSessionCookies(): Promise<void> {
+  const cookieStore = await cookies();
+
+  cookieStore.set(STAFF_SESSION_COOKIE, '', {
+    ...COOKIE_OPTIONS,
+    maxAge: 0,
+  });
+
+  cookieStore.set('staff_phone', '', {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 0,
+    path: '/',
+  });
+
+  cookieStore.set('staff_name', '', {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 0,
+    path: '/',
+  });
+
+  cookieStore.set('staff_salon', '', {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 0,
+    path: '/',
+  });
+}
+
 // =============================================================================
 // MAIN AUTH FUNCTION
 // =============================================================================
@@ -103,30 +194,65 @@ export async function requireStaffSession(): Promise<StaffAuthResult> {
   }
 
   try {
-    // 1. Read staff cookies
+    // 1. Read session cookie
     const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
+    const staffSession = cookieStore.get(STAFF_SESSION_COOKIE);
 
-    // 2. Verify all required cookies exist
-    if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
+    // 2. Verify session exists
+    if (!staffSession?.value) {
       return { ok: false, response: unauthorizedResponse() };
     }
 
-    // 3. Resolve salon from cookie (NOT from client input)
-    const salon = await getSalonBySlug(staffSalon.value);
+    // 3. Resolve staff session from DB
+    const [session] = await db
+      .select()
+      .from(staffSessionSchema)
+      .where(
+        and(
+          eq(staffSessionSchema.id, staffSession.value),
+          gt(staffSessionSchema.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (!session) {
+      return { ok: false, response: unauthorizedResponse() };
+    }
+
+    // 4. Resolve salon from session
+    const [salon] = await db
+      .select()
+      .from(salonSchema)
+      .where(eq(salonSchema.id, session.salonId))
+      .limit(1);
     if (!salon) {
       return { ok: false, response: notFoundResponse('Salon not found') };
     }
 
-    // 4. Get technician by phone (scoped to salon)
-    const technician = await getTechnicianByPhone(staffPhone.value, salon.id);
+    // 5. Resolve technician from session
+    const [technician] = await db
+      .select()
+      .from(technicianSchema)
+      .where(
+        and(
+          eq(technicianSchema.id, session.technicianId),
+          eq(technicianSchema.salonId, salon.id),
+        ),
+      )
+      .limit(1);
     if (!technician) {
       return { ok: false, response: notFoundResponse('Technician profile not found') };
     }
+    if (!technician.phone) {
+      return { ok: false, response: notFoundResponse('Technician phone not found') };
+    }
 
-    // 5. Return validated session
+    db.update(staffSessionSchema)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(staffSessionSchema.id, session.id))
+      .catch(() => {});
+
+    // 6. Return validated session
     return {
       ok: true,
       session: {
@@ -134,7 +260,7 @@ export async function requireStaffSession(): Promise<StaffAuthResult> {
         technicianName: technician.name,
         salonId: salon.id,
         salonSlug: salon.slug,
-        phone: staffPhone.value,
+        phone: technician.phone,
       },
     };
   } catch (error) {
@@ -150,11 +276,9 @@ export async function requireStaffSession(): Promise<StaffAuthResult> {
 export async function hasStaffSessionCookies(): Promise<boolean> {
   try {
     const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
+    const staffSession = cookieStore.get(STAFF_SESSION_COOKIE);
 
-    return Boolean(staffSession?.value && staffPhone?.value && staffSalon?.value);
+    return Boolean(staffSession?.value);
   } catch {
     return false;
   }

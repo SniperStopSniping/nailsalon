@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { getAdminSession, getAdminImpersonationForAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { salonSchema } from '@/models/Schema';
 
@@ -67,6 +67,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const impersonation = await getAdminImpersonationForAdmin(admin);
+    if (impersonation && impersonation.salonSlug !== salonSlug) {
+      return NextResponse.json(
+        { error: 'Cannot switch salons while impersonating' },
+        { status: 403 },
+      );
+    }
+
     // Validate membership (super admin can access any salon)
     if (!admin.isSuperAdmin) {
       const hasMembership = admin.salons.some(
@@ -109,6 +117,17 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const admin = await getAdminSession();
+    if (admin) {
+      const impersonation = await getAdminImpersonationForAdmin(admin);
+      if (impersonation) {
+        return NextResponse.json(
+          { error: 'Cannot clear the active salon while impersonating' },
+          { status: 403 },
+        );
+      }
+    }
+
     // Compute secure flag (proxy-aware)
     const proto = request.headers.get('x-forwarded-proto');
     const secure = proto ? proto === 'https' : new URL(request.url).protocol === 'https:';

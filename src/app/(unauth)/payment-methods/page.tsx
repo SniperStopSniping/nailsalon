@@ -1,10 +1,7 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import PaymentMethodsContent from './PaymentMethodsContent';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
 
 /**
  * Payment Methods Page (Server Component)
@@ -13,12 +10,22 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * and fast checkout. Fetches page appearance settings and conditionally
  * wraps the content with ThemeProvider if theme mode is enabled.
  */
-export default async function PaymentMethodsPage() {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'payment-methods');
+export default async function PaymentMethodsPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const context = await getPublicPageContext('payment-methods', searchParams, params);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="payment-methods">
-      <PaymentMethodsContent />
-    </PageThemeWrapper>
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="payment-methods"
+      salon={context.salon}
+    >
+      <PaymentMethodsContent salonSlug={context.salon.slug} />
+    </PublicSalonPageShell>
   );
 }

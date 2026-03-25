@@ -6,6 +6,11 @@ import {
 } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 
+import {
+  ACTIVE_SALON_COOKIE,
+  getSalonSlugFromPathname,
+  normalizeSalonSlug,
+} from './libs/tenantSlug';
 import { AllLocales, AppConfig } from './utils/AppConfig';
 
 const intlMiddleware = createMiddleware({
@@ -25,24 +30,42 @@ const isProtectedRoute = createRouteMatcher([
   // API routes are handled separately - no auth for booking flow
 ]);
 
-export default function middleware(
+export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
-  // ==========================================================================
-  // BLOCK DEV/DEMO ROUTES IN PRODUCTION
-  // ==========================================================================
-  // Route groups like (dev) don't appear in URLs, so we block actual paths.
-  // Return 404 (not 403) to avoid leaking that these routes exist.
-  // ==========================================================================
-  const devPaths = ['/canvas-demo'];
-  const isDevRoute = devPaths.some(path =>
-    request.nextUrl.pathname.startsWith(path),
+  const pathnameSalonSlug = getSalonSlugFromPathname(
+    request.nextUrl.pathname,
+    AllLocales,
   );
+  const requestedSalonSlug = pathnameSalonSlug ?? normalizeSalonSlug(
+    request.nextUrl.searchParams.get('salonSlug'),
+  );
+  const requestedHost = request.headers.get('host');
 
-  if (isDevRoute && process.env.NODE_ENV === 'production') {
-    return new NextResponse(null, { status: 404 });
-  }
+  // Future tenant routing hook:
+  // When custom domains or subdomains are enabled, this is where host-based
+  // tenant resolution and rewrites will occur before page matching.
+  // Example intention: luster.yourapp.com -> /en/luster
+  void requestedHost;
+  const finalizeResponse = (response: NextResponse) => {
+    if (requestedSalonSlug) {
+      const proto = request.headers.get('x-forwarded-proto');
+      const secure = proto
+        ? proto === 'https'
+        : request.nextUrl.protocol === 'https:';
+
+      response.cookies.set(ACTIVE_SALON_COOKIE, requestedSalonSlug, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30,
+        secure,
+      });
+    }
+
+    return response;
+  };
 
   // ==========================================================================
   // DEV ONLY: Bypass Clerk for super-admin when dev role cookie is set
@@ -55,7 +78,7 @@ export default function middleware(
   if (isDevMode && devRole === 'super_admin') {
     // Bypass for super-admin API routes
     if (p.startsWith('/api/super-admin')) {
-      return NextResponse.next();
+      return finalizeResponse(NextResponse.next());
     }
 
     // Bypass for super-admin pages - skip Clerk auth entirely
@@ -67,28 +90,30 @@ export default function middleware(
       = p.includes('super-admin-login');
 
     if (isSuperAdminPage && !isSuperAdminLogin) {
-      return NextResponse.next();
+      return finalizeResponse(NextResponse.next());
     }
   }
 
   // Super-admin API routes need Clerk auth
   if (request.nextUrl.pathname.startsWith('/api/super-admin')) {
-    return clerkMiddleware()(request, event);
+    const response = await clerkMiddleware()(request, event);
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
   // Admin API routes need Clerk auth - run clerkMiddleware to set up auth context
   // but don't block - the route handlers will check auth themselves
   if (request.nextUrl.pathname.startsWith('/api/admin')
     || request.nextUrl.pathname.startsWith('/api/salon/services')) {
-    return clerkMiddleware(async () => {
+    const response = await clerkMiddleware(async () => {
       // Just set up auth context, don't protect - route handlers check ownership
       return NextResponse.next();
     })(request, event);
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
   // Skip middleware entirely for other API routes (booking flow, etc.)
   if (request.nextUrl.pathname.startsWith('/api')) {
-    return NextResponse.next();
+    return finalizeResponse(NextResponse.next());
   }
 
   // Redirect /sign-in and /sign-up to admin-login (phone OTP system)
@@ -97,11 +122,13 @@ export default function middleware(
     || request.nextUrl.pathname.includes('/sign-up')
   ) {
     const locale = request.nextUrl.pathname.match(/^\/([a-z]{2})\//)?.at(1) ?? 'en';
-    return NextResponse.redirect(new URL(`/${locale}/admin-login`, request.url));
+    return finalizeResponse(
+      NextResponse.redirect(new URL(`/${locale}/admin-login`, request.url)),
+    );
   }
 
   if (isProtectedRoute(request)) {
-    return clerkMiddleware(async (auth, req) => {
+    const response = await clerkMiddleware(async (auth, req) => {
       const locale
         = req.nextUrl.pathname.match(/^\/([a-z]{2})\//)?.at(1) ?? 'en';
 
@@ -120,9 +147,10 @@ export default function middleware(
 
       return intlMiddleware(req);
     })(request, event);
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
-  return intlMiddleware(request);
+  return finalizeResponse(intlMiddleware(request));
 }
 
 export const config = {

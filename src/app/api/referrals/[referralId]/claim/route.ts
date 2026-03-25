@@ -8,12 +8,14 @@
  * - Sets claimedAt and expiresAt (14 days)
  *
  * POST /api/referrals/[referralId]/claim
- * Body: { refereeName, refereePhone }
+ * Body: { refereeName, refereePhone? }
+ * Identity is derived from the authenticated client session created by OTP verification.
  */
 
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { upsertClient } from '@/libs/queries';
@@ -25,10 +27,8 @@ import { appointmentSchema, referralSchema, rewardSchema, salonSchema } from '@/
 
 const claimReferralSchema = z.object({
   refereeName: z.string().min(1, 'Name is required'),
-  refereePhone: z.string().regex(/^\+?1?\d{10,11}$/, 'Invalid phone number'),
+  refereePhone: z.string().regex(/^\+?1?\d{10,11}$/, 'Invalid phone number').optional(),
 });
-
-type ClaimReferralRequest = z.infer<typeof claimReferralSchema>;
 
 // =============================================================================
 // RESPONSE TYPES
@@ -79,6 +79,11 @@ export async function POST(
   { params }: { params: Promise<{ referralId: string }> },
 ): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     const { referralId } = await params;
 
     if (!referralId) {
@@ -110,8 +115,20 @@ export async function POST(
       );
     }
 
-    const data: ClaimReferralRequest = parsed.data;
-    const normalizedPhone = normalizePhone(data.refereePhone);
+    const { refereeName, refereePhone } = parsed.data;
+    const normalizedPhone = auth.normalizedPhone;
+
+    if (refereePhone && normalizePhone(refereePhone) !== normalizedPhone) {
+      return Response.json(
+        {
+          error: {
+            code: 'PHONE_MISMATCH',
+            message: 'Referral claims must use the verified phone number on your session.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
 
     // 2. Look up the referral
     const [referral] = await db
@@ -169,7 +186,7 @@ export async function POST(
 
     // 3b. If referral was sent to a specific phone, validate it matches the claiming phone
     // This prevents someone from stealing a referral meant for another person
-    if (referral.refereePhone && referral.refereePhone !== normalizedPhone) {
+    if (referral.refereePhone && normalizePhone(referral.refereePhone) !== normalizedPhone) {
       return Response.json(
         {
           error: {
@@ -182,7 +199,7 @@ export async function POST(
     }
 
     // 4. Validate: can't claim your own referral
-    if (normalizedPhone === referral.referrerPhone) {
+    if (normalizedPhone === normalizePhone(referral.referrerPhone)) {
       return Response.json(
         {
           error: {
@@ -263,7 +280,7 @@ export async function POST(
       .update(referralSchema)
       .set({
         refereePhone: normalizedPhone,
-        refereeName: data.refereeName,
+        refereeName,
         status: 'claimed',
         claimedAt: now,
         expiresAt,
@@ -271,7 +288,7 @@ export async function POST(
       .where(eq(referralSchema.id, referralId));
 
     // 9. Create/update client record for the referee
-    await upsertClient(`+1${normalizedPhone}`, data.refereeName);
+    await upsertClient(`+1${normalizedPhone}`, refereeName);
 
     // 10. Create a reward for the referee (uses salon-resolved points)
     const rewardId = `reward_${crypto.randomUUID()}`;
@@ -279,7 +296,7 @@ export async function POST(
       id: rewardId,
       salonId: referral.salonId,
       clientPhone: normalizedPhone,
-      clientName: data.refereeName,
+      clientName: refereeName,
       referralId,
       type: 'referral_referee',
       points: loyaltyPoints.referralReferee,

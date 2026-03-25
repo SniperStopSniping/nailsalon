@@ -8,14 +8,14 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { appointmentSchema, appointmentServicesSchema, rewardSchema, serviceSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-// Default salon slug - in production this would come from subdomain
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -24,7 +24,7 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 const redeemRewardSchema = z.object({
   rewardId: z.string().min(1, 'Reward ID is required'),
   appointmentId: z.string().min(1, 'Appointment ID is required'),
-  phone: z.string().regex(/^\d{10,11}$/, 'Phone must be 10-11 digits'),
+  salonSlug: z.string().min(1, 'Salon slug is required').optional(),
 });
 
 // =============================================================================
@@ -58,6 +58,11 @@ type ErrorResponse = {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse request body
     const body = await request.json();
     const parsed = redeemRewardSchema.safeParse(body);
@@ -75,26 +80,15 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { rewardId, appointmentId, phone } = parsed.data;
-
-    // Normalize phone
-    const normalizedPhone = phone.length === 11 && phone.startsWith('1')
-      ? phone.slice(1)
-      : phone;
+    const { rewardId, appointmentId, salonSlug } = parsed.data;
+    const normalizedPhone = auth.normalizedPhone;
 
     // 2. Get the salon
-    const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 3. Verify the reward exists, belongs to this client, and is active
     const rewards = await db
@@ -158,9 +152,8 @@ export async function POST(request: Request): Promise<Response> {
 
     // 4. Verify the appointment exists and belongs to this client
     const phoneVariants = [
-      phone,
       normalizedPhone,
-      `+1${normalizedPhone}`,
+      auth.session.phone,
     ];
 
     const appointments = await db

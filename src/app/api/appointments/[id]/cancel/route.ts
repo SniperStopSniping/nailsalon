@@ -2,7 +2,8 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getAppointmentById, updateSalonClientStats } from '@/libs/queries';
+import { updateSalonClientStats } from '@/libs/queries';
+import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { appointmentSchema, CANCEL_REASONS, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -51,6 +52,15 @@ export async function PATCH(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
+    const access = await requireAppointmentManagerAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can cancel this appointment',
+      assignmentForbiddenMessage: 'You can only cancel your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
+    }
 
     // 1. Parse and validate request body
     const body = await request.json();
@@ -70,18 +80,7 @@ export async function PATCH(
     }
 
     // 2. Verify appointment exists
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
+    const appointment = access.appointment;
 
     // 3. Check appointment is in a valid state to cancel
     const validStates = ['pending', 'confirmed', 'in_progress'];

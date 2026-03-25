@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { isCloudinaryConfigured, uploadAppointmentPhoto } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
-import { getAppointmentById } from '@/libs/queries';
+import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { appointmentPhotoSchema, PHOTO_TYPES } from '@/models/Schema';
 
 // =============================================================================
@@ -13,8 +13,6 @@ import { appointmentPhotoSchema, PHOTO_TYPES } from '@/models/Schema';
 const uploadPhotoSchema = z.object({
   photoType: z.enum(PHOTO_TYPES).default('after'),
   caption: z.string().optional(),
-  // Tech ID for now - future: get from staff auth session
-  uploadedByTechId: z.string().optional(),
 });
 
 // =============================================================================
@@ -63,6 +61,16 @@ export async function POST(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
+    const access = await requireAppointmentManagerAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can upload appointment photos',
+      assignmentForbiddenMessage: 'You can only upload photos for your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+    const { appointment } = access;
 
     // 1. Check Cloudinary is configured
     if (!isCloudinaryConfigured()) {
@@ -77,26 +85,11 @@ export async function POST(
       );
     }
 
-    // 2. Verify appointment exists
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // 3. Parse form data (multipart for file upload)
+    // 2. Parse form data (multipart for file upload)
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const photoType = (formData.get('photoType') as string) || 'after';
     const caption = formData.get('caption') as string | null;
-    const uploadedByTechId = formData.get('uploadedByTechId') as string | null;
 
     // 4. Validate file exists
     if (!file) {
@@ -143,7 +136,6 @@ export async function POST(
     const validatedInput = uploadPhotoSchema.safeParse({
       photoType,
       caption,
-      uploadedByTechId,
     });
 
     if (!validatedInput.success) {
@@ -175,6 +167,9 @@ export async function POST(
     // 10. Store photo metadata in database
     const photoId = nanoid();
     const now = new Date();
+    const uploadedByTechId = access.actorRole === 'staff'
+      ? access.session.technicianId
+      : null;
 
     await db.insert(appointmentPhotoSchema).values({
       id: photoId,
@@ -186,7 +181,7 @@ export async function POST(
       imageUrl: uploadResult.imageUrl,
       thumbnailUrl: uploadResult.thumbnailUrl,
       caption: validatedInput.data.caption || null,
-      uploadedByTechId: validatedInput.data.uploadedByTechId || null,
+      uploadedByTechId,
       createdAt: now,
     });
 
@@ -231,19 +226,14 @@ export async function GET(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
-
-    // 1. Verify appointment exists
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireAppointmentManagerAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can view appointment photos',
+      assignmentForbiddenMessage: 'You can only view photos for your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
     }
 
     // 2. Fetch photos for this appointment

@@ -5,7 +5,6 @@ import { Camera, Check, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { SkillLevel, StaffRole } from '@/models/Schema';
-import { useSalon } from '@/providers/SalonProvider';
 
 // =============================================================================
 // Types
@@ -13,6 +12,7 @@ import { useSalon } from '@/providers/SalonProvider';
 
 type AddStaffModalProps = {
   isOpen: boolean;
+  salonSlug: string | null;
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -59,8 +59,7 @@ const LANGUAGE_OPTIONS = [
 // Component
 // =============================================================================
 
-export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps) {
-  const { salonSlug } = useSalon();
+export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaffModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
@@ -244,7 +243,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
       }
 
       // If we have an avatar file, upload it
-      if (technicianId && avatarFile) {
+      if (technicianId && avatarFile && salonSlug) {
         setUploadingAvatar(true);
         try {
           const formData = new FormData();

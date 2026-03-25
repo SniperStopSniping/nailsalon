@@ -14,9 +14,11 @@ import {
   Users,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { cn } from '@/utils/Helpers';
@@ -231,7 +233,9 @@ export default function InviteContent() {
   const router = useRouter();
   const params = useParams();
   const { salonName, salonSlug } = useSalon();
+  const { clientName } = useClientSession();
   const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
 
   const [friendPhone, setFriendPhone] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -239,41 +243,12 @@ export default function InviteContent() {
   const [copied, setCopied] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Get user info from cookies
-  const [userName, setUserName] = useState('');
-  const [userPhone, setUserPhone] = useState('');
-
   // Referral link state
   const [referralLink, setReferralLink] = useState<string | null>(null);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
 
   // Prevent double submission
   const sendingRef = useRef(false);
-
-  useEffect(() => {
-    const clientNameCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_name='));
-    if (clientNameCookie) {
-      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
-      if (name) {
-        setUserName(name);
-      }
-    }
-
-    const clientPhoneCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_phone='));
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setUserPhone(phone);
-      }
-    }
-  }, []);
-
-  // Normalize user phone for API calls
-  const normalizedUserPhone = userPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
 
   const handleSendReferral = useCallback(async () => {
     if (sendingRef.current || isSending) {
@@ -294,8 +269,7 @@ export default function InviteContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
-          referrerPhone: normalizedUserPhone,
-          referrerName: userName || 'Your friend',
+          referrerName: clientName || 'Your friend',
           refereePhone: friendPhone,
         }),
       });
@@ -324,7 +298,7 @@ export default function InviteContent() {
       setIsSending(false);
       sendingRef.current = false;
     }
-  }, [friendPhone, normalizedUserPhone, userName, salonSlug, isSending]);
+  }, [clientName, friendPhone, salonSlug, isSending]);
 
   const handleCopyLink = useCallback(async () => {
     setIsGeneratingLink(true);
@@ -337,8 +311,7 @@ export default function InviteContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
-          referrerPhone: normalizedUserPhone,
-          referrerName: userName || 'Your friend',
+          referrerName: clientName || 'Your friend',
         }),
       });
 
@@ -362,7 +335,7 @@ export default function InviteContent() {
     } finally {
       setIsGeneratingLink(false);
     }
-  }, [normalizedUserPhone, userName, salonSlug]);
+  }, [clientName, salonSlug]);
 
   const handleBack = useCallback(() => {
     triggerHaptic();
@@ -565,7 +538,10 @@ export default function InviteContent() {
             <SettingsItem
               label="View My Referrals"
               icon={Users}
-              onClick={() => router.push(`/${locale}/my-referrals`)}
+              onClick={() => router.push(appendSalonSlug(`/${locale}/my-referrals`, salonSlug, {
+                routeSalonSlug,
+                locale,
+              }))}
             />
           </div>
         </motion.div>

@@ -1,15 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
+import { clearAdminImpersonationSession, getAdminImpersonationSession, setAdminImpersonationSession } from '@/libs/adminImpersonation';
 import { db } from '@/libs/DB';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-// Cookie name for impersonation (not exported - Next.js routes only allow specific exports)
-const IMPERSONATE_COOKIE = 'sa_impersonate';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -57,29 +54,27 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const adminInfo = await getSuperAdminInfo();
+    if (!adminInfo) {
+      return Response.json(
+        { error: 'Super admin session not found' },
+        { status: 401 },
+      );
+    }
 
-    // Set impersonation cookie
-    const cookieStore = await cookies();
     const impersonateData = {
       salonId,
       salonSlug: salon.slug,
       salonName: salon.name,
-      adminUserId: adminInfo?.userId,
-      adminPhone: adminInfo?.phone,
+      adminUserId: adminInfo.userId,
+      adminPhone: adminInfo.phone,
       startedAt: new Date().toISOString(),
     };
 
-    cookieStore.set(IMPERSONATE_COOKIE, JSON.stringify(impersonateData), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 2, // 2 hours
-      path: '/',
-    });
+    await setAdminImpersonationSession(impersonateData);
 
     // Log the action
     await logAuditAction(salonId, 'updated', {
-      details: `Impersonation started by ${adminInfo?.phone}`,
+      details: `Impersonation started by ${adminInfo.phone}`,
     });
 
     return Response.json({
@@ -112,26 +107,16 @@ export async function DELETE(): Promise<Response> {
   }
 
   try {
-    const cookieStore = await cookies();
-
     // Get current impersonation data for logging
-    const impersonateCookie = cookieStore.get(IMPERSONATE_COOKIE);
-    if (impersonateCookie?.value) {
-      try {
-        const data = JSON.parse(impersonateCookie.value);
-        if (data.salonId) {
-          const adminInfo = await getSuperAdminInfo();
-          await logAuditAction(data.salonId, 'updated', {
-            details: `Impersonation ended by ${adminInfo?.phone}`,
-          });
-        }
-      } catch {
-        // Ignore parsing errors
-      }
+    const impersonation = await getAdminImpersonationSession();
+    if (impersonation?.salonId) {
+      const adminInfo = await getSuperAdminInfo();
+      await logAuditAction(impersonation.salonId, 'updated', {
+        details: `Impersonation ended by ${adminInfo?.phone}`,
+      });
     }
 
-    // Clear the cookie
-    cookieStore.delete(IMPERSONATE_COOKIE);
+    await clearAdminImpersonationSession();
 
     return Response.json({
       success: true,
@@ -158,28 +143,18 @@ export async function GET(): Promise<Response> {
   }
 
   try {
-    const cookieStore = await cookies();
-    const impersonateCookie = cookieStore.get(IMPERSONATE_COOKIE);
-
-    if (!impersonateCookie?.value) {
+    const impersonation = await getAdminImpersonationSession();
+    if (!impersonation) {
       return Response.json({
         isImpersonating: false,
         session: null,
       });
     }
 
-    try {
-      const data = JSON.parse(impersonateCookie.value);
-      return Response.json({
-        isImpersonating: true,
-        session: data,
-      });
-    } catch {
-      return Response.json({
-        isImpersonating: false,
-        session: null,
-      });
-    }
+    return Response.json({
+      isImpersonating: true,
+      session: impersonation,
+    });
   } catch (error) {
     console.error('Error checking impersonation status:', error);
     return Response.json(

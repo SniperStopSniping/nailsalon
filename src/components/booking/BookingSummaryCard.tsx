@@ -1,0 +1,63 @@
+import Image from 'next/image';
+
+import { Card, CardContent } from '@/components/ui/card';
+import { themeVars } from '@/theme';
+
+type BookingSummaryCardProps = {
+  mounted?: boolean;
+  serviceNames: string;
+  totalDuration: number;
+  totalPrice: number;
+  technician?: {
+    name: string;
+    imageUrl: string;
+  } | null;
+  label?: string;
+};
+
+export function BookingSummaryCard({
+  mounted = true,
+  serviceNames,
+  totalDuration,
+  totalPrice,
+  technician,
+  label = 'Your appointment',
+}: BookingSummaryCardProps) {
+  return (
+    <Card
+      className="mb-6 overflow-hidden border-0 shadow-xl"
+      style={{
+        background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
+        opacity: mounted ? 1 : 0,
+        transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
+        transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+      }}
+    >
+      <CardContent className="px-5 py-4">
+        <div className="flex items-center gap-4">
+          {technician && (
+            <div className="relative size-14 shrink-0 overflow-hidden rounded-full border-2 border-white/30">
+              <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="mb-0.5 text-xs text-white/70">{label}</div>
+            <div className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
+            <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
+              {technician ? `with ${technician.name} · ` : ''}
+              {totalDuration}
+              {' '}
+              min
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-white">
+              $
+              {totalPrice}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

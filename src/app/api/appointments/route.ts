@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -12,6 +12,14 @@ import {
   TTL,
 } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
+import {
+  canTechnicianTakeAppointment,
+  getTorontoDateString,
+  loadBookingPolicy,
+  resolveTechnicianCapabilityMode,
+} from '@/libs/bookingPolicy';
+import { requireAdminSalon, requireAdmin } from '@/libs/adminAuth';
+import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
@@ -25,8 +33,8 @@ import {
   getSalonBySlug,
   getServicesByIds,
   getTechnicianById,
+  getTechniciansBySalonId,
   normalizePhone,
-  updateAppointmentStatus,
   upsertSalonClient,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
@@ -37,19 +45,20 @@ import {
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
-import { hasStaffSessionCookies, requireStaffSession } from '@/libs/staffAuth';
+import { requireStaffSession } from '@/libs/staffAuth';
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  appointmentPhotoSchema,
   referralSchema,
   type Reward,
   rewardSchema,
   salonSchema,
   type Service,
-  technicianSchema,
+  serviceSchema,
   type WeeklySchedule,
 } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
@@ -60,9 +69,6 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-// Buffer time between appointments (cleanup time)
-const BUFFER_MINUTES = 10;
 
 // =============================================================================
 // HELPERS
@@ -88,73 +94,9 @@ function parseStatusParam(statusParam: string | null): string[] | null {
   return statuses;
 }
 
-// Days of week mapping
-const DAY_NAMES: (keyof WeeklySchedule)[] = [
-  'sunday',
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-];
-
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-// Check if a time is within a technician's working hours for a given day
-function isWithinSchedule(
-  startTime: Date,
-  endTime: Date,
-  schedule: WeeklySchedule | null,
-): { valid: boolean; reason?: string } {
-  if (!schedule) {
-    return { valid: false, reason: 'Technician has no schedule configured' };
-  }
-
-  // Convert to Toronto timezone for proper comparison
-  // This is critical because Vercel servers run in UTC, but schedule times are stored as Toronto local time
-  const TORONTO_TZ = 'America/Toronto';
-  const startInToronto = new Date(startTime.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
-  const endInToronto = new Date(endTime.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
-
-  const dayOfWeek = startInToronto.getDay(); // 0 = Sunday, 6 = Saturday
-  const dayName = DAY_NAMES[dayOfWeek]!;
-  const daySchedule = schedule[dayName];
-
-  if (!daySchedule) {
-    return { valid: false, reason: `Technician does not work on ${dayName}s` };
-  }
-
-  // Parse start and end hours from schedule
-  const [schedStartHour, schedStartMin] = daySchedule.start.split(':').map(Number);
-  const [schedEndHour, schedEndMin] = daySchedule.end.split(':').map(Number);
-
-  // Get appointment times in minutes from midnight (using Toronto-converted times)
-  const apptStartMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
-  const apptEndMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
-  const schedStartMinutes = (schedStartHour || 0) * 60 + (schedStartMin || 0);
-  const schedEndMinutes = (schedEndHour || 0) * 60 + (schedEndMin || 0);
-
-  // Appointment must start at or after schedule start
-  if (apptStartMinutes < schedStartMinutes) {
-    return {
-      valid: false,
-      reason: `Appointment starts before technician's shift (${daySchedule.start})`,
-    };
-  }
-
-  // Appointment must end at or before schedule end
-  if (apptEndMinutes > schedEndMinutes) {
-    return {
-      valid: false,
-      reason: `Appointment ends after technician's shift (${daySchedule.end})`,
-    };
-  }
-
-  return { valid: true };
-}
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -164,7 +106,7 @@ const createAppointmentSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
   serviceIds: z.array(z.string()).min(1, 'At least one service is required'),
   technicianId: z.string().nullable(), // null = "any artist"
-  clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
+  clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits').optional(),
   clientName: z.string().optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
   // Optional: Location for multi-location salons
@@ -213,6 +155,76 @@ type ErrorResponse = {
   };
 };
 
+type AppointmentDetailMaps = {
+  servicesByAppointmentId: Map<string, Array<{ name: string }>>;
+  photosByAppointmentId: Map<string, Array<{
+    id: string;
+    imageUrl: string;
+    thumbnailUrl: string | null;
+    photoType: string;
+  }>>;
+};
+
+async function loadAppointmentDetailMaps(appointmentIds: string[]): Promise<AppointmentDetailMaps> {
+  if (appointmentIds.length === 0) {
+    return {
+      servicesByAppointmentId: new Map(),
+      photosByAppointmentId: new Map(),
+    };
+  }
+
+  const [serviceRows, photoRows] = await Promise.all([
+    db
+      .select({
+        appointmentId: appointmentServicesSchema.appointmentId,
+        name: serviceSchema.name,
+      })
+      .from(appointmentServicesSchema)
+      .leftJoin(serviceSchema, eq(serviceSchema.id, appointmentServicesSchema.serviceId))
+      .where(inArray(appointmentServicesSchema.appointmentId, appointmentIds)),
+    db
+      .select({
+        id: appointmentPhotoSchema.id,
+        appointmentId: appointmentPhotoSchema.appointmentId,
+        imageUrl: appointmentPhotoSchema.imageUrl,
+        thumbnailUrl: appointmentPhotoSchema.thumbnailUrl,
+        photoType: appointmentPhotoSchema.photoType,
+      })
+      .from(appointmentPhotoSchema)
+      .where(inArray(appointmentPhotoSchema.appointmentId, appointmentIds))
+      .orderBy(desc(appointmentPhotoSchema.createdAt)),
+  ]);
+
+  const servicesByAppointmentId = new Map<string, Array<{ name: string }>>();
+  for (const row of serviceRows) {
+    const current = servicesByAppointmentId.get(row.appointmentId) ?? [];
+    current.push({ name: row.name ?? 'Unknown service' });
+    servicesByAppointmentId.set(row.appointmentId, current);
+  }
+
+  const photosByAppointmentId = new Map<string, Array<{
+    id: string;
+    imageUrl: string;
+    thumbnailUrl: string | null;
+    photoType: string;
+  }>>();
+  for (const row of photoRows) {
+    const current = photosByAppointmentId.get(row.appointmentId) ?? [];
+    current.push({
+      id: row.id,
+      imageUrl: row.imageUrl,
+      thumbnailUrl: row.thumbnailUrl,
+      photoType: row.photoType,
+    });
+    photosByAppointmentId.set(row.appointmentId, current);
+  }
+
+  return {
+    servicesByAppointmentId,
+    photosByAppointmentId,
+  };
+}
+
 // =============================================================================
 // POST /api/appointments - Create a new appointment
 // =============================================================================
@@ -245,22 +257,6 @@ export async function POST(request: Request): Promise<Response> {
     // This ensures we NEVER store "any" string in the database
     const rawTechId = typeof data.technicianId === 'string' ? data.technicianId.trim() : '';
     const normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
-
-    // Normalize phone for early validation and hash computation
-    // NOTE: getOrCreateSalonClient also normalizes internally (single source of truth for DB)
-    // We normalize here too for: (1) early fail-fast, (2) hash consistency, (3) duplicate checks
-    const normalizedPhone = normalizePhone(data.clientPhone);
-    if (!normalizedPhone || normalizedPhone.length !== 10) {
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_PHONE',
-            message: 'Phone number must be a valid 10-digit US number',
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
-    }
 
     // Normalize clientName: trim + empty→null
     const normalizedClientName = data.clientName?.trim() || null;
@@ -310,6 +306,54 @@ export async function POST(request: Request): Promise<Response> {
     const featureGuard = await guardFeatureEntitlement(salon.id, 'onlineBooking');
     if (featureGuard) {
       return featureGuard;
+    }
+
+    let actorRole: 'client' | 'staff' | 'admin' = 'client';
+    let clientPhoneInput = data.clientPhone ?? null;
+    let clientAuth:
+      | Awaited<ReturnType<typeof requireClientApiSession>>
+      | null = null;
+
+    const staffAuth = await requireStaffSession();
+    if (staffAuth.ok && staffAuth.session.salonId === salon.id) {
+      actorRole = 'staff';
+    } else {
+      const adminGuard = await requireAdmin(salon.id);
+      if (adminGuard.ok) {
+        actorRole = 'admin';
+      } else {
+        clientAuth = await requireClientApiSession();
+        if (!clientAuth.ok) {
+          return clientAuth.response;
+        }
+        clientPhoneInput = clientAuth.normalizedPhone;
+      }
+    }
+
+    if ((actorRole === 'staff' || actorRole === 'admin') && !clientPhoneInput) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_PHONE',
+            message: 'Phone number must be provided when staff or admins create appointments',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    // Normalize phone for validation, hashing, and duplicate checks.
+    const normalizedPhone = normalizePhone(clientPhoneInput ?? '');
+    if (!normalizedPhone || normalizedPhone.length !== 10) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_PHONE',
+            message: 'Phone number must be a valid 10-digit US number',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
     }
 
     // 2d. IDEMPOTENCY CHECK: Prevent double-submit on booking confirmation
@@ -496,6 +540,7 @@ export async function POST(request: Request): Promise<Response> {
     // 4a. Validate location (if provided) belongs to salon, else use primary
     // Use normalizedLocationId (already trimmed/empty→null above)
     let validatedLocationId: string | null = null;
+    let validatedLocation = null;
     if (normalizedLocationId) {
       const location = await getLocationById(normalizedLocationId, salon.id);
       if (!location) {
@@ -510,10 +555,12 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
       validatedLocationId = location.id;
+      validatedLocation = location;
     } else {
       // No locationId provided - use primary location if exists
       const primaryLocation = await getPrimaryLocation(salon.id);
       validatedLocationId = primaryLocation?.id ?? null;
+      validatedLocation = primaryLocation;
     }
 
     // 4b. Check for existing active appointment (duplicate booking prevention)
@@ -541,7 +588,8 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 4c. If this is a reschedule, validate that the original appointment exists and belongs to this client
+    // 4c. If this is a reschedule, validate that the original appointment exists
+    // and that the authenticated actor is allowed to reschedule it.
     let originalAppointment = null;
     if (normalizedOriginalApptId) {
       originalAppointment = await getAppointmentById(normalizedOriginalApptId);
@@ -557,10 +605,26 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
 
-      // Verify the original appointment belongs to this client
-      // Compare normalized phones (both 10-digit)
+      if (originalAppointment.salonId !== salon.id) {
+        return Response.json(
+          {
+            error: {
+              code: 'UNAUTHORIZED_RESCHEDULE',
+              message: 'Original appointment does not belong to this salon',
+            },
+          } satisfies ErrorResponse,
+          { status: 403 },
+        );
+      }
+
       const normalizedOriginalPhone = normalizePhone(originalAppointment.clientPhone);
-      if (normalizedPhone !== normalizedOriginalPhone) {
+      const clientOwnsOriginal = actorRole === 'client'
+        && clientAuth?.ok
+        && clientAuth.phoneVariants.some(phoneVariant =>
+          normalizePhone(phoneVariant) === normalizedOriginalPhone,
+        );
+
+      if (actorRole === 'client' && !clientOwnsOriginal) {
         return Response.json(
           {
             error: {
@@ -686,77 +750,95 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 6d. Validate appointment is within technician's working hours (if specific tech selected)
-    if (technician) {
-      const schedule = technician.weeklySchedule as WeeklySchedule | null;
-      const scheduleCheck = isWithinSchedule(startTime, endTime, schedule);
+    const bookingDate = getTorontoDateString(startTime);
+    const bookingStartOfDay = new Date(`${bookingDate}T00:00:00`);
+    const bookingEndOfDay = new Date(`${bookingDate}T23:59:59.999`);
 
-      if (!scheduleCheck.valid) {
+    const candidateTechnicians = technician
+      ? [technician]
+      : await getTechniciansBySalonId(salon.id);
+
+    if (candidateTechnicians.length === 0) {
+      return Response.json(
+        {
+          error: {
+            code: 'NO_AVAILABLE_TECHNICIAN',
+            message: 'No technicians are available at this time. Please select a different time slot.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    const capabilityMode = resolveTechnicianCapabilityMode(candidateTechnicians, services);
+
+    const initialPolicy = await loadBookingPolicy({
+      salonId: salon.id,
+      technicianIds: candidateTechnicians.map(tech => tech.id),
+      date: bookingDate,
+      selectedDate: bookingStartOfDay,
+      startOfDay: bookingStartOfDay,
+      endOfDay: bookingEndOfDay,
+      excludedAppointmentId: normalizedOriginalApptId,
+    });
+
+    if (technician) {
+      const decision = canTechnicianTakeAppointment({
+        startTime,
+        endTime,
+        weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+        override: initialPolicy.overridesByTechnician.get(technician.id),
+        isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
+        blockedSlots: initialPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+        requestedServices: services,
+        capabilityMode,
+        enabledServiceIds: technician.enabledServiceIds ?? [],
+        specialties: technician.specialties ?? [],
+        locationId: validatedLocationId,
+        primaryLocationId: technician.primaryLocationId ?? null,
+        locationBusinessHours: validatedLocation?.businessHours ?? null,
+        existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+        excludedAppointmentId: normalizedOriginalApptId,
+      });
+
+      if (!decision.available) {
+        const message = decision.reason === 'time_conflict'
+          ? 'This time slot is no longer available. Please select a different time.'
+          : 'Selected technician is unavailable at this time. Please choose another slot.';
+
         return Response.json(
           {
             error: {
-              code: 'OUTSIDE_SCHEDULE',
-              message: scheduleCheck.reason || 'Appointment is outside technician\'s working hours',
+              code: decision.reason === 'time_conflict' ? 'TIME_CONFLICT' : 'OUTSIDE_SCHEDULE',
+              message,
             },
           } satisfies ErrorResponse,
-          { status: 400 },
+          { status: decision.reason === 'time_conflict' ? 409 : 400 },
         );
       }
-    }
-
-    // 6e. Auto-assign technician if "any artist" was selected
-    if (!technician) {
-      // Get all active technicians for this salon
-      const allTechnicians = await db
-        .select()
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.salonId, salon.id),
-            eq(technicianSchema.isActive, true),
-          ),
-        );
-
-      // Find an available technician
-      for (const tech of allTechnicians) {
-        const schedule = tech.weeklySchedule as WeeklySchedule | null;
-
-        // Check if this tech works at the requested time
-        const scheduleCheck = isWithinSchedule(startTime, endTime, schedule);
-        if (!scheduleCheck.valid) {
-          continue; // This tech doesn't work at this time
-        }
-
-        // Check if this tech has any overlapping appointments
-        const techAppointments = await db
-          .select({
-            startTime: appointmentSchema.startTime,
-            endTime: appointmentSchema.endTime,
-          })
-          .from(appointmentSchema)
-          .where(
-            and(
-              eq(appointmentSchema.salonId, salon.id),
-              eq(appointmentSchema.technicianId, tech.id),
-              inArray(appointmentSchema.status, ['pending', 'confirmed']),
-            ),
-          );
-
-        const techHasOverlap = techAppointments.some((existing) => {
-          const existingStart = new Date(existing.startTime);
-          const existingEnd = new Date(existing.endTime);
-          const existingEndWithBuffer = new Date(existingEnd.getTime() + BUFFER_MINUTES * 60 * 1000);
-          return startTime < existingEndWithBuffer && endTime > existingStart;
+    } else {
+      technician = candidateTechnicians.find((tech) => {
+        const decision = canTechnicianTakeAppointment({
+          startTime,
+          endTime,
+          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
+          override: initialPolicy.overridesByTechnician.get(tech.id),
+          isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(tech.id),
+          blockedSlots: initialPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
+          requestedServices: services,
+          capabilityMode,
+          enabledServiceIds: tech.enabledServiceIds ?? [],
+          specialties: tech.specialties ?? [],
+          locationId: validatedLocationId,
+          primaryLocationId: tech.primaryLocationId ?? null,
+          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          existingAppointments: initialPolicy.appointmentsByTechnician.get(tech.id) ?? [],
+          excludedAppointmentId: normalizedOriginalApptId,
         });
 
-        if (!techHasOverlap) {
-          // Found an available technician!
-          technician = tech;
-          break;
-        }
-      }
+        return decision.available;
+      }) ?? null;
 
-      // If no technician is available, return an error
       if (!technician) {
         return Response.json(
           {
@@ -768,53 +850,6 @@ export async function POST(request: Request): Promise<Response> {
           { status: 409 },
         );
       }
-    }
-
-    // 6c. Check for overlapping appointments (server-side double-booking prevention)
-    // This prevents race conditions where two users try to book the same slot simultaneously
-    // Include buffer time between appointments for cleanup
-
-    const existingAppointments = await db
-      .select({
-        id: appointmentSchema.id,
-        startTime: appointmentSchema.startTime,
-        endTime: appointmentSchema.endTime,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
-          // If a specific technician is selected, only check their appointments
-          // If "any artist" (null), we need to check all appointments
-          technician?.id
-            ? eq(appointmentSchema.technicianId, technician.id)
-            : sql`1=1`, // Always true - check all technicians for "any artist"
-        ),
-      );
-
-    // Check overlap with buffer: existing appointments need buffer time after them
-    const hasOverlap = existingAppointments.some((existing) => {
-      const existingStart = new Date(existing.startTime);
-      const existingEnd = new Date(existing.endTime);
-      // Add buffer to existing appointment's end time
-      const existingEndWithBuffer = new Date(existingEnd.getTime() + BUFFER_MINUTES * 60 * 1000);
-
-      // Overlap if: newStart < existingEndWithBuffer AND newEnd > existingStart
-      // This ensures the new appointment doesn't start during an existing one OR during the buffer period
-      return startTime < existingEndWithBuffer && endTime > existingStart;
-    });
-
-    if (hasOverlap) {
-      return Response.json(
-        {
-          error: {
-            code: 'TIME_CONFLICT',
-            message: 'This time slot is no longer available. Please select a different time.',
-          },
-        } satisfies ErrorResponse,
-        { status: 409 },
-      );
     }
 
     // 7. ATOMIC LOCK OWNERSHIP CHECK: Before any writes, verify we still own the lock
@@ -904,10 +939,104 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const finalPolicy = await loadBookingPolicy({
+      salonId: salon.id,
+      technicianIds: candidateTechnicians.map(tech => tech.id),
+      date: bookingDate,
+      selectedDate: bookingStartOfDay,
+      startOfDay: bookingStartOfDay,
+      endOfDay: bookingEndOfDay,
+      excludedAppointmentId: normalizedOriginalApptId,
+    });
+
+    if (!normalizedTechnicianId) {
+      technician = candidateTechnicians.find((tech) => {
+        const decision = canTechnicianTakeAppointment({
+          startTime,
+          endTime,
+          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
+          override: finalPolicy.overridesByTechnician.get(tech.id),
+          isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(tech.id),
+          blockedSlots: finalPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
+          requestedServices: services,
+          capabilityMode,
+          enabledServiceIds: tech.enabledServiceIds ?? [],
+          specialties: tech.specialties ?? [],
+          locationId: validatedLocationId,
+          primaryLocationId: tech.primaryLocationId ?? null,
+          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          existingAppointments: finalPolicy.appointmentsByTechnician.get(tech.id) ?? [],
+          excludedAppointmentId: normalizedOriginalApptId,
+        });
+
+        return decision.available;
+      }) ?? null;
+    }
+
+    if (!technician) {
+      return Response.json(
+        {
+          error: {
+            code: 'NO_AVAILABLE_TECHNICIAN',
+            message: 'No technicians are available at this time. Please select a different time slot.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    const finalDecision = canTechnicianTakeAppointment({
+      startTime,
+      endTime,
+      weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+      override: finalPolicy.overridesByTechnician.get(technician.id),
+      isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(technician.id),
+      blockedSlots: finalPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+      requestedServices: services,
+      capabilityMode,
+      enabledServiceIds: technician.enabledServiceIds ?? [],
+      specialties: technician.specialties ?? [],
+      locationId: validatedLocationId,
+      primaryLocationId: technician.primaryLocationId ?? null,
+      locationBusinessHours: validatedLocation?.businessHours ?? null,
+      existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+      excludedAppointmentId: normalizedOriginalApptId,
+    });
+
+    if (!finalDecision.available) {
+      const requestedSpecificTechnician = Boolean(normalizedTechnicianId);
+      const errorCode = finalDecision.reason === 'time_conflict'
+        ? 'TIME_CONFLICT'
+        : requestedSpecificTechnician
+          ? 'OUTSIDE_SCHEDULE'
+          : 'NO_AVAILABLE_TECHNICIAN';
+      const status = finalDecision.reason === 'time_conflict'
+        ? 409
+        : requestedSpecificTechnician
+          ? 400
+          : 409;
+
+      return Response.json(
+        {
+          error: {
+            code: errorCode,
+            message: finalDecision.reason === 'time_conflict'
+              ? 'This time slot is no longer available. Please select a different time.'
+              : 'Selected technician is unavailable at this time. Please choose another slot.',
+          },
+        } satisfies ErrorResponse,
+        { status },
+      );
+    }
+
     // 7b. Resolve salonClientId BEFORE appointment insert (required for fraud detection)
     // This ensures stable client identity and enables fraud queries by salonClientId
     // getOrCreateSalonClient normalizes phone internally - pass raw phone
-    const salonClient = await getOrCreateSalonClient(salon.id, data.clientPhone, clientName ?? undefined);
+    const salonClient = await getOrCreateSalonClient(
+      salon.id,
+      clientPhoneInput ?? normalizedPhone,
+      clientName ?? undefined,
+    );
 
     if (!salonClient) {
       // Phone was invalid (getOrCreateSalonClient returns null for invalid phones)
@@ -925,29 +1054,152 @@ export async function POST(request: Request): Promise<Response> {
     // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
 
-    // 8. Insert appointment with salonClientId
-    // Use salonClient.phone as source of truth (what getOrCreateSalonClient actually stored)
-    // This guarantees appointment.clientPhone === salonClient.phone (same normalization)
-    const [appointment] = await db
-      .insert(appointmentSchema)
-      .values({
-        id: appointmentId,
-        salonId: salon.id,
-        technicianId: technician?.id ?? null,
-        locationId: validatedLocationId,
-        clientPhone: salonClient.phone, // Source of truth from salonClient
-        clientName,
-        salonClientId: salonClient.id, // Always set for new appointments
-        startTime,
-        endTime,
-        status: 'pending',
-        totalPrice,
-        totalDurationMinutes,
-      })
-      .returning();
+    let appointment: Appointment | null = null;
+    let appointmentServices: AppointmentService[] = [];
 
-    if (!appointment) {
-      throw new Error('Failed to create appointment');
+    if (originalAppointment && normalizedOriginalApptId) {
+      try {
+        const transactionalResult = await db.transaction(async (tx) => {
+          const [createdAppointment] = await tx
+            .insert(appointmentSchema)
+            .values({
+              id: appointmentId,
+              salonId: salon.id,
+              technicianId: technician?.id ?? null,
+              locationId: validatedLocationId,
+              clientPhone: salonClient.phone,
+              clientName,
+              salonClientId: salonClient.id,
+              startTime,
+              endTime,
+              status: 'pending',
+              totalPrice,
+              totalDurationMinutes,
+            })
+            .returning();
+
+          if (!createdAppointment) {
+            throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT');
+          }
+
+          const insertedServices: AppointmentService[] = [];
+          for (const service of services) {
+            const priceAtBooking = (appliedReward && service.id === discountedServiceId)
+              ? 0
+              : service.price;
+
+            const [apptService] = await tx
+              .insert(appointmentServicesSchema)
+              .values({
+                id: `apptSvc_${crypto.randomUUID()}`,
+                appointmentId: createdAppointment.id,
+                serviceId: service.id,
+                priceAtBooking,
+                durationAtBooking: service.durationMinutes,
+              })
+              .returning();
+
+            if (!apptService) {
+              throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT_SERVICE');
+            }
+
+            insertedServices.push(apptService);
+          }
+
+          const [cancelledOriginal] = await tx
+            .update(appointmentSchema)
+            .set({
+              status: 'cancelled',
+              cancelReason: 'rescheduled',
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(appointmentSchema.id, normalizedOriginalApptId),
+                eq(appointmentSchema.salonId, salon.id),
+                inArray(appointmentSchema.status, ['pending', 'confirmed']),
+              ),
+            )
+            .returning();
+
+          if (!cancelledOriginal) {
+            throw new Error('RESCHEDULE_CONFLICT');
+          }
+
+          return {
+            appointment: createdAppointment,
+            appointmentServices: insertedServices,
+          };
+        });
+
+        appointment = transactionalResult.appointment;
+        appointmentServices = transactionalResult.appointmentServices;
+      } catch (error) {
+        if (error instanceof Error && error.message === 'RESCHEDULE_CONFLICT') {
+          return Response.json(
+            {
+              error: {
+                code: 'APPOINTMENT_NOT_ACTIVE',
+                message: 'The original appointment could not be rescheduled because it is no longer active.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
+
+        throw error;
+      }
+    } else {
+      // 8. Insert appointment with salonClientId
+      // Use salonClient.phone as source of truth (what getOrCreateSalonClient actually stored)
+      // This guarantees appointment.clientPhone === salonClient.phone (same normalization)
+      const [createdAppointment] = await db
+        .insert(appointmentSchema)
+        .values({
+          id: appointmentId,
+          salonId: salon.id,
+          technicianId: technician?.id ?? null,
+          locationId: validatedLocationId,
+          clientPhone: salonClient.phone, // Source of truth from salonClient
+          clientName,
+          salonClientId: salonClient.id, // Always set for new appointments
+          startTime,
+          endTime,
+          status: 'pending',
+          totalPrice,
+          totalDurationMinutes,
+        })
+        .returning();
+
+      if (!createdAppointment) {
+        throw new Error('Failed to create appointment');
+      }
+
+      appointment = createdAppointment;
+
+      // 9. Insert appointment services (with price/duration snapshot)
+      // Apply reward discount to the matching service if applicable
+      for (const service of services) {
+        // If this service is discounted by a reward, set price to 0
+        const priceAtBooking = (appliedReward && service.id === discountedServiceId)
+          ? 0
+          : service.price;
+
+        const [apptService] = await db
+          .insert(appointmentServicesSchema)
+          .values({
+            id: `apptSvc_${crypto.randomUUID()}`,
+            appointmentId: createdAppointment.id,
+            serviceId: service.id,
+            priceAtBooking,
+            durationAtBooking: service.durationMinutes,
+          })
+          .returning();
+
+        if (apptService) {
+          appointmentServices.push(apptService);
+        }
+      }
     }
 
     // 8b. Grant welcome bonus if this is a new client (handled by upsertSalonClient)
@@ -961,39 +1213,8 @@ export async function POST(request: Request): Promise<Response> {
       console.error('Failed to upsert salon client:', err);
     }
 
-    // 9. Insert appointment services (with price/duration snapshot)
-    // Apply reward discount to the matching service if applicable
-    const appointmentServices: AppointmentService[] = [];
-    for (const service of services) {
-      // If this service is discounted by a reward, set price to 0
-      const priceAtBooking = (appliedReward && service.id === discountedServiceId)
-        ? 0
-        : service.price;
-
-      const [apptService] = await db
-        .insert(appointmentServicesSchema)
-        .values({
-          id: `apptSvc_${crypto.randomUUID()}`,
-          appointmentId: appointment.id,
-          serviceId: service.id,
-          priceAtBooking,
-          durationAtBooking: service.durationMinutes,
-        })
-        .returning();
-
-      if (apptService) {
-        appointmentServices.push(apptService);
-      }
-    }
-
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
     if (originalAppointment && normalizedOriginalApptId) {
-      await updateAppointmentStatus(
-        normalizedOriginalApptId,
-        'cancelled',
-        'rescheduled',
-      );
-
       // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
       // Use salonClient.phone as source of truth
       await sendRescheduleConfirmation(salon.id, {
@@ -1184,10 +1405,9 @@ export async function POST(request: Request): Promise<Response> {
 //     * salonSlug, salonId, technicianId, includeDeleted, allTechs
 //   - Response: REDACTED via getEffectiveStaffVisibility + redactAppointmentForStaff
 //
-// ADMIN/PUBLIC REQUESTS (no staff session):
-//   - Uses query params for filtering
-//   - Still tenant-scoped via salonSlug
-//   - Response: Full data (no redaction)
+// ADMIN REQUESTS (no staff session):
+//   - Requires explicit admin auth for the resolved salonSlug
+//   - Public/customer filter-driven reads are not allowed here
 //
 // =============================================================================
 
@@ -1197,21 +1417,11 @@ export async function GET(request: Request): Promise<Response> {
 
     // ==========================================================================
     // SECURITY: Check for staff session FIRST
-    // If staff cookies exist, staff context wins (even if admin session also exists)
+    // If present, staff context wins and query params for identity are ignored.
     // ==========================================================================
-    const hasStaffCookies = await hasStaffSessionCookies();
+    const staffAuth = await requireStaffSession();
 
-    if (hasStaffCookies) {
-      // =======================================================================
-      // STAFF REQUEST PATH (bypass-proof)
-      // Identity is ONLY derived from session - query params for identity IGNORED
-      // =======================================================================
-      const staffAuth = await requireStaffSession();
-
-      if (!staffAuth.ok) {
-        return staffAuth.response;
-      }
-
+    if (staffAuth.ok) {
       // SECURITY: These values come ONLY from validated session
       const salonId = staffAuth.session.salonId;
       const technicianId = staffAuth.session.technicianId;
@@ -1306,42 +1516,28 @@ export async function GET(request: Request): Promise<Response> {
         .orderBy(appointmentSchema.startTime)
         .limit(limit);
 
-      // Fetch services and photos for each appointment
-      const appointmentsWithDetails = await Promise.all(
-        appointments.map(async (appt) => {
-          const services = await db
-            .select({
-              name: sql<string>`(SELECT name FROM service WHERE id = ${appointmentServicesSchema.serviceId})`,
-            })
-            .from(appointmentServicesSchema)
-            .where(eq(appointmentServicesSchema.appointmentId, appt.id));
+      const appointmentIds = appointments.map(appt => appt.id);
+      const { servicesByAppointmentId, photosByAppointmentId } = await loadAppointmentDetailMaps(appointmentIds);
 
-          const photos = await db.query.appointmentPhotoSchema?.findMany({
-            where: (photo, { eq: photoEq }) => photoEq(photo.appointmentId, appt.id),
-            orderBy: (photo, { desc }) => [desc(photo.createdAt)],
-          }) || [];
+      const appointmentsWithDetails = appointments.map((appt) => {
+        const services = servicesByAppointmentId.get(appt.id) ?? [];
+        const photos = photosByAppointmentId.get(appt.id) ?? [];
 
-          // Build object with ONLY safe fields for staff
-          // Note: cancelReason, internalNotes, paymentStatus, metadata are NOT included
-          return {
-            id: appt.id,
-            clientName: appt.clientName,
-            clientPhone: appt.clientPhone,
-            startTime: appt.startTime.toISOString(),
-            endTime: appt.endTime.toISOString(),
-            status: appt.status,
-            technicianId: appt.technicianId,
-            totalPrice: appt.totalPrice,
-            services: services.map(s => ({ name: s.name })),
-            photos: photos.map(p => ({
-              id: p.id,
-              imageUrl: p.imageUrl,
-              thumbnailUrl: p.thumbnailUrl,
-              photoType: p.photoType,
-            })),
-          };
-        }),
-      );
+        // Build object with ONLY safe fields for staff
+        // Note: cancelReason, internalNotes, paymentStatus, metadata are NOT included
+        return {
+          id: appt.id,
+          clientName: appt.clientName,
+          clientPhone: appt.clientPhone,
+          startTime: appt.startTime.toISOString(),
+          endTime: appt.endTime.toISOString(),
+          status: appt.status,
+          technicianId: appt.technicianId,
+          totalPrice: appt.totalPrice,
+          services: services.map(s => ({ name: s.name })),
+          photos,
+        };
+      });
 
       // Apply visibility redaction
       const visibility = getEffectiveStaffVisibility(salonFeatures, salonSettings);
@@ -1358,8 +1554,8 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // =========================================================================
-    // ADMIN/PUBLIC REQUEST PATH
-    // Uses query params for filtering, still tenant-scoped
+    // ADMIN REQUEST PATH
+    // Explicit admin access only. Public/customer reads are not allowed here.
     // =========================================================================
     const dateParam = searchParams.get('date');
     const statusParam = searchParams.get('status');
@@ -1369,16 +1565,25 @@ export async function GET(request: Request): Promise<Response> {
     const endDateParam = searchParams.get('endDate');
     const limitParam = searchParams.get('limit');
 
-    let salonId: string | null = null;
-    let technicianId: string | null = null;
-
-    if (salonSlug) {
-      const salon = await getSalonBySlug(salonSlug);
-      if (salon) {
-        salonId = salon.id;
-      }
+    if (!salonSlug) {
+      return Response.json(
+        {
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Staff or admin authentication is required',
+          },
+        },
+        { status: 401 },
+      );
     }
-    technicianId = technicianIdParam;
+
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
+    }
+
+    const salonId = salon.id;
+    const technicianId = technicianIdParam;
 
     // Build date range for query
     let startOfDay: Date;
@@ -1407,8 +1612,6 @@ export async function GET(request: Request): Promise<Response> {
     // Use same validation helper for admin path
     const parsedStatuses = parseStatusParam(statusParam);
     const statuses = parsedStatuses ?? ['confirmed', 'in_progress'];
-    // Note: For admin, we don't reject invalid statuses with 400 - just filter them out
-    // This is more permissive for admin use cases
 
     // Build where conditions for admin path
     const conditions = [
@@ -1440,43 +1643,29 @@ export async function GET(request: Request): Promise<Response> {
 
     const appointments = await query;
 
-    // Fetch services and photos for each appointment (admin gets full data)
-    const appointmentsWithDetails = await Promise.all(
-      appointments.map(async (appt) => {
-        const services = await db
-          .select({
-            name: sql<string>`(SELECT name FROM service WHERE id = ${appointmentServicesSchema.serviceId})`,
-          })
-          .from(appointmentServicesSchema)
-          .where(eq(appointmentServicesSchema.appointmentId, appt.id));
+    const appointmentIds = appointments.map(appt => appt.id);
+    const { servicesByAppointmentId, photosByAppointmentId } = await loadAppointmentDetailMaps(appointmentIds);
 
-        const photos = await db.query.appointmentPhotoSchema?.findMany({
-          where: (photo, { eq: photoEq }) => photoEq(photo.appointmentId, appt.id),
-          orderBy: (photo, { desc }) => [desc(photo.createdAt)],
-        }) || [];
+    const appointmentsWithDetails = appointments.map((appt) => {
+      const services = servicesByAppointmentId.get(appt.id) ?? [];
+      const photos = photosByAppointmentId.get(appt.id) ?? [];
 
-        // Admin gets full appointment data (no redaction)
-        return {
-          id: appt.id,
-          clientName: appt.clientName,
-          clientPhone: appt.clientPhone,
-          startTime: appt.startTime.toISOString(),
-          endTime: appt.endTime.toISOString(),
-          status: appt.status,
-          technicianId: appt.technicianId,
-          totalPrice: appt.totalPrice,
-          cancelReason: appt.cancelReason,
-          paymentStatus: appt.paymentStatus,
-          services: services.map(s => ({ name: s.name })),
-          photos: photos.map(p => ({
-            id: p.id,
-            imageUrl: p.imageUrl,
-            thumbnailUrl: p.thumbnailUrl,
-            photoType: p.photoType,
-          })),
-        };
-      }),
-    );
+      // Admin gets full appointment data (no redaction)
+      return {
+        id: appt.id,
+        clientName: appt.clientName,
+        clientPhone: appt.clientPhone,
+        startTime: appt.startTime.toISOString(),
+        endTime: appt.endTime.toISOString(),
+        status: appt.status,
+        technicianId: appt.technicianId,
+        totalPrice: appt.totalPrice,
+        cancelReason: appt.cancelReason,
+        paymentStatus: appt.paymentStatus,
+        services: services.map(s => ({ name: s.name })),
+        photos,
+      };
+    });
 
     return Response.json({
       data: {

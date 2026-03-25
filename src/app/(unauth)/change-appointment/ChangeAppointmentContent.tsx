@@ -1,9 +1,11 @@
 'use client';
 
-import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
+import { StateCard } from '@/components/ui/state-card';
+import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -27,9 +29,9 @@ type TechnicianData = {
 type ChangeAppointmentClientProps = {
   services: ServiceData[];
   technician: TechnicianData | null;
+  locationId?: string;
   dateStr: string;
   timeStr: string;
-  clientPhone: string;
   originalAppointmentId?: string;
 };
 
@@ -37,15 +39,24 @@ type ChangeAppointmentClientProps = {
 // HELPERS
 // =============================================================================
 
-const generateTimeSlots = () => {
-  const slots: { time: string; period: 'morning' | 'afternoon' }[] = [];
-  for (let hour = 9; hour < 18; hour++) {
-    const period = hour < 12 ? 'morning' : 'afternoon';
-    slots.push({ time: `${hour}:00`, period });
-    slots.push({ time: `${hour}:30`, period });
-  }
-  return slots;
+type DisplayTimeSlot = {
+  time: string;
+  period: 'morning' | 'afternoon';
 };
+
+function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
+  return slotTimes.map((time) => {
+    const [hour = '0'] = time.split(':');
+    return {
+      time,
+      period: Number.parseInt(hour, 10) < 12 ? 'morning' : 'afternoon',
+    };
+  });
+}
+
+function getDateKey(date: Date): string {
+  return date.toISOString().split('T')[0] ?? '';
+}
 
 const generateCalendarDays = (year: number, month: number) => {
   const firstDay = new Date(year, month, 1);
@@ -103,11 +114,11 @@ const MIN_LEAD_TIME_MINUTES = 30;
 
 // Filter out past time slots and slots within the lead time buffer (using Toronto timezone)
 const filterPastTimeSlots = (
-  slots: { time: string; period: 'morning' | 'afternoon' }[],
+  slotTimes: string[],
   date: Date | null,
 ) => {
   if (!date) {
-    return slots;
+    return slotTimes;
   }
 
   const torontoNow = getTorontoNow();
@@ -119,15 +130,15 @@ const filterPastTimeSlots = (
   const isToday = selectedDateMidnight.toDateString() === torontoToday.toDateString();
 
   if (!isToday) {
-    return slots;
+    return slotTimes;
   }
 
   // Calculate minimum allowed booking time (now + 30 min buffer)
   const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
 
   // Filter out times that are past OR within the 30-minute buffer
-  return slots.filter((slot) => {
-    const [hours, minutes] = slot.time.split(':').map(Number);
+  return slotTimes.filter((slotTimeValue) => {
+    const [hours, minutes] = slotTimeValue.split(':').map(Number);
     const slotTime = new Date(selectedDateMidnight);
     slotTime.setHours(hours || 0, minutes || 0, 0, 0);
     return slotTime >= minimumBookingTime;
@@ -141,15 +152,16 @@ const filterPastTimeSlots = (
 export function ChangeAppointmentClient({
   services,
   technician,
+  locationId,
   dateStr,
   timeStr,
-  clientPhone,
   originalAppointmentId,
 }: ChangeAppointmentClientProps) {
   const router = useRouter();
   const params = useParams();
   const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
 
   // Calculate totals from services passed by server
   const totalDuration = services.reduce((sum, s) => sum + s.duration, 0);
@@ -158,12 +170,13 @@ export function ChangeAppointmentClient({
     ? services.map(s => s.name).join(' + ')
     : 'Not selected';
   const serviceIds = services.map(s => s.id);
+  const serviceIdsParam = serviceIds.join(',');
   const techId = technician?.id || 'any';
 
   // Use Toronto timezone for "today"
   const today = getTorontoToday();
 
-  // Determine initial date - if dateStr is today and all slots are past, use tomorrow
+  // Determine initial date from the appointment being changed or fall back to today.
   const getInitialDate = () => {
     // Parse date string as local date (not UTC) to avoid timezone issues
     let parsedDate: Date;
@@ -175,21 +188,6 @@ export function ChangeAppointmentClient({
     }
     parsedDate.setHours(0, 0, 0, 0);
 
-    const todayDate = getTorontoToday();
-
-    // If the parsed date is today, check if there are any slots left
-    if (parsedDate.toDateString() === todayDate.toDateString()) {
-      const allSlots = generateTimeSlots();
-      const availableSlots = filterPastTimeSlots(allSlots, parsedDate);
-
-      if (availableSlots.length === 0) {
-        // No slots left today, use tomorrow
-        const tomorrow = new Date(todayDate);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return tomorrow;
-      }
-    }
-
     return parsedDate;
   };
 
@@ -200,6 +198,7 @@ export function ChangeAppointmentClient({
   const [currentYear, setCurrentYear] = useState(initialDate.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(initialDate);
   const [selectedTime, setSelectedTime] = useState<string>(timeStr);
+  const [visibleSlotTimes, setVisibleSlotTimes] = useState<string[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
@@ -212,6 +211,9 @@ export function ChangeAppointmentClient({
   const morningSlotsRef = useRef<HTMLDivElement>(null);
   // Ref to track if we should scroll after loading completes
   const pendingScrollRef = useRef(false);
+  const autoAdvancedTodayRef = useRef(false);
+  const allowTodayAutoAdvanceRef = useRef(true);
+  const availabilityRequestIdRef = useRef(0);
 
   // Custom smooth scroll with adjustable duration
   const smoothScrollTo = useCallback((targetY: number, duration: number): Promise<void> => {
@@ -242,36 +244,59 @@ export function ChangeAppointmentClient({
     });
   }, []);
 
-  const allTimeSlots = generateTimeSlots();
-
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
     if (!salonSlug) {
       return;
     }
 
+    const requestId = ++availabilityRequestIdRef.current;
     setLoadingSlots(true);
     try {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getDateKey(date);
       const techParam = techId && techId !== 'any' ? `&technicianId=${techId}` : '';
+      const durationParam = `&durationMinutes=${totalDuration}`;
+      const serviceParam = serviceIdsParam
+        ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}`
+        : '';
+      const locationParam = locationId
+        ? `&locationId=${encodeURIComponent(locationId)}`
+        : '';
+      const rescheduleParam = originalAppointmentId
+        ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`
+        : '';
       const response = await fetch(
-        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}`,
+        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${locationParam}${rescheduleParam}`,
         { cache: 'no-store' },
       );
 
       if (response.ok) {
         const data = await response.json();
+        if (availabilityRequestIdRef.current !== requestId) {
+          return;
+        }
+        setVisibleSlotTimes(data.visibleSlots || []);
         setBookedSlots(data.bookedSlots || []);
       } else {
+        if (availabilityRequestIdRef.current !== requestId) {
+          return;
+        }
+        setVisibleSlotTimes([]);
         setBookedSlots([]);
       }
     } catch (error) {
+      if (availabilityRequestIdRef.current !== requestId) {
+        return;
+      }
       console.error('Failed to fetch availability:', error);
+      setVisibleSlotTimes([]);
       setBookedSlots([]);
     } finally {
-      setLoadingSlots(false);
+      if (availabilityRequestIdRef.current === requestId) {
+        setLoadingSlots(false);
+      }
     }
-  }, [salonSlug, techId]);
+  }, [locationId, originalAppointmentId, salonSlug, serviceIdsParam, techId, totalDuration]);
 
   useEffect(() => {
     setMounted(true);
@@ -283,6 +308,38 @@ export function ChangeAppointmentClient({
       fetchBookedSlots(selectedDate);
     }
   }, [selectedDate, mounted, fetchBookedSlots]);
+
+  useEffect(() => {
+    if (
+      !mounted
+      || loadingSlots
+      || !selectedDate
+      || autoAdvancedTodayRef.current
+      || !allowTodayAutoAdvanceRef.current
+    ) {
+      return;
+    }
+
+    const selectedDateMidnight = new Date(selectedDate);
+    selectedDateMidnight.setHours(0, 0, 0, 0);
+    const todayMidnight = getTorontoToday();
+
+    if (selectedDateMidnight.toDateString() !== todayMidnight.toDateString()) {
+      return;
+    }
+
+    if (filterPastTimeSlots(visibleSlotTimes, selectedDate).length > 0) {
+      return;
+    }
+
+    autoAdvancedTodayRef.current = true;
+    const tomorrow = new Date(todayMidnight);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setSelectedDate(tomorrow);
+    setCurrentMonth(tomorrow.getMonth());
+    setCurrentYear(tomorrow.getFullYear());
+    setSelectedTime('');
+  }, [loadingSlots, mounted, selectedDate, visibleSlotTimes]);
 
   // Smooth scroll to time slots after loading completes
   useEffect(() => {
@@ -298,20 +355,11 @@ export function ChangeAppointmentClient({
         return;
       }
 
-      // Calculate position to show morning card at bottom of viewport
+      // Scroll once to the first slot section instead of chaining multiple animations.
       const rect = morningSlotsRef.current.getBoundingClientRect();
-      const targetY = window.scrollY + rect.bottom - window.innerHeight;
-
-      // First scroll - slow and smooth to morning card (800ms)
+      const targetY = window.scrollY + rect.top - 20;
       await smoothScrollTo(Math.max(0, targetY), 800);
-
-      // Pause for 150ms
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      // Second scroll - continue to bottom (1200ms)
-      const bottomY = document.documentElement.scrollHeight - window.innerHeight;
-      await smoothScrollTo(bottomY, 1200);
-    }, 100);
+    }, 50);
 
     return () => clearTimeout(timer);
   }, [loadingSlots, smoothScrollTo]);
@@ -319,7 +367,7 @@ export function ChangeAppointmentClient({
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
-  const availableTimeSlots = filterPastTimeSlots(allTimeSlots, selectedDate);
+  const availableTimeSlots = toDisplaySlots(filterPastTimeSlots(visibleSlotTimes, selectedDate));
   const morningSlots = availableTimeSlots.filter(s => s.period === 'morning');
   const afternoonSlots = availableTimeSlots.filter(s => s.period === 'afternoon');
 
@@ -363,13 +411,26 @@ export function ChangeAppointmentClient({
 
   const handleDateSelect = (date: Date) => {
     const todayCheck = getTorontoToday();
-    if (date >= todayCheck) {
-      setSelectedDate(date);
-      // Clear selected time when date changes (user needs to re-select)
-      setSelectedTime('');
-      // Mark that we want to scroll after loading completes
-      pendingScrollRef.current = true;
+    const dateAtMidnight = new Date(date);
+    dateAtMidnight.setHours(0, 0, 0, 0);
+    const selectedDateKey = selectedDate ? getDateKey(selectedDate) : null;
+    const nextDateKey = getDateKey(dateAtMidnight);
+
+    if (
+      dateAtMidnight < todayCheck
+      || loadingSlots
+      || selectedDateKey === nextDateKey
+    ) {
+      return;
     }
+
+    allowTodayAutoAdvanceRef.current = false;
+    autoAdvancedTodayRef.current = false;
+    setSelectedDate(dateAtMidnight);
+    // Clear selected time when date changes (user needs to re-select)
+    setSelectedTime('');
+    // Mark that we want to scroll after loading completes
+    pendingScrollRef.current = true;
   };
 
   const handleTimeSelect = (time: string) => {
@@ -388,23 +449,29 @@ export function ChangeAppointmentClient({
     // Use technician ID or 'any' for the URL (not empty string)
     const techIdForUrl = technician?.id || 'any';
 
-    let confirmUrl = `/${locale}/book/confirm?serviceIds=${serviceIds.join(',')}&techId=${techIdForUrl}&date=${newDateStr}&time=${selectedTime}&clientPhone=${encodeURIComponent(clientPhone)}`;
-
-    // If this is a reschedule, include the original appointment ID
-    if (originalAppointmentId) {
-      confirmUrl += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-    }
-
-    router.push(confirmUrl);
+    router.push(buildBookingUrl(`/${locale}/book/confirm`, {
+      salonSlug,
+      serviceIds,
+      techId: techIdForUrl,
+      date: newDateStr,
+      time: selectedTime,
+      locationId,
+      originalAppointmentId,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
   };
 
   const handleChangeService = () => {
-    // Pass originalAppointmentId and clientPhone so the reschedule flow continues
-    let url = `/${locale}/book/service?clientPhone=${encodeURIComponent(clientPhone)}`;
-    if (originalAppointmentId) {
-      url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-    }
-    router.push(url);
+    router.push(buildBookingUrl(`/${locale}/book/service`, {
+      salonSlug,
+      locationId,
+      originalAppointmentId,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
   };
 
   const handleBack = () => {
@@ -449,7 +516,10 @@ export function ChangeAppointmentClient({
       if (response.ok) {
         setShowCancelModal(false);
         // Navigate to profile with success message
-        router.push(`/${locale}/profile?cancelled=true`);
+        router.push(appendSalonSlug(`/${locale}/profile?cancelled=true`, salonSlug, {
+          routeSalonSlug,
+          locale,
+        }));
       } else {
         const data = await response.json();
         setCancelError(data.error?.message || 'Failed to cancel appointment');
@@ -501,47 +571,13 @@ export function ChangeAppointmentClient({
           </div>
         </div>
 
-        {/* Appointment Summary Card */}
-        <div
-          className="mb-5 overflow-hidden rounded-2xl shadow-xl"
-          style={{
-            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
-            transition: 'opacity 300ms ease-out 50ms, transform 300ms ease-out 50ms',
-          }}
-        >
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-4">
-              {technician && (
-                <div className="relative size-14 shrink-0 overflow-hidden rounded-full border-2 border-white/30">
-                  <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
-                <div className="truncate text-base font-bold text-white">{serviceNames}</div>
-                <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                  with
-                  {' '}
-                  {technician?.name || 'Any Artist'}
-                  {' '}
-                  ·
-                  {' '}
-                  {totalDuration}
-                  {' '}
-                  min
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-white">
-                  $
-                  {totalPrice}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <BookingSummaryCard
+          mounted={mounted}
+          serviceNames={serviceNames}
+          totalDuration={totalDuration}
+          totalPrice={totalPrice}
+          technician={technician}
+        />
 
         {/* Title */}
         <div
@@ -628,8 +664,9 @@ export function ChangeAppointmentClient({
                 <button
                   key={date.toISOString()}
                   type="button"
+                  data-testid={`calendar-day-${getDateKey(date)}`}
                   onClick={() => handleDateSelect(date)}
-                  disabled={isPast}
+                  disabled={Boolean(isPast || loadingSlots || isSelected)}
                   className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
                   style={{
                     transform: isSelected ? 'scale(1.1)' : undefined,
@@ -647,7 +684,8 @@ export function ChangeAppointmentClient({
                           ? 'white'
                           : '#404040',
                     boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
-                    cursor: isPast ? 'not-allowed' : 'pointer',
+                    cursor: isPast || loadingSlots || isSelected ? 'not-allowed' : 'pointer',
+                    opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
                   onMouseEnter={(e) => {
                     if (!isPast && !isSelected && !isToday) {
@@ -669,23 +707,16 @@ export function ChangeAppointmentClient({
 
         {/* No slots available message */}
         {(noSlotsAvailable || allSlotsBooked) && (
-          <div
-            className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transition: 'opacity 300ms ease-out 200ms',
-            }}
-          >
-            <div className="mb-2 text-2xl">⏰</div>
-            <p className="text-sm font-medium text-amber-800">
-              {noSlotsAvailable
-                ? 'No more time slots available today.'
-                : 'All time slots are booked for this day.'}
-            </p>
-            <p className="mt-1 text-xs text-amber-600">
-              Please select another date from the calendar above.
-            </p>
-          </div>
+          <StateCard
+            tone="warning"
+            className="mb-4"
+            contentClassName="py-4"
+            icon="⏰"
+            title={noSlotsAvailable
+              ? 'No bookable times remain for this day.'
+              : 'This day is fully booked.'}
+            description="Choose another date to keep your appointment moving."
+          />
         )}
 
         {/* Time Selection */}
@@ -700,10 +731,12 @@ export function ChangeAppointmentClient({
           >
             {/* Loading indicator */}
             {loadingSlots && (
-              <div className="py-4 text-center">
-                <div className="inline-block size-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
-                <p className="mt-2 text-sm text-neutral-500">Checking availability...</p>
-              </div>
+              <StateCard
+                className="border-dashed"
+                contentClassName="py-5"
+                title="Checking live availability"
+                description="Refreshing the latest schedule for this day."
+              />
             )}
 
             {/* Morning Times */}
@@ -716,7 +749,7 @@ export function ChangeAppointmentClient({
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">🌅</span>
                   <span className="text-sm font-bold text-neutral-900">Morning</span>
-                  <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
+                  <span className="text-xs text-neutral-400">Earlier time slots</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
                   {morningSlots.map((slot) => {
@@ -726,6 +759,7 @@ export function ChangeAppointmentClient({
                       <button
                         key={slot.time}
                         type="button"
+                        data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot.time)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
@@ -773,7 +807,7 @@ export function ChangeAppointmentClient({
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">☀️</span>
                   <span className="text-sm font-bold text-neutral-900">Afternoon</span>
-                  <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
+                  <span className="text-xs text-neutral-400">Later time slots</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
                   {afternoonSlots.map((slot) => {
@@ -783,6 +817,7 @@ export function ChangeAppointmentClient({
                       <button
                         key={slot.time}
                         type="button"
+                        data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot.time)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${

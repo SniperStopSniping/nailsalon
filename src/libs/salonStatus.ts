@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { db } from '@/libs/DB';
 import {
   getEffectiveModuleEnabled,
@@ -218,6 +219,30 @@ export type FeatureCheck = {
   enabled: boolean;
   redirectPath: string | null;
 };
+
+export type TenantRedirectOptions = {
+  salonSlug?: string | null;
+  routeSalonSlug?: string | null;
+  locale?: string | null;
+};
+
+export function buildTenantRedirectPath(
+  redirectPath: string | null,
+  options?: TenantRedirectOptions,
+): string | null {
+  if (!redirectPath) {
+    return null;
+  }
+
+  return appendSalonSlug(
+    redirectPath,
+    options?.salonSlug ?? options?.routeSalonSlug ?? null,
+    {
+      routeSalonSlug: options?.routeSalonSlug,
+      locale: options?.locale,
+    },
+  );
+}
 
 /**
  * Check if a specific feature is enabled for a salon.

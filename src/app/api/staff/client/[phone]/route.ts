@@ -2,8 +2,8 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { isFullAccess, redactClientForStaff } from '@/libs/redact';
+import { requireStaffOrAdminSalonAccess } from '@/libs/routeAccessGuards';
 import { getEffectiveVisibility } from '@/libs/visibilityPolicy';
 import {
   appointmentPhotoSchema,
@@ -76,19 +76,11 @@ export async function GET(
       );
     }
 
-    // Get salon with visibility policy
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireStaffOrAdminSalonAccess(validated.data.salonSlug);
+    if (!access.ok) {
+      return access.response;
     }
+    const { salon } = access;
 
     // Fetch salon visibility policy for staff redaction
     const [salonData] = await db
@@ -98,8 +90,10 @@ export async function GET(
       .limit(1);
     const salonVisibilityPolicy = (salonData?.visibility as SalonVisibilityPolicy) ?? null;
 
-    // Get effective visibility for staff role
-    const visibility = getEffectiveVisibility(salonVisibilityPolicy, 'staff');
+    const visibility = getEffectiveVisibility(
+      salonVisibilityPolicy,
+      access.actorRole === 'admin' ? 'admin' : 'staff',
+    );
 
     // Normalize phone number
     const normalizedPhone = normalizePhone(rawPhone);

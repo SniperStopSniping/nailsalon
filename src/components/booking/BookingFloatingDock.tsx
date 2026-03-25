@@ -1,7 +1,10 @@
 'use client';
 
 import { Gift, Handshake, User } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+
+import { appendSalonSlug } from '@/libs/bookingParams';
+import { useSalon } from '@/providers/SalonProvider';
 
 const triggerHaptic = () => {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -16,6 +19,18 @@ const triggerHaptic = () => {
  */
 export function BookingFloatingDock() {
   const router = useRouter();
+  const params = useParams();
+  const { salonSlug } = useSalon();
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  const locale = typeof params?.locale === 'string' ? params.locale : null;
+
+  const navigate = (path: string) => {
+    triggerHaptic();
+    router.push(appendSalonSlug(path, salonSlug, {
+      routeSalonSlug,
+      locale,
+    }));
+  };
 
   return (
     <div
@@ -25,10 +40,7 @@ export function BookingFloatingDock() {
     >
       <button
         type="button"
-        onClick={() => {
-          triggerHaptic();
-          router.push('/invite');
-        }}
+        onClick={() => navigate('/invite')}
         aria-label="Go to Invite"
         className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
       >
@@ -36,10 +48,7 @@ export function BookingFloatingDock() {
       </button>
       <button
         type="button"
-        onClick={() => {
-          triggerHaptic();
-          router.push('/rewards');
-        }}
+        onClick={() => navigate('/rewards')}
         aria-label="Go to Rewards"
         className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
       >
@@ -47,10 +56,7 @@ export function BookingFloatingDock() {
       </button>
       <button
         type="button"
-        onClick={() => {
-          triggerHaptic();
-          router.push('/profile');
-        }}
+        onClick={() => navigate('/profile')}
         aria-label="Go to Profile"
         className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
       >

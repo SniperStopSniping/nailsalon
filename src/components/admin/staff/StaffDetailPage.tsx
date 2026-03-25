@@ -5,7 +5,6 @@ import { Camera, ChevronLeft, Loader2, Star } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { StaffStatus } from '@/models/Schema';
-import { useSalon } from '@/providers/SalonProvider';
 
 import { StaffStatusToggle } from './StaffStatusToggle';
 import { ClientsTab } from './tabs/ClientsTab';
@@ -78,6 +77,7 @@ type TechnicianStats = {
 
 type StaffDetailPageProps = {
   staffId: string;
+  salonSlug: string | null;
   onBack: () => void;
   onUpdate?: () => void;
 };
@@ -99,8 +99,7 @@ const TABS: { id: TabId; label: string }[] = [
 // Component
 // =============================================================================
 
-export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPageProps) {
-  const { salonSlug } = useSalon();
+export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate }: StaffDetailPageProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [technician, setTechnician] = useState<TechnicianDetail | null>(null);
   const [stats, setStats] = useState<TechnicianStats | null>(null);
@@ -124,10 +123,12 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
 
       const response = await fetch(
         `/api/admin/technicians/${staffId}?salonSlug=${salonSlug}`,
+        { cache: 'no-store' },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch staff details');
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? 'Failed to fetch staff details');
       }
 
       const result = await response.json();
@@ -423,6 +424,7 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
         )}
         {activeTab === 'schedule' && (
           <ScheduleTab
+            salonSlug={salonSlug}
             technicianId={staffId}
             weeklySchedule={technician.weeklySchedule}
             onUpdate={schedule => handleTechnicianUpdate({ weeklySchedule: schedule })}
@@ -430,21 +432,24 @@ export function StaffDetailPage({ staffId, onBack, onUpdate }: StaffDetailPagePr
         )}
         {activeTab === 'services' && (
           <ServicesTab
+            salonSlug={salonSlug}
             technicianId={staffId}
             onUpdate={fetchDetail}
           />
         )}
         {activeTab === 'clients' && (
-          <ClientsTab technicianId={staffId} />
+          <ClientsTab salonSlug={salonSlug} technicianId={staffId} />
         )}
         {activeTab === 'earnings' && (
           <EarningsTab
+            salonSlug={salonSlug}
             technicianId={staffId}
             commissionRate={technician.commissionRate}
           />
         )}
         {activeTab === 'settings' && (
           <SettingsTab
+            salonSlug={salonSlug}
             technician={technician}
             onUpdate={handleTechnicianUpdate}
             onDelete={onBack}

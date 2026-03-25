@@ -1,8 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -58,18 +58,9 @@ export async function PUT(request: Request): Promise<Response> {
 
     const { salonSlug, technicians } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Get all technician IDs from the request

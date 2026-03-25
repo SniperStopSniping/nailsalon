@@ -1,14 +1,17 @@
 'use client';
 
-import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
+import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
-import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { StateCard } from '@/components/ui/state-card';
+import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
-import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
+import { buildBookingUrl } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -31,15 +34,24 @@ type BookTimeClientProps = {
   bookingFlow: BookingStep[];
 };
 
-const generateTimeSlots = () => {
-  const slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[] = [];
-  for (let hour = 9; hour < 18; hour++) {
-    const period = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
-    slots.push({ time: `${hour}:00`, period });
-    slots.push({ time: `${hour}:30`, period });
-  }
-  return slots;
+type DisplayTimeSlot = {
+  time: string;
+  period: 'morning' | 'afternoon';
 };
+
+function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
+  return slotTimes.map((time) => {
+    const [hour = '0'] = time.split(':');
+    return {
+      time,
+      period: Number.parseInt(hour, 10) < 12 ? 'morning' : 'afternoon',
+    };
+  });
+}
+
+function getDateKey(date: Date): string {
+  return date.toISOString().split('T')[0] ?? '';
+}
 
 const generateCalendarDays = (year: number, month: number) => {
   const firstDay = new Date(year, month, 1);
@@ -91,11 +103,11 @@ const MIN_LEAD_TIME_MINUTES = 30;
 
 // Filter out past time slots and slots within the lead time buffer (using Toronto timezone)
 const filterPastTimeSlots = (
-  slots: { time: string; period: 'morning' | 'afternoon' | 'evening' }[],
+  slotTimes: string[],
   date: Date | null,
 ) => {
   if (!date) {
-    return slots;
+    return slotTimes;
   }
 
   const torontoNow = getTorontoNow();
@@ -107,15 +119,15 @@ const filterPastTimeSlots = (
   const isToday = selectedDateMidnight.toDateString() === torontoToday.toDateString();
 
   if (!isToday) {
-    return slots;
+    return slotTimes;
   }
 
   // Calculate minimum allowed booking time (now + 30 min buffer)
   const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
 
   // Filter out times that are past OR within the 30-minute buffer
-  return slots.filter((slot) => {
-    const [hours, minutes] = slot.time.split(':').map(Number);
+  return slotTimes.filter((slotTimeValue) => {
+    const [hours, minutes] = slotTimeValue.split(':').map(Number);
     const slotTime = new Date(selectedDateMidnight);
     slotTime.setHours(hours || 0, minutes || 0, 0, 0);
     return slotTime >= minimumBookingTime;
@@ -128,16 +140,18 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const searchParams = useSearchParams();
   const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
-  const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  const serviceIdsParam = searchParams.get('serviceIds') || '';
+  const serviceIds = serviceIdsParam ? serviceIdsParam.split(',').filter(Boolean) : [];
   const techId = searchParams.get('techId') || '';
-  const clientPhone = searchParams.get('clientPhone') || '';
+  const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
 
   // Use shared auth hook
-  const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
+  const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state - this is the single source of truth
   const { technicianId: stateTechId, syncFromUrl } = useBookingState();
@@ -163,8 +177,10 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(today);
+  const [visibleSlotTimes, setVisibleSlotTimes] = useState<string[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
 
   // Refs for smooth scrolling to time slot sections
   const morningSlotsRef = useRef<HTMLDivElement>(null);
@@ -175,6 +191,9 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const scrollRequestIdRef = useRef(0);
   const scrollTargetDateRef = useRef<string | null>(null); // Track which date the scroll is for
   const isMountedRef = useRef(true);
+  const autoAdvancedTodayRef = useRef(false);
+  const allowTodayAutoAdvanceRef = useRef(true);
+  const availabilityRequestIdRef = useRef(0);
 
   // Track mount/unmount for cleanup
   useEffect(() => {
@@ -213,38 +232,66 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     });
   }, []);
 
-  const allTimeSlots = generateTimeSlots();
-
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
     if (!salonSlug) {
       return;
     }
 
+    const requestId = ++availabilityRequestIdRef.current;
     setLoadingSlots(true);
+    setAvailabilityError(null);
     try {
-      const dateStr = date.toISOString().split('T')[0];
-      // Use stateTechId if available, otherwise fall back to URL techId
-      const effectiveTechId = stateTechId || techId;
+      const dateStr = getDateKey(date);
+      // The explicit URL selection should win over any persisted local booking state.
+      const effectiveTechId = techId || stateTechId;
       const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
+      const durationParam = `&durationMinutes=${totalDuration}`;
+      const serviceParam = serviceIdsParam
+        ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}`
+        : '';
+      const locationParam = locationId
+        ? `&locationId=${encodeURIComponent(locationId)}`
+        : '';
+      const rescheduleParam = originalAppointmentId
+        ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`
+        : '';
       const response = await fetch(
-        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}`,
+        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${locationParam}${rescheduleParam}`,
         { cache: 'no-store' },
       );
 
       if (response.ok) {
         const data = await response.json();
+        if (availabilityRequestIdRef.current !== requestId) {
+          return;
+        }
+        setAvailabilityError(null);
+        setVisibleSlotTimes(data.visibleSlots || []);
         setBookedSlots(data.bookedSlots || []);
       } else {
+        if (availabilityRequestIdRef.current !== requestId) {
+          return;
+        }
+        const data = await response.json().catch(() => null);
+        setAvailabilityError(data?.error?.message ?? 'Unable to load live availability for this technician.');
+        setVisibleSlotTimes([]);
         setBookedSlots([]);
       }
     } catch (error) {
+      if (availabilityRequestIdRef.current !== requestId) {
+        return;
+      }
       console.error('Failed to fetch availability:', error);
+      setAvailabilityError('Unable to load live availability right now. Please try another date or refresh.');
+      setVisibleSlotTimes([]);
       setBookedSlots([]);
     } finally {
-      setLoadingSlots(false);
+      if (availabilityRequestIdRef.current === requestId) {
+        setLoadingSlots(false);
+      }
     }
-  }, [salonSlug, techId, stateTechId]);
+  }, [locationId, originalAppointmentId, salonSlug, serviceIdsParam, techId, stateTechId, totalDuration]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -267,29 +314,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
 
   // Initialize and check if today has available slots (using Toronto timezone)
   useEffect(() => {
-    const initializeDate = async () => {
-      setMounted(true);
-
-      const todayDate = getTorontoToday();
-
-      // Check if today has any time slots left
-      const todaySlots = filterPastTimeSlots(allTimeSlots, todayDate);
-
-      if (todaySlots.length === 0) {
-        // No slots available today, auto-advance to tomorrow
-        const tomorrow = new Date(todayDate);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        setSelectedDate(tomorrow);
-
-        // Update calendar view if tomorrow is in next month
-        if (tomorrow.getMonth() !== currentMonth) {
-          setCurrentMonth(tomorrow.getMonth());
-          setCurrentYear(tomorrow.getFullYear());
-        }
-      }
-    };
-
-    initializeDate();
+    setMounted(true);
   }, []);
 
   // Fetch booked slots when selected date changes
@@ -298,6 +323,37 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       fetchBookedSlots(selectedDate);
     }
   }, [selectedDate, mounted, fetchBookedSlots]);
+
+  useEffect(() => {
+    if (
+      !mounted
+      || loadingSlots
+      || !selectedDate
+      || autoAdvancedTodayRef.current
+      || !allowTodayAutoAdvanceRef.current
+    ) {
+      return;
+    }
+
+    const selectedDateMidnight = new Date(selectedDate);
+    selectedDateMidnight.setHours(0, 0, 0, 0);
+    const todayMidnight = getTorontoToday();
+
+    if (selectedDateMidnight.toDateString() !== todayMidnight.toDateString()) {
+      return;
+    }
+
+    if (filterPastTimeSlots(visibleSlotTimes, selectedDate).length > 0) {
+      return;
+    }
+
+    autoAdvancedTodayRef.current = true;
+    const tomorrow = new Date(todayMidnight);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setSelectedDate(tomorrow);
+    setCurrentMonth(tomorrow.getMonth());
+    setCurrentYear(tomorrow.getFullYear());
+  }, [loadingSlots, mounted, selectedDate, visibleSlotTimes]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -362,7 +418,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
-  const availableTimeSlots = filterPastTimeSlots(allTimeSlots, selectedDate);
+  const availableTimeSlots = toDisplaySlots(filterPastTimeSlots(visibleSlotTimes, selectedDate));
   const morningSlots = availableTimeSlots.filter(s => s.period === 'morning');
   const afternoonSlots = availableTimeSlots.filter(s => s.period === 'afternoon');
 
@@ -410,18 +466,30 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     dateAtMidnight.setHours(0, 0, 0, 0);
     const todayAtMidnight = new Date(today);
     todayAtMidnight.setHours(0, 0, 0, 0);
+    const selectedDateKey = selectedDate ? getDateKey(selectedDate) : null;
+    const nextDateKey = getDateKey(dateAtMidnight);
 
-    if (dateAtMidnight >= todayAtMidnight) {
-      // Cancel any previous scroll request
-      scrollRequestIdRef.current += 1;
-
-      // Set pending scroll flag and target date - useEffect handles scroll when slots load
-      pendingScrollRef.current = true;
-      scrollTargetDateRef.current = date.toISOString().split('T')[0] ?? null;
-
-      // Update selected date (triggers fetch → loadingSlots → useEffect scroll)
-      setSelectedDate(date);
+    if (
+      dateAtMidnight < todayAtMidnight
+      || loadingSlots
+      || selectedDateKey === nextDateKey
+    ) {
+      return;
     }
+
+    // Manual selection should not trigger surprise auto-advancing to tomorrow.
+    allowTodayAutoAdvanceRef.current = false;
+    autoAdvancedTodayRef.current = false;
+
+    // Cancel any previous scroll request
+    scrollRequestIdRef.current += 1;
+
+    // Set pending scroll flag and target date - useEffect handles scroll when slots load
+    pendingScrollRef.current = true;
+    scrollTargetDateRef.current = nextDateKey;
+
+    // Update selected date (triggers fetch → loadingSlots → useEffect scroll)
+    setSelectedDate(dateAtMidnight);
   };
 
   const handleTimeSelect = (time: string) => {
@@ -441,18 +509,20 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       return;
     }
 
-    // Use the phone from auth hook (may be updated after login)
-    const phoneToUse = phone || clientPhone;
     // Use stateTechId if available, otherwise fall back to URL techId
     const effectiveTechId = stateTechId || techId || 'any';
-    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${effectiveTechId}&date=${dateStr}&time=${time}&clientPhone=${encodeURIComponent(phoneToUse)}`;
-
-    // Pass through originalAppointmentId for reschedule flow
-    if (originalAppointmentId) {
-      url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-    }
-
-    router.push(url);
+    router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
+      salonSlug,
+      serviceIds,
+      techId: effectiveTechId,
+      date: dateStr,
+      time,
+      locationId,
+      originalAppointmentId,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
   };
 
   const handleBack = () => {
@@ -460,14 +530,16 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     if (prevStep) {
       // Use stateTechId if available, otherwise fall back to URL techId
       const effectiveTechId = stateTechId || techId;
-      let url = `/${locale}/book/${prevStep}?serviceIds=${serviceIds.join(',')}&clientPhone=${encodeURIComponent(clientPhone)}`;
-      if (effectiveTechId) {
-        url += `&techId=${encodeURIComponent(effectiveTechId)}`;
-      }
-      if (originalAppointmentId) {
-        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-      }
-      router.push(url);
+      router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
+        salonSlug,
+        serviceIds,
+        techId: effectiveTechId,
+        locationId,
+        originalAppointmentId,
+      }, {
+        routeSalonSlug,
+        locale,
+      }));
     } else {
       router.back();
     }
@@ -491,141 +563,27 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
-        {/* Header */}
-        <div
-          className="relative flex items-center pb-4 pt-6"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
-            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
-          }}
-        >
-          {/* Back button - only show when NOT the first step */}
-          {!isFirstStep && (
-            <button
-              type="button"
-              onClick={handleBack}
-              aria-label="Go back"
-              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
-            >
-              <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
+        <BookingStepHeader
+          salonName={salonName}
+          mounted={mounted}
+          title="Pick Your Time"
+          description={selectedDate
+            ? `${formatSelectedDate(selectedDate)} · Tap another date to change`
+            : 'Select a day that works for you'}
+          bookingFlow={bookingFlow}
+          currentStep="time"
+          isFirstStep={isFirstStep}
+          onBack={handleBack}
+          className="-mb-1"
+        />
 
-          <div
-            className={`text-lg font-semibold tracking-tight ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
-            style={{ color: themeVars.accent }}
-          >
-            {salonName}
-          </div>
-        </div>
-
-        {/* Progress Steps */}
-        <div
-          className="mb-6 flex items-center justify-center gap-2"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transition: 'opacity 300ms ease-out 50ms',
-          }}
-        >
-          {bookingFlow.map((step, i) => {
-            const currentIdx = getStepIndex('time', bookingFlow);
-            const isCurrentStep = step === 'time';
-            const isPastStep = i + 1 < currentIdx;
-            return (
-              <div key={step} className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
-                  <div
-                    className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                    style={{
-                      backgroundColor: isPastStep ? themeVars.accent : isCurrentStep ? themeVars.primary : '#d4d4d4',
-                      color: isPastStep ? 'white' : isCurrentStep ? '#171717' : '#525252',
-                    }}
-                  >
-                    {isPastStep ? '✓' : i + 1}
-                  </div>
-                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                    {getStepLabel(step)}
-                  </span>
-                </div>
-                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Booking Summary Card - Only show technician if one is selected */}
-        <div
-          className="mb-6 overflow-hidden rounded-2xl shadow-xl"
-          style={{
-            background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
-            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
-          }}
-        >
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-4">
-              {technician && (
-                <div className="relative size-14 shrink-0 overflow-hidden rounded-full border-2 border-white/30">
-                  <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="mb-0.5 text-xs text-white/70">Your appointment</div>
-                <div className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
-                {/* Only show technician info if a technician is actually selected */}
-                {technician && (
-                  <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                    with
-                    {' '}
-                    {technician.name}
-                    {' '}
-                    ·
-                    {' '}
-                    {totalDuration}
-                    {' '}
-                    min
-                  </div>
-                )}
-                {!technician && (
-                  <div className="text-sm font-medium" style={{ color: themeVars.primary }}>
-                    {totalDuration}
-                    {' '}
-                    min
-                  </div>
-                )}
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-white">
-                  $
-                  {totalPrice}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Title */}
-        <div
-          className="mb-4 text-center"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
-          }}
-        >
-          <h1 className="text-2xl font-bold text-neutral-900">
-            Pick Your Time
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            {selectedDate
-              ? `${formatSelectedDate(selectedDate)} · Tap another date to change`
-              : 'Select a day that works for you'}
-          </p>
-        </div>
+        <BookingSummaryCard
+          mounted={mounted}
+          serviceNames={serviceNames}
+          totalDuration={totalDuration}
+          totalPrice={totalPrice}
+          technician={technician}
+        />
 
         {/* Calendar Card */}
         <div
@@ -694,11 +652,12 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                 <button
                   key={date.toISOString()}
                   type="button"
+                  data-testid={`calendar-day-${getDateKey(date)}`}
                   onClick={() => handleDateSelect(date)}
-                  disabled={isPast}
-                  className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
-                  style={{
-                    transform: isSelected ? 'scale(1.1)' : undefined,
+                    disabled={Boolean(isPast || loadingSlots || isSelected)}
+                    className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
+                    style={{
+                      transform: isSelected ? 'scale(1.1)' : undefined,
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
                       ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
@@ -714,6 +673,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                           : '#404040',
                     boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
                     cursor: isPast ? 'not-allowed' : 'pointer',
+                    opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
                   onMouseEnter={(e) => {
                     if (!isPast && !isSelected && !isToday) {
@@ -734,24 +694,27 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
         </div>
 
         {/* No slots available message */}
-        {(noSlotsAvailable || allSlotsBooked) && (
-          <div
-            className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transition: 'opacity 300ms ease-out 250ms',
-            }}
-          >
-            <div className="mb-2 text-2xl">⏰</div>
-            <p className="text-sm font-medium text-amber-800">
-              {noSlotsAvailable
-                ? 'No more time slots available today.'
-                : 'All time slots are booked for this day.'}
-            </p>
-            <p className="mt-1 text-xs text-amber-600">
-              Please select another date from the calendar above.
-            </p>
-          </div>
+        {availabilityError && !loadingSlots && (
+          <StateCard
+            tone="error"
+            className="mb-4"
+            contentClassName="py-4"
+            title="Availability could not be loaded"
+            description={availabilityError}
+          />
+        )}
+
+        {(noSlotsAvailable || allSlotsBooked) && !availabilityError && (
+          <StateCard
+            tone="warning"
+            className="mb-4"
+            contentClassName="py-4"
+            icon="⏰"
+            title={noSlotsAvailable
+              ? 'No bookable times remain for this day.'
+              : 'This day is fully booked.'}
+            description="Choose another date to keep booking."
+          />
         )}
 
         {/* Time Selection - Only shows when date is selected and has available slots */}
@@ -766,10 +729,12 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
           >
             {/* Loading indicator */}
             {loadingSlots && (
-              <div className="py-4 text-center">
-                <div className="inline-block size-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
-                <p className="mt-2 text-sm text-neutral-500">Checking availability...</p>
-              </div>
+              <StateCard
+                className="border-dashed"
+                contentClassName="py-5"
+                title="Checking live availability"
+                description="Refreshing the latest schedule for this day."
+              />
             )}
 
             {/* Morning Times */}
@@ -786,7 +751,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">🌅</span>
                   <span className="text-sm font-bold text-neutral-900">Morning</span>
-                  <span className="text-xs text-neutral-400">9:00 AM - 12:00 PM</span>
+                  <span className="text-xs text-neutral-400">Earlier time slots</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
                   {morningSlots.map((slot, i) => {
@@ -795,6 +760,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                       <button
                         key={slot.time}
                         type="button"
+                        data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot.time)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
@@ -851,7 +817,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                 <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
                   <span className="text-xl">☀️</span>
                   <span className="text-sm font-bold text-neutral-900">Afternoon</span>
-                  <span className="text-xs text-neutral-400">12:00 PM - 6:00 PM</span>
+                  <span className="text-xs text-neutral-400">Later time slots</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 p-4">
                   {afternoonSlots.map((slot, i) => {
@@ -860,6 +826,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
                       <button
                         key={slot.time}
                         type="button"
+                        data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot.time)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
@@ -942,7 +909,6 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
         {/* Auth Footer - shown only on first step when not logged in */}
         {isFirstStep && !isCheckingSession && !isLoggedIn && (
           <BookingPhoneLogin
-            initialPhone={clientPhone || undefined}
             onLoginSuccess={handleLoginSuccess}
           />
         )}

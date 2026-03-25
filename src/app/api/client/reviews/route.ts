@@ -13,75 +13,21 @@
  */
 
 import { and, eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { logReviewCreated } from '@/libs/auditLog';
+import {
+  normalizeClientPhone,
+  requireClientApiSession,
+  requireClientSalonFromBody,
+  requireClientSalonFromQuery,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { getAppointmentById, getSalonClientByPhone } from '@/libs/queries';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import { reviewSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-/**
- * Decode the client session token and return the phone number.
- * Returns null if invalid or expired.
- */
-function decodeSessionToken(token: string): string | null {
-  try {
-    // eslint-disable-next-line node/prefer-global/buffer -- Node.js API route
-    const decoded = Buffer.from(token, 'base64').toString('utf-8');
-    const [phone, timestamp] = decoded.split(':');
-
-    // Validate phone format (E.164)
-    if (!phone || !phone.startsWith('+1') || phone.length !== 12) {
-      return null;
-    }
-
-    // Validate timestamp exists and is a number
-    if (!timestamp || Number.isNaN(Number(timestamp))) {
-      return null;
-    }
-
-    // Check if session is older than 1 year (expired)
-    const sessionAge = Date.now() - Number(timestamp);
-    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
-    if (sessionAge > oneYearMs) {
-      return null;
-    }
-
-    return phone;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get authenticated client phone from session cookie.
- * Returns null if not authenticated.
- */
-async function getAuthenticatedPhone(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get('client_session');
-
-  if (!sessionCookie?.value) {
-    return null;
-  }
-
-  return decodeSessionToken(sessionCookie.value);
-}
-
-/**
- * Normalize phone to 10-digit format (removes +1 prefix and non-digits)
- */
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-}
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -119,22 +65,11 @@ export async function POST(request: Request): Promise<Response> {
       return rateLimitResponse(rateLimit.retryAfterMs);
     }
 
-    // 1. Authenticate: get phone from session cookie (NOT from request body)
-    const authenticatedPhone = await getAuthenticatedPhone();
-
-    if (!authenticatedPhone) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Please log in to submit a review',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    // 1. Require authenticated customer session
+    const clientSession = await requireClientApiSession();
+    if (!clientSession.ok) {
+      return clientSession.response;
     }
-
-    const normalizedAuthPhone = normalizePhone(authenticatedPhone);
 
     // 2. Parse request body (no phone/name - we use session)
     const body = await request.json();
@@ -155,23 +90,12 @@ export async function POST(request: Request): Promise<Response> {
 
     const { appointmentId, salonSlug, rating, comment } = parsed.data;
 
-    // 3. Get salon and check reviewsEnabled
-    const salon = await db.query.salonSchema.findFirst({
-      where: (s, { eq: whereEq, and: whereAnd }) =>
-        whereAnd(whereEq(s.slug, salonSlug), whereEq(s.isActive, true)),
-    });
-
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 3. Resolve and scope salon through the shared tenant guard
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     if (!salon.reviewsEnabled) {
       return Response.json(
@@ -214,8 +138,8 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 5. Verify appointment belongs to the AUTHENTICATED client (not request body)
-    const apptPhone = normalizePhone(appointment.clientPhone);
-    if (apptPhone !== normalizedAuthPhone) {
+    const apptPhone = normalizeClientPhone(appointment.clientPhone);
+    if (!clientSession.phoneVariants.includes(apptPhone)) {
       return Response.json(
         {
           error: {
@@ -241,7 +165,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 7. Get salonClient for identity linkage
-    const salonClient = await getSalonClientByPhone(salon.id, normalizedAuthPhone);
+    const salonClient = await getSalonClientByPhone(salon.id, clientSession.normalizedPhone);
 
     if (!salonClient) {
       return Response.json(
@@ -341,37 +265,55 @@ export async function POST(request: Request): Promise<Response> {
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const clientSession = await requireClientApiSession();
+    if (!clientSession.ok) {
+      return clientSession.response;
+    }
+
     const { searchParams } = new URL(request.url);
     const appointmentId = searchParams.get('appointmentId');
-    const salonSlug = searchParams.get('salonSlug');
 
-    if (!appointmentId || !salonSlug) {
+    if (!appointmentId) {
       return Response.json(
         {
           error: {
             code: 'MISSING_PARAMS',
-            message: 'appointmentId and salonSlug are required',
+            message: 'appointmentId is required',
           },
         } satisfies ErrorResponse,
         { status: 400 },
       );
     }
 
-    // Get salon
-    const salon = await db.query.salonSchema.findFirst({
-      where: (s, { eq: whereEq, and: whereAnd }) =>
-        whereAnd(whereEq(s.slug, salonSlug), whereEq(s.isActive, true)),
-    });
+    const salonGuard = await requireClientSalonFromQuery(searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
+    }
+    const { salon } = salonGuard;
 
-    if (!salon) {
+    const appointment = await getAppointmentById(appointmentId);
+    if (!appointment || appointment.salonId !== salon.id) {
       return Response.json(
         {
           error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
+            code: 'APPOINTMENT_NOT_FOUND',
+            message: 'Appointment not found',
           },
         } satisfies ErrorResponse,
         { status: 404 },
+      );
+    }
+
+    const apptPhone = normalizeClientPhone(appointment.clientPhone);
+    if (!clientSession.phoneVariants.includes(apptPhone)) {
+      return Response.json(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: 'You can only view review status for your own appointments',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
       );
     }
 

@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
+import { appendSalonSlug } from '@/libs/bookingParams';
+import { getApiErrorMessage } from '@/utils/apiError';
 
 type ClaimState = 'loading' | 'form' | 'verify' | 'success' | 'error' | 'already_claimed';
 
@@ -21,6 +23,8 @@ export default function ClaimReferralPage() {
   const router = useRouter();
   const params = useParams();
   const referralId = params?.referralId as string;
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  const locale = typeof params?.locale === 'string' ? params.locale : null;
 
   // State
   const [claimState, setClaimState] = useState<ClaimState>('loading');
@@ -40,6 +44,15 @@ export default function ClaimReferralPage() {
   // Refs
   const codeInputRef = useRef<HTMLInputElement>(null);
   const hasRedirected = useRef(false);
+  const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSubmittedCodeRef = useRef<string | null>(null);
+
+  const clearVerifyTimer = useCallback(() => {
+    if (verifyTimerRef.current) {
+      clearTimeout(verifyTimerRef.current);
+      verifyTimerRef.current = null;
+    }
+  }, []);
 
   // Fetch referral info on mount
   useEffect(() => {
@@ -121,10 +134,13 @@ export default function ClaimReferralPage() {
 
   // Verify OTP and claim referral
   const handleVerifyCode = useCallback(async () => {
-    if (code.length !== 6 || isLoading) {
+    clearVerifyTimer();
+
+    if (code.length !== 6 || isLoading || lastSubmittedCodeRef.current === code) {
       return;
     }
 
+    lastSubmittedCodeRef.current = code;
     setIsLoading(true);
     setFormError(null);
 
@@ -139,7 +155,10 @@ export default function ClaimReferralPage() {
       const verifyData = await verifyResponse.json();
 
       if (!verifyResponse.ok) {
-        setFormError(verifyData.error || 'Invalid code');
+        setFormError(getApiErrorMessage(
+          verifyData,
+          'This verification code is incorrect or expired. Please request a new code and try again.',
+        ));
         setIsLoading(false);
         return;
       }
@@ -170,17 +189,20 @@ export default function ClaimReferralPage() {
       setFormError('Network error. Please try again.');
       setIsLoading(false);
     }
-  }, [code, phone, name, referralId, isLoading]);
+  }, [clearVerifyTimer, code, phone, name, referralId, isLoading]);
 
   // Auto-verify when code is complete
   useEffect(() => {
-    if (code.length === 6 && claimState === 'verify' && !isLoading) {
-      const timer = setTimeout(() => handleVerifyCode(), 150);
-      return () => clearTimeout(timer);
+    clearVerifyTimer();
+
+    if (code.length === 6 && claimState === 'verify' && !isLoading && lastSubmittedCodeRef.current !== code) {
+      verifyTimerRef.current = setTimeout(() => handleVerifyCode(), 150);
+      return () => clearVerifyTimer();
     }
     return undefined;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, claimState]);
+  }, [claimState, clearVerifyTimer, code, handleVerifyCode, isLoading]);
+
+  useEffect(() => clearVerifyTimer, [clearVerifyTimer]);
 
   // Auto-focus code input when entering verify state
   useEffect(() => {
@@ -194,9 +216,12 @@ export default function ClaimReferralPage() {
     setShowConfetti(false);
     if (!hasRedirected.current) {
       hasRedirected.current = true;
-      router.push('/profile');
+      router.push(appendSalonSlug('/profile', referralInfo?.salonSlug, {
+        routeSalonSlug,
+        locale,
+      }));
     }
-  }, [router]);
+  }, [locale, referralInfo?.salonSlug, routeSalonSlug, router]);
 
   // Format display phone for referrer
   const referrerDisplay = referralInfo
@@ -229,7 +254,10 @@ export default function ClaimReferralPage() {
               <p className="font-body mb-6 text-[var(--n5-ink-muted)]">{errorMessage}</p>
               <button
                 type="button"
-                onClick={() => router.push('/')}
+                onClick={() => router.push(appendSalonSlug('/', referralInfo?.salonSlug, {
+                  routeSalonSlug,
+                  locale,
+                }))}
                 className="font-body bg-[var(--n5-button-primary-bg)] px-6 py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
@@ -252,7 +280,10 @@ export default function ClaimReferralPage() {
               </p>
               <button
                 type="button"
-                onClick={() => router.push('/profile')}
+                onClick={() => router.push(appendSalonSlug('/profile', referralInfo?.salonSlug, {
+                  routeSalonSlug,
+                  locale,
+                }))}
                 className="font-body bg-[var(--n5-button-primary-bg)] px-6 py-3 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
                 style={{ borderRadius: 'var(--n5-radius-pill)' }}
               >
@@ -401,6 +432,9 @@ export default function ClaimReferralPage() {
                       value={code}
                       onChange={(e) => {
                         const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        if (digits.length < 6) {
+                          lastSubmittedCodeRef.current = null;
+                        }
                         setCode(digits);
                         setFormError(null);
                       }}

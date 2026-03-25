@@ -8,14 +8,12 @@ type BookingState = {
   technicianId: string | null; // null means "any artist", empty string means not selected
   serviceIds: string[];
   locationId: string | null;
-  clientPhone: string | null;
 };
 
 const defaultState: BookingState = {
   technicianId: null,
   serviceIds: [],
   locationId: null,
-  clientPhone: null,
 };
 
 /**
@@ -66,10 +64,6 @@ export function useBookingState() {
     setState(prev => ({ ...prev, locationId }));
   }, []);
 
-  const setClientPhone = useCallback((phone: string | null) => {
-    setState(prev => ({ ...prev, clientPhone: phone }));
-  }, []);
-
   const clearBookingState = useCallback(() => {
     setState(defaultState);
     if (typeof window !== 'undefined') {
@@ -86,14 +80,12 @@ export function useBookingState() {
     techId?: string | null;
     serviceIds?: string[];
     locationId?: string | null;
-    clientPhone?: string | null;
   }) => {
     setState(prev => ({
       ...prev,
       ...(params.techId !== undefined && { technicianId: params.techId || null }),
       ...(params.serviceIds !== undefined && { serviceIds: params.serviceIds }),
       ...(params.locationId !== undefined && { locationId: params.locationId || null }),
-      ...(params.clientPhone !== undefined && { clientPhone: params.clientPhone || null }),
     }));
   }, []);
 
@@ -102,11 +94,9 @@ export function useBookingState() {
     technicianId: state.technicianId,
     serviceIds: state.serviceIds,
     locationId: state.locationId,
-    clientPhone: state.clientPhone,
     setTechnicianId,
     setServiceIds,
     setLocationId,
-    setClientPhone,
     clearBookingState,
     syncFromUrl,
   };

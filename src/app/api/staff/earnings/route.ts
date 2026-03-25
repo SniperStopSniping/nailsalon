@@ -20,7 +20,7 @@ import { and, eq, gte, lt, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { requireStaffSession } from '@/libs/staffAuth';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
 import { appointmentSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -93,7 +93,7 @@ function formatDateISO(date: Date): string {
 export async function GET(request: Request): Promise<Response> {
   try {
     // 1. Require valid staff session
-    const auth = await requireStaffSession();
+    const auth = await requireStaffApiSession();
     if (!auth.ok) {
       return auth.response;
     }

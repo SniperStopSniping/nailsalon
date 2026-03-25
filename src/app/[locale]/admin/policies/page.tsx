@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { getLatestAutopostFailure, getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 
 import { SalonPoliciesClient } from './client';
 
@@ -20,19 +20,12 @@ export default async function SalonPoliciesPage({
   const { locale } = await params;
 
   // Check admin auth
-  const admin = await getAdminSession();
-  if (!admin) {
+  const { salon, error } = await requireActiveAdminSalon();
+  if (error || !salon) {
     redirect(`/${locale}/admin-login`);
   }
-
-  // Get admin's salon
-  const salonMembership = admin.salons[0];
-  if (!salonMembership) {
-    redirect(`/${locale}/admin-login`);
-  }
-
-  const salonId = salonMembership.salonId;
-  const salonName = salonMembership.salonName;
+  const salonId = salon.id;
+  const salonName = salon.name;
 
   // Fetch policies and latest failure
   const [salonPolicy, superAdminPolicy, latestFailure] = await Promise.all([

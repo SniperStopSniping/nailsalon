@@ -5,7 +5,6 @@ import { AlertTriangle, Check, Send, Trash2, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 
 import type { SkillLevel, StaffRole } from '@/models/Schema';
-import { useSalon } from '@/providers/SalonProvider';
 
 // =============================================================================
 // Types
@@ -42,6 +41,7 @@ function formatPhoneDisplay(phone: string): string {
 }
 
 type SettingsTabProps = {
+  salonSlug: string | null;
   technician: TechnicianDetail;
   onUpdate: (updates: Partial<TechnicianDetail>) => void;
   onDelete: () => void;
@@ -70,8 +70,7 @@ const SKILL_OPTIONS: { value: SkillLevel; label: string }[] = [
 // Component
 // =============================================================================
 
-export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps) {
-  const { salonSlug } = useSalon();
+export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: SettingsTabProps) {
   const [role, setRole] = useState<StaffRole>((technician.role as StaffRole) ?? 'tech');
   const [skillLevel, setSkillLevel] = useState<SkillLevel>((technician.skillLevel as SkillLevel) ?? 'standard');
   const [commissionRate, setCommissionRate] = useState(String(Math.round(technician.commissionRate * 100)));
@@ -85,6 +84,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
   const [showReenableModal, setShowReenableModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [reenabling, setReenabling] = useState(false);
+  const [destructiveActionError, setDestructiveActionError] = useState<string | null>(null);
 
   // Resend invite state
   const [resendingInvite, setResendingInvite] = useState(false);
@@ -141,19 +141,24 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
     }
 
     try {
+      setDestructiveActionError(null);
       const response = await fetch(
         `/api/admin/technicians/${technician.id}?salonSlug=${salonSlug}`,
         { method: 'DELETE' },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to disable staff member');
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? 'Failed to disable staff member');
       }
 
       setShowDisableModal(false);
       onDelete();
     } catch (err) {
       console.error('Error disabling staff:', err);
+      setDestructiveActionError(
+        err instanceof Error ? err.message : 'Failed to disable staff member',
+      );
     }
   };
 
@@ -163,13 +168,15 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
     }
 
     try {
+      setDestructiveActionError(null);
       const response = await fetch(
         `/api/admin/technicians/${technician.id}?salonSlug=${salonSlug}&hard=true`,
         { method: 'DELETE' },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to permanently delete staff member');
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? 'Failed to permanently delete staff member');
       }
 
       setShowDeleteModal(false);
@@ -177,6 +184,9 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
       onDelete();
     } catch (err) {
       console.error('Error deleting staff:', err);
+      setDestructiveActionError(
+        err instanceof Error ? err.message : 'Failed to permanently delete staff member',
+      );
     }
   };
 
@@ -554,7 +564,10 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
           {technician.isActive && (
             <button
               type="button"
-              onClick={() => setShowDisableModal(true)}
+              onClick={() => {
+                setDestructiveActionError(null);
+                setShowDisableModal(true);
+              }}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#FF9500] bg-white py-3 text-[17px] font-medium text-[#FF9500]"
             >
               <Trash2 className="size-5" />
@@ -563,7 +576,10 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
           )}
           <button
             type="button"
-            onClick={() => setShowDeleteModal(true)}
+            onClick={() => {
+              setDestructiveActionError(null);
+              setShowDeleteModal(true);
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#FF3B30] bg-white py-3 text-[17px] font-medium text-[#FF3B30]"
           >
             <Trash2 className="size-5" />
@@ -580,7 +596,10 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => setShowDisableModal(false)}
+            onClick={() => {
+              setShowDisableModal(false);
+              setDestructiveActionError(null);
+            }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -602,10 +621,18 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
                 {' '}
                 will be hidden from booking. Their data and history will be preserved. You can re-enable them anytime.
               </p>
+              {destructiveActionError && (
+                <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
+                  {destructiveActionError}
+                </p>
+              )}
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowDisableModal(false)}
+                  onClick={() => {
+                    setShowDisableModal(false);
+                    setDestructiveActionError(null);
+                  }}
                   className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
                 >
                   Cancel
@@ -634,6 +661,7 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
             onClick={() => {
               setShowDeleteModal(false);
               setDeleteConfirmText('');
+              setDestructiveActionError(null);
             }}
           >
             <motion.div
@@ -668,12 +696,18 @@ export function SettingsTab({ technician, onUpdate, onDelete }: SettingsTabProps
                 placeholder="DELETE"
                 className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
               />
+              {destructiveActionError && (
+                <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
+                  {destructiveActionError}
+                </p>
+              )}
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setShowDeleteModal(false);
                     setDeleteConfirmText('');
+                    setDestructiveActionError(null);
                   }}
                   className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
                 >

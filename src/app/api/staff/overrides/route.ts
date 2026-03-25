@@ -1,10 +1,9 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { cookies } from 'next/headers';
 
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
 import {
   SCHEDULE_OVERRIDE_TYPES,
   type ScheduleOverrideType,
@@ -63,94 +62,6 @@ function getDateRange(startDate: string, endDate: string): string[] {
   return dates;
 }
 
-// Get staff session from cookies (returns technician + salon or error response)
-async function getStaffSession(): Promise<
-  | { technician: { id: string; name: string }; salon: { id: string; slug: string } }
-  | { error: Response }
-> {
-  const cookieStore = await cookies();
-  const staffSession = cookieStore.get('staff_session');
-  const staffPhone = cookieStore.get('staff_phone');
-  const staffSalon = cookieStore.get('staff_salon');
-
-  // Check for dev mode override
-  if (process.env.NODE_ENV !== 'production') {
-    const { isDevModeServer, readDevRoleFromCookies, getMockStaffMeResponse } = await import(
-      '@/libs/devRole.server'
-    );
-    if (isDevModeServer()) {
-      const devRole = readDevRoleFromCookies();
-      if (devRole === 'staff') {
-        const mockData = getMockStaffMeResponse();
-        return {
-          technician: { id: mockData.data.technician.id, name: mockData.data.technician.name },
-          salon: { id: mockData.data.salon.id, slug: mockData.data.salon.slug },
-        };
-      }
-      if (devRole) {
-        return {
-          error: Response.json(
-            { error: { code: 'UNAUTHORIZED', message: 'Dev role mismatch' } } satisfies ErrorResponse,
-            { status: 401 },
-          ),
-        };
-      }
-    }
-  }
-
-  // Verify session exists
-  if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      ),
-    };
-  }
-
-  // Resolve salon
-  const salon = await getSalonBySlug(staffSalon.value);
-  if (!salon) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      ),
-    };
-  }
-
-  // Get technician by phone
-  const technician = await getTechnicianByPhone(staffPhone.value, salon.id);
-  if (!technician) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician profile not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      ),
-    };
-  }
-
-  return {
-    technician: { id: technician.id, name: technician.name },
-    salon: { id: salon.id, slug: salon.slug },
-  };
-}
-
 // =============================================================================
 // GET /api/staff/overrides - List upcoming schedule overrides
 // =============================================================================
@@ -160,15 +71,19 @@ async function getStaffSession(): Promise<
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
+    const auth = await requireStaffApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const { technician, salon } = session;
+    const technician = {
+      id: auth.session.technicianId,
+      name: auth.session.technicianName,
+    };
+    const salonId = auth.session.salonId;
 
     // Step 16.3: Check if scheduleOverrides module is enabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'scheduleOverrides' });
+    const moduleGuard = await guardModuleOr403({ salonId, module: 'scheduleOverrides' });
     if (moduleGuard) {
       return moduleGuard;
     }
@@ -191,7 +106,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(technicianScheduleOverrideSchema.technicianId, technician.id),
-          eq(technicianScheduleOverrideSchema.salonId, salon.id),
+          eq(technicianScheduleOverrideSchema.salonId, salonId),
           gte(technicianScheduleOverrideSchema.date, todayStr),
           lte(technicianScheduleOverrideSchema.date, futureDateStr),
         ),
@@ -227,15 +142,19 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
+    const auth = await requireStaffApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    const { technician, salon } = session;
+    const technician = {
+      id: auth.session.technicianId,
+      name: auth.session.technicianName,
+    };
+    const salonId = auth.session.salonId;
 
     // Step 16.3: Check if scheduleOverrides module is enabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'scheduleOverrides' });
+    const moduleGuard = await guardModuleOr403({ salonId, module: 'scheduleOverrides' });
     if (moduleGuard) {
       return moduleGuard;
     }
@@ -382,7 +301,7 @@ export async function POST(request: Request): Promise<Response> {
             .insert(technicianScheduleOverrideSchema)
             .values({
               id: nanoid(),
-              salonId: salon.id,
+              salonId,
               technicianId: technician.id,
               date,
               type: type as ScheduleOverrideType,

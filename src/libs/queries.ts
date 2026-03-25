@@ -24,8 +24,9 @@ import {
 import { LOYALTY_POINTS } from '@/utils/AppConfig';
 
 import { db } from './DB';
+import { reconcileLoyaltyPointsBalance } from './loyaltyBalance';
 import { normalizePhone } from './phone';
-import { computeEarnedPointsFromCents } from './pointsCalculation';
+import { resolveWeeklySchedule } from './weeklySchedule';
 
 // Re-export for backwards compatibility
 export const WELCOME_BONUS_POINTS = LOYALTY_POINTS.WELCOME_BONUS;
@@ -216,6 +217,7 @@ export async function getTechniciansBySalonId(
   // Combine technicians with their service IDs
   return technicians.map(tech => ({
     ...tech,
+    weeklySchedule: resolveWeeklySchedule(tech),
     serviceIds: techServiceMap.get(tech.id) ?? [],
     enabledServiceIds: techEnabledServiceMap.get(tech.id) ?? [],
   }));
@@ -371,6 +373,7 @@ export async function getTechnicianById(
 
   return {
     ...technician,
+    weeklySchedule: resolveWeeklySchedule(technician),
     serviceIds: serviceAssociations.map(a => a.serviceId),
     enabledServiceIds: serviceAssociations.filter(a => a.enabled).map(a => a.serviceId),
   };
@@ -1178,7 +1181,11 @@ export async function updateSalonClientStats(
   // Calculate loyalty points using centralized formula (totalSpent is in cents)
   // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
   const totalSpentCents = clientStats?.totalSpent ?? 0;
-  const loyaltyPoints = computeEarnedPointsFromCents(totalSpentCents);
+  const loyaltyPoints = reconcileLoyaltyPointsBalance({
+    currentBalance: salonClient.loyaltyPoints,
+    previousCompletedSpendCents: salonClient.totalSpent,
+    nextCompletedSpendCents: totalSpentCents,
+  });
 
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety

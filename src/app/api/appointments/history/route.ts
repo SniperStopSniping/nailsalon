@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
+import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -11,9 +11,6 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-// Default salon slug - in production this would come from subdomain
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
-
 type ErrorResponse = {
   error: {
     code: string;
@@ -22,49 +19,22 @@ type ErrorResponse = {
 };
 
 /**
- * GET /api/appointments/history?phone=1234567890
+ * GET /api/appointments/history
  * Returns ALL appointments for a client, sorted newest to oldest.
  * Includes all statuses: pending, confirmed, cancelled, completed, no_show
  */
 export async function GET(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const phone = url.searchParams.get('phone');
-
-    if (!phone) {
-      return Response.json(
-        {
-          error: {
-            code: 'MISSING_PHONE',
-            message: 'Phone number is required',
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
-
-    // Normalize phone to handle different formats
-    // Include 10-digit version (strip leading 1 if 11 digits) to match stored format
-    const normalizedPhone = phone.replace(/\D/g, '');
-    const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-      ? normalizedPhone.slice(1)
-      : normalizedPhone;
-    const phoneVariants = [
-      phone,
-      normalizedPhone,
-      tenDigitPhone,
-      `+1${tenDigitPhone}`,
-      `+${normalizedPhone}`,
-    ];
-
-    // Get the salon
-    const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-    if (!salon) {
-      return Response.json(
-        { data: { appointments: [] } },
-        { status: 200 },
-      );
+    const salonGuard = await requireClientSalonFromQuery(url.searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // Find ALL appointments for this client, sorted by newest first
     const appointments = await db
@@ -72,7 +42,7 @@ export async function GET(request: Request): Promise<Response> {
       .from(appointmentSchema)
       .where(
         and(
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          inArray(appointmentSchema.clientPhone, auth.phoneVariants),
           eq(appointmentSchema.salonId, salon.id),
         ),
       )
@@ -158,6 +128,7 @@ export async function GET(request: Request): Promise<Response> {
         cancelReason: appointment.cancelReason,
         totalPrice: appointment.totalPrice,
         totalDurationMinutes: appointment.totalDurationMinutes,
+        locationId: appointment.locationId,
         services: servicesData,
         technician: technician
           ? {

@@ -8,9 +8,9 @@
  * DELETE /api/staff/time-off/[id] - Delete a time-off entry
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { technicianTimeOffSchema } from '@/models/Schema';
 
@@ -40,21 +40,13 @@ export async function DELETE(
   try {
     const { id: timeOffId } = await params;
 
-    // 1. Require admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    // 1. Require active-salon admin session
+    const { salon, admin, error } = await requireActiveAdminSalon();
+    if (error || !salon || !admin) {
+      return error!;
     }
 
-    // 2. Get the time-off entry to verify it exists and get salonId
+    // 2. Get the time-off entry inside the active salon only
     const [existingEntry] = await db
       .select({
         id: technicianTimeOffSchema.id,
@@ -62,7 +54,12 @@ export async function DELETE(
         technicianId: technicianTimeOffSchema.technicianId,
       })
       .from(technicianTimeOffSchema)
-      .where(eq(technicianTimeOffSchema.id, timeOffId))
+      .where(
+        and(
+          eq(technicianTimeOffSchema.id, timeOffId),
+          eq(technicianTimeOffSchema.salonId, salon.id),
+        ),
+      )
       .limit(1);
 
     if (!existingEntry) {
@@ -77,23 +74,7 @@ export async function DELETE(
       );
     }
 
-    // 3. Enforce admin salon scope
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === existingEntry.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          {
-            error: {
-              code: 'FORBIDDEN',
-              message: 'No access to this salon',
-            },
-          } satisfies ErrorResponse,
-          { status: 403 },
-        );
-      }
-    }
-
-    // 4. Delete the entry
+    // 3. Delete the entry
     await db
       .delete(technicianTimeOffSchema)
       .where(eq(technicianTimeOffSchema.id, timeOffId));
@@ -133,25 +114,22 @@ export async function GET(
   try {
     const { id: timeOffId } = await params;
 
-    // 1. Require admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Admin authentication required. Staff should use /api/staff/time-off-requests',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    // 1. Require active-salon admin session
+    const { salon, error } = await requireActiveAdminSalon();
+    if (error || !salon) {
+      return error!;
     }
 
-    // 2. Get the time-off entry
+    // 2. Get the time-off entry inside the active salon only
     const [entry] = await db
       .select()
       .from(technicianTimeOffSchema)
-      .where(eq(technicianTimeOffSchema.id, timeOffId))
+      .where(
+        and(
+          eq(technicianTimeOffSchema.id, timeOffId),
+          eq(technicianTimeOffSchema.salonId, salon.id),
+        ),
+      )
       .limit(1);
 
     if (!entry) {
@@ -164,22 +142,6 @@ export async function GET(
         } satisfies ErrorResponse,
         { status: 404 },
       );
-    }
-
-    // 3. Enforce admin salon scope
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === entry.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          {
-            error: {
-              code: 'FORBIDDEN',
-              message: 'No access to this salon',
-            },
-          } satisfies ErrorResponse,
-          { status: 403 },
-        );
-      }
     }
 
     return Response.json({

@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import type { AppointmentData } from './StaffAppointmentCard';
@@ -63,7 +62,6 @@ export function FloatingActionBar({
   onOpenPhotos,
   onSuccess,
 }: FloatingActionBarProps) {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
   // Don't render if no appointment or terminal state
@@ -104,7 +102,6 @@ export function FloatingActionBar({
 
           if (response.ok) {
             triggerHaptic();
-            router.refresh();
             onSuccess?.();
           }
         } finally {
@@ -121,15 +118,14 @@ export function FloatingActionBar({
         action: async () => {
           setIsLoading(true);
           try {
-            const response = await fetch(`/api/appointments/${appointment.id}/transition`, {
-              method: 'POST',
+            const response = await fetch(`/api/appointments/${appointment.id}/complete`, {
+              method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: 'complete' }),
+              body: JSON.stringify({}),
             });
 
             if (response.ok) {
               triggerHaptic();
-              router.refresh();
               onSuccess?.();
             }
           } finally {

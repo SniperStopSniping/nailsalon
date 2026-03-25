@@ -17,10 +17,12 @@ import {
   User,
   Zap,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { twMerge } from 'tailwind-merge';
 
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 
 // --- UTILITY ---
@@ -216,15 +218,12 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
     setError(null);
 
     try {
-      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-
       const response = await fetch('/api/rewards/redeem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rewardId: reward.id,
           appointmentId: appointment.id,
-          phone: normalizedPhone,
         }),
       });
 
@@ -535,8 +534,6 @@ const CatalogRedeemSheet = ({
     setError(null);
 
     try {
-      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-
       const response = await fetch('/api/rewards/redeem-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -544,7 +541,6 @@ const CatalogRedeemSheet = ({
           rewardTitle: reward.title,
           rewardPoints: reward.points,
           appointmentId: appointment.id,
-          phone: normalizedPhone,
         }),
       });
 
@@ -780,11 +776,19 @@ const CatalogRedeemSheet = ({
  */
 export type BalanceCardProps = {
   points?: number;
+  pendingPoints?: number;
+  pendingAppointments?: number;
   nextReward?: number;
   streak?: number;
 };
 
-const BalanceCard = ({ points = 0, nextReward = 2500, streak = 0 }: BalanceCardProps) => {
+const BalanceCard = ({
+  points = 0,
+  pendingPoints = 0,
+  pendingAppointments = 0,
+  nextReward = 2500,
+  streak = 0,
+}: BalanceCardProps) => {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const shouldReduceMotion = useReducedMotion();
@@ -854,7 +858,7 @@ const BalanceCard = ({ points = 0, nextReward = 2500, streak = 0 }: BalanceCardP
 
           <div className="relative z-10 flex h-full flex-col justify-between p-6 text-[var(--n5-ink-inverse)]">
             <div>
-              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Available Balance</p>
+              <p className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">Active balance</p>
               <h1 className="font-heading mt-1 text-5xl tracking-tighter text-[var(--n5-ink-inverse)] drop-shadow-sm">
                 {points.toLocaleString()}
                 {' '}
@@ -888,7 +892,44 @@ const BalanceCard = ({ points = 0, nextReward = 2500, streak = 0 }: BalanceCardP
         </div>
       </motion.div>
 
-      {points === 0 && (
+      {pendingPoints > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="rounded-2xl border bg-[var(--n5-bg-card)] px-4 py-3"
+          style={{ borderColor: 'var(--n5-border)' }}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-body text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                Pending points
+              </p>
+              <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+                +
+                {pendingPoints.toLocaleString()}
+                {' '}
+                pts
+                {pendingAppointments > 0 ? ` from ${pendingAppointments} booked ${pendingAppointments === 1 ? 'visit' : 'visits'}` : ''}
+              </p>
+              <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                Pending points become usable after the salon marks your appointment complete.
+              </p>
+            </div>
+            <div
+              className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+                color: 'var(--n5-accent)',
+              }}
+            >
+              Pending
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {points === 0 && pendingPoints === 0 && (
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1092,8 +1133,11 @@ const HowPointsWork = () => (
   </motion.div>
 );
 
-const FloatingDock = () => {
+const FloatingDock = ({ salonSlug }: { salonSlug: string | null }) => {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
 
   return (
     <div
@@ -1103,7 +1147,10 @@ const FloatingDock = () => {
     >
       <button
         onClick={() => {
-          triggerHaptic(); router.push('/book');
+          triggerHaptic(); router.push(appendSalonSlug('/book', salonSlug, {
+            routeSalonSlug,
+            locale,
+          }));
         }}
         aria-label="Go to Home"
         className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -1118,7 +1165,10 @@ const FloatingDock = () => {
       </div>
       <button
         onClick={() => {
-          triggerHaptic(); router.push('/profile');
+          triggerHaptic(); router.push(appendSalonSlug('/profile', salonSlug, {
+            routeSalonSlug,
+            locale,
+          }));
         }}
         aria-label="Go to Profile"
         className="p-2 text-[var(--n5-ink-muted)] transition-colors"
@@ -1133,10 +1183,16 @@ const FloatingDock = () => {
 
 export default function RewardsContent() {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { salonSlug } = useSalon();
+  const { phone: sessionPhone } = useClientSession();
 
   // Start with 0 - actual points will load from API
   const [currentPoints, setCurrentPoints] = useState(0);
+  const [pendingPoints, setPendingPoints] = useState(0);
+  const [pendingAppointments, setPendingAppointments] = useState(0);
   const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
   const [clientPhone, setClientPhone] = useState('');
@@ -1149,18 +1205,9 @@ export default function RewardsContent() {
   // Upcoming appointment
   const [upcomingAppointment, setUpcomingAppointment] = useState<UpcomingAppointment | null>(null);
 
-  // Load client phone from cookie
   useEffect(() => {
-    const clientPhoneCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_phone='));
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setClientPhone(phone);
-      }
-    }
-  }, []);
+    setClientPhone(sessionPhone);
+  }, [sessionPhone]);
 
   // Fetch rewards/points from API
   const fetchRewards = useCallback(async () => {
@@ -1169,21 +1216,21 @@ export default function RewardsContent() {
       return;
     }
 
-    const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-    if (normalizedPhone.length !== 10) {
-      setLoading(false);
-      return;
-    }
-
     try {
       const response = await fetch(
-        `/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`,
+        `/api/rewards?salonSlug=${encodeURIComponent(salonSlug)}`,
       );
       if (response.ok) {
         const data = await response.json();
         // Set points
         if (data.meta?.activePoints !== undefined) {
           setCurrentPoints(data.meta.activePoints);
+        }
+        if (data.meta?.pendingPoints !== undefined) {
+          setPendingPoints(data.meta.pendingPoints);
+        }
+        if (data.meta?.pendingAppointments !== undefined) {
+          setPendingAppointments(data.meta.pendingAppointments);
         }
         if (data.meta?.streak !== undefined) {
           setStreak(data.meta.streak);
@@ -1209,9 +1256,7 @@ export default function RewardsContent() {
     }
 
     try {
-      const response = await fetch(
-        `/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`,
-      );
+      const response = await fetch(`/api/client/next-appointment?salonSlug=${encodeURIComponent(salonSlug)}`);
       if (response.ok) {
         const data = await response.json();
         if (data.data?.appointment) {
@@ -1229,7 +1274,7 @@ export default function RewardsContent() {
     } catch (error) {
       console.error('Failed to fetch appointment:', error);
     }
-  }, [clientPhone]);
+  }, [clientPhone, salonSlug]);
 
   useEffect(() => {
     if (clientPhone && salonSlug) {
@@ -1343,7 +1388,13 @@ export default function RewardsContent() {
             <>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
                 {/* Fully Dynamic Balance Card */}
-                <BalanceCard points={currentPoints} nextReward={nextRewardPoints} streak={streak} />
+                <BalanceCard
+                  points={currentPoints}
+                  pendingPoints={pendingPoints}
+                  pendingAppointments={pendingAppointments}
+                  nextReward={nextRewardPoints}
+                  streak={streak}
+                />
               </motion.div>
 
               {/* YOUR ACTIVE REWARDS - Actually redeemable */}
@@ -1373,7 +1424,10 @@ export default function RewardsContent() {
                         to use your rewards!
                       </p>
                       <button
-                        onClick={() => router.push('/book')}
+                        onClick={() => router.push(appendSalonSlug('/book', salonSlug, {
+                          routeSalonSlug,
+                          locale,
+                        }))}
                         className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
                       >
                         Book Now →
@@ -1444,7 +1498,10 @@ export default function RewardsContent() {
                             if (upcomingAppointment) {
                               setSelectedApiReward(reward);
                             } else {
-                              router.push('/book');
+                              router.push(appendSalonSlug('/book', salonSlug, {
+                                routeSalonSlug,
+                                locale,
+                              }));
                             }
                           }}
                           disabled={!upcomingAppointment}
@@ -1485,7 +1542,10 @@ export default function RewardsContent() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => router.push('/book')}
+                      onClick={() => router.push(appendSalonSlug('/book', salonSlug, {
+                        routeSalonSlug,
+                        locale,
+                      }))}
                       className="font-body mt-2 text-xs font-bold uppercase tracking-wider text-[var(--n5-accent)]"
                     >
                       Book Now →
@@ -1527,7 +1587,7 @@ export default function RewardsContent() {
           )}
         </main>
 
-        <FloatingDock />
+        <FloatingDock salonSlug={salonSlug} />
 
         {/* REDEEM SHEET - For API rewards (from referrals etc) */}
         <RedeemSheet

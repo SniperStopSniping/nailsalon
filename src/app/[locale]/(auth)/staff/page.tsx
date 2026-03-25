@@ -1,10 +1,14 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { NotificationBell, StaffBottomNav } from '@/components/staff';
+import { StaffBottomNav, StaffHeader } from '@/components/staff';
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
+import { SectionCard } from '@/components/ui/section-card';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
+import { themeVars } from '@/theme';
 
 import { ActionBar } from './components/ActionBar';
 import { BottomSheet } from './components/BottomSheet';
@@ -12,20 +16,6 @@ import { FloatingActionBar } from './components/FloatingActionBar';
 import { PhotoModal } from './components/PhotoModal';
 import { type AppointmentData, StaffAppointmentCard } from './components/StaffAppointmentCard';
 import { SwipeableCard } from './components/SwipeableCard';
-
-// =============================================================================
-// Cappuccino Design Tokens
-// =============================================================================
-
-const cappuccino = {
-  title: '#6F4E37',
-  cardBg: '#FAF8F5',
-  cardBorder: '#E6DED6',
-  primary: '#4B2E1E',
-  secondary: '#EADBC8',
-  secondaryText: '#4B2E1E',
-  background: '#FFFBF7',
-};
 
 // =============================================================================
 // Types
@@ -45,36 +35,18 @@ type SalonInfo = {
 type TabId = 'today' | 'upcoming' | 'past';
 
 // =============================================================================
-// Cookie Helper
-// =============================================================================
-
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) {
-    return parts.pop()?.split(';').shift() || null;
-  }
-  return null;
-}
-
-// =============================================================================
-// Tab Button Component (Cappuccino Style)
+// Tab Button Component
 // =============================================================================
 
 function TabButton({
   id,
   label,
-  icon,
   isActive,
   onClick,
   badge,
 }: {
   id: TabId;
   label: string;
-  icon: string;
   isActive: boolean;
   onClick: (id: TabId) => void;
   badge?: number;
@@ -82,19 +54,24 @@ function TabButton({
   return (
     <button
       type="button"
+      data-testid={`staff-dashboard-tab-${id}`}
       onClick={() => onClick(id)}
-      className="relative flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-3 text-center transition-all duration-200"
+      className={`relative flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-center text-sm font-semibold transition-all duration-200 ${
+        isActive
+          ? 'shadow-sm'
+          : 'bg-white hover:bg-neutral-50'
+      }`}
       style={{
-        backgroundColor: isActive ? cappuccino.primary : 'transparent',
-        color: isActive ? '#FFFFFF' : cappuccino.secondaryText,
+        backgroundColor: isActive ? themeVars.primary : '#FFFFFF',
+        borderColor: isActive ? themeVars.primaryDark : themeVars.cardBorder,
+        color: isActive ? '#171717' : '#404040',
       }}
     >
-      <span className="text-lg">{icon}</span>
-      <span className="text-xs font-medium">{label}</span>
+      <span>{label}</span>
       {badge !== undefined && badge > 0 && (
         <span
-          className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full text-xs font-bold text-white"
-          style={{ backgroundColor: '#D97706' }}
+          className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+          style={{ backgroundColor: themeVars.accent }}
         >
           {badge}
         </span>
@@ -119,7 +96,7 @@ function getGreeting(): string {
 }
 
 // =============================================================================
-// Main Staff Dashboard Page (Cappuccino v2)
+// Main Staff Dashboard Page
 // =============================================================================
 
 export default function StaffDashboardPage() {
@@ -150,6 +127,8 @@ export default function StaffDashboardPage() {
 
   // Loading state for gesture actions
   const [gestureLoadingId, setGestureLoadingId] = useState<string | null>(null);
+  const initialAppointmentsLoadedRef = useRef(false);
+  const loadedTabRef = useRef<TabId | null>(null);
 
   // Module capabilities - for future feature gating (earnings, etc.)
   // Currently used for: none (all visible features are core)
@@ -160,20 +139,67 @@ export default function StaffDashboardPage() {
   // Auth Check
   // =============================================================================
 
-  useEffect(() => {
-    async function checkAuth() {
-      const staffSalon = getCookie('staff_salon');
+  const buildAppointmentParams = useCallback((tab: TabId) => {
+    const baseParams = new URLSearchParams();
 
-      if (!staffSalon) {
-        setAuthChecked(true);
-        setIsAuthenticated(false);
-        return;
+    if (tab === 'today') {
+      baseParams.set('date', 'today');
+      baseParams.set('status', 'confirmed,in_progress');
+    } else if (tab === 'upcoming') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const nextWeek = new Date(today);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      baseParams.set('status', 'confirmed,pending');
+      baseParams.set('startDate', today.toISOString());
+      baseParams.set('endDate', nextWeek.toISOString());
+    } else if (tab === 'past') {
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
+      baseParams.set('status', 'completed');
+      baseParams.set('startDate', thirtyDaysAgo.toISOString());
+      baseParams.set('endDate', today.toISOString());
+      baseParams.set('limit', '20');
+    }
+
+    return baseParams.toString();
+  }, []);
+
+  const fetchAppointments = useCallback(async (tab = activeTab) => {
+    if (!isAuthenticated) {
+      setAppointments([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/appointments?${buildAppointmentParams(tab)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAppointments(data.data?.appointments || []);
       }
+    } catch (error) {
+      console.error('Failed to fetch appointments:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, buildAppointmentParams, isAuthenticated]);
 
+  useEffect(() => {
+    async function bootstrapDashboard() {
+      setLoading(true);
       try {
-        const response = await fetch('/api/staff/me');
-        if (response.ok) {
-          const data = await response.json();
+        const [profileResponse, appointmentsResponse] = await Promise.all([
+          fetch('/api/staff/me'),
+          fetch(`/api/appointments?${buildAppointmentParams('today')}`),
+        ]);
+
+        if (profileResponse.ok) {
+          const data = await profileResponse.json();
           if (data.data?.technician) {
             setTechnician(data.data.technician);
             setSalon(data.data.salon);
@@ -184,15 +210,23 @@ export default function StaffDashboardPage() {
         } else {
           setIsAuthenticated(false);
         }
+
+        if (appointmentsResponse.ok) {
+          const data = await appointmentsResponse.json();
+          setAppointments(data.data?.appointments || []);
+          initialAppointmentsLoadedRef.current = true;
+          loadedTabRef.current = 'today';
+        }
       } catch (error) {
-        console.error('Failed to fetch technician info:', error);
+        console.error('Failed to bootstrap staff dashboard:', error);
         setIsAuthenticated(false);
       } finally {
         setAuthChecked(true);
+        setLoading(false);
       }
     }
-    checkAuth();
-  }, []);
+    bootstrapDashboard();
+  }, [buildAppointmentParams]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -205,63 +239,21 @@ export default function StaffDashboardPage() {
   // Fetch Appointments
   // =============================================================================
 
-  const fetchAppointments = useCallback(async () => {
-    if (!technician || !salon) {
-      setAppointments([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const baseParams = new URLSearchParams();
-      baseParams.set('salonSlug', salon.slug);
-      baseParams.set('technicianId', technician.id);
-
-      if (activeTab === 'today') {
-        baseParams.set('date', 'today');
-        baseParams.set('status', 'confirmed,in_progress');
-      } else if (activeTab === 'upcoming') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const nextWeek = new Date(today);
-        nextWeek.setDate(nextWeek.getDate() + 7);
-        baseParams.set('status', 'confirmed,pending');
-        baseParams.set('startDate', today.toISOString());
-        baseParams.set('endDate', nextWeek.toISOString());
-      } else if (activeTab === 'past') {
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        thirtyDaysAgo.setHours(0, 0, 0, 0);
-        baseParams.set('status', 'completed');
-        baseParams.set('startDate', thirtyDaysAgo.toISOString());
-        baseParams.set('endDate', today.toISOString());
-        baseParams.set('limit', '20');
-      }
-
-      const response = await fetch(`/api/appointments?${baseParams}`);
-      if (response.ok) {
-        const data = await response.json();
-        setAppointments(data.data?.appointments || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch appointments:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab, salon, technician]);
-
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && technician && salon) {
+    if (
+      authChecked
+      && isAuthenticated
+      && initialAppointmentsLoadedRef.current
+      && loadedTabRef.current !== activeTab
+    ) {
+      loadedTabRef.current = activeTab;
       fetchAppointments();
     }
-  }, [isAuthenticated, technician, salon, fetchAppointments]);
+  }, [authChecked, isAuthenticated, activeTab, fetchAppointments]);
 
   // =============================================================================
   // Handlers
@@ -339,8 +331,7 @@ export default function StaffDashboardPage() {
 
       if (response.ok) {
         triggerHaptic();
-        router.refresh();
-        fetchAppointments();
+        await fetchAppointments();
       }
     } finally {
       setGestureLoadingId(null);
@@ -383,12 +374,15 @@ export default function StaffDashboardPage() {
     return (
       <div
         className="flex min-h-screen items-center justify-center"
-        style={{ backgroundColor: cappuccino.background }}
+        style={{ backgroundColor: themeVars.background }}
       >
-        <div
-          className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-          style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
-        />
+        <div className="w-full max-w-md px-4">
+          <AsyncStatePanel
+            loading
+            title="Loading staff dashboard"
+            description="Checking your staff session and appointments."
+          />
+        </div>
       </div>
     );
   }
@@ -397,12 +391,15 @@ export default function StaffDashboardPage() {
     return (
       <div
         className="flex min-h-screen items-center justify-center"
-        style={{ backgroundColor: cappuccino.background }}
+        style={{ backgroundColor: themeVars.background }}
       >
-        <div
-          className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-          style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
-        />
+        <div className="w-full max-w-md px-4">
+          <AsyncStatePanel
+            loading
+            title="Redirecting to sign in"
+            description="Your staff session has expired."
+          />
+        </div>
       </div>
     );
   }
@@ -411,17 +408,15 @@ export default function StaffDashboardPage() {
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center p-4"
-        style={{ backgroundColor: cappuccino.background }}
+        style={{ backgroundColor: themeVars.background }}
       >
-        <h1
-          className="mb-4 text-2xl font-semibold"
-          style={{ color: cappuccino.title }}
-        >
-          No Technician Profile Found
-        </h1>
-        <p className="max-w-md text-center text-neutral-600">
-          Your account is not linked to a technician profile. Please contact your salon administrator to set up your profile.
-        </p>
+        <div className="w-full max-w-md">
+          <AsyncStatePanel
+            icon="🪪"
+            title="Technician profile missing"
+            description="Your account is not linked to a technician profile yet. Ask your salon administrator to finish setup."
+          />
+        </div>
       </div>
     );
   }
@@ -437,10 +432,9 @@ export default function StaffDashboardPage() {
   return (
     <div
       className="min-h-screen pb-24"
-      style={{ backgroundColor: cappuccino.background }}
+      style={{ backgroundColor: themeVars.background }}
     >
       <div className="mx-auto max-w-2xl px-4">
-        {/* Header */}
         <div
           className="pb-4 pt-6"
           style={{
@@ -449,52 +443,36 @@ export default function StaffDashboardPage() {
             transition: 'opacity 300ms ease-out, transform 300ms ease-out',
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <h1
-                className="text-2xl font-semibold"
-                style={{ color: cappuccino.title }}
-              >
-                {getGreeting()}
-                ,
-                {technician.name.split(' ')[0]}
-                {' '}
-                ☕️
-              </h1>
-              <p className="text-sm text-neutral-600">{salon?.name}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <NotificationBell />
-              <button
-                type="button"
-                onClick={() => router.push(`/${locale}/staff/schedule`)}
-                className="rounded-xl px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
-                style={{
-                  backgroundColor: cappuccino.secondary,
-                  color: cappuccino.secondaryText,
-                }}
-              >
-                ⏰ Schedule
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-xl px-3 py-2 text-sm font-medium text-neutral-600 transition-all hover:bg-neutral-100"
-                style={{ borderWidth: 1, borderColor: cappuccino.cardBorder }}
-              >
-                Log out
-              </button>
-            </div>
-          </div>
+          <StaffHeader
+            title={`${getGreeting()}, ${technician.name.split(' ')[0]}`}
+            subtitle={salon?.name}
+            rightContent={(
+              <>
+                <Button
+                  onClick={() => router.push(`/${locale}/staff/schedule`)}
+                  variant="brandSoft"
+                  size="sm"
+                >
+                  View schedule
+                </Button>
+                <Button
+                  onClick={handleLogout}
+                  variant="ghost"
+                  size="sm"
+                  className="text-neutral-600 hover:bg-white/70"
+                >
+                  Log out
+                </Button>
+              </>
+            )}
+          />
         </div>
 
         {/* Tab Navigation */}
         <div
-          className="mb-6 flex gap-1 rounded-2xl p-1 shadow-sm"
+          className="mb-6 flex gap-2 rounded-2xl border bg-white p-2 shadow-sm"
           style={{
-            backgroundColor: cappuccino.cardBg,
-            borderColor: cappuccino.cardBorder,
-            borderWidth: 1,
+            borderColor: themeVars.cardBorder,
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
             transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
@@ -503,7 +481,6 @@ export default function StaffDashboardPage() {
           <TabButton
             id="today"
             label="Today"
-            icon="📅"
             isActive={activeTab === 'today'}
             onClick={setActiveTab}
             badge={todayCount}
@@ -511,14 +488,12 @@ export default function StaffDashboardPage() {
           <TabButton
             id="upcoming"
             label="Upcoming"
-            icon="📆"
             isActive={activeTab === 'upcoming'}
             onClick={setActiveTab}
           />
           <TabButton
             id="past"
-            label="Past"
-            icon="✓"
+            label="Completed"
             isActive={activeTab === 'past'}
             onClick={setActiveTab}
           />
@@ -534,38 +509,23 @@ export default function StaffDashboardPage() {
         >
           {loading
             ? (
-                <div className="flex items-center justify-center py-12">
-                  <div
-                    className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-                    style={{ borderColor: `${cappuccino.primary} transparent ${cappuccino.primary} ${cappuccino.primary}` }}
-                  />
-                </div>
+                <AsyncStatePanel
+                  loading
+                  title="Loading appointments"
+                  description="Pulling the latest visit list for your shift."
+                />
               )
             : appointments.length === 0
               ? (
-                  <div
-                    className="rounded-2xl p-8 text-center shadow-sm"
-                    style={{
-                      backgroundColor: cappuccino.cardBg,
-                      borderColor: cappuccino.cardBorder,
-                      borderWidth: 1,
-                    }}
-                  >
-                    <div className="mb-2 text-4xl">☕️</div>
-                    <p
-                      className="text-lg font-medium"
-                      style={{ color: cappuccino.title }}
-                    >
-                      All caught up
-                    </p>
-                    <p className="mt-1 text-sm text-neutral-500">
-                      {activeTab === 'today'
-                        ? 'No appointments scheduled for today'
-                        : activeTab === 'upcoming'
-                          ? 'No upcoming appointments'
-                          : 'No past appointments to show'}
-                    </p>
-                  </div>
+                  <AsyncStatePanel
+                    icon="📆"
+                    title="All caught up"
+                    description={activeTab === 'today'
+                      ? 'There are no more appointments assigned to you today.'
+                      : activeTab === 'upcoming'
+                        ? 'Nothing upcoming is assigned to you right now.'
+                        : 'Completed visits will appear here after you finish them.'}
+                  />
                 )
               : (
                   <div className="space-y-4 pb-32">
@@ -648,7 +608,7 @@ export default function StaffDashboardPage() {
             <div className="text-center">
               <h2
                 className="text-xl font-semibold"
-                style={{ color: cappuccino.title }}
+                style={{ color: themeVars.titleText }}
               >
                 {selectedAppointment.clientName || 'Client'}
               </h2>
@@ -658,44 +618,39 @@ export default function StaffDashboardPage() {
             </div>
 
             {/* Services */}
-            <div
-              className="rounded-xl p-4"
-              style={{ backgroundColor: cappuccino.secondary }}
+            <SectionCard
+              className="border-0 shadow-none"
+              contentClassName="py-4"
+              headerClassName="hidden"
             >
               <div className="text-sm font-medium text-neutral-600">Services</div>
               <div
                 className="mt-1 font-semibold"
-                style={{ color: cappuccino.primary }}
+                style={{ color: themeVars.accent }}
               >
                 {selectedAppointment.services.map(s => s.name).join(', ')}
               </div>
-            </div>
+            </SectionCard>
 
             {/* Time & Price */}
             <div className="flex gap-4">
-              <div
-                className="flex-1 rounded-xl p-4"
-                style={{ backgroundColor: cappuccino.cardBg, borderWidth: 1, borderColor: cappuccino.cardBorder }}
-              >
+              <SectionCard className="flex-1 shadow-none" contentClassName="py-4">
                 <div className="text-sm text-neutral-500">Time</div>
-                <div className="font-semibold" style={{ color: cappuccino.title }}>
+                <div className="font-semibold" style={{ color: themeVars.titleText }}>
                   {new Date(selectedAppointment.startTime).toLocaleTimeString('en-US', {
                     hour: 'numeric',
                     minute: '2-digit',
                     hour12: true,
                   })}
                 </div>
-              </div>
-              <div
-                className="flex-1 rounded-xl p-4"
-                style={{ backgroundColor: cappuccino.cardBg, borderWidth: 1, borderColor: cappuccino.cardBorder }}
-              >
+              </SectionCard>
+              <SectionCard className="flex-1 shadow-none" contentClassName="py-4">
                 <div className="text-sm text-neutral-500">Total</div>
-                <div className="font-semibold" style={{ color: cappuccino.title }}>
+                <div className="font-semibold" style={{ color: themeVars.titleText }}>
                   $
                   {(selectedAppointment.totalPrice / 100).toFixed(0)}
                 </div>
-              </div>
+              </SectionCard>
             </div>
 
             {/* Photo Status */}
@@ -722,25 +677,23 @@ export default function StaffDashboardPage() {
 
             {/* Actions */}
             <div className="space-y-2 pt-2">
-              <button
-                type="button"
+              <Button
                 onClick={handleOpenPhotos}
-                className="w-full rounded-xl py-3 text-sm font-semibold transition-all active:scale-[0.98]"
-                style={{ backgroundColor: cappuccino.secondary, color: cappuccino.secondaryText }}
+                variant="brandSoft"
+                className="w-full"
               >
-                📸 Add Photos
-              </button>
-              <button
-                type="button"
+                Add photos
+              </Button>
+              <Button
                 onClick={() => {
                   setShowDrawer(false);
                   handleOpenActions(selectedAppointment);
                 }}
-                className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all active:scale-[0.98]"
-                style={{ backgroundColor: cappuccino.primary }}
+                variant="brand"
+                className="w-full"
               >
                 Manage Appointment
-              </button>
+              </Button>
             </div>
           </div>
         )}

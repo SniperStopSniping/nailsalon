@@ -20,9 +20,10 @@ import {
   Trash2,
   User,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { n5 } from '@/theme';
 import { cn } from '@/utils/Helpers';
 
@@ -751,8 +752,15 @@ const FloatingDock = ({ onHome, onProfile }: { onHome: () => void; onProfile: ()
 
 // --- MAIN PAGE ---
 
-export default function PaymentMethodsContent() {
+export default function PaymentMethodsContent({
+  salonSlug,
+}: {
+  salonSlug?: string | null;
+}) {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const [isAddCardSheetOpen, setIsAddCardSheetOpen] = useState(false);
 
   // Mock data - in production, this would come from API
@@ -816,8 +824,11 @@ export default function PaymentMethodsContent() {
   }, []);
 
   const handleNavigate = useCallback((path: string) => {
-    router.push(path);
-  }, [router]);
+    router.push(appendSalonSlug(path, salonSlug, {
+      routeSalonSlug,
+      locale,
+    }));
+  }, [locale, routeSalonSlug, router, salonSlug]);
 
   return (
     <div

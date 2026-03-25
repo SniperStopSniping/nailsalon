@@ -5,6 +5,118 @@
  * Provides repair functions for deep-links that may be missing required params.
  */
 
+import { normalizeSalonSlug } from './tenantSlug';
+import { AppConfig, AllLocales } from '@/utils/AppConfig';
+
+type TenantRouteOptions = {
+  routeSalonSlug?: string | null;
+  locale?: string | null;
+};
+
+function getEffectiveTenantRoute(
+  tenantRoute?: TenantRouteOptions,
+  fallbackSalonSlug?: string | null,
+): TenantRouteOptions | undefined {
+  const routeSalonSlug = normalizeSalonSlug(tenantRoute?.routeSalonSlug)
+    ?? (
+      normalizeLocale(tenantRoute?.locale)
+        ? normalizeSalonSlug(fallbackSalonSlug)
+        : null
+    );
+
+  if (!routeSalonSlug && !tenantRoute?.locale) {
+    return tenantRoute;
+  }
+
+  return {
+    ...tenantRoute,
+    routeSalonSlug,
+  };
+}
+
+function normalizeLocale(locale?: string | null): string | null {
+  if (!locale) {
+    return null;
+  }
+
+  return AllLocales.includes(locale) ? locale : null;
+}
+
+function splitPathAndQuery(path: string): {
+  pathname: string;
+  searchParams: URLSearchParams;
+} {
+  const [basePathPart, rawQuery = ''] = path.split('?');
+  const pathname = basePathPart
+    ? (basePathPart.startsWith('/') ? basePathPart : `/${basePathPart}`)
+    : '/';
+
+  return {
+    pathname,
+    searchParams: new URLSearchParams(rawQuery),
+  };
+}
+
+function inferLocaleFromPath(pathname: string): string | null {
+  const [, firstSegment] = pathname.split('/');
+  return normalizeLocale(firstSegment);
+}
+
+function stripLeadingSegment(pathname: string, segment: string): string {
+  if (pathname === `/${segment}`) {
+    return '/';
+  }
+
+  if (pathname.startsWith(`/${segment}/`)) {
+    const stripped = pathname.slice(segment.length + 1);
+    return stripped.startsWith('/') ? stripped : `/${stripped}`;
+  }
+
+  return pathname;
+}
+
+function finalizeTenantPath(
+  path: string,
+  tenantRoute?: TenantRouteOptions,
+): string {
+  const routeSalonSlug = normalizeSalonSlug(tenantRoute?.routeSalonSlug);
+  const explicitLocale = normalizeLocale(tenantRoute?.locale);
+
+  if (!routeSalonSlug && !explicitLocale) {
+    return path;
+  }
+
+  const { pathname, searchParams } = splitPathAndQuery(path);
+  if (routeSalonSlug) {
+    searchParams.delete('salonSlug');
+  }
+
+  const locale = explicitLocale
+    ?? inferLocaleFromPath(pathname)
+    ?? AppConfig.defaultLocale;
+
+  let routePath = pathname;
+  const existingLocale = inferLocaleFromPath(routePath);
+  if (existingLocale) {
+    routePath = stripLeadingSegment(routePath, existingLocale);
+  }
+
+  if (!routeSalonSlug) {
+    const suffix = routePath === '/' ? '' : routePath;
+    const localizedPath = `/${locale}${suffix}`;
+    const queryString = searchParams.toString();
+
+    return queryString ? `${localizedPath}?${queryString}` : localizedPath;
+  }
+
+  routePath = stripLeadingSegment(routePath, routeSalonSlug);
+  const suffix = routePath === '/' ? '' : routePath;
+  const queryString = searchParams.toString();
+  const tenantPath = `/${locale}/${routeSalonSlug}${suffix}`;
+
+  return queryString ? `${tenantPath}?${queryString}` : tenantPath;
+}
+
 /**
  * Build booking URL with all required parameters preserved.
  * Use this instead of manually constructing URLs to prevent missing params.
@@ -16,19 +128,27 @@
 export function buildBookingUrl(
   basePath: string,
   params: {
-    serviceIds: string[];
+    salonSlug?: string | null;
+    serviceIds?: string[];
     locationId?: string | null;
     techId?: string | null;
-    clientPhone?: string | null;
     originalAppointmentId?: string | null;
     date?: string | null;
     time?: string | null;
   },
+  tenantRoute?: TenantRouteOptions,
 ): string {
+  const effectiveTenantRoute = getEffectiveTenantRoute(
+    tenantRoute,
+    params.salonSlug,
+  );
   const searchParams = new URLSearchParams();
 
-  // Required: serviceIds
-  if (params.serviceIds.length > 0) {
+  if (params.salonSlug && !effectiveTenantRoute?.routeSalonSlug) {
+    searchParams.set('salonSlug', params.salonSlug);
+  }
+
+  if (params.serviceIds && params.serviceIds.length > 0) {
     searchParams.set('serviceIds', params.serviceIds.join(','));
   }
 
@@ -40,11 +160,6 @@ export function buildBookingUrl(
   // Optional: techId
   if (params.techId) {
     searchParams.set('techId', params.techId);
-  }
-
-  // Optional: clientPhone (for authenticated flow)
-  if (params.clientPhone) {
-    searchParams.set('clientPhone', params.clientPhone);
   }
 
   // Optional: originalAppointmentId (for reschedule flow)
@@ -61,7 +176,9 @@ export function buildBookingUrl(
   }
 
   const queryString = searchParams.toString();
-  return queryString ? `${basePath}?${queryString}` : basePath;
+  const path = queryString ? `${basePath}?${queryString}` : basePath;
+
+  return finalizeTenantPath(path, effectiveTenantRoute);
 }
 
 /**
@@ -69,10 +186,10 @@ export function buildBookingUrl(
  * Handles missing/invalid values gracefully.
  */
 export function parseBookingParams(searchParams: URLSearchParams): {
+  salonSlug: string | null;
   serviceIds: string[];
   locationId: string | null;
   techId: string | null;
-  clientPhone: string | null;
   originalAppointmentId: string | null;
   date: string | null;
   time: string | null;
@@ -81,10 +198,10 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   const serviceIds = serviceIdsRaw ? serviceIdsRaw.split(',').filter(Boolean) : [];
 
   return {
+    salonSlug: searchParams.get('salonSlug') || null,
     serviceIds,
     locationId: searchParams.get('locationId') || null,
     techId: searchParams.get('techId') || null,
-    clientPhone: searchParams.get('clientPhone') || null,
     originalAppointmentId: searchParams.get('originalAppointmentId') || null,
     date: searchParams.get('date') || null,
     time: searchParams.get('time') || null,
@@ -145,12 +262,21 @@ export function repairBookingUrl(
   basePath: string,
   currentSearchParams: Record<string, string | undefined>,
   primaryLocationId: string,
+  tenantRoute?: TenantRouteOptions,
 ): string {
+  const effectiveTenantRoute = getEffectiveTenantRoute(
+    tenantRoute,
+    currentSearchParams.salonSlug,
+  );
   const params = new URLSearchParams();
 
   // Preserve ALL existing params
   for (const [key, value] of Object.entries(currentSearchParams)) {
-    if (value !== undefined && key !== 'locationId') {
+    if (
+      value !== undefined
+      && key !== 'locationId'
+      && !(effectiveTenantRoute?.routeSalonSlug && key === 'salonSlug')
+    ) {
       params.set(key, value);
     }
   }
@@ -159,5 +285,57 @@ export function repairBookingUrl(
   params.set('locationId', primaryLocationId);
 
   const queryString = params.toString();
-  return queryString ? `${basePath}?${queryString}` : basePath;
+  const path = queryString ? `${basePath}?${queryString}` : basePath;
+
+  return finalizeTenantPath(path, effectiveTenantRoute);
+}
+
+export function appendSalonSlug(
+  path: string,
+  salonSlug?: string | null,
+  tenantRoute?: TenantRouteOptions,
+): string {
+  const effectiveTenantRoute = getEffectiveTenantRoute(tenantRoute, salonSlug);
+
+  if (effectiveTenantRoute?.routeSalonSlug) {
+    return finalizeTenantPath(path, effectiveTenantRoute);
+  }
+
+  if (!salonSlug) {
+    return finalizeTenantPath(path, effectiveTenantRoute);
+  }
+
+  const [basePathPart, rawQuery = ''] = path.split('?');
+  const basePath = basePathPart || path;
+  const params = new URLSearchParams(rawQuery);
+  params.set('salonSlug', salonSlug);
+  const queryString = params.toString();
+  const pathWithSalonSlug = queryString ? `${basePath}?${queryString}` : basePath;
+
+  return finalizeTenantPath(pathWithSalonSlug, effectiveTenantRoute);
+}
+
+export function buildChangeAppointmentUrl(params: {
+  salonSlug?: string | null;
+  serviceIds: string[];
+  techId?: string | null;
+  locationId?: string | null;
+  originalAppointmentId: string;
+  startTime: string;
+  basePath?: string;
+  tenantRoute?: TenantRouteOptions;
+}): string {
+  const appointmentTime = new Date(params.startTime);
+  const date = appointmentTime.toISOString().split('T')[0] ?? '';
+  const time = `${appointmentTime.getHours()}:${appointmentTime.getMinutes().toString().padStart(2, '0')}`;
+
+  return buildBookingUrl(params.basePath ?? '/change-appointment', {
+    salonSlug: params.salonSlug,
+    serviceIds: params.serviceIds,
+    techId: params.techId ?? 'any',
+    locationId: params.locationId,
+    originalAppointmentId: params.originalAppointmentId,
+    date,
+    time,
+  }, params.tenantRoute);
 }

@@ -305,15 +305,15 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
     try {
       setLoading(true);
 
-      // Fetch rewards
-      const rewardsRes = await fetch('/api/rewards');
+      const [rewardsRes, referralsRes] = await Promise.all([
+        fetch('/api/rewards'),
+        fetch('/api/referrals'),
+      ]);
       if (rewardsRes.ok) {
         const rewardsData = await rewardsRes.json();
         setRewards(rewardsData.data?.rewards || []);
       }
 
-      // Fetch referrals
-      const referralsRes = await fetch('/api/referrals');
       if (referralsRes.ok) {
         const referralsData = await referralsRes.json();
         setReferrals(referralsData.data?.referrals || []);

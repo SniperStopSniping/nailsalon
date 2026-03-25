@@ -8,8 +8,12 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+  requireClientSalonFromQuery,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import {
   type ClientPreferences,
   clientPreferencesSchema,
@@ -23,12 +27,10 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 
 const getPreferencesSchema = z.object({
-  phone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
 const putPreferencesSchema = z.object({
-  phone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
   salonSlug: z.string().min(1, 'Salon slug is required'),
   // All preference fields are optional
   favoriteTechId: z.string().nullable().optional(),
@@ -89,37 +91,28 @@ type SuccessResponse = {
 };
 
 // =============================================================================
-// Helper: Normalize phone number to 10 digits
-// =============================================================================
-
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-}
-
-// =============================================================================
 // GET /api/client/preferences - Get preferences for a client
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse query parameters
     const { searchParams } = new URL(request.url);
-    const rawPhone = searchParams.get('phone');
     const salonSlug = searchParams.get('salonSlug');
 
-    // 2. Normalize phone if provided
-    const phone = rawPhone ? normalizePhone(rawPhone) : '';
-
     // 3. Validate parameters
-    const parsed = getPreferencesSchema.safeParse({ phone, salonSlug });
+    const parsed = getPreferencesSchema.safeParse({ salonSlug });
 
     if (!parsed.success) {
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request parameters';
 
-      if (fieldErrors.phone) {
-        userMessage = 'Your phone number is invalid.';
-      } else if (fieldErrors.salonSlug) {
+      if (fieldErrors.salonSlug) {
         userMessage = 'Unable to identify salon.';
       }
 
@@ -135,19 +128,12 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 4. Resolve salon from slug
-    const salon = await getSalonBySlug(parsed.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${parsed.data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 4. Resolve salon from slug or active tenant cookie
+    const salonGuard = await requireClientSalonFromQuery(searchParams);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 5. Fetch preferences for this phone and salon
     const results = await db
@@ -156,7 +142,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(clientPreferencesSchema.salonId, salon.id),
-          eq(clientPreferencesSchema.normalizedClientPhone, parsed.data.phone),
+          eq(clientPreferencesSchema.normalizedClientPhone, auth.normalizedPhone),
         ),
       )
       .limit(1);
@@ -216,13 +202,13 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function PUT(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse request body
     const body = await request.json();
-
-    // Normalize phone if provided
-    if (body.phone) {
-      body.phone = normalizePhone(body.phone);
-    }
 
     // 2. Validate body
     const parsed = putPreferencesSchema.safeParse(body);
@@ -240,19 +226,12 @@ export async function PUT(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Resolve salon from slug
-    const salon = await getSalonBySlug(parsed.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${parsed.data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 3. Resolve salon from slug or active tenant cookie
+    const salonGuard = await requireClientSalonFromBody(parsed.data.salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 4. Validate favoriteTechId belongs to this salon (if provided)
     if (parsed.data.favoriteTechId) {
@@ -288,7 +267,7 @@ export async function PUT(request: Request): Promise<Response> {
       .where(
         and(
           eq(clientPreferencesSchema.salonId, salon.id),
-          eq(clientPreferencesSchema.normalizedClientPhone, parsed.data.phone),
+          eq(clientPreferencesSchema.normalizedClientPhone, auth.normalizedPhone),
         ),
       )
       .limit(1);
@@ -327,7 +306,7 @@ export async function PUT(request: Request): Promise<Response> {
         .values({
           id: newId,
           salonId: salon.id,
-          normalizedClientPhone: parsed.data.phone,
+          normalizedClientPhone: auth.normalizedPhone,
           favoriteTechId: parsed.data.favoriteTechId ?? null,
           favoriteServices: parsed.data.favoriteServices ?? null,
           nailShape: parsed.data.nailShape ?? null,

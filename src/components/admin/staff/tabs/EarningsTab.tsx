@@ -3,8 +3,6 @@
 import { Building2, DollarSign, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -25,6 +23,7 @@ type EarningsSeries = {
 };
 
 type EarningsTabProps = {
+  salonSlug: string | null;
   technicianId: string;
   commissionRate: number;
 };
@@ -74,8 +73,7 @@ function getDateRange(range: DateRange): { from: string; to: string } {
 // Component
 // =============================================================================
 
-export function EarningsTab({ technicianId, commissionRate }: EarningsTabProps) {
-  const { salonSlug } = useSalon();
+export function EarningsTab({ salonSlug, technicianId, commissionRate }: EarningsTabProps) {
   const [dateRange, setDateRange] = useState<DateRange>('month');
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
   const [series, setSeries] = useState<EarningsSeries[]>([]);

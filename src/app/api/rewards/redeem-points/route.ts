@@ -8,14 +8,14 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-// Default salon slug - in production this would come from subdomain
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -25,7 +25,7 @@ const redeemPointsSchema = z.object({
   rewardTitle: z.string().min(1, 'Reward title is required'),
   rewardPoints: z.number().min(1, 'Points required'),
   appointmentId: z.string().min(1, 'Appointment ID is required'),
-  phone: z.string().regex(/^\d{10,11}$/, 'Phone must be 10-11 digits'),
+  salonSlug: z.string().min(1, 'Salon slug is required').optional(),
 });
 
 // =============================================================================
@@ -72,6 +72,11 @@ function pointsToDiscountCents(points: number): number {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse request body
     const body = await request.json();
     const parsed = redeemPointsSchema.safeParse(body);
@@ -89,31 +94,20 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { rewardTitle, rewardPoints, appointmentId, phone } = parsed.data;
-
-    // Normalize phone
-    const normalizedPhone = phone.length === 11 && phone.startsWith('1')
-      ? phone.slice(1)
-      : phone;
+    const { rewardTitle, rewardPoints, appointmentId, salonSlug } = parsed.data;
+    const normalizedPhone = auth.normalizedPhone;
 
     // 2. Get the salon
-    const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
     }
+    const { salon } = salonGuard;
 
     // 3. Get the client's current points balance
     const phoneVariants = [
       normalizedPhone,
-      `+1${normalizedPhone}`,
+      auth.session.phone,
     ];
 
     const salonClients = await db

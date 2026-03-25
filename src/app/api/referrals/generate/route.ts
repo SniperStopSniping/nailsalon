@@ -5,13 +5,17 @@
  * The referee info is NOT filled at this point - it's filled when they claim.
  *
  * POST /api/referrals/generate
- * Body: { salonSlug, referrerPhone, referrerName }
+ * Body: { salonSlug, referrerName? }
  */
 
 import { z } from 'zod';
 
+import {
+  requireClientApiSession,
+  requireClientSalonFromBody,
+} from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { referralSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -20,11 +24,8 @@ import { referralSchema } from '@/models/Schema';
 
 const generateReferralSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  referrerPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits'),
-  referrerName: z.string().min(1, 'Referrer name is required'),
+  referrerName: z.string().min(1, 'Referrer name is required').optional(),
 });
-
-type GenerateReferralRequest = z.infer<typeof generateReferralSchema>;
 
 // =============================================================================
 // RESPONSE TYPES
@@ -71,6 +72,11 @@ function generateReferralCode(): string {
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // 1. Parse and validate request body
     const body = await request.json();
     const parsed = generateReferralSchema.safeParse(body);
@@ -79,9 +85,7 @@ export async function POST(request: Request): Promise<Response> {
       const fieldErrors = parsed.error.flatten().fieldErrors;
       let userMessage = 'Invalid request data';
 
-      if (fieldErrors.referrerPhone) {
-        userMessage = 'Your phone number is invalid. Please try again.';
-      } else if (fieldErrors.salonSlug) {
+      if (fieldErrors.salonSlug) {
         userMessage = 'Unable to identify salon. Please refresh and try again.';
       } else if (fieldErrors.referrerName) {
         userMessage = 'Unable to identify your name. Please refresh and try again.';
@@ -99,20 +103,18 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const data: GenerateReferralRequest = parsed.data;
+    const { salonSlug, referrerName } = parsed.data;
 
-    // 2. Resolve salon from slug
-    const salon = await getSalonBySlug(data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: `Salon with slug "${data.salonSlug}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 2. Resolve salon from tenant context
+    const salonGuard = await requireClientSalonFromBody(salonSlug);
+    if (!salonGuard.ok) {
+      return salonGuard.response;
+    }
+    const { salon } = salonGuard;
+
+    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (moduleGuard) {
+      return moduleGuard;
     }
 
     // 3. Generate a unique referral code
@@ -123,8 +125,8 @@ export async function POST(request: Request): Promise<Response> {
     await db.insert(referralSchema).values({
       id: referralId,
       salonId: salon.id,
-      referrerPhone: data.referrerPhone,
-      referrerName: data.referrerName,
+      referrerPhone: auth.normalizedPhone,
+      referrerName: auth.session.clientName ?? referrerName ?? null,
       status: 'sent',
       // refereePhone and refereeName are null until claim
     });

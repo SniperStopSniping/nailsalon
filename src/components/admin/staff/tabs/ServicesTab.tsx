@@ -4,8 +4,6 @@ import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useSalon } from '@/providers/SalonProvider';
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -22,6 +20,7 @@ type ServiceCapability = {
 };
 
 type ServicesTabProps = {
+  salonSlug: string | null;
   technicianId: string;
   onUpdate: () => void;
 };
@@ -30,8 +29,7 @@ type ServicesTabProps = {
 // Component
 // =============================================================================
 
-export function ServicesTab({ technicianId, onUpdate }: ServicesTabProps) {
-  const { salonSlug } = useSalon();
+export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabProps) {
   const [services, setServices] = useState<ServiceCapability[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

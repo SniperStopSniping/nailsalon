@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
 import { appointmentSchema, clientSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -60,18 +60,9 @@ export async function GET(
 
     const { salonSlug, search, page, limit } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Verify technician exists and belongs to salon

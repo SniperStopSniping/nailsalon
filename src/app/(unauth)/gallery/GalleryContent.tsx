@@ -12,9 +12,11 @@ import {
   X,
 } from 'lucide-react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 
@@ -41,14 +43,6 @@ const triggerHaptic = () => {
     navigator.vibrate(10);
   }
 };
-
-// =============================================================================
-// Helper: Normalize phone number
-// =============================================================================
-
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-}
 
 // --- Animation Variants ---
 const meshVariant = {
@@ -470,26 +464,20 @@ const GallerySkeleton = () => (
 
 export default function GalleryContent() {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { salonSlug, salonName } = useSalon();
+  const { phone: sessionPhone } = useClientSession();
 
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<GalleryPhoto | null>(null);
   const [clientPhone, setClientPhone] = useState('');
 
-  // Load client phone from cookie
   useEffect(() => {
-    const clientPhoneCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_phone='));
-
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setClientPhone(phone);
-      }
-    }
-  }, []);
+    setClientPhone(sessionPhone);
+  }, [sessionPhone]);
 
   // Fetch photos when we have phone and salon
   const fetchPhotos = useCallback(async () => {
@@ -499,9 +487,8 @@ export default function GalleryContent() {
     }
 
     try {
-      const normalizedPhone = normalizePhone(clientPhone);
       const response = await fetch(
-        `/api/gallery?phone=${normalizedPhone}&salonSlug=${salonSlug}`,
+        `/api/gallery?salonSlug=${salonSlug}`,
       );
 
       if (response.ok) {
@@ -612,7 +599,10 @@ export default function GalleryContent() {
 
               {/* Empty State */}
               {photos.length === 0 && (
-                <EmptyState onBook={() => router.push('/book')} />
+                <EmptyState onBook={() => router.push(appendSalonSlug('/book', salonSlug, {
+                  routeSalonSlug,
+                  locale,
+                }))} />
               )}
 
               {/* Footer */}

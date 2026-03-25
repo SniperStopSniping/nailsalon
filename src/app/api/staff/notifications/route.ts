@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireStaffSession } from '@/libs/staffAuth';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
 import { notificationSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -47,7 +47,7 @@ type ErrorResponse = {
 export async function GET(request: Request): Promise<Response> {
   try {
     // 1. Require valid staff session
-    const auth = await requireStaffSession();
+    const auth = await requireStaffApiSession();
     if (!auth.ok) {
       return auth.response;
     }
@@ -136,7 +136,7 @@ export async function GET(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     // 1. Require valid staff session
-    const auth = await requireStaffSession();
+    const auth = await requireStaffApiSession();
     if (!auth.ok) {
       return auth.response;
     }

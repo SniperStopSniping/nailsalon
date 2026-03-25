@@ -10,6 +10,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
+import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { MetaStatusPanel } from '@/components/admin/MetaStatusPanel';
 import { SalonPolicyForm } from '@/components/admin/PolicyForm';
 
@@ -110,6 +111,8 @@ export function SalonPoliciesClient({
           </div>
         </div>
       </div>
+
+      <AdminImpersonationBanner className="mx-auto max-w-2xl" />
 
       {/* Content */}
       <div className="mx-auto max-w-2xl px-4 py-6">

@@ -9,12 +9,11 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { fraudSignalSchema, salonSchema } from '@/models/Schema';
+import { fraudSignalSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,74 +26,6 @@ const resolveBodySchema = z.object({
 });
 
 // =============================================================================
-// HELPERS
-// =============================================================================
-
-/**
- * Get the active salon ID from the admin session.
- * Uses __active_salon_slug cookie to determine which salon is selected.
- */
-async function getActiveSalonId(): Promise<{
-  salonId: string | null;
-  adminId: string | null;
-  error: Response | null;
-}> {
-  const admin = await getAdminSession();
-
-  if (!admin) {
-    return {
-      salonId: null,
-      adminId: null,
-      error: Response.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } },
-        { status: 401 },
-      ),
-    };
-  }
-
-  // Get active salon from cookie
-  const cookieStore = await cookies();
-  const activeSalonSlug = cookieStore.get('__active_salon_slug')?.value;
-
-  // Super admins can access any salon if slug is set
-  if (admin.isSuperAdmin && activeSalonSlug) {
-    const [salon] = await db
-      .select({ id: salonSchema.id })
-      .from(salonSchema)
-      .where(eq(salonSchema.slug, activeSalonSlug))
-      .limit(1);
-
-    if (salon) {
-      return { salonId: salon.id, adminId: admin.id, error: null };
-    }
-  }
-
-  // Regular admins: find the matching salon from their memberships
-  if (activeSalonSlug) {
-    const membership = admin.salons.find(
-      s => s.salonSlug?.toLowerCase() === activeSalonSlug.toLowerCase(),
-    );
-    if (membership) {
-      return { salonId: membership.salonId, adminId: admin.id, error: null };
-    }
-  }
-
-  // Fallback: use first salon in memberships
-  if (admin.salons.length > 0) {
-    return { salonId: admin.salons[0]!.salonId, adminId: admin.id, error: null };
-  }
-
-  return {
-    salonId: null,
-    adminId: admin.id,
-    error: Response.json(
-      { error: { code: 'NO_SALON_ACCESS', message: 'No salon access' } },
-      { status: 403 },
-    ),
-  };
-}
-
-// =============================================================================
 // PATCH /api/admin/fraud-signals/[id]/resolve
 // =============================================================================
 
@@ -105,9 +36,9 @@ export async function PATCH(
   try {
     const signalId = params.id;
 
-    // 1. Get active salon and admin ID from session
-    const { salonId, adminId, error } = await getActiveSalonId();
-    if (error || !salonId || !adminId) {
+    // 1. Resolve active salon and acting admin through the shared guard
+    const { salon, admin, error } = await requireActiveAdminSalon();
+    if (error || !salon || !admin) {
       return error!;
     }
 
@@ -142,7 +73,7 @@ export async function PATCH(
     }
 
     // 4. Verify signal belongs to this salon
-    if (signal.salonId !== salonId) {
+    if (signal.salonId !== salon.id) {
       return Response.json(
         { error: { code: 'FORBIDDEN', message: 'Signal does not belong to your salon' } },
         { status: 403 },
@@ -170,7 +101,7 @@ export async function PATCH(
       .update(fraudSignalSchema)
       .set({
         resolvedAt: now,
-        resolvedBy: adminId,
+        resolvedBy: admin.id,
         resolutionNote: validated.data.note,
       })
       .where(
@@ -194,7 +125,7 @@ export async function PATCH(
           signal: {
             id: current?.id ?? signalId,
             resolvedAt: current?.resolvedAt?.toISOString() ?? now.toISOString(),
-            resolvedBy: current?.resolvedBy ?? adminId,
+            resolvedBy: current?.resolvedBy ?? admin.id,
             resolutionNote: current?.resolutionNote,
           },
           alreadyResolved: true,

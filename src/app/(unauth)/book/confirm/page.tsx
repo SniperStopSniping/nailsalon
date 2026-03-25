@@ -1,18 +1,15 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getPageAppearance } from '@/libs/pageAppearance';
-import { getLocationById, getPrimaryLocation, getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
-import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
+import { getLocationById, getPrimaryLocation, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import { BookConfirmClient } from './BookConfirmClient';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 /**
  * Booking Confirmation Page (Server Component)
@@ -24,10 +21,19 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  */
 export default async function BookConfirmPage({
   searchParams,
+  params,
 }: {
-  searchParams: { serviceIds?: string; techId?: string; date?: string; time?: string; locationId?: string };
+  searchParams: {
+    serviceIds?: string;
+    techId?: string;
+    date?: string;
+    time?: string;
+    locationId?: string;
+    salonSlug?: string;
+  };
+  params?: { locale?: string; slug?: string };
 }) {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'book-confirm');
+  const context = await getPublicPageContext('book-confirm', searchParams, params);
 
   // Parse URL params
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
@@ -36,23 +42,25 @@ export default async function BookConfirmPage({
   const timeStr = searchParams.time || '';
   const locationId = searchParams.locationId || '';
 
-  // Fetch salon data
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-
-  if (!salon) {
-    redirect('/not-found');
-  }
+  const { salon } = context;
+  const tenantRoute = {
+    salonSlug: salon.slug,
+    routeSalonSlug: params?.slug,
+    locale: params?.locale,
+  };
 
   // Check salon status - redirect if suspended/cancelled
   const statusCheck = await checkSalonStatus(salon.id);
-  if (statusCheck.redirectPath) {
-    redirect(statusCheck.redirectPath);
+  const statusRedirectPath = buildTenantRedirectPath(statusCheck.redirectPath, tenantRoute);
+  if (statusRedirectPath) {
+    redirect(statusRedirectPath);
   }
 
   // Check if online booking is enabled
   const featureCheck = await checkFeatureEnabled(salon.id, 'onlineBooking');
-  if (featureCheck.redirectPath) {
-    redirect(featureCheck.redirectPath);
+  const featureRedirectPath = buildTenantRedirectPath(featureCheck.redirectPath, tenantRoute);
+  if (featureRedirectPath) {
+    redirect(featureRedirectPath);
   }
 
   // Deep-link repair: validate locationId and redirect if missing or invalid
@@ -67,11 +75,17 @@ export default async function BookConfirmPage({
     const validLocation = await getLocationById(locationId, salon.id);
     if (!validLocation && shouldRepairBookingUrl(locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id));
+      redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
     }
   } else if (primaryLocation && shouldRepairBookingUrl(locationId, primaryLocation.id)) {
     // Missing locationId - inject primary (preserves all other params)
-    redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id));
+    redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
   }
 
   // Fetch the selected services
@@ -92,21 +106,37 @@ export default async function BookConfirmPage({
 
   // Fetch the selected location (already validated above, or use primary)
   // At this point locationId is guaranteed to be valid or we've redirected
-  const location = locationId
+  const requestedLocation = locationId
     ? await getLocationById(locationId, salon.id)
     : primaryLocation;
-
-  // Build location summary for client
-  const locationSummary = location
+  const resolvedLocation = resolveDirectionsLocation(requestedLocation, primaryLocation);
+  const salonDirectionsFallback = buildDirectionsDestination({
+    address: salon.address,
+    city: salon.city,
+    state: salon.state,
+    zipCode: salon.zipCode,
+  })
     ? {
-        id: location.id,
-        name: location.name,
-        address: location.address,
-        city: location.city,
-        state: location.state,
-        zipCode: location.zipCode,
+        id: locationId || `salon_${salon.id}`,
+        name: salon.name,
+        address: salon.address,
+        city: salon.city,
+        state: salon.state,
+        zipCode: salon.zipCode,
       }
     : null;
+
+  // Build location summary for client
+  const locationSummary = resolvedLocation
+    ? {
+        id: resolvedLocation.id,
+        name: resolvedLocation.name,
+        address: resolvedLocation.address,
+        city: resolvedLocation.city,
+        state: resolvedLocation.state,
+        zipCode: resolvedLocation.zipCode,
+      }
+    : salonDirectionsFallback;
 
   // Map DB services to the shape expected by the client component
   // Convert price from cents to dollars for display
@@ -121,7 +151,11 @@ export default async function BookConfirmPage({
   const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-confirm">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="book-confirm"
+      salon={context.salon}
+    >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           services={services}
@@ -133,6 +167,6 @@ export default async function BookConfirmPage({
           location={locationSummary}
         />
       </Suspense>
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

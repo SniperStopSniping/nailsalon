@@ -12,9 +12,11 @@ import { db } from '@/libs/DB';
 // =============================================================================
 // BACKWARD COMPATIBILITY (for existing API routes)
 // =============================================================================
-import { getSalonBySlug } from '@/libs/queries';
+import { getAdminImpersonationSession, type AdminImpersonationSession } from '@/libs/adminImpersonation';
+import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
 import { adminInviteSchema, adminSalonMembershipSchema, adminSessionSchema, adminUserSchema, salonSchema } from '@/models/Schema';
+import { ACTIVE_SALON_COOKIE } from './tenantSlug';
 
 // =============================================================================
 // CONSTANTS
@@ -39,6 +41,7 @@ export type SalonMembership = {
   salonId: string;
   salonSlug: string;
   salonName: string;
+  status?: string | null;
   role: string;
 };
 
@@ -50,6 +53,13 @@ export type AdminWithSalons = {
 export type AdminGuardSuccess = { ok: true; admin: AdminWithSalons };
 export type AdminGuardFailure = { ok: false; response: Response };
 export type AdminGuardResult = AdminGuardSuccess | AdminGuardFailure;
+
+export type AdminActiveSalonContext = {
+  error: Response | null;
+  salon: Salon | null;
+  admin: AdminWithSalons | null;
+  impersonation: AdminImpersonationSession | null;
+};
 
 // =============================================================================
 // PHONE FORMATTING
@@ -157,6 +167,7 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
         role: adminSalonMembershipSchema.role,
         salonSlug: salonSchema.slug,
         salonName: salonSchema.name,
+        salonStatus: salonSchema.status,
       })
       .from(adminSalonMembershipSchema)
       .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
@@ -174,6 +185,7 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
         salonId: m.salonId,
         salonSlug: m.salonSlug,
         salonName: m.salonName,
+        status: m.salonStatus,
         role: m.role,
       })),
     };
@@ -207,6 +219,26 @@ export async function deleteAdminSession(sessionId: string): Promise<void> {
   await db.delete(adminSessionSchema).where(eq(adminSessionSchema.id, sessionId));
 }
 
+async function getValidatedAdminImpersonation(
+  admin: AdminWithSalons,
+): Promise<AdminImpersonationSession | null> {
+  const impersonation = await getAdminImpersonationSession();
+
+  if (!impersonation) {
+    return null;
+  }
+
+  if (!admin.isSuperAdmin) {
+    return null;
+  }
+
+  if (impersonation.adminUserId !== admin.id) {
+    return null;
+  }
+
+  return impersonation;
+}
+
 // =============================================================================
 // AUTHORIZATION GUARDS
 // =============================================================================
@@ -226,6 +258,26 @@ export async function requireAdmin(salonId: string): Promise<AdminGuardResult> {
         headers: { 'Content-Type': 'application/json' },
       }),
     };
+  }
+
+  const impersonation = await getValidatedAdminImpersonation(admin);
+  if (impersonation) {
+    if (impersonation.salonId !== salonId) {
+      return {
+        ok: false,
+        response: new Response(JSON.stringify({
+          error: {
+            code: 'IMPERSONATION_LOCKED',
+            message: 'Impersonation is locked to a different salon',
+          },
+        }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      };
+    }
+
+    return { ok: true, admin };
   }
 
   // Super admins have access to all salons
@@ -469,6 +521,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       role: adminSalonMembershipSchema.role,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      salonStatus: salonSchema.status,
     })
     .from(adminSalonMembershipSchema)
     .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
@@ -480,6 +533,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
+      status: m.salonStatus,
       role: m.role,
     })),
   };
@@ -513,4 +567,101 @@ export async function requireAdminSalon(
   }
 
   return { error: null, salon };
+}
+
+/**
+ * Resolve the admin's currently active salon from the persisted active-salon
+ * cookie, falling back to the first salon membership when no active selection
+ * exists yet.
+ */
+export async function requireActiveAdminSalon(): Promise<{
+  error: Response | null;
+  salon: Salon | null;
+  admin: AdminWithSalons | null;
+  impersonation: AdminImpersonationSession | null;
+}> {
+  const admin = await getAdminSession();
+
+  if (!admin) {
+    return {
+      error: new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      salon: null,
+      admin: null,
+      impersonation: null,
+    };
+  }
+
+  const impersonation = await getValidatedAdminImpersonation(admin);
+  if (impersonation) {
+    const salon = await getSalonById(impersonation.salonId);
+
+    if (!salon || salon.slug !== impersonation.salonSlug) {
+      return {
+        error: new Response(JSON.stringify({
+          error: {
+            code: 'INVALID_IMPERSONATION',
+            message: 'Impersonation session is invalid',
+          },
+        }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        salon: null,
+        admin,
+        impersonation: null,
+      };
+    }
+
+    return { error: null, salon, admin, impersonation };
+  }
+
+  const cookieStore = await cookies();
+  const activeSalonSlug = cookieStore.get(ACTIVE_SALON_COOKIE)?.value?.trim();
+
+  if (activeSalonSlug) {
+    if (admin.isSuperAdmin) {
+      const salon = await getSalonBySlug(activeSalonSlug);
+      if (salon) {
+        return { error: null, salon, admin, impersonation: null };
+      }
+    }
+
+    const membership = admin.salons.find(
+      salonMembership => salonMembership.salonSlug?.toLowerCase() === activeSalonSlug.toLowerCase(),
+    );
+
+    if (membership) {
+      const salon = await getSalonById(membership.salonId);
+      if (salon) {
+        return { error: null, salon, admin, impersonation: null };
+      }
+    }
+  }
+
+  const fallbackMembership = admin.salons[0];
+  if (fallbackMembership) {
+    const salon = await getSalonById(fallbackMembership.salonId);
+    if (salon) {
+      return { error: null, salon, admin, impersonation: null };
+    }
+  }
+
+  return {
+    error: new Response(JSON.stringify({ error: { code: 'NO_SALON_ACCESS', message: 'No salon access' } }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+    salon: null,
+    admin: null,
+    impersonation: null,
+  };
+}
+
+export async function getAdminImpersonationForAdmin(
+  admin: AdminWithSalons,
+): Promise<AdminImpersonationSession | null> {
+  return getValidatedAdminImpersonation(admin);
 }

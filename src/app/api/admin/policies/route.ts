@@ -4,7 +4,8 @@
  * GET - Get current salon policy (for admin's salon)
  * PUT - Update salon policy (for admin's salon)
  *
- * Protected by getAdminSession(). Derives salonId from session, not from client.
+ * Protected by requireActiveAdminSalon(). Derives salonId from the active
+ * admin salon selection, not from the client.
  */
 
 import {
@@ -17,7 +18,7 @@ import {
   normalizeSalonPolicyInput,
   SalonPolicyInputSchema,
 } from '@/core/appointments/policySchemas';
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -39,41 +40,15 @@ type ErrorResponse = {
 // =============================================================================
 
 export async function GET(): Promise<Response> {
-  // Auth check - get admin session
-  const admin = await getAdminSession();
-  if (!admin) {
-    return Response.json(
-      {
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Not authenticated',
-        },
-      } satisfies ErrorResponse,
-      { status: 401 },
-    );
+  const { error, salon } = await requireActiveAdminSalon();
+  if (error || !salon) {
+    return error!;
   }
-
-  // Derive salonId from admin's first salon membership
-  // (In production, you might want to allow selecting which salon via query param)
-  const salonMembership = admin.salons[0];
-  if (!salonMembership) {
-    return Response.json(
-      {
-        error: {
-          code: 'NO_SALON',
-          message: 'You are not a member of any salon',
-        },
-      } satisfies ErrorResponse,
-      { status: 403 },
-    );
-  }
-
-  const salonId = salonMembership.salonId;
 
   try {
     // Fetch both policies
     const [salonPolicy, superAdminPolicy] = await Promise.all([
-      getSalonPolicy(undefined, salonId),
+      getSalonPolicy(undefined, salon.id),
       getSuperAdminPolicy(),
     ]);
 
@@ -130,8 +105,8 @@ export async function GET(): Promise<Response> {
           autoPostIncludeBrand: effectivePolicy.autoPostIncludeBrand,
           autoPostAiCaptionEnabled: effectivePolicy.autoPostAIcaptionEnabled,
         },
-        salonId,
-        salonName: salonMembership.salonName,
+        salonId: salon.id,
+        salonName: salon.name,
         isDefault: salonPolicy.isDefault,
         updatedAt: salonPolicy.updatedAt?.toISOString() ?? null,
       },
@@ -155,36 +130,10 @@ export async function GET(): Promise<Response> {
 // =============================================================================
 
 export async function PUT(request: Request): Promise<Response> {
-  // Auth check - get admin session
-  const admin = await getAdminSession();
-  if (!admin) {
-    return Response.json(
-      {
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Not authenticated',
-        },
-      } satisfies ErrorResponse,
-      { status: 401 },
-    );
+  const { error, salon } = await requireActiveAdminSalon();
+  if (error || !salon) {
+    return error!;
   }
-
-  // Derive salonId from admin's first salon membership
-  // SECURITY: Always use session-derived salonId, never trust client
-  const salonMembership = admin.salons[0];
-  if (!salonMembership) {
-    return Response.json(
-      {
-        error: {
-          code: 'NO_SALON',
-          message: 'You are not a member of any salon',
-        },
-      } satisfies ErrorResponse,
-      { status: 403 },
-    );
-  }
-
-  const salonId = salonMembership.salonId;
 
   try {
     // Parse request body
@@ -209,7 +158,7 @@ export async function PUT(request: Request): Promise<Response> {
     const normalized = normalizeSalonPolicyInput(parsed.data);
 
     // Upsert policy for this salon only
-    const updated = await upsertSalonPolicy(undefined, salonId, normalized);
+    const updated = await upsertSalonPolicy(undefined, salon.id, normalized);
 
     // Fetch super admin policy to compute effective
     const superAdminPolicy = await getSuperAdminPolicy();
@@ -260,7 +209,7 @@ export async function PUT(request: Request): Promise<Response> {
           autoPostIncludeBrand: effectivePolicy.autoPostIncludeBrand,
           autoPostAiCaptionEnabled: effectivePolicy.autoPostAIcaptionEnabled,
         },
-        salonId,
+        salonId: salon.id,
         updatedAt: updated.updatedAt?.toISOString() ?? null,
       },
     });

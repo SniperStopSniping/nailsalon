@@ -9,6 +9,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { DialogShell } from '@/components/ui/dialog-shell';
+import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -169,79 +172,72 @@ function NotificationBell() {
       </button>
 
       {/* Notification Panel */}
-      {showPanel && (
+      <DialogShell
+        isOpen={showPanel}
+        onClose={() => setShowPanel(false)}
+        maxWidthClassName="max-w-md"
+        alignClassName="items-start justify-center pt-16 sm:pt-24"
+        contentClassName="mx-4 max-h-[70vh] overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16 sm:pt-24"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowPanel(false);
-            }
-          }}
+          className="flex items-center justify-between border-b px-4 py-3"
+          style={{ borderColor: themeVars.cardBorder }}
         >
-          <div className="mx-4 max-h-[70vh] w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
-            {/* Header */}
-            <div
-              className="flex items-center justify-between border-b px-4 py-3"
-              style={{ borderColor: themeVars.cardBorder }}
-            >
-              <h3 className="text-lg font-bold" style={{ color: themeVars.titleText }}>
-                Notifications
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowPanel(false)}
-                className="text-2xl text-neutral-400 hover:text-neutral-600"
-                aria-label="Close notifications"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="max-h-[60vh] overflow-y-auto">
-              {loading && (
-                <div className="flex items-center justify-center py-8">
-                  <div
-                    className="size-6 animate-spin rounded-full border-2 border-t-transparent"
-                    style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
-                  />
-                </div>
-              )}
-
-              {!loading && notifications.length === 0 && (
-                <div className="py-12 text-center">
-                  <div className="mb-2 text-4xl">📭</div>
-                  <p className="text-neutral-500">No notifications yet</p>
-                </div>
-              )}
-
-              {!loading && notifications.length > 0 && (
-                <div className="divide-y" style={{ borderColor: themeVars.cardBorder }}>
-                  {notifications.map(notif => (
-                    <div
-                      key={notif.id}
-                      className="px-4 py-3 transition-colors hover:bg-neutral-50"
-                      style={{
-                        backgroundColor: notif.readAt ? 'transparent' : themeVars.highlightBackground,
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <p className="font-medium text-neutral-900">{notif.title}</p>
-                          <p className="mt-0.5 text-sm text-neutral-600">{notif.body}</p>
-                        </div>
-                        <span className="shrink-0 text-xs text-neutral-400">
-                          {formatTime(notif.createdAt)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <h3 className="text-lg font-bold" style={{ color: themeVars.titleText }}>
+            Notifications
+          </h3>
+          <button
+            type="button"
+            onClick={() => setShowPanel(false)}
+            className="text-2xl text-neutral-400 hover:text-neutral-600"
+            aria-label="Close notifications"
+          >
+            ×
+          </button>
         </div>
-      )}
+
+        <div className="max-h-[60vh] overflow-y-auto p-4">
+          {loading && (
+            <AsyncStatePanel
+              loading
+              title="Loading notifications"
+              description="Checking for any new updates from the salon."
+            />
+          )}
+
+          {!loading && notifications.length === 0 && (
+            <AsyncStatePanel
+              icon="📭"
+              title="No notifications yet"
+              description="New staff updates and alerts will show up here."
+            />
+          )}
+
+          {!loading && notifications.length > 0 && (
+            <div className="-mx-4 -mb-4 divide-y" style={{ borderColor: themeVars.cardBorder }}>
+              {notifications.map(notif => (
+                <div
+                  key={notif.id}
+                  className="px-4 py-3 transition-colors hover:bg-neutral-50"
+                  style={{
+                    backgroundColor: notif.readAt ? 'transparent' : themeVars.highlightBackground,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <p className="font-medium text-neutral-900">{notif.title}</p>
+                      <p className="mt-0.5 text-sm text-neutral-600">{notif.body}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-neutral-400">
+                      {formatTime(notif.createdAt)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogShell>
     </>
   );
 }
@@ -259,39 +255,35 @@ export function StaffHeader({
 }: StaffHeaderProps) {
   return (
     <div className="pb-4 pt-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {showBack && onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
-              aria-label="Go back"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M12.5 15L7.5 10L12.5 5"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-          <div>
-            <h1 className="text-xl font-bold" style={{ color: themeVars.titleText }}>
-              {title}
-            </h1>
-            {subtitle && <p className="text-sm text-neutral-600">{subtitle}</p>}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {rightContent}
-          <NotificationBell />
-        </div>
-      </div>
+      <WorkspacePageHeader
+        title={title}
+        subtitle={subtitle}
+        titleClassName="text-xl font-bold"
+        leading={showBack && onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
+            aria-label="Go back"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M12.5 15L7.5 10L12.5 5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : undefined}
+        actions={(
+          <>
+            {rightContent}
+            <NotificationBell />
+          </>
+        )}
+      />
     </div>
   );
 }

@@ -1,6 +1,5 @@
-import { cookies } from 'next/headers';
-
-import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
+import { getSalonById, getTechnicianById } from '@/libs/queries';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -19,8 +18,8 @@ type ErrorResponse = {
 // =============================================================================
 // GET /api/staff/me - Get the current staff member's technician profile
 // =============================================================================
-// Uses cookie-based auth (staff_phone + staff_salon cookies)
-// No query params needed - reads from cookies set during staff login
+// Uses server-side staff session auth
+// No query params needed - reads from the validated session principal
 // =============================================================================
 
 export async function GET(): Promise<Response> {
@@ -46,27 +45,12 @@ export async function GET(): Promise<Response> {
   }
 
   try {
-    // 1. Read staff cookies
-    const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
-
-    // 2. Verify session exists
-    if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    const auth = await requireStaffApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
 
-    // 3. Resolve salon
-    const salon = await getSalonBySlug(staffSalon.value);
+    const salon = await getSalonById(auth.session.salonId);
     if (!salon) {
       return Response.json(
         {
@@ -79,8 +63,7 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    // 4. Get technician by phone
-    const technician = await getTechnicianByPhone(staffPhone.value, salon.id);
+    const technician = await getTechnicianById(auth.session.technicianId, salon.id);
 
     if (!technician) {
       return Response.json({
@@ -90,7 +73,6 @@ export async function GET(): Promise<Response> {
       });
     }
 
-    // 5. Return technician info
     return Response.json({
       data: {
         technician: {

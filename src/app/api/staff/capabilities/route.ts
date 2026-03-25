@@ -17,7 +17,7 @@ import {
   getEffectiveModuleEnabled,
   getEffectiveStaffVisibility,
 } from '@/libs/featureGating';
-import { requireStaffSession } from '@/libs/staffAuth';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
 import { salonSchema } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 import type {
@@ -34,7 +34,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<Response> {
   // 1. Require valid staff session
-  const auth = await requireStaffSession();
+  const auth = await requireStaffApiSession();
   if (!auth.ok) {
     return auth.response;
   }

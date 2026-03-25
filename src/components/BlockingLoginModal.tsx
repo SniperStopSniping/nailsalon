@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { FormInput } from '@/components/FormInput';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ModalShell } from '@/components/ui/modal-shell';
 import { themeVars } from '@/theme';
+import { getApiErrorMessage } from '@/utils/apiError';
 
 type AuthState = 'checking' | 'loggedOut' | 'verify' | 'success';
 
@@ -37,15 +40,38 @@ export function BlockingLoginModal({
   const [error, setError] = useState<string | null>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const sendInFlightRef = useRef(false);
+  const verifyInFlightRef = useRef(false);
+  const verifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifySucceededRef = useRef(false);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successHandledRef = useRef(false);
+  const lastSubmittedCodeRef = useRef<string | null>(null);
+
+  const clearVerifyTimer = useCallback(() => {
+    if (verifyTimerRef.current) {
+      clearTimeout(verifyTimerRef.current);
+      verifyTimerRef.current = null;
+    }
+  }, []);
+
+  const clearSuccessTimer = useCallback(() => {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+  }, []);
 
   const handleSendCode = useCallback(async () => {
-    if (!phone.trim() || phone.length < 10 || isLoading) {
+    if (!phone.trim() || phone.length < 10 || isLoading || sendInFlightRef.current) {
       return;
     }
 
+    sendInFlightRef.current = true;
     setIsButtonPressed(true);
     setIsLoading(true);
     setError(null);
+    let transitionScheduled = false;
 
     try {
       const response = await fetch('/api/auth/send-otp', {
@@ -57,13 +83,12 @@ export function BlockingLoginModal({
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Failed to send code');
-        setIsButtonPressed(false);
-        setIsLoading(false);
+        setError(getApiErrorMessage(data, 'Failed to send code'));
         return;
       }
 
       // Success - move to verify state
+      transitionScheduled = true;
       setTimeout(() => {
         setIsButtonPressed(false);
         setIsLoading(false);
@@ -71,19 +96,35 @@ export function BlockingLoginModal({
       }, 200);
     } catch {
       setError('Network error. Please try again.');
-      setIsButtonPressed(false);
-      setIsLoading(false);
+    } finally {
+      sendInFlightRef.current = false;
+      if (!transitionScheduled) {
+        setIsButtonPressed(false);
+        setIsLoading(false);
+      }
     }
   }, [phone, isLoading]);
 
   const handleVerifyCode = useCallback(async () => {
-    if (code.trim().length < 6 || isLoading) {
+    clearVerifyTimer();
+    const currentCode = code.trim();
+
+    if (
+      currentCode.length < 6
+      || isLoading
+      || verifyInFlightRef.current
+      || verifySucceededRef.current
+      || lastSubmittedCodeRef.current === currentCode
+    ) {
       return;
     }
 
+    lastSubmittedCodeRef.current = currentCode;
+    verifyInFlightRef.current = true;
     setIsVerifyButtonPressed(true);
     setIsLoading(true);
     setError(null);
+    let transitionScheduled = false;
 
     try {
       const response = await fetch('/api/auth/verify-otp', {
@@ -95,13 +136,16 @@ export function BlockingLoginModal({
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Invalid code');
-        setIsVerifyButtonPressed(false);
-        setIsLoading(false);
+        setError(getApiErrorMessage(
+          data,
+          'This verification code is incorrect or expired. Please request a new code and try again.',
+        ));
         return;
       }
 
       // Success - show celebration
+      verifySucceededRef.current = true;
+      transitionScheduled = true;
       setTimeout(() => {
         setIsVerifyButtonPressed(false);
         setIsLoading(false);
@@ -109,10 +153,14 @@ export function BlockingLoginModal({
       }, 200);
     } catch {
       setError('Network error. Please try again.');
-      setIsVerifyButtonPressed(false);
-      setIsLoading(false);
+    } finally {
+      verifyInFlightRef.current = false;
+      if (!transitionScheduled) {
+        setIsVerifyButtonPressed(false);
+        setIsLoading(false);
+      }
     }
-  }, [phone, code, isLoading]);
+  }, [clearVerifyTimer, code, isLoading, phone]);
 
   const handleResendCode = useCallback(async () => {
     if (isLoading) {
@@ -132,7 +180,7 @@ export function BlockingLoginModal({
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Failed to resend code');
+        setError(getApiErrorMessage(data, 'Failed to resend code'));
       } else {
         setCode(''); // Clear existing code
       }
@@ -152,18 +200,29 @@ export function BlockingLoginModal({
     }
     return undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, authState]); // Intentionally exclude handleSendCode to prevent loops
+  }, [phone, authState, isLoading, handleSendCode]);
 
   // Auto-verify when 6 digits entered (only in verify state, not loading)
   useEffect(() => {
-    if (code.length === 6 && authState === 'verify' && !isLoading) {
+    clearVerifyTimer();
+
+    if (
+      code.length === 6
+      && authState === 'verify'
+      && !isLoading
+      && !verifySucceededRef.current
+      && lastSubmittedCodeRef.current !== code
+    ) {
       // Small delay so user sees the button activate
-      const timer = setTimeout(() => handleVerifyCode(), 150);
-      return () => clearTimeout(timer);
+      verifyTimerRef.current = setTimeout(() => {
+        void handleVerifyCode();
+      }, 150);
+      return () => clearVerifyTimer();
     }
     return undefined;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, authState]); // Intentionally exclude handleVerifyCode to prevent loops
+  }, [code, authState, isLoading, handleVerifyCode]);
+
+  useEffect(() => clearVerifyTimer, [clearVerifyTimer]);
 
   // Auto-focus phone input when modal opens
   useEffect(() => {
@@ -197,12 +256,22 @@ export function BlockingLoginModal({
 
   // Handle success state - show celebration then proceed
   useEffect(() => {
-    if (authState === 'success') {
-      setTimeout(() => {
+    clearSuccessTimer();
+
+    if (authState === 'success' && !successHandledRef.current) {
+      successHandledRef.current = true;
+      successTimerRef.current = setTimeout(() => {
         onLoginSuccess(phone);
       }, 2000);
+      return () => clearSuccessTimer();
     }
-  }, [authState, onLoginSuccess, phone]);
+
+    if (authState !== 'success') {
+      successHandledRef.current = false;
+    }
+
+    return undefined;
+  }, [authState, clearSuccessTimer, onLoginSuccess, phone]);
 
   // Check for existing session when modal opens
   useEffect(() => {
@@ -242,6 +311,11 @@ export function BlockingLoginModal({
       setIsContentVisible(false);
       setTimeout(() => {
         setIsVisible(false);
+        clearVerifyTimer();
+        clearSuccessTimer();
+        successHandledRef.current = false;
+        verifySucceededRef.current = false;
+        lastSubmittedCodeRef.current = null;
         setAuthState('checking');
         setPhone('');
         setCode('');
@@ -276,22 +350,7 @@ export function BlockingLoginModal({
   const confettiColors = [themeVars.primary, themeVars.accent, '#4ade80', '#f472b6', '#60a5fa'];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Animated backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
-        style={{ opacity: isContentVisible ? 1 : 0 }}
-      />
-
-      {/* Modal content */}
-      <div
-        className="relative z-10 mx-4 w-full max-w-sm transition-all duration-300"
-        style={{
-          opacity: isContentVisible ? 1 : 0,
-          transform: isContentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.95)',
-        }}
-      >
-        <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <ModalShell isVisible={isVisible} isContentVisible={isContentVisible}>
           {/* Checking Session State */}
           {authState === 'checking' && (
             <div className="flex flex-col items-center justify-center p-12">
@@ -435,10 +494,15 @@ export function BlockingLoginModal({
 
                   {/* Phone input - tap to focus */}
                   <div
+                    role="button"
+                    tabIndex={0}
                     className="cursor-text"
                     onClick={() => phoneInputRef.current?.focus()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') phoneInputRef.current?.focus();
+                    }}
                   >
-                    <label className="mb-2 block text-sm font-medium text-neutral-600">
+                    <label htmlFor="blocking-phone" className="mb-2 block text-sm font-medium text-neutral-600">
                       Your phone number
                     </label>
                     <div className="flex items-center gap-2">
@@ -446,7 +510,7 @@ export function BlockingLoginModal({
                         +1
                       </div>
                       <div className="relative flex-1">
-                        <FormInput
+                        <Input
                           ref={phoneInputRef}
                           type="tel"
                           inputMode="numeric"
@@ -457,9 +521,10 @@ export function BlockingLoginModal({
                           onChange={(e) => {
                             const digits = e.target.value.replace(/\D/g, '');
                             setPhone(digits.slice(0, 10));
+                            setError(null);
                           }}
                           placeholder="Enter your number"
-                          className="!rounded-xl !p-4 !text-lg !font-medium"
+                          className="h-14 rounded-xl border-neutral-200 bg-neutral-50 px-4 text-lg font-medium shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
                         />
                         {phone.length === 0 && (
                           <div
@@ -481,25 +546,19 @@ export function BlockingLoginModal({
                   )}
 
                   {/* Send code button with press animation - using theme gradient */}
-                  <button
-                    type="button"
+                  <Button
                     onClick={handleSendCode}
                     disabled={phone.length < 10 || isLoading}
-                    className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
-                      phone.length >= 10 && !isLoading
-                        ? 'text-neutral-900 shadow-lg hover:shadow-xl'
-                        : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
-                    }`}
+                    variant={phone.length >= 10 && !isLoading ? 'brand' : 'secondary'}
+                    size="pill"
+                    className="w-full rounded-xl py-4 text-base font-bold"
                     style={{
-                      background: phone.length >= 10 && !isLoading
-                        ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
-                        : undefined,
                       transform: isButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
                   >
                     {isLoading ? 'Sending...' : phone.length >= 10 ? 'Send Code →' : `Enter ${10 - phone.length} more digits`}
-                  </button>
+                  </Button>
 
                   {/* Cancel */}
                   <button
@@ -553,14 +612,19 @@ export function BlockingLoginModal({
 
                   {/* Code input - tap to focus */}
                   <div
+                    role="button"
+                    tabIndex={0}
                     className="cursor-text"
                     onClick={() => codeInputRef.current?.focus()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') codeInputRef.current?.focus();
+                    }}
                   >
-                    <label className="mb-2 block text-sm font-medium text-neutral-600">
+                    <label htmlFor="blocking-code" className="mb-2 block text-sm font-medium text-neutral-600">
                       Enter verification code
                     </label>
-                    <div className="relative">
-                      <FormInput
+                      <div className="relative">
+                      <Input
                         ref={codeInputRef}
                         type="tel"
                         inputMode="numeric"
@@ -568,10 +632,23 @@ export function BlockingLoginModal({
                         autoComplete="one-time-code"
                         autoFocus
                         value={code}
-                        onChange={e =>
-                          setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onChange={e => {
+                          const nextCode = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          if (nextCode.length < 6) {
+                            lastSubmittedCodeRef.current = null;
+                          }
+                          verifySucceededRef.current = false;
+                          setCode(nextCode);
+                          setError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleVerifyCode();
+                          }
+                        }}
                         placeholder="• • • • • •"
-                        className="!w-full !rounded-xl !px-4 !py-5 !text-center !text-2xl !font-bold !tracking-[0.4em]"
+                        className="h-16 w-full rounded-xl border-neutral-200 bg-neutral-50 px-4 text-center text-2xl font-bold tracking-[0.4em] shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
                       />
                       {code.length === 0 && (
                         <div
@@ -585,25 +662,19 @@ export function BlockingLoginModal({
                   </div>
 
                   {/* Verify button with press animation - using theme gradient */}
-                  <button
-                    type="button"
-                    onClick={handleVerifyCode}
+                  <Button
+                    onClick={() => void handleVerifyCode()}
                     disabled={code.length < 6 || isLoading}
-                    className={`w-full rounded-xl py-4 text-base font-bold transition-all duration-200 ${
-                      code.length >= 6 && !isLoading
-                        ? 'text-neutral-900 shadow-lg hover:shadow-xl'
-                        : 'cursor-not-allowed bg-neutral-200 text-neutral-400'
-                    }`}
+                    variant={code.length >= 6 && !isLoading ? 'brand' : 'secondary'}
+                    size="pill"
+                    className="w-full rounded-xl py-4 text-base font-bold"
                     style={{
-                      background: code.length >= 6 && !isLoading
-                        ? `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`
-                        : undefined,
                       transform: isVerifyButtonPressed ? 'scale(0.95)' : 'scale(1)',
                       transition: 'transform 0.15s ease-out',
                     }}
                   >
                     {isLoading ? 'Verifying...' : code.length >= 6 ? 'Verify & Continue →' : `Enter ${6 - code.length} more digits`}
-                  </button>
+                  </Button>
 
                   {/* Error message */}
                   {error && (
@@ -617,6 +688,7 @@ export function BlockingLoginModal({
                     <button
                       type="button"
                       onClick={() => {
+                        lastSubmittedCodeRef.current = null;
                         setAuthState('loggedOut');
                         setPhone(''); // Clear phone so user can enter new one
                         setCode('');
@@ -649,11 +721,9 @@ export function BlockingLoginModal({
               </div>
             </>
           )}
-        </div>
-
-        {/* Animation keyframes */}
-        <style jsx>
-          {`
+      {/* Animation keyframes */}
+      <style jsx>
+        {`
           @keyframes fadeSlideIn {
             from {
               opacity: 0;
@@ -709,8 +779,7 @@ export function BlockingLoginModal({
             100% { transform: translate(50px, -60px) rotate(-270deg); opacity: 0; }
           }
         `}
-        </style>
-      </div>
-    </div>
+      </style>
+    </ModalShell>
   );
 }

@@ -1,14 +1,6 @@
 'use client';
 
-import type { Easing } from 'framer-motion';
-import {
-  AnimatePresence,
-  motion,
-  useMotionValue,
-  useReducedMotion,
-  useSpring,
-  useTransform,
-} from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Calendar,
   Check,
@@ -16,7 +8,6 @@ import {
   CreditCard,
   Fingerprint,
   Gift,
-  Home,
   Image as ImageIcon,
   LogOut,
   Mail,
@@ -29,10 +20,15 @@ import {
   User,
 } from 'lucide-react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
+import { SectionCard } from '@/components/ui/section-card';
+import { StateCard } from '@/components/ui/state-card';
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams';
+import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { cn } from '@/utils/Helpers';
@@ -52,7 +48,16 @@ type AppointmentData = {
   status: string;
   totalPrice: number;
   totalDurationMinutes: number;
-  clientPhone: string;
+  locationId: string | null;
+};
+
+type AppointmentLocationData = {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
 };
 
 type ServiceData = {
@@ -74,6 +79,7 @@ type NextAppointmentResponse = {
     appointment: AppointmentData | null;
     services: ServiceData[];
     technician: TechnicianData | null;
+    location: AppointmentLocationData | null;
   };
 };
 
@@ -94,21 +100,6 @@ function formatDateWithTime(isoString: string): string {
   const hour12 = hours % 12 || 12;
   return `${months[date.getMonth()]} ${date.getDate()} · ${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
 }
-
-// --- Animation Variants ---
-const meshVariant = {
-  animate: {
-    scale: [1, 1.1, 0.9, 1],
-    x: [0, 20, -20, 0],
-    y: [0, -20, 20, 0],
-    rotate: [0, 10, -10, 0],
-    transition: {
-      duration: 15,
-      repeat: Infinity,
-      ease: 'easeInOut' as Easing,
-    },
-  },
-};
 
 // --- Subcomponents ---
 
@@ -168,8 +159,7 @@ const StatItem = ({
 );
 
 /**
- * 1. PARALLAX MEMBER CARD (GOD MODE - OPTIMIZED)
- * Features: Mouse Tilt + Mobile Gyroscope + Breathing Mesh + Reduced Motion Support
+ * 1. MEMBER SUMMARY CARD
  */
 const MemberCard = ({
   userName,
@@ -177,6 +167,8 @@ const MemberCard = ({
   profileImage,
   userStats,
   activePoints,
+  pendingPoints,
+  pendingAppointments,
   onImageClick,
   profileImageInputRef,
   onProfileImageChange,
@@ -188,250 +180,162 @@ const MemberCard = ({
   profileImage: string | null;
   userStats: { totalVisits: number; tier: string; savedAmount: number };
   activePoints: number;
+  pendingPoints: number;
+  pendingAppointments: number;
   onImageClick: () => void;
   profileImageInputRef: React.RefObject<HTMLInputElement | null>;
   onProfileImageChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onEditProfile: () => void;
   hasProfileReward: boolean;
 }) => {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const shouldReduceMotion = useReducedMotion();
-
-  // Calculate progress to next reward (2500 pts)
   const progressPercent = Math.min(100, (activePoints / 2500) * 100);
-
-  // Gyroscope Logic for Mobile
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    if (shouldReduceMotion) {
-      return;
-    }
-
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      const gamma = e.gamma;
-      const beta = e.beta;
-
-      if (gamma === null || beta === null) {
-        return;
-      }
-
-      const clampedX = Math.min(Math.max(gamma, -20), 20);
-      const clampedY = Math.min(Math.max(beta, -20), 20);
-      x.set(clampedX * 2);
-      y.set(clampedY * 2);
-    };
-
-    window.addEventListener('deviceorientation', handleOrientation);
-    return () => window.removeEventListener('deviceorientation', handleOrientation);
-  }, [x, y, shouldReduceMotion]);
-
-  const rotateX = useTransform(y, [-100, 100], [5, -5]);
-  const rotateY = useTransform(x, [-100, 100], [-5, 5]);
-
-  const springConfig = { damping: 25, stiffness: 150 };
-  const rotateXSpring = useSpring(rotateX, springConfig);
-  const rotateYSpring = useSpring(rotateY, springConfig);
-
-  function handleMouseMove(event: React.MouseEvent<HTMLDivElement, MouseEvent>) {
-    if (shouldReduceMotion) {
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    x.set(event.clientX - centerX);
-    y.set(event.clientY - centerY);
-  }
-
-  function handleMouseLeave() {
-    x.set(0);
-    y.set(0);
-  }
 
   return (
     <motion.div
-      style={{
-        rotateX: shouldReduceMotion ? 0 : rotateXSpring,
-        rotateY: shouldReduceMotion ? 0 : rotateYSpring,
-        perspective: 1000,
-      }}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      className="group relative z-10 aspect-[1.58/1] w-full cursor-grab select-none active:cursor-grabbing"
+      className="mt-1"
       aria-label="Gold Member Card showing stats and savings"
       role="region"
     >
-      {/* Container with Luxury Layered Shadow */}
-      <div
-        className="absolute inset-0 border-[1.5px] bg-[var(--n5-bg-card)] transition-transform duration-500 hover:scale-[1.02]"
-        style={{
-          borderRadius: n5.radiusCard,
-          boxShadow: n5.shadowLg,
-          borderColor: 'var(--n5-border)',
-        }}
+      <SectionCard
+        className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+        contentClassName="space-y-5"
       >
-        {/* A. Animated Mesh Background */}
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ borderRadius: n5.radiusCard }}
-        >
-          {!shouldReduceMotion && (
-            <>
-              <motion.div
-                variants={meshVariant}
-                animate="animate"
-                className="absolute -top-1/2 left-[-20%] h-full w-4/5 rounded-full bg-[var(--n5-bg-highlight)] opacity-80 blur-[80px]"
-              />
-              <motion.div
-                variants={meshVariant}
-                animate="animate"
-                transition={{ delay: 2, duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-[-20%] right-[-10%] h-4/5 w-3/5 rounded-full bg-[var(--n5-accent-soft)] opacity-50 mix-blend-multiply blur-[60px]"
-              />
-              <motion.div
-                variants={meshVariant}
-                animate="animate"
-                transition={{ delay: 5, duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute right-[10%] top-[20%] h-3/5 w-2/5 rounded-full bg-[var(--n5-accent)] opacity-20 blur-[90px]"
-              />
-            </>
-          )}
-        </div>
-
-        {/* B. Glass Surface */}
-        <div
-          className="bg-[var(--n5-bg-card)]/30 absolute inset-0 backdrop-blur-[20px]"
-          style={{ borderRadius: n5.radiusCard }}
-        />
-
-        {/* C. Content Layer */}
-        <div
-          className="relative flex h-full flex-col justify-between text-[var(--n5-ink-main)]"
-          style={{ padding: n5.spaceLg }}
-        >
-          {/* Top Row */}
-          <div className="flex items-start justify-between">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="size-4 text-[var(--n5-accent)]" />
-              <span className="font-body text-[10px] font-bold uppercase tracking-[0.2em] opacity-90">
-                {userStats.tier}
-                {' '}
-                Member
-              </span>
-            </div>
-            {/* Salon Logo */}
-            <div
-              className="bg-[var(--n5-bg-card)]/40 flex size-10 items-center justify-center border shadow-sm backdrop-blur-md"
+        <div className="flex items-start gap-4">
+          <div className="relative">
+            <input
+              ref={profileImageInputRef as React.RefObject<HTMLInputElement>}
+              type="file"
+              accept="image/*"
+              onChange={onProfileImageChange}
+              className="hidden"
+              aria-label="Upload profile image"
+            />
+            <button
+              type="button"
+              onClick={onImageClick}
+              className="relative size-16 overflow-hidden border shadow-sm"
               style={{
                 borderRadius: n5.radiusPill,
                 borderColor: 'var(--n5-border)',
               }}
+              aria-label="Change profile picture"
             >
-              <span className="font-heading text-xs font-bold text-[var(--n5-ink-main)]">N5</span>
-            </div>
+              {profileImage
+                ? (
+                    <Image
+                      src={profileImage}
+                      alt="Profile"
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  )
+                : (
+                    <div
+                      className="flex size-full items-center justify-center"
+                      style={{ background: 'color-mix(in srgb, var(--n5-accent) 18%, white)' }}
+                    >
+                      <User className="size-7 text-[var(--n5-accent)]" />
+                    </div>
+                  )}
+            </button>
           </div>
 
-          {/* Middle Row */}
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <div
-                className="absolute -inset-1 rounded-full opacity-60 blur-sm"
-                style={{ background: `linear-gradient(to right, var(--n5-accent), var(--n5-bg-highlight))` }}
-              />
-              <input
-                ref={profileImageInputRef as React.RefObject<HTMLInputElement>}
-                type="file"
-                accept="image/*"
-                onChange={onProfileImageChange}
-                className="hidden"
-                aria-label="Upload profile image"
-              />
-              <button
-                type="button"
-                onClick={onImageClick}
-                className="relative size-16 overflow-hidden rounded-full border-[3px] border-white shadow-sm"
-                aria-label="Change profile picture"
-              >
-                {profileImage
-                  ? (
-                      <Image
-                        src={profileImage}
-                        alt="Profile"
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    )
-                  : (
-                      <div
-                        className="flex size-full items-center justify-center text-2xl"
-                        style={{ background: `linear-gradient(to bottom right, var(--n5-accent-soft), var(--n5-accent))` }}
-                      >
-                        👤
-                      </div>
-                    )}
-              </button>
-              <div
-                className="absolute bottom-0 right-0 z-10 size-4 rounded-full border-2 border-white bg-[var(--n5-success)] shadow-sm"
-              />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="font-heading text-2xl font-semibold leading-none tracking-tight">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                  {userStats.tier}
+                  {' '}
+                  member
+                </p>
+                <h2 className="font-heading mt-1 truncate text-2xl font-semibold tracking-tight text-[var(--n5-ink-main)]">
                   {userName}
                 </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic();
-                    onEditProfile();
-                  }}
-                  className="bg-[var(--n5-bg-surface)]/60 flex size-6 items-center justify-center rounded-full text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
-                  aria-label="Edit profile"
-                >
-                  <Pencil className="size-3" />
-                </button>
-                {hasProfileReward && (
-                  <span
-                    className="bg-[var(--n5-accent)]/10 font-body px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--n5-accent)]"
-                    style={{ borderRadius: n5.radiusPill }}
-                  >
-                    +2,500 pts
-                  </span>
+                {userEmail && (
+                  <p className="font-body mt-1 truncate text-sm text-[var(--n5-ink-muted)]">
+                    {userEmail}
+                  </p>
                 )}
               </div>
-              {userEmail && (
-                <p
-                  className="font-body mt-0.5 max-w-[180px] truncate text-[11px] font-medium text-[var(--n5-ink-muted)]"
-                >
-                  {userEmail}
-                </p>
-              )}
-              <p
-                className="font-body mt-1 text-[11px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]"
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic();
+                  onEditProfile();
+                }}
+                className="flex size-9 shrink-0 items-center justify-center border bg-white text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-accent)]"
+                style={{
+                  borderRadius: n5.radiusPill,
+                  borderColor: 'var(--n5-border)',
+                }}
+                aria-label="Edit profile"
+              >
+                <Pencil className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span
+                className="font-body px-3 py-1 text-[11px] font-semibold text-[var(--n5-ink-main)]"
+                style={{
+                  borderRadius: n5.radiusPill,
+                  backgroundColor: 'var(--n5-bg-page)',
+                }}
               >
                 Saved $
                 {userStats.savedAmount}
                 {' '}
                 this year
-              </p>
+              </span>
+              {hasProfileReward && (
+                <span
+                  className="font-body px-3 py-1 text-[11px] font-semibold text-[var(--n5-accent)]"
+                  style={{
+                    borderRadius: n5.radiusPill,
+                    backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, white)',
+                  }}
+                >
+                  Welcome bonus added
+                </span>
+              )}
             </div>
           </div>
-
-          {/* Bottom Stats */}
-          <div
-            className="grid grid-cols-3 gap-4 pt-4"
-            style={{ borderTopWidth: 1, borderColor: 'var(--n5-border-muted)' }}
-          >
-            <StatItem label="Visits" value={userStats.totalVisits.toString()} />
-            <StatItem label="Points" value={activePoints >= 1000 ? `${(activePoints / 1000).toFixed(1)}k` : activePoints.toString()} highlight />
-            <StatItem label="Next Reward" value={`${Math.round(progressPercent)}%`} isProgress progressValue={progressPercent} />
-          </div>
         </div>
-      </div>
+
+        <div
+          className="grid grid-cols-3 gap-3 border-t pt-4"
+          style={{ borderColor: 'var(--n5-border-muted)' }}
+        >
+          <StatItem label="Visits" value={userStats.totalVisits.toString()} />
+          <StatItem label="Points" value={activePoints >= 1000 ? `${(activePoints / 1000).toFixed(1)}k` : activePoints.toString()} highlight />
+          <StatItem label="Next Reward" value={`${Math.round(progressPercent)}%`} isProgress progressValue={progressPercent} />
+        </div>
+
+        {pendingPoints > 0 && (
+          <div
+            className="rounded-xl border px-4 py-3"
+            style={{
+              borderColor: 'var(--n5-border)',
+              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 6%, white)',
+            }}
+          >
+            <p className="font-body text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+              Pending points
+            </p>
+            <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+              +
+              {pendingPoints.toLocaleString()}
+              {' '}
+              pts
+              {pendingAppointments > 0 ? ` from ${pendingAppointments} booked ${pendingAppointments === 1 ? 'visit' : 'visits'}` : ''}
+            </p>
+            <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+              These points move into your active balance after the salon marks the appointment complete.
+            </p>
+          </div>
+        )}
+      </SectionCard>
     </motion.div>
   );
 };
@@ -443,57 +347,62 @@ const AppointmentTicket = ({
   appointment,
   services,
   technician,
+  location,
   loading,
   onManageBooking,
+  onOpenDirections,
   onBookNow,
 }: {
   appointment: AppointmentData | null;
   services: ServiceData[];
   technician: TechnicianData | null;
+  location: AppointmentLocationData | null;
   loading: boolean;
   onManageBooking: () => void;
+  onOpenDirections: () => void;
   onBookNow: () => void;
 }) => {
   if (loading) {
     return (
-      <div
-        className="bg-[var(--n5-bg-card)]/50 mt-6 h-40 w-full animate-pulse"
-        style={{ borderRadius: n5.radiusCard }}
-      />
+      <SectionCard className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]">
+        <div className="space-y-3">
+          <div className="h-4 w-32 animate-pulse rounded bg-[var(--n5-bg-surface)]/80" />
+          <div className="h-16 animate-pulse rounded-2xl bg-[var(--n5-bg-surface)]/80" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="h-11 animate-pulse rounded-xl bg-[var(--n5-bg-surface)]/80" />
+            <div className="h-11 animate-pulse rounded-xl bg-[var(--n5-bg-surface)]/80" />
+          </div>
+        </div>
+      </SectionCard>
     );
   }
 
   if (!appointment) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="relative mt-6 w-full overflow-hidden bg-[var(--n5-bg-card)] text-center"
-        style={{
-          borderRadius: n5.radiusCard,
-          boxShadow: n5.shadowSm,
-          padding: n5.spaceLg,
-        }}
-        aria-label="No upcoming appointments"
-      >
-        <div className="mb-2 text-3xl">📅</div>
-        <p className="font-body mb-3 text-[var(--n5-ink-muted)]">No upcoming appointments</p>
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic();
-            onBookNow();
-          }}
-          aria-label="Book your first appointment"
-          className="font-body bg-[var(--n5-accent)] px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96]"
-          style={{
-            borderRadius: n5.radiusMd,
-            boxShadow: n5.shadowSm,
-          }}
-        >
-          Book Your First Appointment
-        </button>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <StateCard
+          className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+          icon="📅"
+          title="Nothing booked yet"
+          description="When you are ready, reserve your next appointment."
+          action={(
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic();
+                onBookNow();
+              }}
+              aria-label="Book an appointment"
+              className="font-body mt-2 bg-[var(--n5-accent)] px-6 py-3 text-[13px] font-semibold tracking-wide text-[var(--n5-ink-inverse)] transition-all active:scale-[0.96]"
+              style={{
+                borderRadius: n5.radiusMd,
+                boxShadow: n5.shadowSm,
+              }}
+            >
+              Book an appointment
+            </button>
+          )}
+        />
       </motion.div>
     );
   }
@@ -501,117 +410,101 @@ const AppointmentTicket = ({
   const serviceName = services.map(s => s.name).join(' + ') || 'Appointment';
   const techName = technician?.name || 'Any Artist';
   const price = `$${(appointment.totalPrice / 100).toFixed(0)}`;
+  const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="relative mt-6 w-full overflow-hidden bg-[var(--n5-bg-card)]"
-      style={{
-        borderRadius: n5.radiusCard,
-        boxShadow: n5.shadowSm,
-        padding: n5.spaceLg,
-      }}
       aria-label={`Upcoming appointment: ${serviceName} with ${techName}`}
     >
-      <motion.div
-        animate={{ opacity: [0, 0.5, 0] }}
-        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-        className="pointer-events-none absolute inset-0"
-        style={{
-          borderRadius: n5.radiusCard,
-          borderWidth: 1.5,
-          borderColor: 'var(--n5-accent)',
-        }}
-      />
-
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2 text-[var(--n5-accent)]">
-          <Calendar className="size-4" strokeWidth={2.5} />
-          <span className="font-body text-[11px] font-bold uppercase tracking-wider">Upcoming</span>
-        </div>
-        <span
-          className="font-body bg-[var(--n5-bg-surface)] px-3 py-1 text-xs font-semibold text-[var(--n5-ink-main)]"
-          style={{ borderRadius: n5.radiusPill }}
-        >
-          {formatDateWithTime(appointment.startTime)}
-        </span>
-      </div>
-
-      <div className="flex items-start space-x-4">
-        <div
-          className="relative size-14 overflow-hidden shadow-sm"
-          style={{ borderRadius: n5.radiusMd }}
-        >
-          {services[0]?.imageUrl
-            ? (
-                <Image
-                  src={services[0].imageUrl}
-                  alt={serviceName}
-                  fill
-                  className="object-cover"
-                />
-              )
-            : (
-                <div
-                  className="flex size-full items-center justify-center bg-[var(--n5-bg-surface)] text-xl"
-                >
-                  💅
-                </div>
-              )}
-        </div>
-        <div className="flex-1">
-          <h3
-            className="font-heading text-lg font-semibold leading-tight text-[var(--n5-ink-main)]"
+      <SectionCard
+        className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+        title="Upcoming appointment"
+        description={formatDateWithTime(appointment.startTime)}
+        actions={(
+          <span
+            className="font-body px-3 py-1 text-xs font-semibold text-[var(--n5-ink-main)]"
+            style={{
+              borderRadius: n5.radiusPill,
+              backgroundColor: 'var(--n5-bg-page)',
+            }}
           >
-            {serviceName}
-          </h3>
-          <p
-            className="font-body mt-1 text-sm font-medium text-[var(--n5-ink-muted)]"
-          >
-            with
-            {' '}
-            {techName}
-            {' '}
-            ·
-            {' '}
             {price}
-          </p>
+          </span>
+        )}
+        contentClassName="space-y-4"
+      >
+        <div className="flex items-start gap-4">
+          <div
+            className="relative size-14 overflow-hidden border"
+            style={{ borderRadius: n5.radiusMd, borderColor: 'var(--n5-border)' }}
+          >
+            {services[0]?.imageUrl
+              ? (
+                  <Image
+                    src={services[0].imageUrl}
+                    alt={serviceName}
+                    fill
+                    className="object-cover"
+                  />
+                )
+              : (
+                  <div className="flex size-full items-center justify-center bg-[var(--n5-bg-surface)] text-xl">
+                    💅
+                  </div>
+                )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-heading text-lg font-semibold leading-tight text-[var(--n5-ink-main)]">
+              {serviceName}
+            </h3>
+            <p className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
+              with
+              {' '}
+              {techName}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic();
-            onManageBooking();
-          }}
-          aria-label={`Manage booking for ${serviceName}`}
-          className="font-body flex min-h-[48px] items-center justify-center bg-[var(--n5-accent)] py-3 text-xs font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
-          style={{
-            borderRadius: n5.radiusMd,
-            boxShadow: n5.shadowSm,
-          }}
-        >
-          Manage Booking
-        </button>
-        <button
-          type="button"
-          onClick={triggerHaptic}
-          aria-label="Get directions to salon"
-          className="font-body flex min-h-[48px] items-center justify-center space-x-1 bg-transparent py-3 text-xs font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-          style={{
-            borderRadius: n5.radiusMd,
-            borderWidth: 1,
-            borderColor: 'var(--n5-border)',
-          }}
-        >
-          <MapPin className="size-3" />
-          <span>Directions</span>
-        </button>
-      </div>
+        <div className={`grid gap-3 ${directionsUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <button
+            type="button"
+            data-testid="profile-manage-booking"
+            onClick={() => {
+              triggerHaptic();
+              onManageBooking();
+            }}
+            aria-label={`Manage booking for ${serviceName}`}
+            className="font-body flex min-h-[48px] items-center justify-center bg-[var(--n5-accent)] py-3 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+            style={{
+              borderRadius: n5.radiusMd,
+              boxShadow: n5.shadowSm,
+            }}
+          >
+            Manage booking
+          </button>
+          {directionsUrl && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic();
+                onOpenDirections();
+              }}
+              aria-label="Get directions to salon"
+              className="font-body flex min-h-[48px] items-center justify-center space-x-1 border py-3 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              style={{
+                borderRadius: n5.radiusMd,
+                borderColor: 'var(--n5-border)',
+              }}
+            >
+              <MapPin className="size-4" />
+              <span>Directions</span>
+            </button>
+          )}
+        </div>
+      </SectionCard>
     </motion.div>
   );
 };
@@ -622,48 +515,48 @@ const AppointmentTicket = ({
 const QuickActions = ({ onNavigate }: { onNavigate: (path: string) => void }) => {
   const actions = [
     { label: 'Book', icon: Calendar, path: '/book' },
-    { label: 'Rewards', icon: Gift, hasUpdate: true, path: '/rewards' },
+    { label: 'Rewards', icon: Gift, path: '/rewards' },
     { label: 'Gallery', icon: ImageIcon, path: '/gallery' },
     { label: 'Style ID', icon: Fingerprint, path: '/preferences' },
   ];
 
   return (
-    <div className="mt-8 grid grid-cols-4 gap-3" role="group" aria-label="Quick Actions">
+    <SectionCard
+      title="Quick links"
+      className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+      contentClassName="grid grid-cols-2 gap-3 pt-0"
+    >
       {actions.map((item, i) => (
         <motion.button
           key={item.label}
           type="button"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 + (i * 0.1) }}
-          whileTap={{ scale: 0.95 }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 + (i * 0.06) }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => {
             triggerHaptic();
             onNavigate(item.path);
           }}
           aria-label={`Open ${item.label}`}
-          className="group relative flex flex-col items-center"
+          className="group flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors hover:bg-[var(--n5-bg-surface)]"
+          style={{ borderColor: 'var(--n5-border-muted)' }}
         >
           <div
-            className="hover:border-[var(--n5-border-accent)]/30 relative flex size-[4.5rem] items-center justify-center border border-transparent bg-[var(--n5-bg-card)] text-[var(--n5-ink-main)] transition-all duration-300 hover:shadow-lg"
+            className="flex size-10 shrink-0 items-center justify-center"
             style={{
               borderRadius: n5.radiusMd,
-              boxShadow: n5.shadowSm,
+              backgroundColor: 'var(--n5-bg-page)',
             }}
           >
-            <item.icon strokeWidth={1.5} className="size-7 transition-colors duration-300 group-hover:text-[var(--n5-accent)]" />
-            {item.hasUpdate && (
-              <span className="absolute right-3 top-3 size-2 rounded-full bg-[var(--n5-error)] ring-2 ring-white" />
-            )}
+            <item.icon strokeWidth={1.6} className="size-5 text-[var(--n5-accent)]" />
           </div>
-          <span
-            className="font-body mt-2 text-[10px] font-bold uppercase tracking-wide text-[var(--n5-ink-muted)] transition-colors group-hover:text-[var(--n5-ink-main)]"
-          >
+          <span className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
             {item.label}
           </span>
         </motion.button>
       ))}
-    </div>
+    </SectionCard>
   );
 };
 
@@ -730,121 +623,39 @@ const SettingsGroup = ({ title, items }: { title: string; items: SettingsItem[] 
 );
 
 /**
- * 5. FLOATING DOCK
- */
-const FloatingDock = ({ onBookNow, onHome }: { onBookNow: () => void; onHome: () => void }) => (
-  <div
-    className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between px-8"
-    style={{
-      backgroundColor: 'var(--n5-bg-card)',
-      backdropFilter: 'blur(20px) saturate(150%)',
-      WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-      borderWidth: 1,
-      borderColor: 'var(--n5-border)',
-      boxShadow: n5.shadowDock,
-      borderRadius: n5.radiusCard,
-    }}
-    role="navigation"
-    aria-label="Bottom Navigation"
-  >
-    <button
-      type="button"
-      onClick={() => {
-        triggerHaptic();
-        onHome();
-      }}
-      className="p-2 text-[var(--n5-ink-muted)] transition-colors hover:text-[var(--n5-ink-main)]"
-      aria-label="Go to Home"
-    >
-      <Home strokeWidth={2} className="size-6" />
-    </button>
-    <button
-      type="button"
-      onClick={() => {
-        triggerHaptic();
-        onBookNow();
-      }}
-      aria-label="Book a new appointment"
-      className="font-body min-w-[120px] bg-[var(--n5-ink-main)] px-6 py-3 text-sm font-bold text-[var(--n5-ink-inverse)] transition-transform active:scale-95"
-      style={{
-        borderRadius: n5.radiusButton,
-        boxShadow: n5.shadowSm,
-      }}
-    >
-      Book Now
-    </button>
-    <div className="relative p-2">
-      <button
-        type="button"
-        className="text-[var(--n5-accent)]"
-        aria-label="View Profile (Current Page)"
-      >
-        <User strokeWidth={2} className="size-6" />
-      </button>
-      <div
-        className="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full bg-[var(--n5-accent)]"
-      />
-    </div>
-  </div>
-);
-
-/**
- * 6. PROFILE COMPLETE BANNER
+ * 5. PROFILE COMPLETE BANNER
  * Shown when user hasn't completed their profile (missing name or email)
  */
 const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: 0.15 }}
-    className="relative mt-4 w-full overflow-hidden"
-    style={{
-      borderRadius: n5.radiusCard,
-      background: `linear-gradient(135deg, var(--n5-accent-soft) 0%, color-mix(in srgb, var(--n5-accent) 30%, white) 100%)`,
-      boxShadow: n5.shadowSm,
-    }}
-  >
-    {/* Decorative shimmer */}
-    <div className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_3s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-
-    <div className="relative p-5">
-      <div className="flex items-start gap-4">
-        <div
-          className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white/80 shadow-sm"
-        >
-          <Gift className="size-6 text-[var(--n5-accent)]" />
-        </div>
-        <div className="flex-1">
-          <h3 className="font-heading text-base font-semibold text-[var(--n5-ink-main)]">
-            Earn 2,500 Points
-          </h3>
-          <p className="font-body mt-1 text-[13px] leading-snug text-[var(--n5-ink-muted)]">
-            Complete your profile to earn bonus points toward rewards.
-          </p>
-        </div>
-      </div>
-
+  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+    <SectionCard
+      title="Complete your profile"
+      description="Add your name and email to unlock your 2,500-point welcome bonus."
+      className="mt-4 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+      actions={<Gift className="size-5 text-[var(--n5-accent)]" />}
+      contentClassName="pt-0"
+    >
       <button
         type="button"
         onClick={() => {
           triggerHaptic();
           onComplete();
         }}
-        className="font-body mt-4 flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-3 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
+        className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-3 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
         style={{
           borderRadius: n5.radiusMd,
           boxShadow: n5.shadowSm,
         }}
       >
         <Sparkles className="size-4" />
-        Complete Profile
+        Finish profile
       </button>
-    </div>
+    </SectionCard>
   </motion.div>
 );
 
 /**
- * 7. PROFILE EDIT SHEET
+ * 6. PROFILE EDIT SHEET
  * Bottom sheet modal for editing name and email
  */
 const ProfileEditSheet = ({
@@ -971,10 +782,10 @@ const ProfileEditSheet = ({
                 <User className="size-7 text-[var(--n5-accent)]" />
               </div>
               <h2 id="edit-profile-title" className="font-heading text-xl tracking-tight text-[var(--n5-ink-main)]">
-                Complete Your Profile
+                Complete your profile
               </h2>
               <p className="font-body mt-1 text-[13px] text-[var(--n5-ink-muted)]">
-                Add your details to earn 2,500 bonus points
+                Add your details to unlock your 2,500-point welcome bonus.
               </p>
             </div>
 
@@ -1089,7 +900,7 @@ const ProfileEditSheet = ({
 };
 
 /**
- * 8. SKELETON LOADER (For Refresh State)
+ * 7. SKELETON LOADER (For Refresh State)
  */
 const ProfileSkeleton = () => (
   <motion.div
@@ -1122,7 +933,15 @@ const ProfileSkeleton = () => (
 
 export default function ProfileContent() {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { salonName, salonSlug } = useSalon();
+  const {
+    phone: sessionPhone,
+    clientName: sessionClientName,
+    clientEmail: sessionClientEmail,
+  } = useClientSession();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // User data
@@ -1144,10 +963,13 @@ export default function ProfileContent() {
   const [nextAppointment, setNextAppointment] = useState<AppointmentData | null>(null);
   const [nextAppointmentServices, setNextAppointmentServices] = useState<ServiceData[]>([]);
   const [nextAppointmentTech, setNextAppointmentTech] = useState<TechnicianData | null>(null);
+  const [nextAppointmentLocation, setNextAppointmentLocation] = useState<AppointmentLocationData | null>(null);
   const [appointmentLoading, setAppointmentLoading] = useState(true);
 
   // Rewards
   const [activePoints, setActivePoints] = useState(0);
+  const [pendingPoints, setPendingPoints] = useState(0);
+  const [pendingAppointments, setPendingAppointments] = useState(0);
 
   // Invite state
   const [showConfetti, setShowConfetti] = useState(false);
@@ -1160,38 +982,23 @@ export default function ProfileContent() {
     savedAmount: 340,
   };
 
-  // Load client name, email, and phone from cookie
   useEffect(() => {
-    const clientNameCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_name='));
-    if (clientNameCookie) {
-      const name = decodeURIComponent(clientNameCookie.split('=')[1] || '');
-      if (name) {
-        setUserName(name);
-      }
+    if (sessionClientName) {
+      setUserName(prev => (prev === 'Guest' || prev.trim() === '' ? sessionClientName : prev));
+    } else if (!sessionPhone) {
+      setUserName('Guest');
     }
 
-    const clientEmailCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_email='));
-    if (clientEmailCookie) {
-      const email = decodeURIComponent(clientEmailCookie.split('=')[1] || '');
-      if (email) {
-        setClientEmail(email);
-      }
+    if (sessionClientEmail) {
+      setClientEmail(prev => (prev.trim() === '' ? sessionClientEmail : prev));
+    } else if (!sessionPhone) {
+      setClientEmail('');
     }
+  }, [sessionClientEmail, sessionClientName, sessionPhone]);
 
-    const clientPhoneCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('client_phone='));
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setClientPhone(phone);
-      }
-    }
-  }, []);
+  useEffect(() => {
+    setClientPhone(sessionPhone);
+  }, [sessionPhone]);
 
   // Fetch next appointment
   useEffect(() => {
@@ -1202,7 +1009,7 @@ export default function ProfileContent() {
       }
 
       try {
-        const response = await fetch(`/api/client/next-appointment?phone=${encodeURIComponent(clientPhone)}`, {
+        const response = await fetch(`/api/client/next-appointment?salonSlug=${encodeURIComponent(salonSlug)}`, {
           cache: 'no-store',
         });
         if (response.ok) {
@@ -1210,6 +1017,7 @@ export default function ProfileContent() {
           setNextAppointment(data.data?.appointment || null);
           setNextAppointmentServices(data.data?.services || []);
           setNextAppointmentTech(data.data?.technician || null);
+          setNextAppointmentLocation(data.data?.location || null);
         }
       } catch (error) {
         console.error('Failed to fetch next appointment:', error);
@@ -1218,12 +1026,16 @@ export default function ProfileContent() {
       }
     }
 
-    if (clientPhone) {
+    if (clientPhone && salonSlug) {
       fetchNextAppointment();
     } else {
       setAppointmentLoading(false);
     }
-  }, [clientPhone]);
+  }, [clientPhone, salonSlug]);
+
+  const handleOpenDirections = useCallback(() => {
+    openGoogleMapsDirections(nextAppointmentLocation);
+  }, [nextAppointmentLocation]);
 
   // Fetch rewards/points
   useEffect(() => {
@@ -1232,16 +1044,13 @@ export default function ProfileContent() {
         return;
       }
 
-      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-      if (normalizedPhone.length !== 10) {
-        return;
-      }
-
       try {
-        const response = await fetch(`/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`);
+        const response = await fetch(`/api/rewards?salonSlug=${encodeURIComponent(salonSlug)}`);
         if (response.ok) {
           const data = await response.json();
           setActivePoints(data.meta?.activePoints || 0);
+          setPendingPoints(data.meta?.pendingPoints || 0);
+          setPendingAppointments(data.meta?.pendingAppointments || 0);
         }
       } catch (error) {
         console.error('Failed to fetch rewards:', error);
@@ -1285,27 +1094,35 @@ export default function ProfileContent() {
     if (!nextAppointment) {
       return;
     }
-    const serviceIds = nextAppointmentServices.map(s => s.id).join(',');
-    const techId = nextAppointmentTech?.id || 'any';
-    const apptDate = new Date(nextAppointment.startTime);
-    const dateStr = apptDate.toISOString().split('T')[0];
-    const hours = apptDate.getHours();
-    const mins = apptDate.getMinutes().toString().padStart(2, '0');
-    const timeStr = `${hours}:${mins}`;
-    router.push(
-      `/change-appointment?serviceIds=${serviceIds}&techId=${techId}&date=${dateStr}&time=${timeStr}&clientPhone=${encodeURIComponent(nextAppointment.clientPhone)}&originalAppointmentId=${encodeURIComponent(nextAppointment.id)}`,
-    );
-  }, [nextAppointment, nextAppointmentServices, nextAppointmentTech, router]);
+    router.push(buildChangeAppointmentUrl({
+      salonSlug,
+      serviceIds: nextAppointmentServices.map(s => s.id),
+      techId: nextAppointmentTech?.id || 'any',
+      locationId: nextAppointment.locationId,
+      originalAppointmentId: nextAppointment.id,
+      startTime: nextAppointment.startTime,
+      tenantRoute: {
+        routeSalonSlug,
+        locale,
+      },
+    }));
+  }, [locale, nextAppointment, nextAppointmentServices, nextAppointmentTech, routeSalonSlug, router, salonSlug]);
 
   const handleNavigate = useCallback((path: string) => {
-    router.push(path);
-  }, [router]);
+    router.push(appendSalonSlug(path, salonSlug, {
+      routeSalonSlug,
+      locale,
+    }));
+  }, [locale, routeSalonSlug, router, salonSlug]);
 
   const handleLogout = useCallback(async () => {
     triggerHaptic();
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/book');
-  }, [router]);
+    router.push(appendSalonSlug('/book', salonSlug, {
+      routeSalonSlug,
+      locale,
+    }));
+  }, [locale, routeSalonSlug, router, salonSlug]);
 
   const experienceItems: SettingsItem[] = [
     { label: 'Beauty Profile', icon: User, onClick: () => handleNavigate('/preferences') },
@@ -1331,7 +1148,6 @@ export default function ProfileContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: clientPhone,
           firstName: name,
           email,
           salonSlug,
@@ -1354,13 +1170,14 @@ export default function ProfileContent() {
           setShowConfetti(true);
 
           // Refresh points to include new reward
-          const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
           const rewardsResponse = await fetch(
-            `/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`,
+            `/api/rewards?salonSlug=${encodeURIComponent(salonSlug)}`,
           );
           if (rewardsResponse.ok) {
             const rewardsData = await rewardsResponse.json();
             setActivePoints(rewardsData.meta?.activePoints || 0);
+            setPendingPoints(rewardsData.meta?.pendingPoints || 0);
+            setPendingAppointments(rewardsData.meta?.pendingAppointments || 0);
           }
         }
 
@@ -1415,7 +1232,7 @@ export default function ProfileContent() {
 
       {/* Main Scroll Content */}
       <main
-        className="mx-auto max-w-lg space-y-2 px-5 py-28"
+      className="mx-auto max-w-lg space-y-4 px-5 py-28"
       >
         <AnimatePresence mode="wait">
           {isRefreshing
@@ -1434,6 +1251,8 @@ export default function ProfileContent() {
                     profileImage={profileImage}
                     userStats={userStats}
                     activePoints={activePoints}
+                    pendingPoints={pendingPoints}
+                    pendingAppointments={pendingAppointments}
                     onImageClick={handleProfileImageClick}
                     profileImageInputRef={profileImageInputRef}
                     onProfileImageChange={handleProfileImageChange}
@@ -1450,8 +1269,10 @@ export default function ProfileContent() {
                     appointment={nextAppointment}
                     services={nextAppointmentServices}
                     technician={nextAppointmentTech}
+                    location={nextAppointmentLocation}
                     loading={appointmentLoading}
                     onManageBooking={handleManageBooking}
+                    onOpenDirections={handleOpenDirections}
                     onBookNow={() => handleNavigate('/book')}
                   />
                   <QuickActions onNavigate={handleNavigate} />
@@ -1466,12 +1287,7 @@ export default function ProfileContent() {
                     >
                       {salonName || 'Nail Salon No.5'}
                       {' '}
-                      · Est 2024
-                    </p>
-                    <p
-                      className="font-body mt-1 text-[9px] text-[var(--n5-ink-muted)]"
-                    >
-                      Version 2.0 (Luxury Build)
+                      · Client profile
                     </p>
                   </div>
 
@@ -1491,17 +1307,12 @@ export default function ProfileContent() {
         </AnimatePresence>
       </main>
 
-      <FloatingDock
-        onBookNow={() => handleNavigate('/book')}
-        onHome={() => handleNavigate('/book')}
-      />
-
       {/* Confetti Popup */}
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
-        title="+2,500 Points Earned!"
-        message="Thanks for completing your profile. Your bonus points have been added to your account!"
+        title="2,500 points added"
+        message="Thanks for completing your profile. Your welcome bonus is now in your rewards balance."
         emoji="🎉"
         autoDismissMs={4000}
       />

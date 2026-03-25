@@ -13,9 +13,14 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Calendar, ChevronRight, Mail, Phone, Search, Star, User } from 'lucide-react';
+import { AlertCircle, Calendar, ChevronRight, Mail, Phone, Star, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
+import { AdminSearchField } from '@/components/admin/AdminSearchField';
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
+import { ListSurface } from '@/components/ui/list-surface';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -78,32 +83,6 @@ function groupClientsByLetter(clients: ClientData[]): Map<string, ClientData[]> 
 
   // Sort groups alphabetically
   return new Map([...groups.entries()].sort());
-}
-
-/**
- * Search Bar Component
- */
-function SearchBar({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="px-4 pb-3">
-      <div className="bg-[#767680]/12 flex h-9 items-center gap-2 rounded-[10px] px-3">
-        <Search className="size-4 text-[#8E8E93]" />
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Search clients"
-          className="flex-1 bg-transparent text-[16px] text-[#1C1C1E] placeholder-[#8E8E93] outline-none"
-        />
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -188,19 +167,14 @@ function SectionHeader({ letter }: { letter: string }) {
  */
 function EmptyState({ searchQuery }: { searchQuery: string }) {
   return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
-        <User className="size-8 text-[#8E8E93]" />
-      </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
-        {searchQuery ? 'No Results' : 'No Clients Yet'}
-      </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
-        {searchQuery
-          ? `No clients match "${searchQuery}"`
-          : 'Clients will appear here after their first booking'}
-      </p>
-    </div>
+    <AsyncStatePanel
+      icon={<User className="mx-auto size-8 text-[#8E8E93]" />}
+      title={searchQuery ? 'No Results' : 'No Clients Yet'}
+      description={searchQuery
+        ? `No clients match "${searchQuery}"`
+        : 'Clients will appear here after their first booking.'}
+      className="mx-4 my-8"
+    />
   );
 }
 
@@ -232,7 +206,7 @@ function ClientDetail({
 
       <div className="p-4 pb-10">
         {/* Profile Card */}
-        <div className="mb-4 rounded-[22px] bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+        <AdminDetailCard className="mb-4 rounded-[22px]">
           <div className="flex flex-col items-center">
             <div className="mb-3 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-2xl font-bold text-white shadow-lg">
               {initials}
@@ -249,23 +223,23 @@ function ClientDetail({
               </div>
             )}
           </div>
-        </div>
+        </AdminDetailCard>
 
         {/* Stats Grid */}
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard>
             <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Total Visits</div>
             <div className="mt-1 text-[24px] font-bold text-[#1C1C1E]">
               {client.totalVisits}
             </div>
-          </div>
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          </AdminDetailCard>
+          <AdminDetailCard>
             <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Total Spent</div>
             <div className="mt-1 text-[24px] font-bold text-[#34C759]">
               {formatCurrency(client.totalSpent)}
             </div>
-          </div>
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          </AdminDetailCard>
+          <AdminDetailCard>
             <div className="flex items-center gap-1 text-[12px] font-medium uppercase text-[#8E8E93]">
               <Star className="size-3" />
               Loyalty Points
@@ -273,8 +247,8 @@ function ClientDetail({
             <div className="mt-1 text-[24px] font-bold text-[#FF9500]">
               {client.loyaltyPoints.toLocaleString()}
             </div>
-          </div>
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          </AdminDetailCard>
+          <AdminDetailCard>
             <div className="flex items-center gap-1 text-[12px] font-medium uppercase text-[#8E8E93]">
               <AlertCircle className="size-3" />
               No-Shows
@@ -282,12 +256,12 @@ function ClientDetail({
             <div className={`mt-1 text-[24px] font-bold ${client.noShowCount > 0 ? 'text-[#FF3B30]' : 'text-[#1C1C1E]'}`}>
               {client.noShowCount}
             </div>
-          </div>
+          </AdminDetailCard>
         </div>
 
         {/* Preferred Technician */}
         {client.preferredTechnician && (
-          <div className="mb-4 rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard className="mb-4">
             <div className="mb-2 text-[12px] font-medium uppercase text-[#8E8E93]">Preferred Tech</div>
             <div className="flex items-center gap-3">
               {client.preferredTechnician.avatarUrl
@@ -307,12 +281,12 @@ function ClientDetail({
                 {client.preferredTechnician.name}
               </span>
             </div>
-          </div>
+          </AdminDetailCard>
         )}
 
         {/* Last Visit */}
         {client.lastVisitAt && (
-          <div className="mb-4 rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard className="mb-4">
             <div className="mb-2 flex items-center gap-2 text-[12px] font-medium uppercase text-[#8E8E93]">
               <Calendar className="size-3.5" />
               Last Visit
@@ -325,39 +299,20 @@ function ClientDetail({
                 year: 'numeric',
               })}
             </div>
-          </div>
+          </AdminDetailCard>
         )}
 
         {/* Notes */}
         {client.notes && (
-          <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <AdminDetailCard>
             <div className="mb-2 text-[12px] font-medium uppercase text-[#8E8E93]">Notes</div>
             <div className="whitespace-pre-wrap text-[15px] text-[#1C1C1E]">
               {client.notes}
             </div>
-          </div>
+          </AdminDetailCard>
         )}
       </div>
     </motion.div>
-  );
-}
-
-/**
- * Loading Skeleton
- */
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse">
-      {[1, 2, 3, 4, 5].map(i => (
-        <div key={i} className="flex items-center px-4 py-3">
-          <div className="mr-3 size-10 rounded-full bg-gray-200" />
-          <div className="flex-1">
-            <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
-            <div className="h-3 w-24 rounded bg-gray-100" />
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -365,6 +320,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
   const { salonSlug } = useSalon();
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState<ClientData | null>(null);
   const [totalClients, setTotalClients] = useState(0);
@@ -373,6 +329,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
   const fetchClients = useCallback(async (search?: string) => {
     try {
       setLoading(true);
+      setError(null);
       const params = new URLSearchParams({
         salonSlug,
         sortBy: 'recent',
@@ -391,6 +348,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
       }
     } catch (error) {
       console.error('Failed to fetch clients:', error);
+      setError('Failed to load clients');
     } finally {
       setLoading(false);
     }
@@ -424,15 +382,42 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
           subtitle={`${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
-        <SearchBar value={searchQuery} onChange={setSearchQuery} />
+        <div className="px-4 pb-3">
+          <AdminSearchField
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search clients"
+            inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
+          />
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pb-10">
         {loading
           ? (
-              <LoadingSkeleton />
+              <div className="px-4 py-4">
+                <AsyncStatePanel
+                  loading
+                  title="Loading clients"
+                  description="Fetching the latest client list and spend history."
+                />
+              </div>
             )
+          : error
+            ? (
+                <AsyncStatePanel
+                  tone="error"
+                  title="Unable to load clients"
+                  description={error}
+                  className="mx-4 my-8"
+                  action={(
+                    <Button type="button" variant="brandSoft" size="pillSm" onClick={() => fetchClients(searchQuery || undefined)}>
+                      Try again
+                    </Button>
+                  )}
+                />
+              )
           : clients.length === 0
             ? (
                 <EmptyState searchQuery={searchQuery} />
@@ -441,7 +426,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
                 Array.from(groupedClients.entries()).map(([letter, letterClients]) => (
                   <div key={letter}>
                     <SectionHeader letter={letter} />
-                    <div className="mx-4 mb-2 overflow-hidden rounded-[10px] bg-white shadow-sm">
+                    <ListSurface className="mx-4 mb-2 rounded-[10px]">
                       {letterClients.map((client, index) => (
                         <ClientRow
                           key={client.id}
@@ -450,7 +435,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
                           onClick={() => setSelectedClient(client)}
                         />
                       ))}
-                    </div>
+                    </ListSurface>
                   </div>
                 ))
               )}

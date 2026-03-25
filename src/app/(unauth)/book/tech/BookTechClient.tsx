@@ -5,11 +5,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
+import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
-import { useBookingAuth } from '@/hooks/useBookingAuth';
+import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
-import { type BookingStep, getFirstStep, getNextStep, getPrevStep, getStepIndex, getStepLabel } from '@/libs/bookingFlow';
+import { buildBookingUrl } from '@/libs/bookingParams';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -39,17 +41,18 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { salonName } = useSalon();
+  const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
-  const clientPhone = searchParams.get('clientPhone') || '';
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const locationId = searchParams.get('locationId') || '';
 
   // Use shared auth hook
-  const { isLoggedIn, phone, isCheckingSession, handleLoginSuccess } = useBookingAuth(clientPhone || undefined);
+  const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state for technician persistence
   const { technicianId, setTechnicianId, syncFromUrl } = useBookingState();
@@ -73,7 +76,7 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  const goToNextStep = (techId: string, clientPhoneToUse: string) => {
+  const goToNextStep = (techId: string) => {
     // Save to global state first
     setTechnicianId(techId === 'any' ? null : techId);
 
@@ -82,15 +85,16 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
       return;
     }
 
-    // Always include techId in URL (even if 'any') so server components can read it
-    let url = `/${locale}/book/${nextStep}?serviceIds=${serviceIds.join(',')}&techId=${techId}&clientPhone=${encodeURIComponent(clientPhoneToUse)}`;
-
-    // Pass through originalAppointmentId for reschedule flow
-    if (originalAppointmentId) {
-      url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-    }
-
-    router.push(url);
+    router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
+      salonSlug,
+      serviceIds,
+      techId,
+      originalAppointmentId,
+      locationId,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
   };
 
   const handleSelectTech = (techId: string) => {
@@ -107,9 +111,8 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
     }
 
     // Use the phone from auth hook (may be updated after login)
-    const phoneToUse = phone || clientPhone;
     setTimeout(() => {
-      goToNextStep(techId, phoneToUse);
+      goToNextStep(techId);
     }, 300);
   };
 
@@ -123,7 +126,7 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
       // Save to global state
       setTechnicianId(pendingTechId === 'any' ? null : pendingTechId);
       setTimeout(() => {
-        goToNextStep(pendingTechId, verifiedPhone);
+        goToNextStep(pendingTechId);
       }, 300);
       setPendingTechId(null);
     }
@@ -137,11 +140,15 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   const handleBack = () => {
     const prevStep = getPrevStep('tech', bookingFlow);
     if (prevStep) {
-      let url = `/${locale}/book/${prevStep}?serviceIds=${serviceIds.join(',')}&clientPhone=${encodeURIComponent(clientPhone)}`;
-      if (originalAppointmentId) {
-        url += `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`;
-      }
-      router.push(url);
+      router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
+        salonSlug,
+        serviceIds,
+        originalAppointmentId,
+        locationId,
+      }, {
+        routeSalonSlug,
+        locale,
+      }));
     } else {
       router.back();
     }
@@ -155,87 +162,16 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
-        {/* Header */}
-        <div
-          className="relative flex items-center pb-4 pt-6"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
-            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
-          }}
-        >
-          {/* Back button - only show when NOT the first step */}
-          {!isFirstStep && (
-            <button
-              type="button"
-              onClick={handleBack}
-              aria-label="Go back"
-              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
-            >
-              <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-
-          <div
-            className={`text-lg font-semibold tracking-tight ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
-            style={{ color: themeVars.accent }}
-          >
-            {salonName}
-          </div>
-        </div>
-
-        {/* Progress Steps */}
-        <div
-          className="mb-6 flex items-center justify-center gap-2"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transition: 'opacity 300ms ease-out 50ms',
-          }}
-        >
-          {bookingFlow.map((step, i) => {
-            const currentIdx = getStepIndex('tech', bookingFlow);
-            const isCurrentStep = step === 'tech';
-            const isPastStep = i + 1 < currentIdx;
-            return (
-              <div key={step} className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
-                  <div
-                    className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
-                    style={{
-                      backgroundColor: isPastStep ? themeVars.accent : isCurrentStep ? themeVars.primary : '#d4d4d4',
-                      color: isPastStep ? 'white' : isCurrentStep ? '#171717' : '#525252',
-                    }}
-                  >
-                    {isPastStep ? '✓' : i + 1}
-                  </div>
-                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
-                    {getStepLabel(step)}
-                  </span>
-                </div>
-                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Title */}
-        <div
-          className="mb-5 text-center"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
-          }}
-        >
-          <h1 className="text-2xl font-bold text-neutral-900">
-            Choose Your Artist
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Select your favorite nail technician
-          </p>
-        </div>
+        <BookingStepHeader
+          salonName={salonName}
+          mounted={mounted}
+          title="Choose Your Artist"
+          description="Select your favorite nail technician"
+          bookingFlow={bookingFlow}
+          currentStep="tech"
+          isFirstStep={isFirstStep}
+          onBack={handleBack}
+        />
 
         {/* Technicians grid */}
         <div className="grid grid-cols-2 gap-3">
@@ -386,7 +322,6 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
         {/* Auth Footer - shown only on first step when not logged in */}
         {isFirstStep && !isCheckingSession && !isLoggedIn && (
           <BookingPhoneLogin
-            initialPhone={clientPhone || undefined}
             onLoginSuccess={handleLoginSuccess}
           />
         )}

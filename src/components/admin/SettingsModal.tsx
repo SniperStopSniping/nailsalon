@@ -15,6 +15,7 @@
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
+  AlertCircle,
   BarChart3,
   Bell,
   Check,
@@ -22,8 +23,10 @@ import {
   Eye,
   Flag,
   Gift,
+  MapPin,
   MessageSquare,
   Moon,
+  Save,
   Search,
   Shield,
   User,
@@ -286,6 +289,245 @@ function SearchBar() {
         <span className="text-[16px]">Search</span>
       </div>
     </div>
+  );
+}
+
+type DirectionsLocationFormState = {
+  id: string | null;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+};
+
+function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [locationCount, setLocationCount] = useState(0);
+  const [isPrimaryFallback, setIsPrimaryFallback] = useState(false);
+  const [form, setForm] = useState<DirectionsLocationFormState>({
+    id: null,
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    zipCode: '',
+  });
+
+  const fetchLocation = useCallback(async () => {
+    if (!salonSlug) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`);
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error?.message || 'Failed to load location settings');
+      }
+
+      const location = body?.data?.location;
+      const salonName = body?.data?.salon?.name || '';
+
+      setLocationCount(body?.data?.salon?.locationCount || 0);
+      setIsPrimaryFallback(Boolean(body?.data?.isPrimaryFallback));
+      setForm({
+        id: location?.id ?? null,
+        name: location?.name ?? salonName,
+        address: location?.address ?? '',
+        city: location?.city ?? '',
+        state: location?.state ?? '',
+        zipCode: location?.zipCode ?? '',
+      });
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to load location settings');
+    } finally {
+      setLoading(false);
+    }
+  }, [salonSlug]);
+
+  useEffect(() => {
+    fetchLocation();
+  }, [fetchLocation]);
+
+  useEffect(() => {
+    if (!saved) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setSaved(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+
+  const handleChange = (field: keyof DirectionsLocationFormState, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim() || saving) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          address: form.address,
+          city: form.city,
+          state: form.state,
+          zipCode: form.zipCode,
+        }),
+      });
+
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error?.message || 'Failed to save location settings');
+      }
+
+      const location = body?.data?.location;
+      setLocationCount(body?.data?.locationCount || locationCount);
+      setIsPrimaryFallback(false);
+      setForm(prev => ({
+        ...prev,
+        id: location?.id ?? prev.id,
+        name: location?.name ?? prev.name,
+        address: location?.address ?? '',
+        city: location?.city ?? '',
+        state: location?.state ?? '',
+        zipCode: location?.zipCode ?? '',
+      }));
+      setSaved(true);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Failed to save location settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section
+      title="Directions Location"
+      footer={locationCount > 1
+        ? 'This edits the primary location used as the default customer directions target. Other locations remain unchanged.'
+        : 'This address is used for customer directions and the default booking location when a visit does not specify another location.'}
+    >
+      {loading
+        ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+            </div>
+          )
+        : (
+            <div className="space-y-4 px-4 py-4">
+              {isPrimaryFallback && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                  No primary location was set. Saving here will promote the current default location for customer directions.
+                </div>
+              )}
+
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Location name</span>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={event => handleChange('name', event.target.value)}
+                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    placeholder="Main salon"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Street address</span>
+                  <input
+                    type="text"
+                    value={form.address}
+                    onChange={event => handleChange('address', event.target.value)}
+                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    placeholder="123 Main St"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">City</span>
+                  <input
+                    type="text"
+                    value={form.city}
+                    onChange={event => handleChange('city', event.target.value)}
+                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    placeholder="Toronto"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">State</span>
+                    <input
+                      type="text"
+                      value={form.state}
+                      onChange={event => handleChange('state', event.target.value)}
+                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      placeholder="ON"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">ZIP / postal</span>
+                    <input
+                      type="text"
+                      value={form.zipCode}
+                      onChange={event => handleChange('zipCode', event.target.value)}
+                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      placeholder="M5H 2M9"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <MapPin className="size-4 text-[#007AFF]" />
+                  <span>{form.id ? 'Editing current default location' : 'Create the first customer-facing location'}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!form.name.trim() || saving}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save className="size-4" />
+                  <span>{saving ? 'Saving...' : 'Save location'}</span>
+                </button>
+              </div>
+
+              {saved && !error && (
+                <div className="text-right text-xs font-medium text-green-600">
+                  Location saved.
+                </div>
+              )}
+            </div>
+          )}
+    </Section>
   );
 }
 
@@ -791,6 +1033,9 @@ export function SettingsModal({
         {/* Profile Card */}
         <ProfileCard name={userName} initials={userInitials} />
 
+        {/* Section 0: Directions Location */}
+        {salonSlug && <DirectionsLocationSection salonSlug={salonSlug} />}
+
         {/* Section 1: Connectivity */}
         <Section>
           <Row icon={Wifi} iconColor="bg-[#007AFF]" label="Wi-Fi" value="Salon_Guest" />
@@ -1192,4 +1437,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { ProfileCard, Row, SearchBar, Section };
+export { DirectionsLocationSection, ProfileCard, Row, SearchBar, Section };

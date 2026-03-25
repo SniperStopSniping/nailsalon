@@ -9,42 +9,22 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+import {
+  STAFF_SESSION_COOKIE,
+  clearStaffSessionCookies,
+  deleteStaffSession,
+} from '@/libs/staffAuth';
+
 export async function POST() {
   try {
     const cookieStore = await cookies();
+    const sessionId = cookieStore.get(STAFF_SESSION_COOKIE)?.value;
 
-    // Clear all staff-related cookies by setting them to empty with immediate expiry
-    cookieStore.set('staff_session', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
+    if (sessionId) {
+      await deleteStaffSession(sessionId);
+    }
 
-    cookieStore.set('staff_phone', '', {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
-
-    cookieStore.set('staff_name', '', {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
-
-    cookieStore.set('staff_salon', '', {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
+    await clearStaffSessionCookies();
 
     return NextResponse.json({
       success: true,

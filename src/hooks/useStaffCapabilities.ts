@@ -36,6 +36,59 @@ const DEFAULT_MODULES: StaffModules = {
   staffEarnings: false,
 };
 
+type CachedCapabilities = {
+  modules: StaffModules | null;
+  visibility: StaffVisibility | null;
+  fetchedAt: number;
+};
+
+const STAFF_CAPABILITIES_TTL_MS = 30_000;
+
+let cachedCapabilities: CachedCapabilities | null = null;
+let inFlightCapabilitiesPromise: Promise<CachedCapabilities> | null = null;
+
+async function requestStaffCapabilities(): Promise<CachedCapabilities> {
+  const response = await fetch('/api/staff/capabilities');
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const error = new Error(data.error?.message || 'Failed to fetch capabilities') as Error & {
+      status?: number;
+    };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  const nextValue: CachedCapabilities = {
+    modules: data.data?.modules ?? null,
+    visibility: data.data?.visibility ?? null,
+    fetchedAt: Date.now(),
+  };
+  cachedCapabilities = nextValue;
+  return nextValue;
+}
+
+async function getStaffCapabilities(options?: { force?: boolean }): Promise<CachedCapabilities> {
+  const force = options?.force ?? false;
+  const now = Date.now();
+
+  if (!force && cachedCapabilities && now - cachedCapabilities.fetchedAt < STAFF_CAPABILITIES_TTL_MS) {
+    return cachedCapabilities;
+  }
+
+  if (!force && inFlightCapabilitiesPromise) {
+    return inFlightCapabilitiesPromise;
+  }
+
+  inFlightCapabilitiesPromise = requestStaffCapabilities()
+    .finally(() => {
+      inFlightCapabilitiesPromise = null;
+    });
+
+  return inFlightCapabilitiesPromise;
+}
+
 // =============================================================================
 // HOOK
 // =============================================================================
@@ -47,45 +100,31 @@ export function useStaffCapabilities(): UseStaffCapabilitiesResult {
   const [error, setError] = useState<string | null>(null);
   const [isUnauthorized, setIsUnauthorized] = useState(false);
 
-  const fetchCapabilities = useCallback(async () => {
+  const fetchCapabilities = useCallback(async (options?: { force?: boolean }) => {
     setLoading(true);
     setError(null);
     setIsUnauthorized(false);
 
     try {
-      const response = await fetch('/api/staff/capabilities');
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-
-        if (response.status === 401) {
-          setIsUnauthorized(true);
-          setError(data.error?.message || 'Not authenticated');
-          // SECURITY: Clear any cached capabilities to prevent stale UI after logout/expiry
-          setModules(null);
-          setVisibility(null);
-          return;
-        }
-
-        setError(data.error?.message || 'Failed to fetch capabilities');
-        // Also clear on other errors to be safe
+      const data = await getStaffCapabilities(options);
+      setModules(data.modules);
+      setVisibility(data.visibility);
+    } catch (err) {
+      const status = err instanceof Error && 'status' in err ? (err as Error & { status?: number }).status : undefined;
+      if (status === 401) {
+        setIsUnauthorized(true);
+        setError(err instanceof Error ? err.message : 'Not authenticated');
+        cachedCapabilities = null;
         setModules(null);
         setVisibility(null);
         return;
       }
 
-      const data = await response.json();
-
-      if (data.data?.modules) {
-        setModules(data.data.modules);
-      }
-
-      if (data.data?.visibility) {
-        setVisibility(data.data.visibility);
-      }
-    } catch (err) {
+      cachedCapabilities = null;
+      setModules(null);
+      setVisibility(null);
       console.error('Failed to fetch staff capabilities:', err);
-      setError('Network error');
+      setError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setLoading(false);
     }
@@ -101,7 +140,7 @@ export function useStaffCapabilities(): UseStaffCapabilitiesResult {
     loading,
     error,
     isUnauthorized,
-    refetch: fetchCapabilities,
+    refetch: () => fetchCapabilities({ force: true }),
   };
 }
 

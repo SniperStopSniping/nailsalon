@@ -1,20 +1,16 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getPageAppearance } from '@/libs/pageAppearance';
-import { getActiveLocationsBySalonId, getSalonBySlug, getServicesBySalonId } from '@/libs/queries';
-import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { getActiveLocationsBySalonId, getServicesBySalonId } from '@/libs/queries';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import { BookServiceClient } from './BookServiceClient';
 
 export const dynamic = 'force-dynamic';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 /**
  * Service Selection Page (Server Component)
@@ -24,28 +20,31 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  */
 export default async function BookServicePage({
   searchParams,
+  params,
 }: {
-  searchParams: { locationId?: string };
+  searchParams: { locationId?: string; salonSlug?: string };
+  params?: { locale?: string; slug?: string };
 }) {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'book-service');
-
-  // Fetch salon data
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-
-  if (!salon) {
-    redirect('/not-found');
-  }
+  const context = await getPublicPageContext('book-service', searchParams, params);
+  const { salon } = context;
+  const tenantRoute = {
+    salonSlug: salon.slug,
+    routeSalonSlug: params?.slug,
+    locale: params?.locale,
+  };
 
   // Check salon status - redirect if suspended/cancelled
   const statusCheck = await checkSalonStatus(salon.id);
-  if (statusCheck.redirectPath) {
-    redirect(statusCheck.redirectPath);
+  const statusRedirectPath = buildTenantRedirectPath(statusCheck.redirectPath, tenantRoute);
+  if (statusRedirectPath) {
+    redirect(statusRedirectPath);
   }
 
   // Check if online booking is enabled
   const featureCheck = await checkFeatureEnabled(salon.id, 'onlineBooking');
-  if (featureCheck.redirectPath) {
-    redirect(featureCheck.redirectPath);
+  const featureRedirectPath = buildTenantRedirectPath(featureCheck.redirectPath, tenantRoute);
+  if (featureRedirectPath) {
+    redirect(featureRedirectPath);
   }
 
   // Fetch services for this salon
@@ -80,7 +79,10 @@ export default async function BookServicePage({
     const isValidLocation = activeLocations.some(l => l.id === searchParams.locationId);
     if (!isValidLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/service', searchParams, primaryLocation.id));
+      redirect(repairBookingUrl('/book/service', searchParams, primaryLocation.id, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
     }
   }
 
@@ -97,10 +99,14 @@ export default async function BookServicePage({
   }));
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-service">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="book-service"
+      salon={context.salon}
+    >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookServiceClient services={services} bookingFlow={bookingFlow} locations={locations} />
       </Suspense>
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

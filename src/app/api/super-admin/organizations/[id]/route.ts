@@ -26,6 +26,7 @@ import {
   technicianServicesSchema,
   technicianTimeOffSchema,
 } from '@/models/Schema';
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,11 @@ export const dynamic = 'force-dynamic';
 
 // Valid booking steps
 const BOOKING_STEPS = ['service', 'tech', 'time', 'confirm'] as const;
+
+const salonFeaturesSchema = z.custom<SalonFeatures>(
+  value => typeof value === 'object' && value !== null && !Array.isArray(value),
+  'Features must be an object',
+);
 
 const updateSalonSchema = z.object({
   name: z.string().min(1).optional(),
@@ -54,6 +60,7 @@ const updateSalonSchema = z.object({
   // Booking flow customization
   bookingFlowCustomizationEnabled: z.boolean().optional(),
   bookingFlow: z.array(z.enum(BOOKING_STEPS)).optional().nullable(),
+  features: salonFeaturesSchema.optional(),
 });
 
 // =============================================================================
@@ -176,6 +183,7 @@ export async function GET(
         status: (salon.status || 'active') as SalonStatus,
         maxLocations: salon.maxLocations ?? 1,
         isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        features: salon.features ?? null,
         // Feature toggles
         onlineBookingEnabled: salon.onlineBookingEnabled ?? true,
         smsRemindersEnabled: salon.smsRemindersEnabled ?? true,
@@ -322,6 +330,7 @@ export async function PUT(
         status: (updated!.status || 'active') as SalonStatus,
         maxLocations: updated!.maxLocations ?? 1,
         isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
+        features: updated!.features ?? null,
         // Feature toggles
         onlineBookingEnabled: updated!.onlineBookingEnabled ?? true,
         smsRemindersEnabled: updated!.smsRemindersEnabled ?? true,

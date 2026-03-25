@@ -7,12 +7,11 @@
  */
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { fraudSignalSchema, salonClientSchema, salonSchema } from '@/models/Schema';
+import { fraudSignalSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,83 +29,14 @@ const listQuerySchema = z.object({
 });
 
 // =============================================================================
-// HELPERS
-// =============================================================================
-
-/**
- * Get the active salon ID from the admin session.
- * Uses __active_salon_slug cookie to determine which salon is selected.
- * NEVER accepts salonId from query params.
- */
-async function getActiveSalonId(): Promise<{
-  salonId: string | null;
-  adminId: string | null;
-  error: Response | null;
-}> {
-  const admin = await getAdminSession();
-
-  if (!admin) {
-    return {
-      salonId: null,
-      adminId: null,
-      error: Response.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } },
-        { status: 401 },
-      ),
-    };
-  }
-
-  // Get active salon from cookie
-  const cookieStore = await cookies();
-  const activeSalonSlug = cookieStore.get('__active_salon_slug')?.value;
-
-  // Super admins can access any salon if slug is set
-  if (admin.isSuperAdmin && activeSalonSlug) {
-    const [salon] = await db
-      .select({ id: salonSchema.id })
-      .from(salonSchema)
-      .where(eq(salonSchema.slug, activeSalonSlug))
-      .limit(1);
-
-    if (salon) {
-      return { salonId: salon.id, adminId: admin.id, error: null };
-    }
-  }
-
-  // Regular admins: find the matching salon from their memberships
-  if (activeSalonSlug) {
-    const membership = admin.salons.find(
-      s => s.salonSlug?.toLowerCase() === activeSalonSlug.toLowerCase(),
-    );
-    if (membership) {
-      return { salonId: membership.salonId, adminId: admin.id, error: null };
-    }
-  }
-
-  // Fallback: use first salon in memberships
-  if (admin.salons.length > 0) {
-    return { salonId: admin.salons[0]!.salonId, adminId: admin.id, error: null };
-  }
-
-  return {
-    salonId: null,
-    adminId: admin.id,
-    error: Response.json(
-      { error: { code: 'NO_SALON_ACCESS', message: 'No salon access' } },
-      { status: 403 },
-    ),
-  };
-}
-
-// =============================================================================
 // GET /api/admin/fraud-signals
 // =============================================================================
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    // 1. Get active salon from session (NEVER from query params)
-    const { salonId, error } = await getActiveSalonId();
-    if (error || !salonId) {
+    // 1. Resolve the active salon through the shared admin guard
+    const { salon, error } = await requireActiveAdminSalon();
+    if (error || !salon) {
       return error!;
     }
 
@@ -129,7 +59,7 @@ export async function GET(request: Request): Promise<Response> {
     const offset = (page - 1) * limit;
 
     // 3. Build query conditions
-    const conditions = [eq(fraudSignalSchema.salonId, salonId)];
+    const conditions = [eq(fraudSignalSchema.salonId, salon.id)];
     if (includeResolved !== 'true') {
       conditions.push(isNull(fraudSignalSchema.resolvedAt));
     }
@@ -174,7 +104,7 @@ export async function GET(request: Request): Promise<Response> {
       .from(fraudSignalSchema)
       .where(
         and(
-          eq(fraudSignalSchema.salonId, salonId),
+          eq(fraudSignalSchema.salonId, salon.id),
           isNull(fraudSignalSchema.resolvedAt),
         ),
       );

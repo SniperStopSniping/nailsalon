@@ -1,12 +1,22 @@
 import { Gift, Mail, Phone } from 'lucide-react';
 import Link from 'next/link';
 
+import { appendSalonSlug } from '@/libs/bookingParams';
+
 export const metadata = {
   title: 'Rewards Unavailable',
   description: 'The rewards program is not currently available for this salon.',
 };
 
-export default function RewardsDisabledPage() {
+export default function RewardsDisabledPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const resolvedSalonSlug = params?.slug ?? searchParams.salonSlug;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-lg">
@@ -53,13 +63,19 @@ export default function RewardsDisabledPage() {
         {/* Actions */}
         <div className="space-y-3">
           <Link
-            href="/book"
+            href={appendSalonSlug('/book', resolvedSalonSlug, {
+              routeSalonSlug: params?.slug,
+              locale: params?.locale,
+            })}
             className="block w-full rounded-lg bg-indigo-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-indigo-700"
           >
             Book an Appointment
           </Link>
           <Link
-            href="/"
+            href={appendSalonSlug('/', resolvedSalonSlug, {
+              routeSalonSlug: params?.slug,
+              locale: params?.locale,
+            })}
             className="block w-full rounded-lg bg-gray-100 px-4 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-200"
           >
             Go Back Home

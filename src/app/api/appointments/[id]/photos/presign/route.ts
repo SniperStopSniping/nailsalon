@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { logWarn } from '@/core/logging/logger';
@@ -10,7 +9,7 @@ import {
   isStorageConfigured,
   type PhotoKind,
 } from '@/core/storage/storageClient';
-import { getAppointmentById, getSalonBySlug } from '@/libs/queries';
+import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 
 // =============================================================================
 // CONSTANTS
@@ -83,66 +82,17 @@ export async function POST(
       );
     }
 
-    // 3. Auth: Read staff cookies
-    const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
-
-    if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    const access = await requireStaffAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      assignmentForbiddenMessage: 'You can only upload photos for your own appointments',
+    });
+    if (!access.ok) {
+      return access.response;
     }
-
-    // 4. Resolve salon
-    const salon = await getSalonBySlug(staffSalon.value);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // 5. Verify appointment exists and belongs to salon
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    if (appointment.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You do not have access to this appointment',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
+    const { session } = access;
 
     // 6. Rate limit check (ATOMIC: INCR + conditional EXPIRE)
-    const techId = `${salon.id}:${staffPhone.value}`;
+    const techId = `${session.salonId}:${session.technicianId}`;
     const rateLimitKey = getRateLimitKey(techId);
     const maxPresigns = getRateLimitMax();
 
@@ -154,7 +104,7 @@ export async function POST(
 
     if (currentCount > maxPresigns) {
       logWarn('presign.rate_limit_exceeded', {
-        salonId: salon.id,
+        salonId: session.salonId,
         techId,
         currentCount,
         limit: maxPresigns,

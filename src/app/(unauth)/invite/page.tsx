@@ -1,10 +1,7 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import InviteContent from './InviteContent';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
 
 /**
  * Invite Page (Server Component)
@@ -12,12 +9,22 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * Fetches page appearance settings and conditionally wraps
  * the content with ThemeProvider if theme mode is enabled.
  */
-export default async function InvitePage() {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'invite');
+export default async function InvitePage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const context = await getPublicPageContext('invite', searchParams, params);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="invite">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="invite"
+      salon={context.salon}
+    >
       <InviteContent />
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

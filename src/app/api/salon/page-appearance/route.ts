@@ -2,11 +2,12 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { type NextRequest, NextResponse } from 'next/server';
 
+import { requireAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { getResolvedSalon, getSalonFromSlugOrCookie } from '@/libs/tenant';
 import { salonPageAppearanceSchema, THEMEABLE_PAGES } from '@/models/Schema';
 
-// Demo salon ID for now - in production, this would come from auth context
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/salon/page-appearance
@@ -14,12 +15,25 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * Returns all page appearance settings for the salon.
  * Used by admin UI to display current settings.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const salon = await getResolvedSalon(new URL(request.url).searchParams);
+    if (!salon) {
+      return NextResponse.json(
+        { error: 'No active salon selected' },
+        { status: 400 },
+      );
+    }
+
+    const guard = await requireAdmin(salon.id);
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const appearances = await db
       .select()
       .from(salonPageAppearanceSchema)
-      .where(eq(salonPageAppearanceSchema.salonId, DEMO_SALON_ID));
+      .where(eq(salonPageAppearanceSchema.salonId, salon.id));
 
     // Build a complete list with defaults for pages that don't have rows yet
     const result = THEMEABLE_PAGES.map((pageName) => {
@@ -59,11 +73,25 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { pageName, mode, themeKey } = body as {
+    const { pageName, mode, themeKey, salonSlug } = body as {
       pageName: string;
       mode: 'custom' | 'theme';
       themeKey?: string | null;
+      salonSlug?: string | null;
     };
+
+    const salon = await getSalonFromSlugOrCookie(salonSlug);
+    if (!salon) {
+      return NextResponse.json(
+        { error: 'No active salon selected' },
+        { status: 400 },
+      );
+    }
+
+    const guard = await requireAdmin(salon.id);
+    if (!guard.ok) {
+      return guard.response;
+    }
 
     // Validate pageName
     if (!pageName || !THEMEABLE_PAGES.includes(pageName as typeof THEMEABLE_PAGES[number])) {
@@ -95,7 +123,7 @@ export async function PUT(request: NextRequest) {
       .from(salonPageAppearanceSchema)
       .where(
         and(
-          eq(salonPageAppearanceSchema.salonId, DEMO_SALON_ID),
+          eq(salonPageAppearanceSchema.salonId, salon.id),
           eq(salonPageAppearanceSchema.pageName, pageName),
         ),
       )
@@ -115,7 +143,7 @@ export async function PUT(request: NextRequest) {
       // Insert new row
       await db.insert(salonPageAppearanceSchema).values({
         id: `appearance_${nanoid(12)}`,
-        salonId: DEMO_SALON_ID,
+        salonId: salon.id,
         pageName,
         mode,
         themeKey: mode === 'theme' ? themeKey : null,

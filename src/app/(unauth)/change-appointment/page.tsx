@@ -1,12 +1,8 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
-import { getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import ChangeAppointmentContent from './ChangeAppointmentContent';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 /**
  * Change Appointment Page (Server Component)
@@ -16,44 +12,36 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  */
 export default async function ChangeAppointmentPage({
   searchParams,
+  params,
 }: {
-  searchParams: { serviceIds?: string; techId?: string; date?: string; time?: string; clientPhone?: string; originalAppointmentId?: string };
+  searchParams: {
+    serviceIds?: string;
+    techId?: string;
+    locationId?: string;
+    date?: string;
+    time?: string;
+    originalAppointmentId?: string;
+    salonSlug?: string;
+  };
+  params?: { locale?: string; slug?: string };
 }) {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'book-confirm');
+  const context = await getPublicPageContext('book-confirm', searchParams, params);
 
   // Parse URL params
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
   const techId = searchParams.techId || '';
+  const locationId = searchParams.locationId || '';
   const dateStr = searchParams.date || '';
   const timeStr = searchParams.time || '';
-  const clientPhone = searchParams.clientPhone || '';
   const originalAppointmentId = searchParams.originalAppointmentId || '';
 
-  // Fetch salon data
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-
-  if (!salon) {
-    return (
-      <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="change-appointment">
-        <ChangeAppointmentContent
-          services={[]}
-          technician={null}
-          dateStr={dateStr}
-          timeStr={timeStr}
-          clientPhone={clientPhone}
-          originalAppointmentId={originalAppointmentId}
-        />
-      </PageThemeWrapper>
-    );
-  }
-
   // Fetch the selected services from the database
-  const dbServices = await getServicesByIds(serviceIdList, salon.id);
+  const dbServices = await getServicesByIds(serviceIdList, context.salon.id);
 
   // Fetch the selected technician (if not "any")
   let technician = null;
   if (techId && techId !== 'any') {
-    const dbTech = await getTechnicianById(techId, salon.id);
+    const dbTech = await getTechnicianById(techId, context.salon.id);
     if (dbTech) {
       technician = {
         id: dbTech.id,
@@ -73,15 +61,19 @@ export default async function ChangeAppointmentPage({
   }));
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="change-appointment">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="change-appointment"
+      salon={context.salon}
+    >
       <ChangeAppointmentContent
         services={services}
         technician={technician}
+        locationId={locationId}
         dateStr={dateStr}
         timeStr={timeStr}
-        clientPhone={clientPhone}
         originalAppointmentId={originalAppointmentId}
       />
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

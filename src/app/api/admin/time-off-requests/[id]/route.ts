@@ -13,7 +13,7 @@
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import {
   buildTimeOffDecisionNotification,
@@ -59,13 +59,9 @@ export async function PATCH(
   try {
     const { id } = await params;
 
-    // 1. Require valid admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Admin authentication required' } } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    const { salon, admin, error } = await requireActiveAdminSalon();
+    if (error || !salon || !admin) {
+      return error!;
     }
 
     // 2. Parse and validate body
@@ -107,15 +103,11 @@ export async function PATCH(
       );
     }
 
-    // 4. EDIT 3: Enforce admin salon scope from session
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === existingRequest.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          { error: { code: 'FORBIDDEN', message: 'No access to this salon' } } satisfies ErrorResponse,
-          { status: 403 },
-        );
-      }
+    if (existingRequest.salonId !== salon.id) {
+      return Response.json(
+        { error: { code: 'NOT_FOUND', message: 'Time off request not found' } } satisfies ErrorResponse,
+        { status: 404 },
+      );
     }
 
     // 5. Verify request is still PENDING
@@ -211,13 +203,9 @@ export async function GET(
   try {
     const { id } = await params;
 
-    // 1. Require valid admin session
-    const admin = await getAdminSession();
-    if (!admin) {
-      return Response.json(
-        { error: { code: 'UNAUTHORIZED', message: 'Admin authentication required' } } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    const { salon, error } = await requireActiveAdminSalon();
+    if (error || !salon) {
+      return error!;
     }
 
     // 2. Fetch the request with decidedByAdminId
@@ -245,15 +233,11 @@ export async function GET(
       );
     }
 
-    // 3. Enforce admin salon scope BEFORE any other queries
-    if (!admin.isSuperAdmin) {
-      const hasAccess = admin.salons.some(s => s.salonId === existingRequest.salonId);
-      if (!hasAccess) {
-        return Response.json(
-          { error: { code: 'NOT_FOUND', message: 'Time off request not found' } } satisfies ErrorResponse,
-          { status: 404 }, // Return 404 to avoid leaking existence
-        );
-      }
+    if (existingRequest.salonId !== salon.id) {
+      return Response.json(
+        { error: { code: 'NOT_FOUND', message: 'Time off request not found' } } satisfies ErrorResponse,
+        { status: 404 },
+      );
     }
 
     // 4. Get technician name

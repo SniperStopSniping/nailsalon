@@ -15,7 +15,8 @@
 
 import { NextResponse } from 'next/server';
 
-import { getAdminSession } from '@/libs/adminAuth';
+import { getAdminImpersonationForAdmin, getAdminSession } from '@/libs/adminAuth';
+import { getSalonById } from '@/libs/queries';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -34,17 +35,39 @@ export async function GET(request: Request) {
     if (admin) {
       // Real session exists - use it (ignore any dev role override)
       const profileComplete = Boolean(admin.name && admin.email);
+      const impersonation = await getAdminImpersonationForAdmin(admin);
+      const impersonationSalon = impersonation
+        ? await getSalonById(impersonation.salonId)
+        : null;
 
       // Build salons array
       let salons = admin.salons.map(s => ({
         id: s.salonId,
         slug: s.salonSlug,
         name: s.salonName,
+        status: s.status ?? null,
         role: s.role,
       }));
 
+      if (impersonation) {
+        salons = [{
+          id: impersonation.salonId,
+          slug: impersonation.salonSlug,
+          name: impersonation.salonName,
+          status: impersonationSalon?.status ?? null,
+          role: 'impersonation',
+        }];
+      }
+
       // If salonSlug provided, validate membership and filter
       if (salonSlug) {
+        if (impersonation && salonSlug !== impersonation.salonSlug.toLowerCase()) {
+          return NextResponse.json(
+            { error: 'Impersonation is locked to a different salon' },
+            { status: 403 },
+          );
+        }
+
         const hasMembership = salons.some(
           s => s.slug?.toLowerCase() === salonSlug,
         );
@@ -72,6 +95,15 @@ export async function GET(request: Request) {
           isSuperAdmin: admin.isSuperAdmin,
           profileComplete,
           salons,
+          impersonation: impersonation
+            ? {
+                isActive: true,
+                salonId: impersonation.salonId,
+                salonSlug: impersonation.salonSlug,
+                salonName: impersonation.salonName,
+                startedAt: impersonation.startedAt,
+              }
+            : null,
         },
       }, {
         headers: { 'Cache-Control': 'no-store' },

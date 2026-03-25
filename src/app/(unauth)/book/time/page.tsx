@@ -1,18 +1,14 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
-import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getPageAppearance } from '@/libs/pageAppearance';
-import { getLocationById, getPrimaryLocation, getSalonBySlug, getServicesByIds, getTechnicianById } from '@/libs/queries';
-import { checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { buildBookingUrl, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { getLocationById, getPrimaryLocation, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import { BookTimeClient } from './BookTimeClient';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
-const DEFAULT_SALON_SLUG = 'nail-salon-no5';
 
 /**
  * Time Selection Page (Server Component)
@@ -22,32 +18,54 @@ const DEFAULT_SALON_SLUG = 'nail-salon-no5';
  */
 export default async function BookTimePage({
   searchParams,
+  params,
 }: {
-  searchParams: { serviceIds?: string; techId?: string; locationId?: string };
+  searchParams: {
+    serviceIds?: string;
+    techId?: string;
+    locationId?: string;
+    salonSlug?: string;
+    originalAppointmentId?: string;
+  };
+  params?: { locale?: string; slug?: string };
 }) {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'book-datetime');
+  const context = await getPublicPageContext('book-datetime', searchParams, params);
 
   // Parse URL params
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
   const techId = searchParams.techId || '';
 
-  // Fetch salon data
-  const salon = await getSalonBySlug(DEFAULT_SALON_SLUG);
-
-  if (!salon) {
-    redirect('/not-found');
-  }
+  const { salon } = context;
+  const tenantRoute = {
+    salonSlug: salon.slug,
+    routeSalonSlug: params?.slug,
+    locale: params?.locale,
+  };
 
   // Check salon status - redirect if suspended/cancelled
   const statusCheck = await checkSalonStatus(salon.id);
-  if (statusCheck.redirectPath) {
-    redirect(statusCheck.redirectPath);
+  const statusRedirectPath = buildTenantRedirectPath(statusCheck.redirectPath, tenantRoute);
+  if (statusRedirectPath) {
+    redirect(statusRedirectPath);
   }
 
   // Check if online booking is enabled
   const featureCheck = await checkFeatureEnabled(salon.id, 'onlineBooking');
-  if (featureCheck.redirectPath) {
-    redirect(featureCheck.redirectPath);
+  const featureRedirectPath = buildTenantRedirectPath(featureCheck.redirectPath, tenantRoute);
+  if (featureRedirectPath) {
+    redirect(featureRedirectPath);
+  }
+
+  if (serviceIdList.length === 0) {
+    redirect(buildBookingUrl('/book/service', {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      locationId: searchParams.locationId ?? null,
+      techId: searchParams.techId ?? null,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
   }
 
   // Deep-link repair: validate locationId and redirect if missing or invalid
@@ -62,15 +80,33 @@ export default async function BookTimePage({
     const validLocation = await getLocationById(searchParams.locationId, salon.id);
     if (!validLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id));
+      redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
     }
   } else if (primaryLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
     // Missing locationId - inject primary (preserves all other params)
-    redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id));
+    redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
   }
 
   // Fetch the selected services
   const dbServices = await getServicesByIds(serviceIdList, salon.id);
+
+  if (dbServices.length !== serviceIdList.length) {
+    redirect(buildBookingUrl('/book/service', {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      locationId: searchParams.locationId ?? null,
+      techId: searchParams.techId ?? null,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
+  }
 
   // Fetch the selected technician (if not "any")
   let technician = null;
@@ -98,10 +134,14 @@ export default async function BookTimePage({
   const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-datetime">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="book-datetime"
+      salon={context.salon}
+    >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookTimeClient services={services} technician={technician} bookingFlow={bookingFlow} />
       </Suspense>
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

@@ -9,6 +9,12 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+import {
+  CLIENT_SESSION_COOKIE,
+  clearClientSessionCookies,
+  deleteClientSession,
+} from '@/libs/clientAuth';
+
 // =============================================================================
 // ROUTE HANDLER
 // =============================================================================
@@ -16,31 +22,13 @@ import { NextResponse } from 'next/server';
 export async function POST() {
   try {
     const cookieStore = await cookies();
+    const sessionId = cookieStore.get(CLIENT_SESSION_COOKIE)?.value;
 
-    // Clear both session cookies by setting maxAge to 0
-    cookieStore.set('client_session', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
+    if (sessionId) {
+      await deleteClientSession(sessionId);
+    }
 
-    cookieStore.set('client_phone', '', {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
-
-    cookieStore.set('client_name', '', {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 0,
-      path: '/',
-    });
+    await clearClientSessionCookies();
 
     return NextResponse.json({
       success: true,

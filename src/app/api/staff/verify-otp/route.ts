@@ -8,10 +8,10 @@
  * Body: { phone: string, code: string, salonSlug: string }
  */
 
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
+import { createStaffSession, setStaffSessionCookies } from '@/libs/staffAuth';
 
 // =============================================================================
 // TYPES
@@ -63,15 +63,6 @@ function formatPhoneE164(phone: string): string {
   }
 
   throw new Error('Invalid phone number format');
-}
-
-/**
- * Generate a simple session token
- */
-function generateSessionToken(phone: string, salonSlug: string): string {
-  const timestamp = Date.now();
-  const data = `staff:${phone}:${salonSlug}:${timestamp}`;
-  return Buffer.from(data).toString('base64');
 }
 
 // =============================================================================
@@ -126,44 +117,12 @@ export async function POST(request: Request) {
       if (code === '123456') {
         console.warn(`[DEV MODE] Staff OTP verified for ${formattedPhone}`);
 
-        // Set session cookies
-        const sessionToken = generateSessionToken(formattedPhone, salonSlug);
-        const cookieStore = await cookies();
-
-        // Staff session token (HttpOnly for security)
-        cookieStore.set('staff_session', sessionToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
+        const sessionId = await createStaffSession({
+          salonId: salon.id,
+          technicianId: technician.id,
         });
-
-        // Staff phone (readable by client for display)
-        cookieStore.set('staff_phone', formattedPhone, {
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
-        });
-
-        // Staff name (for display)
-        cookieStore.set('staff_name', technician.name, {
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
-        });
-
-        // Salon slug (for API calls)
-        cookieStore.set('staff_salon', salonSlug, {
-          httpOnly: false,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 365, // 1 year
-          path: '/',
+        await setStaffSessionCookies({
+          sessionId,
         });
 
         return NextResponse.json({
@@ -215,44 +174,12 @@ export async function POST(request: Request) {
 
     console.warn(`Staff OTP verified for ${formattedPhone}, SID: ${data.sid}`);
 
-    // Set session cookies
-    const sessionToken = generateSessionToken(formattedPhone, salonSlug);
-    const cookieStore = await cookies();
-
-    // Staff session token (HttpOnly for security)
-    cookieStore.set('staff_session', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
+    const sessionId = await createStaffSession({
+      salonId: salon.id,
+      technicianId: technician.id,
     });
-
-    // Staff phone (readable by client for display)
-    cookieStore.set('staff_phone', formattedPhone, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
-
-    // Staff name (for display)
-    cookieStore.set('staff_name', technician.name, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
-
-    // Salon slug (for API calls)
-    cookieStore.set('staff_salon', salonSlug, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
+    await setStaffSessionCookies({
+      sessionId,
     });
 
     return NextResponse.json({

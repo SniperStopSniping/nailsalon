@@ -9,14 +9,13 @@
  * - Admin-only access (Clerk auth)
  */
 
-import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { getSalonBySlug } from '@/libs/queries';
-import { salonClientSchema, technicianSchema } from '@/models/Schema';
+import { salonClientSchema } from '@/models/Schema';
 
 // =============================================================================
 // Types
@@ -52,23 +51,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    // 1. Auth check (Clerk)
-    const { userId } = await auth();
-    if (!userId) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
-    }
-
     const { id: clientId } = await params;
 
-    // 2. Parse request body
+    // 1. Parse request body
     const body = await request.json();
     const parsed = updateFlagsSchema.safeParse(body);
 
@@ -86,61 +71,32 @@ export async function PUT(
 
     const { salonSlug, isProblemClient, flagReason, isBlocked, blockedReason } = parsed.data;
 
-    // 3. Resolve salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
+    // 2. Resolve salon and verify admin auth
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
+    }
+
+    const adminSession = await getAdminSession();
+    if (!adminSession) {
       return Response.json(
         {
           error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required',
           },
         } satisfies ErrorResponse,
-        { status: 404 },
+        { status: 401 },
       );
     }
 
-    // 3.5. Step 16.3: Check if clientFlags module is enabled
+    // 3. Step 16.3: Check if clientFlags module is enabled
     const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'clientFlags' });
     if (moduleGuard) {
       return moduleGuard;
     }
 
-    // 4. Verify user is admin for this salon
-    // Check if user is the salon owner or a technician with admin role
-    const isOwner = salon.ownerClerkUserId === userId;
-
-    let isAdmin = isOwner;
-    if (!isOwner) {
-      // Check if user is a technician with admin role
-      const [tech] = await db
-        .select()
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.salonId, salon.id),
-            eq(technicianSchema.userId, userId),
-            eq(technicianSchema.isActive, true),
-          ),
-        )
-        .limit(1);
-
-      isAdmin = tech?.role === 'admin' || tech?.role === 'owner';
-    }
-
-    if (!isAdmin) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Admin access required to manage client flags',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
-    // 5. Get the salon client record
+    // 4. Get the salon client record
     const [client] = await db
       .select()
       .from(salonClientSchema)
@@ -164,7 +120,7 @@ export async function PUT(
       );
     }
 
-    // 6. Build update data
+    // 5. Build update data
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
     };
@@ -179,7 +135,7 @@ export async function PUT(
           isProblemClient: true,
           flagReason: flagReason ?? currentFlags.flagReason,
           flaggedAt: new Date().toISOString(),
-          flaggedBy: userId,
+          flaggedBy: adminSession.id,
         };
       } else {
         // Clear the flag
@@ -199,7 +155,7 @@ export async function PUT(
       updateData.blockedReason = isBlocked ? (blockedReason ?? null) : null;
     }
 
-    // 7. Update the client
+    // 6. Update the client
     const [updated] = await db
       .update(salonClientSchema)
       .set(updateData)
@@ -244,20 +200,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    // 1. Auth check (Clerk)
-    const { userId } = await auth();
-    if (!userId) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
-    }
-
     const { id: clientId } = await params;
     const url = new URL(request.url);
     const salonSlug = url.searchParams.get('salonSlug');
@@ -274,18 +216,10 @@ export async function GET(
       );
     }
 
-    // 2. Resolve salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    // 2. Resolve salon and verify admin auth
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // 3. Get the salon client record

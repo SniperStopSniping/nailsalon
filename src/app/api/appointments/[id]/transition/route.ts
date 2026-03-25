@@ -1,19 +1,17 @@
 import { eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { canTransition } from '@/core/appointments/appointmentStateMachine';
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
 import type { AppointmentState, Transition } from '@/core/appointments/policyTypes';
 import { logAppointmentChange, logAppointmentLocked } from '@/libs/appointmentAudit';
+import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import { db } from '@/libs/DB';
-import { getAppointmentById, getSalonBySlug } from '@/libs/queries';
 import {
   appointmentArtifactsSchema,
   appointmentSchema,
   salonPoliciesSchema,
   superAdminPoliciesSchema,
-  technicianSchema,
 } from '@/models/Schema';
 
 // =============================================================================
@@ -46,78 +44,14 @@ export async function POST(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
-
-    // 1. Auth: Read staff cookies
-    const cookieStore = await cookies();
-    const staffSession = cookieStore.get('staff_session');
-    const staffPhone = cookieStore.get('staff_phone');
-    const staffSalon = cookieStore.get('staff_salon');
-
-    if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-      return Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      );
+    const access = await requireStaffAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      assignmentForbiddenMessage: 'You can only transition your own appointments',
+    });
+    if (!access.ok) {
+      return access.response;
     }
-
-    // 2. Resolve salon
-    const salon = await getSalonBySlug(staffSalon.value);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // 3. Fetch appointment
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // 4. Verify access
-    if (appointment.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You do not have access to this appointment',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
-    // 5. Check soft delete
-    if (appointment.deletedAt) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_DELETED',
-            message: 'This appointment has been deleted',
-          },
-        } satisfies ErrorResponse,
-        { status: 410 },
-      );
-    }
+    const { appointment, session } = access;
 
     // 6. Parse request body
     const body = await request.json();
@@ -166,7 +100,7 @@ export async function POST(
 
     // 9. Load policies
     const salonPolicyRow = await db.query.salonPoliciesSchema.findFirst({
-      where: eq(salonPoliciesSchema.salonId, salon.id),
+      where: eq(salonPoliciesSchema.salonId, session.salonId),
     });
 
     const superAdminPolicyRow = await db.query.superAdminPoliciesSchema.findFirst({
@@ -221,16 +155,7 @@ export async function POST(
       );
     }
 
-    // 12. Get technician info for audit logging
-    let technicianName: string | undefined;
-    if (appointment.technicianId) {
-      const [tech] = await db
-        .select({ name: technicianSchema.name })
-        .from(technicianSchema)
-        .where(eq(technicianSchema.id, appointment.technicianId))
-        .limit(1);
-      technicianName = tech?.name;
-    }
+    const technicianName = session.technicianName;
 
     // 13. Update appointment
     const now = new Date();
@@ -249,7 +174,7 @@ export async function POST(
     // This prevents edits once service starts (except admin override)
     if (to === 'working' && !appointment.lockedAt) {
       updateData.lockedAt = now;
-      updateData.lockedBy = appointment.technicianId;
+      updateData.lockedBy = session.technicianId;
     }
 
     // Set completedAt if transitioning to terminal state and not already set
@@ -267,11 +192,9 @@ export async function POST(
     // Log state transition
     await logAppointmentChange({
       appointmentId,
-      salonId: salon.id,
+      salonId: session.salonId,
       action: 'status_changed',
-      performedBy: appointment.technicianId
-        ? `staff:${appointment.technicianId}`
-        : staffPhone.value,
+      performedBy: `staff:${session.technicianId}`,
       performedByRole: 'staff',
       performedByName: technicianName,
       previousValue: { canvasState: currentCanvasState },
@@ -282,8 +205,8 @@ export async function POST(
     if (to === 'working' && !appointment.lockedAt && appointment.technicianId) {
       await logAppointmentLocked(
         appointmentId,
-        salon.id,
-        appointment.technicianId,
+        session.salonId,
+        session.technicianId,
         technicianName,
       );
     }

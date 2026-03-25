@@ -1,9 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
+import {
+  requireStaffApiSession,
+  requireStaffOverrideAccess,
+} from '@/libs/staffApiGuards';
 import {
   SCHEDULE_OVERRIDE_TYPES,
   type ScheduleOverrideType,
@@ -40,94 +42,6 @@ function isStartBeforeEnd(start: string, end: string): boolean {
   return startH * 60 + startM < endH * 60 + endM;
 }
 
-// Get staff session from cookies (returns technician + salon or error response)
-async function getStaffSession(): Promise<
-  | { technician: { id: string; name: string }; salon: { id: string; slug: string } }
-  | { error: Response }
-> {
-  const cookieStore = await cookies();
-  const staffSession = cookieStore.get('staff_session');
-  const staffPhone = cookieStore.get('staff_phone');
-  const staffSalon = cookieStore.get('staff_salon');
-
-  // Check for dev mode override
-  if (process.env.NODE_ENV !== 'production') {
-    const { isDevModeServer, readDevRoleFromCookies, getMockStaffMeResponse } = await import(
-      '@/libs/devRole.server'
-    );
-    if (isDevModeServer()) {
-      const devRole = readDevRoleFromCookies();
-      if (devRole === 'staff') {
-        const mockData = getMockStaffMeResponse();
-        return {
-          technician: { id: mockData.data.technician.id, name: mockData.data.technician.name },
-          salon: { id: mockData.data.salon.id, slug: mockData.data.salon.slug },
-        };
-      }
-      if (devRole) {
-        return {
-          error: Response.json(
-            { error: { code: 'UNAUTHORIZED', message: 'Dev role mismatch' } } satisfies ErrorResponse,
-            { status: 401 },
-          ),
-        };
-      }
-    }
-  }
-
-  // Verify session exists
-  if (!staffSession?.value || !staffPhone?.value || !staffSalon?.value) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Not logged in. Please sign in first.',
-          },
-        } satisfies ErrorResponse,
-        { status: 401 },
-      ),
-    };
-  }
-
-  // Resolve salon
-  const salon = await getSalonBySlug(staffSalon.value);
-  if (!salon) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      ),
-    };
-  }
-
-  // Get technician by phone
-  const technician = await getTechnicianByPhone(staffPhone.value, salon.id);
-  if (!technician) {
-    return {
-      error: Response.json(
-        {
-          error: {
-            code: 'TECHNICIAN_NOT_FOUND',
-            message: 'Technician profile not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      ),
-    };
-  }
-
-  return {
-    technician: { id: technician.id, name: technician.name },
-    salon: { id: salon.id, slug: salon.slug },
-  };
-}
-
 // =============================================================================
 // PUT /api/staff/overrides/[id] - Update a schedule override
 // =============================================================================
@@ -140,52 +54,28 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
+    const auth = await requireStaffApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
-
-    const { technician, salon } = session;
+    const salonId = auth.session.salonId;
 
     // Step 16.3: Check if scheduleOverrides module is enabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'scheduleOverrides' });
+    const moduleGuard = await guardModuleOr403({ salonId, module: 'scheduleOverrides' });
     if (moduleGuard) {
       return moduleGuard;
     }
 
     const { id } = await params;
 
-    // Find the override
-    const [existing] = await db
-      .select()
-      .from(technicianScheduleOverrideSchema)
-      .where(eq(technicianScheduleOverrideSchema.id, id))
-      .limit(1);
-
-    if (!existing) {
-      return Response.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Schedule override not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireStaffOverrideAccess(id, {
+      ownOnly: true,
+      ownershipForbiddenMessage: 'You can only edit your own schedule overrides',
+    });
+    if (!access.ok) {
+      return access.response;
     }
-
-    // Verify ownership
-    if (existing.technicianId !== technician.id || existing.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You can only edit your own schedule overrides',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
+    const { override: existing } = access;
 
     // Parse body
     const body = await request.json();
@@ -323,51 +213,26 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await getStaffSession();
-    if ('error' in session) {
-      return session.error;
+    const auth = await requireStaffApiSession();
+    if (!auth.ok) {
+      return auth.response;
     }
-
-    const { technician, salon } = session;
+    const salonId = auth.session.salonId;
 
     // Step 16.3: Check if scheduleOverrides module is enabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'scheduleOverrides' });
+    const moduleGuard = await guardModuleOr403({ salonId, module: 'scheduleOverrides' });
     if (moduleGuard) {
       return moduleGuard;
     }
 
     const { id } = await params;
 
-    // Find the override
-    const [existing] = await db
-      .select()
-      .from(technicianScheduleOverrideSchema)
-      .where(eq(technicianScheduleOverrideSchema.id, id))
-      .limit(1);
-
-    if (!existing) {
-      return Response.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Schedule override not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // Verify ownership
-    if (existing.technicianId !== technician.id || existing.salonId !== salon.id) {
-      return Response.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'You can only delete your own schedule overrides',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
+    const access = await requireStaffOverrideAccess(id, {
+      ownOnly: true,
+      ownershipForbiddenMessage: 'You can only delete your own schedule overrides',
+    });
+    if (!access.ok) {
+      return access.response;
     }
 
     // Delete the override

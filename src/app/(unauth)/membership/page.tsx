@@ -1,10 +1,7 @@
-import { PageThemeWrapper } from '@/components/PageThemeWrapper';
-import { getPageAppearance } from '@/libs/pageAppearance';
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import MembershipContent from './MembershipContent';
-
-// Demo salon ID - in production, this would come from auth context or subdomain
-const DEMO_SALON_ID = 'salon_nail-salon-no5';
 
 /**
  * Membership Benefits Page (Server Component)
@@ -15,12 +12,22 @@ const DEMO_SALON_ID = 'salon_nail-salon-no5';
  * Fetches page appearance settings and conditionally wraps
  * the content with ThemeProvider if theme mode is enabled.
  */
-export default async function MembershipPage() {
-  const { mode, themeKey } = await getPageAppearance(DEMO_SALON_ID, 'membership');
+export default async function MembershipPage({
+  searchParams,
+  params,
+}: {
+  searchParams: { salonSlug?: string };
+  params?: { locale?: string; slug?: string };
+}) {
+  const context = await getPublicPageContext('membership', searchParams, params);
 
   return (
-    <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="membership">
+    <PublicSalonPageShell
+      appearance={context.appearance}
+      pageName="membership"
+      salon={context.salon}
+    >
       <MembershipContent />
-    </PageThemeWrapper>
+    </PublicSalonPageShell>
   );
 }

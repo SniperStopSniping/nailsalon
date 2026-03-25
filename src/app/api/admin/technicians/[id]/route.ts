@@ -1,12 +1,15 @@
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { getSalonBySlug } from '@/libs/queries';
+import { normalizeWeeklySchedule, resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
+  clientPreferencesSchema,
   ONBOARDING_STATUSES,
   PAY_TYPES,
+  reviewSchema,
   SKILL_LEVELS,
   STAFF_ROLES,
   STAFF_STATUSES,
@@ -72,6 +75,23 @@ type ErrorResponse = {
   };
 };
 
+function permanentDeleteBlockedResponse(details?: {
+  appointments: number;
+  reviews: number;
+  favoritePreferences: number;
+}): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'TECHNICIAN_HAS_HISTORY',
+        message: 'This staff member has booking or client history and cannot be permanently removed. Disable them instead.',
+        details,
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
 // =============================================================================
 // GET /api/admin/technicians/[id] - Get full technician detail
 // =============================================================================
@@ -99,18 +119,9 @@ export async function GET(
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(validated.data.salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(validated.data.salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Get technician (including inactive for admin view)
@@ -330,7 +341,7 @@ export async function GET(
           terminatedAt: technician.terminatedAt,
           returnDate: technician.returnDate,
           onboardingStatus: technician.onboardingStatus,
-          weeklySchedule: technician.weeklySchedule,
+          weeklySchedule: resolveWeeklySchedule(technician),
           createdAt: technician.createdAt,
           updatedAt: technician.updatedAt,
         },
@@ -419,18 +430,9 @@ export async function PUT(
 
     const { salonSlug, ...updates } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Verify technician exists and belongs to salon
@@ -543,7 +545,7 @@ export async function PUT(
       updateData.onboardingStatus = updates.onboardingStatus;
     }
     if (updates.weeklySchedule !== undefined) {
-      updateData.weeklySchedule = updates.weeklySchedule;
+      updateData.weeklySchedule = normalizeWeeklySchedule(updates.weeklySchedule);
     }
     if (updates.userId !== undefined) {
       updateData.userId = updates.userId;
@@ -586,7 +588,7 @@ export async function PUT(
           displayOrder: updated!.displayOrder,
           notes: updated!.notes,
           onboardingStatus: updated!.onboardingStatus,
-          weeklySchedule: updated!.weeklySchedule,
+          weeklySchedule: resolveWeeklySchedule(updated!),
           updatedAt: updated!.updatedAt,
         },
       },
@@ -616,11 +618,13 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  let hard = false;
+
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
     const salonSlug = searchParams.get('salonSlug');
-    const hard = searchParams.get('hard') === 'true';
+    hard = searchParams.get('hard') === 'true';
 
     if (!salonSlug) {
       return Response.json(
@@ -634,18 +638,9 @@ export async function DELETE(
       );
     }
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Verify technician exists and belongs to salon
@@ -673,6 +668,41 @@ export async function DELETE(
     }
 
     if (hard) {
+      const [appointmentRefs] = await db
+        .select({
+          count: sql<number>`count(*)`,
+        })
+        .from(appointmentSchema)
+        .where(eq(appointmentSchema.technicianId, id));
+
+      const [reviewRefs] = await db
+        .select({
+          count: sql<number>`count(*)`,
+        })
+        .from(reviewSchema)
+        .where(eq(reviewSchema.technicianId, id));
+
+      const [favoritePreferenceRefs] = await db
+        .select({
+          count: sql<number>`count(*)`,
+        })
+        .from(clientPreferencesSchema)
+        .where(eq(clientPreferencesSchema.favoriteTechId, id));
+
+      const dependencyCounts = {
+        appointments: Number(appointmentRefs?.count ?? 0),
+        reviews: Number(reviewRefs?.count ?? 0),
+        favoritePreferences: Number(favoritePreferenceRefs?.count ?? 0),
+      };
+
+      if (
+        dependencyCounts.appointments > 0
+        || dependencyCounts.reviews > 0
+        || dependencyCounts.favoritePreferences > 0
+      ) {
+        return permanentDeleteBlockedResponse(dependencyCounts);
+      }
+
       // Hard delete - remove from DB
       // First delete related records
       await db
@@ -728,6 +758,15 @@ export async function DELETE(
     }
   } catch (error) {
     console.error('Error deleting technician:', error);
+
+    const maybeDatabaseCode = typeof error === 'object' && error && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : null;
+    const maybeMessage = error instanceof Error ? error.message : '';
+    if (hard && (maybeDatabaseCode === '23503' || /foreign key/i.test(maybeMessage))) {
+      return permanentDeleteBlockedResponse();
+    }
+
     return Response.json(
       {
         error: {

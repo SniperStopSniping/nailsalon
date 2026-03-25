@@ -1,5 +1,16 @@
 import { redirect } from 'next/navigation';
 
-export default function HomePage() {
-  redirect('/book');
+import { buildBookingUrl } from '@/libs/bookingParams';
+import { AppConfig } from '@/utils/AppConfig';
+
+export default function HomePage({
+  searchParams,
+}: {
+  searchParams?: { salonSlug?: string };
+}) {
+  redirect(buildBookingUrl('/book', {
+    salonSlug: searchParams?.salonSlug ?? null,
+  }, searchParams?.salonSlug
+    ? { locale: AppConfig.defaultLocale }
+    : undefined));
 }

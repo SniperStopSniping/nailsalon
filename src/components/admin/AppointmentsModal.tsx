@@ -13,8 +13,11 @@
  */
 
 import { motion } from 'framer-motion';
-import { Calendar, Plus, Search } from 'lucide-react';
+import { Calendar, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+
+import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import { Button } from '@/components/ui/button';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
@@ -132,34 +135,25 @@ function getInitials(name: string | null): string {
 }
 
 /**
- * Loading Skeleton
- */
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse space-y-4 p-4">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="h-20 rounded-lg bg-gray-100" />
-      ))}
-    </div>
-  );
-}
-
-/**
  * Empty State
  */
-function EmptyState() {
+function EmptyState({ selectedDate }: { selectedDate: Date }) {
+  const isToday = selectedDate.toDateString() === new Date().toDateString();
+  const formattedDate = selectedDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+
   return (
-    <div className="flex flex-col items-center justify-center px-8 py-20">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
-        <Calendar className="size-8 text-[#8E8E93]" />
-      </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
-        No Appointments Today
-      </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
-        You don&apos;t have any appointments scheduled for today
-      </p>
-    </div>
+    <AsyncStatePanel
+      icon={<Calendar className="mx-auto size-8 text-[#8E8E93]" />}
+      title={isToday ? 'No appointments scheduled' : `No appointments on ${formattedDate}`}
+      description={isToday
+        ? 'You are clear for the rest of today.'
+        : 'No visits are scheduled for this day yet.'}
+      className="mx-4 my-8"
+    />
   );
 }
 
@@ -278,15 +272,6 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         title={dayName}
         subtitle={`${monthName} ${dayNumber}`}
         leftAction={<BackButton onClick={onClose} label="Back" />}
-        rightAction={(
-          <button
-            type="button"
-            aria-label="Search appointments"
-            className="text-[#007AFF] transition-opacity active:opacity-50"
-          >
-            <Search className="size-5" />
-          </button>
-        )}
       />
 
       {/* Day Selector Row */}
@@ -316,20 +301,28 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       {/* Scrollable Timeline */}
       <div className="relative flex-1 overflow-y-auto bg-white">
         {loading ? (
-          <LoadingSkeleton />
+          <div className="p-4">
+            <AsyncStatePanel
+              loading
+              title="Loading appointments"
+              description="Pulling the latest salon schedule for this day."
+            />
+          </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center px-8 py-20">
-            <p className="mb-2 text-sm text-red-600">{error}</p>
-            <button
-              type="button"
-              onClick={fetchAppointments}
-              className="text-sm font-medium text-[#007AFF]"
-            >
-              Try again
-            </button>
+          <div className="p-4">
+            <AsyncStatePanel
+              tone="error"
+              title="Unable to load appointments"
+              description={error}
+              action={(
+                <Button type="button" variant="brandSoft" size="pillSm" onClick={fetchAppointments}>
+                  Try again
+                </Button>
+              )}
+            />
           </div>
         ) : appointments.length === 0 ? (
-          <EmptyState />
+          <EmptyState selectedDate={selectedDate} />
         ) : (
           <>
             {/* Current Time Line (Red) - only show for today */}

@@ -24,9 +24,11 @@ import {
   User,
   Zap,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { useClientSession } from '@/hooks/useClientSession';
+import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { cn } from '@/utils/Helpers';
@@ -646,7 +648,11 @@ const MembershipSkeleton = () => (
 
 export default function MembershipContent() {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+  const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { salonName, salonSlug } = useSalon();
+  const { phone: sessionPhone } = useClientSession();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -656,16 +662,9 @@ export default function MembershipContent() {
   const [savedAmount] = useState(340);
   const [clientPhone, setClientPhone] = useState('');
 
-  // Load client phone from cookie
   useEffect(() => {
-    const clientPhoneCookie = document.cookie.split('; ').find(row => row.startsWith('client_phone='));
-    if (clientPhoneCookie) {
-      const phone = decodeURIComponent(clientPhoneCookie.split('=')[1] || '');
-      if (phone) {
-        setClientPhone(phone);
-      }
-    }
-  }, []);
+    setClientPhone(sessionPhone);
+  }, [sessionPhone]);
 
   // Fetch membership data
   useEffect(() => {
@@ -675,16 +674,10 @@ export default function MembershipContent() {
         return;
       }
 
-      const normalizedPhone = clientPhone.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
-      if (normalizedPhone.length !== 10) {
-        setLoading(false);
-        return;
-      }
-
       try {
         // Fetch rewards data which includes visit stats
         const response = await fetch(
-          `/api/rewards?phone=${encodeURIComponent(normalizedPhone)}&salonSlug=${encodeURIComponent(salonSlug)}`,
+          `/api/rewards?salonSlug=${encodeURIComponent(salonSlug)}`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -727,9 +720,12 @@ export default function MembershipContent() {
 
   const handleNavigate = useCallback(
     (path: string) => {
-      router.push(path);
+      router.push(appendSalonSlug(path, salonSlug, {
+        routeSalonSlug,
+        locale,
+      }));
     },
-    [router],
+    [locale, routeSalonSlug, router, salonSlug],
   );
 
   return (

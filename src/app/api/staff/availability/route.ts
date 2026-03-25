@@ -9,7 +9,8 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
-import { requireStaffSession } from '@/libs/staffAuth';
+import { requireStaffApiSession } from '@/libs/staffApiGuards';
+import { normalizeWeeklySchedule, resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { technicianSchema, type WeeklySchedule } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -60,7 +61,7 @@ type ErrorResponse = {
 export async function GET(request: Request): Promise<Response> {
   try {
     // 1. Require staff session - derive technicianId and salonId from cookies
-    const auth = await requireStaffSession();
+    const auth = await requireStaffApiSession();
     if (!auth.ok) {
       return auth.response;
     }
@@ -116,15 +117,7 @@ export async function GET(request: Request): Promise<Response> {
           id: technician.id,
           name: technician.name,
         },
-        weeklySchedule: technician.weeklySchedule || {
-          sunday: null,
-          monday: null,
-          tuesday: null,
-          wednesday: null,
-          thursday: null,
-          friday: null,
-          saturday: null,
-        },
+        weeklySchedule: resolveWeeklySchedule(technician) ?? normalizeWeeklySchedule(),
       },
     });
   } catch (error) {
@@ -151,7 +144,7 @@ export async function GET(request: Request): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     // 1. Require staff session - derive technicianId and salonId from cookies
-    const auth = await requireStaffSession();
+    const auth = await requireStaffApiSession();
     if (!auth.ok) {
       return auth.response;
     }
@@ -201,7 +194,7 @@ export async function PUT(request: Request): Promise<Response> {
     }
 
     // 4. Update the schedule (using session-derived IDs, NOT client input)
-    const newSchedule: WeeklySchedule = validated.data.weeklySchedule;
+    const newSchedule: WeeklySchedule = normalizeWeeklySchedule(validated.data.weeklySchedule);
 
     const [updatedTech] = await db
       .update(technicianSchema)
@@ -223,7 +216,7 @@ export async function PUT(request: Request): Promise<Response> {
           id: updatedTech?.id,
           name: updatedTech?.name,
         },
-        weeklySchedule: updatedTech?.weeklySchedule,
+        weeklySchedule: resolveWeeklySchedule(updatedTech ?? null) ?? newSchedule,
       },
       meta: {
         timestamp: new Date().toISOString(),

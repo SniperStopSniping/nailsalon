@@ -9,10 +9,10 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { upsertClient } from '@/libs/queries';
 import { appointmentSchema } from '@/models/Schema';
@@ -22,7 +22,6 @@ import { appointmentSchema } from '@/models/Schema';
 // =============================================================================
 
 const updateNameSchema = z.object({
-  phone: z.string().min(10, 'Phone number is required'),
   firstName: z.string().min(1, 'First name is required').max(50, 'Name too long'),
 });
 
@@ -32,6 +31,11 @@ const updateNameSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireClientApiSession();
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const parsed = updateNameSchema.safeParse(body);
@@ -49,11 +53,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const { phone, firstName } = parsed.data;
-
-    // Normalize phone to match how it's stored (with +1 prefix)
-    const normalizedPhone = phone.replace(/\D/g, '');
-    const phoneForDb = normalizedPhone.length === 10 ? `+1${normalizedPhone}` : phone;
+    const { firstName } = parsed.data;
+    const normalizedPhone = auth.normalizedPhone;
+    const phoneForDb = auth.session.phone;
 
     // 1. Upsert the client record
     const client = await upsertClient(phoneForDb, firstName);
@@ -65,21 +67,10 @@ export async function POST(request: Request) {
       .set({ clientName: firstName })
       .where(eq(appointmentSchema.clientPhone, normalizedPhone));
 
-    // Also try with +1 prefix
     await db
       .update(appointmentSchema)
       .set({ clientName: firstName })
-      .where(eq(appointmentSchema.clientPhone, `+1${normalizedPhone}`));
-
-    // 3. Set client_name cookie for client-side access
-    const cookieStore = await cookies();
-    cookieStore.set('client_name', firstName, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      path: '/',
-    });
+      .where(eq(appointmentSchema.clientPhone, phoneForDb));
 
     console.warn(`[Client] Updated name for ${phoneForDb}: ${firstName}`);
 

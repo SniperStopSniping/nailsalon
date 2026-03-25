@@ -2,9 +2,10 @@ import { and, asc, desc, eq, gte, ilike, inArray, lt, or, sql } from 'drizzle-or
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { canAddTechnician } from '@/libs/planLimits';
-import { getSalonBySlug } from '@/libs/queries';
+import { normalizeWeeklySchedule } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
   PAY_TYPES,
@@ -94,18 +95,9 @@ export async function GET(request: Request): Promise<Response> {
 
     const { salonSlug, status, currentStatus, search, sortBy, sortOrder, page, limit } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Build base conditions
@@ -320,18 +312,9 @@ export async function POST(request: Request): Promise<Response> {
 
     const { salonSlug, ...data } = validated.data;
 
-    // Get salon
-    const salon = await getSalonBySlug(salonSlug);
-    if (!salon) {
-      return Response.json(
-        {
-          error: {
-            code: 'SALON_NOT_FOUND',
-            message: 'Salon not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
     }
 
     // Check seat limit before creating
@@ -382,7 +365,7 @@ export async function POST(request: Request): Promise<Response> {
     const nextOrder = (maxOrderResult[0]?.maxOrder ?? 0) + 1;
 
     // Default schedule (Mon-Fri 9-6)
-    const defaultSchedule: WeeklySchedule = data.weeklySchedule || {
+    const defaultSchedule: WeeklySchedule = normalizeWeeklySchedule(data.weeklySchedule || {
       sunday: null,
       monday: { start: '09:00', end: '18:00' },
       tuesday: { start: '09:00', end: '18:00' },
@@ -390,7 +373,7 @@ export async function POST(request: Request): Promise<Response> {
       thursday: { start: '09:00', end: '18:00' },
       friday: { start: '09:00', end: '18:00' },
       saturday: null,
-    };
+    });
 
     // Create technician
     const techId = `tech_${nanoid()}`;

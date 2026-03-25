@@ -4,8 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, Check, Copy, Plus, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { hasWorkingHours, normalizeWeeklySchedule } from '@/libs/weeklySchedule';
 import type { TimeOffReason } from '@/models/Schema';
-import { useSalon } from '@/providers/SalonProvider';
 
 // =============================================================================
 // Types
@@ -23,6 +23,7 @@ type TimeOffEntry = {
 };
 
 type ScheduleTabProps = {
+  salonSlug: string | null;
   technicianId: string;
   weeklySchedule: WeeklySchedule | null;
   onUpdate: (schedule: WeeklySchedule) => void;
@@ -82,25 +83,30 @@ const REASON_OPTIONS: { value: TimeOffReason; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+const DEFAULT_EDITOR_SCHEDULE: WeeklySchedule = {
+  sunday: null,
+  monday: { start: '09:00', end: '18:00' },
+  tuesday: { start: '09:00', end: '18:00' },
+  wednesday: { start: '09:00', end: '18:00' },
+  thursday: { start: '09:00', end: '18:00' },
+  friday: { start: '09:00', end: '18:00' },
+  saturday: null,
+};
+
+function getEditorSchedule(weeklySchedule: WeeklySchedule | null): WeeklySchedule {
+  const normalized = normalizeWeeklySchedule(weeklySchedule);
+  return hasWorkingHours(normalized) ? normalized : { ...DEFAULT_EDITOR_SCHEDULE };
+}
+
 // =============================================================================
 // Component
 // =============================================================================
 
-export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: ScheduleTabProps) {
-  const { salonSlug } = useSalon();
-  const [schedule, setSchedule] = useState<WeeklySchedule>(
-    weeklySchedule ?? {
-      sunday: null,
-      monday: { start: '09:00', end: '18:00' },
-      tuesday: { start: '09:00', end: '18:00' },
-      wednesday: { start: '09:00', end: '18:00' },
-      thursday: { start: '09:00', end: '18:00' },
-      friday: { start: '09:00', end: '18:00' },
-      saturday: null,
-    },
-  );
+export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate }: ScheduleTabProps) {
+  const [schedule, setSchedule] = useState<WeeklySchedule>(() => getEditorSchedule(weeklySchedule));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Time off state
   const [timeOff, setTimeOff] = useState<TimeOffEntry[]>([]);
@@ -113,6 +119,10 @@ export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: Schedule
     notes: '',
   });
   const [addingTimeOff, setAddingTimeOff] = useState(false);
+
+  useEffect(() => {
+    setSchedule(getEditorSchedule(weeklySchedule));
+  }, [technicianId, weeklySchedule]);
 
   // Fetch time off entries
   const fetchTimeOff = useCallback(async () => {
@@ -236,25 +246,32 @@ export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: Schedule
     }
 
     setSaving(true);
+    setSaveError(null);
     try {
       const response = await fetch(`/api/admin/technicians/${technicianId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
-          weeklySchedule: schedule,
+          weeklySchedule: normalizeWeeklySchedule(schedule),
         }),
       });
 
+      const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error('Failed to save schedule');
+        throw new Error(result?.error?.message ?? 'Failed to save schedule');
       }
 
-      onUpdate(schedule);
+      const nextSchedule = normalizeWeeklySchedule(
+        result?.data?.technician?.weeklySchedule ?? schedule,
+      );
+      setSchedule(nextSchedule);
+      onUpdate(nextSchedule);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       console.error('Error saving schedule:', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save schedule');
     } finally {
       setSaving(false);
     }
@@ -383,6 +400,12 @@ export function ScheduleTab({ technicianId, weeklySchedule, onUpdate }: Schedule
                 'Save Schedule'
               )}
       </button>
+
+      {saveError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {saveError}
+        </div>
+      )}
 
       {/* Time Off Section */}
       <div className="pt-4">

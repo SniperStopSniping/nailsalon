@@ -284,6 +284,12 @@ export default function RedeemSheet({
           {!isConfirmed && (
             <div
               ref={sliderRef}
+              role="slider"
+              tabIndex={0}
+              aria-label="Slide to confirm"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(sliderValue)}
               className="relative w-full touch-none select-none overflow-hidden"
               style={{
                 height: '64px',

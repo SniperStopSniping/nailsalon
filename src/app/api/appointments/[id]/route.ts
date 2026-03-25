@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
-import { getAppointmentById, getSalonById, getTechnicianById, updateAppointmentStatus } from '@/libs/queries';
+import { getSalonById, getTechnicianById, updateAppointmentStatus } from '@/libs/queries';
+import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendCancellationConfirmation, sendCancellationNotificationToTech } from '@/libs/SMS';
 import {
   APPOINTMENT_STATUSES,
@@ -47,6 +48,16 @@ export async function PATCH(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
+    const access = await requireAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can update this appointment',
+      assignmentForbiddenMessage: 'You can only manage your own appointments',
+      clientForbiddenMessage: 'You can only update your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
+    }
 
     // 1. Parse and validate request body
     const body = await request.json();
@@ -68,18 +79,7 @@ export async function PATCH(
     const data = parsed.data;
 
     // 2. Verify appointment exists
-    const existingAppointment = await getAppointmentById(appointmentId);
-    if (!existingAppointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
+    const existingAppointment = access.appointment;
 
     // 3. Validate the update makes sense
     if (!data.status && !data.cancelReason) {
@@ -92,6 +92,24 @@ export async function PATCH(
         } satisfies ErrorResponse,
         { status: 400 },
       );
+    }
+
+    if (access.actorRole === 'client') {
+      const isClientCancellation =
+        data.status === 'cancelled'
+        && data.cancelReason === 'client_request';
+
+      if (!isClientCancellation) {
+        return Response.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Clients can only cancel their own appointments',
+            },
+          } satisfies ErrorResponse,
+          { status: 403 },
+        );
+      }
     }
 
     // 4. If cancelReason is provided, status should be 'cancelled'
@@ -309,22 +327,19 @@ export async function GET(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
-
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireAppointmentAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can view this appointment',
+      assignmentForbiddenMessage: 'You can only view your own appointments',
+      clientForbiddenMessage: 'You can only view your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
     }
 
     return Response.json({
-      data: { appointment },
+      data: { appointment: access.appointment },
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
