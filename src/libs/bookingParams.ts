@@ -179,6 +179,7 @@ export function buildBookingUrl(
     selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
     techId?: string | null;
+    techError?: string | null;
     originalAppointmentId?: string | null;
     date?: string | null;
     time?: string | null;
@@ -220,6 +221,10 @@ export function buildBookingUrl(
     searchParams.set('techId', params.techId);
   }
 
+  if (params.techError) {
+    searchParams.set('techError', params.techError);
+  }
+
   // Optional: originalAppointmentId (for reschedule flow)
   if (params.originalAppointmentId) {
     searchParams.set('originalAppointmentId', params.originalAppointmentId);
@@ -250,6 +255,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   selectedAddOns: SelectedAddOnParam[];
   locationId: string | null;
   techId: string | null;
+  techError: string | null;
   originalAppointmentId: string | null;
   date: string | null;
   time: string | null;
@@ -264,6 +270,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
     selectedAddOns: parseSelectedAddOnsParam(searchParams.get('selectedAddOns')),
     locationId: searchParams.get('locationId') || null,
     techId: searchParams.get('techId') || null,
+    techError: searchParams.get('techError') || null,
     originalAppointmentId: searchParams.get('originalAppointmentId') || null,
     date: searchParams.get('date') || null,
     time: searchParams.get('time') || null,

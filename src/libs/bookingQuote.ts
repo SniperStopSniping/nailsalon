@@ -2,6 +2,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import {
+  resolveTechnicianCapabilityMode,
+  technicianCanPerformServices,
+  type BookingPolicyTechnician,
+  type RequestedService,
+} from '@/libs/bookingPolicy';
 import { mapAddOnToCatalogSummary, mapServiceAddOnRule, mapServiceToCatalogSummary } from '@/libs/bookingCatalog';
 import {
   addOnSchema,
@@ -11,6 +17,7 @@ import {
   type Service,
   type ServiceCategory,
   serviceAddOnSchema,
+  technicianServicesSchema,
 } from '@/models/Schema';
 
 export const selectedAddOnInputSchema = z.object({
@@ -25,6 +32,10 @@ export const publicBookingSelectionSchema = z.object({
 
 export type SelectedAddOnInput = z.infer<typeof selectedAddOnInputSchema>;
 export type PublicBookingSelection = z.infer<typeof publicBookingSelectionSchema>;
+
+export type PublicTechnicianCompatibility =
+  | { bookable: true; reason: null }
+  | { bookable: false; reason: 'service_unsupported' };
 
 export type BookingQuote = {
   baseService: {
@@ -93,6 +104,33 @@ export function calculateAppointmentDuration(args: {
 
 export function getBlockedEndTimeWithBuffer(startTime: Date, blockedDurationMinutes: number): Date {
   return new Date(startTime.getTime() + blockedDurationMinutes * 60 * 1000);
+}
+
+export function getPublicTechnicianCompatibility(args: {
+  selectionMode: 'base-service' | 'legacy';
+  technician: Pick<BookingPolicyTechnician, 'enabledServiceIds' | 'serviceIds' | 'specialties'>;
+  requestedServices: RequestedService[];
+}): PublicTechnicianCompatibility {
+  if (args.requestedServices.length === 0) {
+    return { bookable: true, reason: null };
+  }
+
+  if (args.selectionMode === 'base-service') {
+    const enabledServiceIds = new Set(args.technician.enabledServiceIds ?? []);
+    const bookable = args.requestedServices.every(service => enabledServiceIds.has(service.id));
+    return bookable
+      ? { bookable: true, reason: null }
+      : { bookable: false, reason: 'service_unsupported' };
+  }
+
+  const capabilityMode = resolveTechnicianCapabilityMode([args.technician], args.requestedServices);
+  return technicianCanPerformServices({
+    technician: args.technician,
+    requestedServices: args.requestedServices,
+    capabilityMode,
+  })
+    ? { bookable: true, reason: null }
+    : { bookable: false, reason: 'service_unsupported' };
 }
 
 export async function getAllowedAddOnsForService(salonId: string, serviceId: string) {
@@ -214,15 +252,27 @@ export async function validatePublicBookingSelection(args: {
   }
 
   if (args.technicianId) {
-    const technicianAssignment = await db.query.technicianServicesSchema.findFirst({
-      where: (assignment, { and, eq }) => and(
-        eq(assignment.technicianId, args.technicianId!),
-        eq(assignment.serviceId, baseService.id),
-        eq(assignment.enabled, true),
-      ),
+    const enabledAssignments = await db
+      .select({ serviceId: technicianServicesSchema.serviceId })
+      .from(technicianServicesSchema)
+      .where(
+        and(
+          eq(technicianServicesSchema.technicianId, args.technicianId),
+          eq(technicianServicesSchema.enabled, true),
+        ),
+      );
+
+    const compatibility = getPublicTechnicianCompatibility({
+      selectionMode: 'base-service',
+      technician: {
+        enabledServiceIds: enabledAssignments.map(assignment => assignment.serviceId),
+        serviceIds: enabledAssignments.map(assignment => assignment.serviceId),
+        specialties: [],
+      },
+      requestedServices: [baseService],
     });
 
-    if (!technicianAssignment) {
+    if (!compatibility.bookable) {
       throw new Error('TECHNICIAN_SERVICE_UNSUPPORTED');
     }
   }

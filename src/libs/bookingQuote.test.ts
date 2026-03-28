@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
+
+vi.mock('server-only', () => ({}));
 
 import {
   buildBookingQuote,
   calculateAppointmentDuration,
   calculateAppointmentPrice,
+  getPublicTechnicianCompatibility,
   getBlockedEndTimeWithBuffer,
   mergeSelectedAddOns,
 } from '@/libs/bookingQuote';
@@ -83,5 +87,41 @@ describe('bookingQuote helpers', () => {
       new Date('2026-03-27T10:00:00.000Z'),
       105,
     ).toISOString()).toBe('2026-03-27T11:45:00.000Z');
+  });
+
+  it('requires explicit service assignments for base-service technician compatibility', () => {
+    expect(getPublicTechnicianCompatibility({
+      selectionMode: 'base-service',
+      technician: {
+        enabledServiceIds: [],
+        serviceIds: [],
+        specialties: ['BIAB'],
+      },
+      requestedServices: [{
+        id: 'svc_combo',
+        name: 'BIAB + Classic Pedicure',
+        category: 'combo',
+      }],
+    })).toEqual({
+      bookable: false,
+      reason: 'service_unsupported',
+    });
+
+    expect(getPublicTechnicianCompatibility({
+      selectionMode: 'base-service',
+      technician: {
+        enabledServiceIds: ['svc_combo'],
+        serviceIds: ['svc_combo'],
+        specialties: [],
+      },
+      requestedServices: [{
+        id: 'svc_combo',
+        name: 'BIAB + Classic Pedicure',
+        category: 'combo',
+      }],
+    })).toEqual({
+      bookable: true,
+      reason: null,
+    });
   });
 });

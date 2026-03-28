@@ -3,16 +3,14 @@ import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, getNextStep, normalizeBookingFlow } from '@/libs/bookingFlow';
-import {
-  resolveTechnicianCapabilityMode,
-  technicianCanPerformServices,
-  technicianSupportsLocation,
-} from '@/libs/bookingPolicy';
+import { technicianSupportsLocation } from '@/libs/bookingPolicy';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
+import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookTechClient } from './BookTechClient';
 
@@ -132,7 +130,6 @@ export default async function BookTechPage({
 
   // Fetch technicians for this salon
   const dbTechnicians = await getTechniciansBySalonId(salon.id);
-  const capabilityMode = resolveTechnicianCapabilityMode(dbTechnicians, resolvedSelection.requestedServices);
 
   const services = resolvedSelection.services.map(service => ({
     id: service.id,
@@ -144,24 +141,36 @@ export default async function BookTechPage({
   // Map DB technicians to the shape expected by the client component
   const technicians = dbTechnicians
     .filter(tech =>
-      technicianCanPerformServices({
-        technician: tech,
-        requestedServices: resolvedSelection.requestedServices,
-        capabilityMode,
-      })
-      && technicianSupportsLocation({
+      technicianSupportsLocation({
         technician: tech,
         locationId: resolvedLocationId,
       }),
     )
-    .map(tech => ({
-      id: tech.id,
-      name: tech.name,
-      imageUrl: tech.avatarUrl || '/assets/images/tech-daniela.jpeg',
-      specialties: tech.specialties || [],
-      rating: Number(tech.rating) || 5.0,
-      reviewCount: tech.reviewCount || 0,
-    }));
+    .map((tech) => {
+      const compatibility = getPublicTechnicianCompatibility({
+        selectionMode: resolvedSelection.mode,
+        technician: tech,
+        requestedServices: resolvedSelection.requestedServices,
+      });
+      const locationSupported = technicianSupportsLocation({
+        technician: tech,
+        locationId: resolvedLocationId,
+      });
+
+      return {
+        id: tech.id,
+        name: tech.name,
+        imageUrl: normalizePublicAvatarUrl(tech.avatarUrl) ?? '/assets/images/tech-daniela.jpeg',
+        specialties: tech.specialties || [],
+        rating: Number(tech.rating) || 5.0,
+        reviewCount: tech.reviewCount || 0,
+        bookable: compatibility.bookable && locationSupported,
+        unavailableReason: compatibility.bookable
+          ? null
+          : 'Not assigned to this service yet',
+      };
+    })
+    .filter(tech => resolvedSelection.mode === 'base-service' || tech.bookable);
 
   return (
     <PublicSalonPageShell

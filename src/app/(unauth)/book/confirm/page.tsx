@@ -9,6 +9,7 @@ import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
+import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -108,7 +109,7 @@ export default async function BookConfirmPage({
       technician = {
         id: dbTech.id,
         name: dbTech.name,
-        imageUrl: dbTech.avatarUrl || '/assets/images/tech-daniela.jpeg',
+        imageUrl: normalizePublicAvatarUrl(dbTech.avatarUrl),
       };
     }
   }

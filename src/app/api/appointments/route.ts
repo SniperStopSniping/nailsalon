@@ -25,6 +25,7 @@ import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { validatePublicBookingSelection } from '@/libs/bookingQuote';
+import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -878,9 +879,19 @@ export async function POST(request: Request): Promise<Response> {
     const bookingStartOfDay = new Date(`${bookingDate}T00:00:00`);
     const bookingEndOfDay = new Date(`${bookingDate}T23:59:59.999`);
 
-    const candidateTechnicians = technician
+    let candidateTechnicians = technician
       ? [technician]
       : await getTechniciansBySalonId(salon.id);
+
+    if (normalizedBaseServiceId) {
+      candidateTechnicians = candidateTechnicians.filter(tech =>
+        getPublicTechnicianCompatibility({
+          selectionMode: 'base-service',
+          technician: tech,
+          requestedServices: services,
+        }).bookable,
+      );
+    }
 
     if (candidateTechnicians.length === 0) {
       return Response.json(
@@ -894,7 +905,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const capabilityMode = resolveTechnicianCapabilityMode(candidateTechnicians, services);
+    const capabilityMode = normalizedBaseServiceId
+      ? 'service_assignments'
+      : resolveTechnicianCapabilityMode(candidateTechnicians, services);
 
     const initialPolicy = await loadBookingPolicy({
       salonId: salon.id,

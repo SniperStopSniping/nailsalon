@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   buildTenantRedirectPath,
@@ -9,6 +9,7 @@ const {
   getPublicPageContext,
   getServicesByIds,
   getTechnicianById,
+  resolvePublicBookingSelection,
   redirectMock,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
@@ -19,6 +20,7 @@ const {
   getPublicPageContext: vi.fn(),
   getServicesByIds: vi.fn(),
   getTechnicianById: vi.fn(),
+  resolvePublicBookingSelection: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
@@ -45,6 +47,10 @@ vi.mock('@/libs/salonStatus', () => ({
   checkSalonStatus,
 }));
 
+vi.mock('@/libs/publicBookingSelection', () => ({
+  resolvePublicBookingSelection,
+}));
+
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));
@@ -52,6 +58,11 @@ vi.mock('@/libs/tenant', () => ({
 import BookTimePage from './page';
 
 describe('BookTimePage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+  });
+
   it('redirects back to service selection when no services are selected', async () => {
     getPublicPageContext.mockResolvedValue({
       appearance: null,
@@ -85,7 +96,7 @@ describe('BookTimePage', () => {
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
     getPrimaryLocation.mockResolvedValue(null);
-    getServicesByIds.mockResolvedValue([]);
+    resolvePublicBookingSelection.mockRejectedValue(new Error('INVALID_SERVICES'));
 
     await expect(BookTimePage({
       searchParams: {
@@ -118,5 +129,31 @@ describe('BookTimePage', () => {
         techId: 'tech_1',
       },
     })).rejects.toThrow('REDIRECT:/en/salon-a/cancelled');
+  });
+
+  it('redirects back to tech with an explicit unsupported flag when the technician cannot perform the selected service', async () => {
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: null,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getPrimaryLocation.mockResolvedValue(null);
+    resolvePublicBookingSelection.mockRejectedValue(new Error('TECHNICIAN_SERVICE_UNSUPPORTED'));
+
+    await expect(BookTimePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_combo',
+        techId: 'tech_1',
+        selectedAddOns: JSON.stringify([{ addOnId: 'addon_1' }]),
+      },
+    })).rejects.toThrow(
+      'REDIRECT:/book/tech?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techError=unsupported',
+    );
   });
 });

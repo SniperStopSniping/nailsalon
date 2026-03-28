@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -8,6 +7,8 @@ import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
+import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
@@ -18,10 +19,12 @@ import { themeVars } from '@/theme';
 export type TechnicianData = {
   id: string;
   name: string;
-  imageUrl: string;
+  imageUrl: string | null;
   specialties: string[];
   rating: number;
   reviewCount: number;
+  bookable: boolean;
+  unavailableReason: string | null;
 };
 
 export type ServiceSummary = {
@@ -47,6 +50,8 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   const serviceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) || [];
   const baseServiceId = searchParams.get('baseServiceId');
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
+  const techError = searchParams.get('techError');
+  const hasBookableTechnicians = technicians.some(tech => tech.bookable);
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
@@ -102,6 +107,11 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   };
 
   const handleSelectTech = (techId: string) => {
+    const technician = technicians.find(tech => tech.id === techId);
+    if (technician && !technician.bookable) {
+      return;
+    }
+
     // Always allow selection
     setSelectedTech(techId);
     // Save to global state immediately
@@ -179,16 +189,26 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
           onBack={handleBack}
         />
 
+        {techError === 'unsupported' && (
+          <StateCard
+            title="That artist can't perform this service yet"
+            description="Choose a different artist or use any available artist for this appointment."
+            tone="error"
+            className="mb-4 border"
+          />
+        )}
+
         {/* Technicians grid */}
         <div className="grid grid-cols-2 gap-3">
           {technicians.map((tech, index) => {
-            const isSelected = selectedTech === tech.id;
+            const isSelected = selectedTech === tech.id && tech.bookable;
             return (
               <button
                 key={tech.id}
                 type="button"
+                disabled={!tech.bookable}
                 onClick={() => handleSelectTech(tech.id)}
-                className="relative overflow-hidden rounded-2xl text-left transition-all duration-300"
+                className="relative overflow-hidden rounded-2xl text-left transition-all duration-300 disabled:cursor-not-allowed"
                 style={{
                   transform: isSelected ? 'scale(1.02)' : undefined,
                   background: isSelected
@@ -201,7 +221,7 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
                   borderWidth: isSelected ? 0 : '1px',
                   borderStyle: 'solid',
                   borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
-                  opacity: mounted ? 1 : 0,
+                  opacity: mounted ? (tech.bookable ? 1 : 0.65) : 0,
                   transition: `opacity 300ms ease-out ${200 + index * 100}ms, transform 300ms ease-out ${200 + index * 100}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                 }}
               >
@@ -233,11 +253,11 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
                         borderColor: isSelected ? themeVars.primary : 'transparent',
                       }}
                     />
-                    <Image
-                      src={tech.imageUrl}
-                      alt={tech.name}
-                      fill
-                      className="object-cover"
+                    <TechnicianAvatar
+                      name={tech.name}
+                      imageUrl={tech.imageUrl}
+                      className="size-full"
+                      sizes="96px"
                     />
                   </div>
 
@@ -246,28 +266,35 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
                     {tech.name}
                   </div>
 
-                  {/* Rating */}
-                  <div className="mb-2 flex items-center gap-1.5">
-                    <div className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map(star => (
-                        <svg
-                          key={star}
-                          width="14"
-                          height="14"
-                          viewBox="0 0 12 12"
-                          style={{ fill: star <= Math.floor(tech.rating) ? themeVars.primary : '#e5e5e5' }}
-                        >
-                          <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
-                        </svg>
-                      ))}
-                    </div>
-                    <span className="text-sm font-bold text-neutral-900">{tech.rating}</span>
-                    <span className="text-xs text-neutral-400">
-                      (
-                      {tech.reviewCount}
+                  {tech.bookable
+                    ? (
+                        <div className="mb-2 flex items-center gap-1.5">
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map(star => (
+                              <svg
+                                key={star}
+                                width="14"
+                                height="14"
+                                viewBox="0 0 12 12"
+                                style={{ fill: star <= Math.floor(tech.rating) ? themeVars.primary : '#e5e5e5' }}
+                              >
+                                <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
+                              </svg>
+                            ))}
+                          </div>
+                          <span className="text-sm font-bold text-neutral-900">{tech.rating}</span>
+                          <span className="text-xs text-neutral-400">
+                            (
+                            {tech.reviewCount}
+                            )
+                          </span>
+                        </div>
                       )
-                    </span>
-                  </div>
+                    : (
+                        <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
+                          {tech.unavailableReason ?? 'Unavailable for this service'}
+                        </div>
+                      )}
 
                   {/* Specialties */}
                   <div className="flex flex-wrap justify-center gap-1">
@@ -291,10 +318,11 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
         <button
           type="button"
           onClick={() => handleSelectTech('any')}
+          disabled={!hasBookableTechnicians}
           className="mt-4 w-full rounded-2xl border border-dashed bg-white/50 py-4 text-center transition-all hover:bg-white"
           style={{
             borderColor: `color-mix(in srgb, ${themeVars.primaryDark} 50%, transparent)`,
-            opacity: mounted ? 1 : 0,
+            opacity: mounted ? (hasBookableTechnicians ? 1 : 0.55) : 0,
             transition: 'opacity 300ms ease-out 500ms',
           }}
           onMouseEnter={(e) => {
@@ -305,7 +333,9 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
           }}
         >
           <span className="text-base font-medium text-neutral-600">
-            🎲 Surprise me with any available artist
+            {hasBookableTechnicians
+              ? '🎲 Surprise me with any available artist'
+              : 'No compatible artists are assigned to this service yet'}
           </span>
         </button>
 

@@ -14,11 +14,11 @@ import {
   Star,
   User,
 } from 'lucide-react';
-import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
@@ -51,7 +51,7 @@ export type AddOnSummary = {
 export type TechnicianSummary = {
   id: string;
   name: string;
-  imageUrl: string;
+  imageUrl: string | null;
 } | null;
 
 export type LocationSummary = {
@@ -252,7 +252,12 @@ const BookingCard = ({
                   className="relative size-12 shrink-0 overflow-hidden"
                   style={{ borderRadius: n5.radiusPill }}
                 >
-                  <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
+                  <TechnicianAvatar
+                    name={technician.name}
+                    imageUrl={technician.imageUrl}
+                    className="size-full"
+                    sizes="48px"
+                  />
                 </div>
               )
             : (

@@ -8,6 +8,7 @@ import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
+import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookTimeClient } from './BookTimeClient';
 
@@ -109,7 +110,23 @@ export default async function BookTimePage({
       serviceIds: serviceIdList,
       technicianId: techId && techId !== 'any' ? techId : null,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TECHNICIAN_SERVICE_UNSUPPORTED') {
+      redirect(buildBookingUrl('/book/tech', {
+        salonSlug: searchParams.salonSlug ?? salon.slug,
+        serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+        baseServiceId,
+        selectedAddOns,
+        locationId: searchParams.locationId ?? null,
+        techId: null,
+        techError: 'unsupported',
+        originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      }, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
+    }
+
     redirect(buildBookingUrl('/book/service', {
       salonSlug: searchParams.salonSlug ?? salon.slug,
       baseServiceId: null,
@@ -131,7 +148,7 @@ export default async function BookTimePage({
       technician = {
         id: dbTech.id,
         name: dbTech.name,
-        imageUrl: dbTech.avatarUrl || '/assets/images/tech-daniela.jpeg',
+        imageUrl: normalizePublicAvatarUrl(dbTech.avatarUrl),
       };
     }
   }

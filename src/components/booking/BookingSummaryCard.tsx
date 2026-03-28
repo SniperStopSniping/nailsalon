@@ -1,5 +1,4 @@
-import Image from 'next/image';
-
+import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { themeVars } from '@/theme';
 
@@ -10,7 +9,7 @@ type BookingSummaryCardProps = {
   totalPrice: number;
   technician?: {
     name: string;
-    imageUrl: string;
+    imageUrl: string | null;
   } | null;
   label?: string;
 };
@@ -36,9 +35,12 @@ export function BookingSummaryCard({
       <CardContent className="px-5 py-4">
         <div className="flex items-center gap-4">
           {technician && (
-            <div className="relative size-14 shrink-0 overflow-hidden rounded-full border-2 border-white/30">
-              <Image src={technician.imageUrl} alt={technician.name} fill className="object-cover" />
-            </div>
+            <TechnicianAvatar
+              name={technician.name}
+              imageUrl={technician.imageUrl}
+              className="size-14 shrink-0 border-2 border-white/30"
+              sizes="56px"
+            />
           )}
           <div className="min-w-0 flex-1">
             <div className="mb-0.5 text-xs text-white/70">{label}</div>

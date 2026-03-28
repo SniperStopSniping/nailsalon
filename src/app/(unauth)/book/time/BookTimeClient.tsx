@@ -25,7 +25,7 @@ export type ServiceSummary = {
 export type TechnicianSummary = {
   id: string;
   name: string;
-  imageUrl: string;
+  imageUrl: string | null;
 } | null;
 
 export type AddOnSummary = {

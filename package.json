@@ -28,6 +28,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:default-catalog": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-default-catalog.ts",
     "db:seed:default-combos": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-default-combos.ts",
+    "db:seed:isla-daniela-services": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-service-assignments.ts",
     "db:seed:e2e": "NODE_ENV=development dotenv -c development -- tsx scripts/seed-e2e-fixtures.ts",
     "db:backfill-salon-client-id": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-appointment-salon-client-id.ts",
     "db:verify-fraud-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-fraud-schema.ts",

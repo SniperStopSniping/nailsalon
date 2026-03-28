@@ -7,7 +7,7 @@ import {
 } from '@/libs/bookingPolicy';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
-import { validatePublicBookingSelection } from '@/libs/bookingQuote';
+import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
   getLocationById,
   getSalonBySlug,
@@ -186,10 +186,34 @@ export async function GET(request: Request): Promise<Response> {
       });
     }
 
-    const capabilityMode = resolveTechnicianCapabilityMode(
-      technicians,
-      requestedServices as RequestedService[],
+    const compatibleTechnicians = technicians.filter(tech =>
+      getPublicTechnicianCompatibility({
+        selectionMode: baseServiceId ? 'base-service' : 'legacy',
+        technician: tech,
+        requestedServices: requestedServices as RequestedService[],
+      }).bookable,
     );
+
+    if (compatibleTechnicians.length === 0) {
+      return Response.json({
+        date,
+        salonSlug,
+        technicianId: technicianId || null,
+        visibleSlots: [],
+        bookedSlots: [],
+        appointmentCount: 0,
+        reason: 'no_compatible_technicians',
+      });
+    }
+
+    technicians = compatibleTechnicians;
+
+    const capabilityMode = baseServiceId
+      ? 'service_assignments'
+      : resolveTechnicianCapabilityMode(
+          technicians,
+          requestedServices as RequestedService[],
+        );
 
     const bookingPolicy = await loadBookingPolicy({
       salonId: salon.id,
