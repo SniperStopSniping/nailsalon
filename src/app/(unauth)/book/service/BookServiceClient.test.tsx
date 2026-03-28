@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('next/image', () => ({
@@ -73,7 +73,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
   });
 
-  it('renders category chips inside a horizontal mobile scroll track without wrapping', () => {
+  it('renders category chips inside a horizontal mobile scroll track in canonical order, including combo', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     render(
@@ -115,6 +115,18 @@ describe('BookServiceClient', () => {
             imageUrl: '/service-3.jpg',
             resolvedIntroPriceLabel: null,
           },
+          {
+            id: 'svc-4',
+            name: 'BIAB + Classic Pedicure',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 110,
+            priceCents: 8500,
+            priceDisplayText: null,
+            category: 'combo',
+            imageUrl: '/service-4.jpg',
+            resolvedIntroPriceLabel: null,
+          },
         ]}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
         locations={[]}
@@ -133,7 +145,21 @@ describe('BookServiceClient', () => {
       'min-w-max',
       'flex-nowrap',
     );
+    const track = screen.getByTestId('service-category-track');
+    const chipNames = within(track)
+      .getAllByRole('button')
+      .map(button => button.textContent?.trim());
+    expect(chipNames).toEqual([
+      '💅Manicure',
+      '✨Builder Gel',
+      '🦶Pedicure',
+      '✨Combo',
+    ]);
     expect(screen.getByRole('button', { name: /builder gel/i })).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+    );
+    expect(screen.getByRole('button', { name: /combo/i })).toHaveClass(
       'shrink-0',
       'whitespace-nowrap',
     );

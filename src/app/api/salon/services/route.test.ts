@@ -57,11 +57,11 @@ describe('salon services route', () => {
     insertValues.mockReturnValue({
       returning: vi.fn(async () => [{
         id: 'svc_newsvc',
-        name: 'BIAB Short',
-        description: 'Builder gel overlay',
-        price: 6500,
-        durationMinutes: 75,
-        category: 'hands',
+        name: 'BIAB + Classic Pedicure',
+        description: 'Builder gel overlay paired with a classic pedicure',
+        price: 8500,
+        durationMinutes: 110,
+        category: 'combo',
         imageUrl: null,
         sortOrder: 3,
         isActive: true,
@@ -75,11 +75,11 @@ describe('salon services route', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         salonSlug: 'isla-nail-studio',
-        name: 'BIAB Short',
-        description: 'Builder gel overlay',
-        price: 6500,
-        durationMinutes: 75,
-        category: 'hands',
+        name: 'BIAB + Classic Pedicure',
+        description: 'Builder gel overlay paired with a classic pedicure',
+        price: 8500,
+        durationMinutes: 110,
+        category: 'combo',
       }),
     }));
     const body = await response.json();
@@ -89,17 +89,17 @@ describe('salon services route', () => {
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
       id: 'svc_newsvc',
       salonId: 'salon_1',
-      name: 'BIAB Short',
-      price: 6500,
-      durationMinutes: 75,
-      category: 'hands',
+      name: 'BIAB + Classic Pedicure',
+      price: 8500,
+      durationMinutes: 110,
+      category: 'combo',
       sortOrder: 3,
       isActive: true,
     }));
     expect(body.data.service).toEqual(expect.objectContaining({
       id: 'svc_newsvc',
-      name: 'BIAB Short',
-      category: 'hands',
+      name: 'BIAB + Classic Pedicure',
+      category: 'combo',
     }));
   });
 
@@ -112,7 +112,7 @@ describe('salon services route', () => {
         name: '',
         price: -100,
         durationMinutes: 0,
-        category: 'hands',
+        category: 'combo',
       }),
     }));
 
@@ -123,11 +123,11 @@ describe('salon services route', () => {
     getServicesBySalonId.mockResolvedValueOnce([
       {
         id: 'svc_1',
-        name: 'Gel Mani',
+        name: 'BIAB + Classic Pedicure',
         description: null,
-        price: 5500,
-        durationMinutes: 60,
-        category: 'hands',
+        price: 8500,
+        durationMinutes: 110,
+        category: 'combo',
         imageUrl: null,
         sortOrder: 1,
         isActive: true,

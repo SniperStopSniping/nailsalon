@@ -1492,6 +1492,7 @@ export const PUBLIC_SERVICE_CATEGORIES = [
   'builder_gel',
   'extensions',
   'pedicure',
+  'combo',
 ] as const;
 export type PublicServiceCategory = (typeof PUBLIC_SERVICE_CATEGORIES)[number];
 

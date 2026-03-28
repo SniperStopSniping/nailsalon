@@ -12,7 +12,7 @@ import {
 type DefaultServiceTemplate = {
   name: string;
   slug: string;
-  category: 'manicure' | 'builder_gel' | 'extensions' | 'pedicure';
+  category: 'manicure' | 'builder_gel' | 'extensions' | 'pedicure' | 'combo';
   priceCents: number;
   priceDisplayText?: string | null;
   durationMinutes: number;
@@ -159,6 +159,87 @@ const DEFAULT_SERVICES: DefaultServiceTemplate[] = [
     isIntroPrice: true,
     introPriceLabel: 'Founding Client Price',
   },
+  {
+    name: 'BIAB + Classic Pedicure',
+    slug: 'biab-classic-pedicure',
+    category: 'combo',
+    priceCents: 8500,
+    durationMinutes: 110,
+    descriptionItems: [
+      'Builder gel overlay with a classic pedicure pairing',
+      'Strength for nails plus a polished foot refresh',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'BIAB + Lavender Spa Pedicure',
+    slug: 'biab-lavender-spa-pedicure',
+    category: 'combo',
+    priceCents: 9500,
+    durationMinutes: 125,
+    descriptionItems: [
+      'Builder gel overlay paired with a lavender spa pedicure',
+      'Structured nails and a longer relaxing pedi treatment',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'BIAB + Deluxe Lavender Pedicure',
+    slug: 'biab-deluxe-lavender-pedicure',
+    category: 'combo',
+    priceCents: 10500,
+    durationMinutes: 140,
+    descriptionItems: [
+      'Builder gel overlay with the full deluxe lavender pedicure',
+      'Hands and feet finished in one extended combo appointment',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'Gel X / Hard Gel Extensions + Classic Pedicure',
+    slug: 'gel-x-hard-gel-extensions-classic-pedicure',
+    category: 'combo',
+    priceCents: 10500,
+    priceDisplayText: '$105+',
+    durationMinutes: 155,
+    descriptionItems: [
+      'Full Gel X or hard gel extensions with a classic pedicure',
+      'Length and shape plus a polished pedi refresh',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'Gel X / Hard Gel Extensions + Lavender Spa Pedicure',
+    slug: 'gel-x-hard-gel-extensions-lavender-spa-pedicure',
+    category: 'combo',
+    priceCents: 11500,
+    priceDisplayText: '$115+',
+    durationMinutes: 170,
+    descriptionItems: [
+      'Full Gel X or hard gel extensions with a lavender spa pedicure',
+      'Extension set paired with a longer spa-style pedi service',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'Gel X / Hard Gel Extensions + Deluxe Lavender Pedicure',
+    slug: 'gel-x-hard-gel-extensions-deluxe-lavender-pedicure',
+    category: 'combo',
+    priceCents: 12500,
+    priceDisplayText: '$125+',
+    durationMinutes: 185,
+    descriptionItems: [
+      'Full Gel X or hard gel extensions with the deluxe lavender pedicure',
+      'Maximum length, structure, and a premium pedicure in one visit',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
 ];
 
 const DEFAULT_ADD_ONS: DefaultAddOnTemplate[] = [
@@ -246,7 +327,34 @@ const DEFAULT_SERVICE_ADD_ONS: Array<{
   { serviceSlug: 'classic-pedicure', addOnSlug: 'add-gel-polish', displayOrder: 1 },
   { serviceSlug: 'lavender-spa-pedicure', addOnSlug: 'add-gel-polish', displayOrder: 1 },
   { serviceSlug: 'deluxe-lavender-pedicure', addOnSlug: 'add-gel-polish', displayOrder: 1 },
+  { serviceSlug: 'biab-classic-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'biab-classic-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'biab-classic-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
+  { serviceSlug: 'biab-lavender-spa-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'biab-lavender-spa-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'biab-lavender-spa-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
+  { serviceSlug: 'biab-deluxe-lavender-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'biab-deluxe-lavender-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'biab-deluxe-lavender-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-classic-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-classic-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-classic-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-lavender-spa-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-lavender-spa-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-lavender-spa-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-deluxe-lavender-pedicure', addOnSlug: 'simple-nail-art', displayOrder: 1 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-deluxe-lavender-pedicure', addOnSlug: '3d-charms', displayOrder: 2 },
+  { serviceSlug: 'gel-x-hard-gel-extensions-deluxe-lavender-pedicure', addOnSlug: 'nail-repair', displayOrder: 3 },
 ];
+
+const DEFAULT_COMBO_SERVICE_SLUGS = new Set(
+  DEFAULT_SERVICES
+    .filter(service => service.category === 'combo')
+    .map(service => service.slug),
+);
+
+const DEFAULT_COMBO_SERVICES = DEFAULT_SERVICES.filter(service => DEFAULT_COMBO_SERVICE_SLUGS.has(service.slug));
+const DEFAULT_COMBO_SERVICE_ADD_ONS = DEFAULT_SERVICE_ADD_ONS.filter(mapping => DEFAULT_COMBO_SERVICE_SLUGS.has(mapping.serviceSlug));
 
 export function getDefaultCatalogTemplate() {
   return {
@@ -254,6 +362,13 @@ export function getDefaultCatalogTemplate() {
     addOns: DEFAULT_ADD_ONS,
     serviceAddOns: DEFAULT_SERVICE_ADD_ONS,
     bookingConfig: DEFAULT_BOOKING_CONFIG satisfies BookingConfig,
+  };
+}
+
+export function getDefaultComboCatalogTemplate() {
+  return {
+    services: DEFAULT_COMBO_SERVICES,
+    serviceAddOns: DEFAULT_COMBO_SERVICE_ADD_ONS,
   };
 }
 
@@ -375,3 +490,147 @@ export async function seedDefaultCatalogForSalon(args: {
   return { seeded: true };
 }
 
+export async function backfillMissingDefaultComboServicesForSalon(args: {
+  db: any;
+  salonId: string;
+}) {
+  const { db, salonId } = args;
+  const comboTemplate = getDefaultComboCatalogTemplate();
+
+  type ExistingServiceRow = {
+    id: string;
+    slug: string | null;
+    sortOrder: number | null;
+  };
+  type ExistingAddOnRow = {
+    id: string;
+    slug: string;
+  };
+  type ExistingMappingRow = {
+    serviceId: string;
+    addOnId: string;
+  };
+
+  const [existingServicesRaw, existingAddOnsRaw, existingMappingsRaw] = await Promise.all([
+    db
+      .select({
+        id: serviceSchema.id,
+        slug: serviceSchema.slug,
+        sortOrder: serviceSchema.sortOrder,
+      })
+      .from(serviceSchema)
+      .where(eq(serviceSchema.salonId, salonId)),
+    db
+      .select({
+        id: addOnSchema.id,
+        slug: addOnSchema.slug,
+      })
+      .from(addOnSchema)
+      .where(eq(addOnSchema.salonId, salonId)),
+    db
+      .select({
+        serviceId: serviceAddOnSchema.serviceId,
+        addOnId: serviceAddOnSchema.addOnId,
+      })
+      .from(serviceAddOnSchema)
+      .where(eq(serviceAddOnSchema.salonId, salonId)),
+  ]);
+
+  const existingServices = existingServicesRaw as ExistingServiceRow[];
+  const existingAddOns = existingAddOnsRaw as ExistingAddOnRow[];
+  const existingMappings = existingMappingsRaw as ExistingMappingRow[];
+
+  const existingServiceBySlug = new Map<string, ExistingServiceRow>(
+    existingServices
+      .filter(service => typeof service.slug === 'string' && service.slug.length > 0)
+      .map(service => [service.slug as string, service]),
+  );
+  const existingAddOnBySlug = new Map<string, ExistingAddOnRow>(
+    existingAddOns.map(addOn => [addOn.slug, addOn]),
+  );
+  const existingMappingKeys = new Set(
+    existingMappings.map(mapping => `${mapping.serviceId}:${mapping.addOnId}`),
+  );
+
+  let nextSortOrder = Math.max(0, ...existingServices.map(service => service.sortOrder ?? 0)) + 1;
+  let insertedServices = 0;
+  let insertedMappings = 0;
+
+  for (const service of comboTemplate.services) {
+    if (existingServiceBySlug.has(service.slug)) {
+      continue;
+    }
+
+    const id = buildServiceId(salonId, service.slug);
+    const insertedService = await db
+      .insert(serviceSchema)
+      .values({
+        id,
+        salonId,
+        name: service.name,
+        slug: service.slug,
+        description: descriptionItemsToLegacyText(service.descriptionItems),
+        descriptionItems: service.descriptionItems,
+        price: service.priceCents,
+        priceDisplayText: service.priceDisplayText ?? null,
+        durationMinutes: service.durationMinutes,
+        isIntroPrice: service.isIntroPrice ?? false,
+        introPriceLabel: service.introPriceLabel ?? null,
+        category: service.category,
+        sortOrder: nextSortOrder,
+        isActive: true,
+      })
+      .onConflictDoNothing()
+      .returning({ id: serviceSchema.id });
+
+    if (insertedService.length === 0) {
+      continue;
+    }
+
+    existingServiceBySlug.set(service.slug, {
+      id,
+      slug: service.slug,
+      sortOrder: nextSortOrder,
+    });
+    nextSortOrder += 1;
+    insertedServices += 1;
+  }
+
+  for (const mapping of comboTemplate.serviceAddOns) {
+    const service = existingServiceBySlug.get(mapping.serviceSlug);
+    const addOn = existingAddOnBySlug.get(mapping.addOnSlug);
+    if (!service || !addOn) {
+      continue;
+    }
+
+    const mappingKey = `${service.id}:${addOn.id}`;
+    if (existingMappingKeys.has(mappingKey)) {
+      continue;
+    }
+
+    const insertedMapping = await db
+      .insert(serviceAddOnSchema)
+      .values({
+        id: buildServiceAddOnId(salonId, mapping.serviceSlug, mapping.addOnSlug),
+        salonId,
+        serviceId: service.id,
+        addOnId: addOn.id,
+        selectionMode: mapping.selectionMode ?? 'optional',
+        displayOrder: mapping.displayOrder,
+      })
+      .onConflictDoNothing()
+      .returning({ serviceId: serviceAddOnSchema.serviceId });
+
+    if (insertedMapping.length === 0) {
+      continue;
+    }
+
+    existingMappingKeys.add(mappingKey);
+    insertedMappings += 1;
+  }
+
+  return {
+    insertedServices,
+    insertedMappings,
+  };
+}

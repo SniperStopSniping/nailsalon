@@ -16,6 +16,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
+import { PUBLIC_SERVICE_CATEGORIES } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -282,7 +283,13 @@ export function BookServiceClient({
     setSelectedAddOns(normalized);
   }, [selectedBaseServiceId, selectedAddOnsState, serviceAddOnRules, addOns, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
-  const availableCategories = Array.from(new Set(services.map(service => service.category)));
+  const availableCategorySet = new Set(services.map(service => service.category));
+  const availableCategories = [
+    ...PUBLIC_SERVICE_CATEGORIES.filter(category => availableCategorySet.has(category as ServiceCategory)),
+    ...Array.from(availableCategorySet).filter(
+      category => !PUBLIC_SERVICE_CATEGORIES.includes(category as typeof PUBLIC_SERVICE_CATEGORIES[number]),
+    ),
+  ] as ServiceCategory[];
 
   const filteredServices = services.filter((service) => {
     if (searchQuery) {

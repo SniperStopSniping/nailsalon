@@ -7,7 +7,7 @@
  * Features:
  * - Service list grouped by category
  * - Price and duration display
- * - Category tabs (Hands, Feet, Combo)
+ * - Category tabs (canonical public categories first, legacy categories retained)
  * - Service details on tap
  * - Fetches real data from /api/salon/services
  */
@@ -61,9 +61,9 @@ const CATEGORIES = [
   { id: 'builder_gel', label: 'Builder Gel', icon: Sparkles },
   { id: 'extensions', label: 'Extensions', icon: Sparkles },
   { id: 'pedicure', label: 'Pedicure', icon: Scissors },
+  { id: 'combo', label: 'Combo', icon: Sparkles },
   { id: 'hands', label: 'Hands', icon: Scissors },
   { id: 'feet', label: 'Feet', icon: Scissors },
-  { id: 'combo', label: 'Combo', icon: Sparkles },
 ];
 
 // Format currency
@@ -392,13 +392,13 @@ function AddServiceDialog({
             onChange={event => setCategory(event.target.value as ServiceCategory)}
             className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
           >
-            <option value="hands">Hands</option>
-            <option value="feet">Feet</option>
-            <option value="combo">Combo</option>
             <option value="manicure">Manicure</option>
             <option value="builder_gel">Builder Gel</option>
             <option value="extensions">Extensions</option>
             <option value="pedicure">Pedicure</option>
+            <option value="combo">Combo</option>
+            <option value="hands">Hands</option>
+            <option value="feet">Feet</option>
           </select>
         </label>
 
