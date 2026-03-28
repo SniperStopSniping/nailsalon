@@ -20,6 +20,10 @@ vi.mock('@/components/BlockingLoginModal', () => ({
   BlockingLoginModal: () => null,
 }));
 
+vi.mock('@/components/booking/BookingStepHeader', () => ({
+  BookingStepHeader: () => null,
+}));
+
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
   BookingFloatingDock: () => null,
 }));
@@ -67,5 +71,79 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByText("Online booking is not ready yet")).toBeInTheDocument();
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
+  });
+
+  it('renders category chips inside a horizontal mobile scroll track without wrapping', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(
+      <BookServiceClient
+        services={[
+          {
+            id: 'svc-1',
+            name: 'Russian Manicure',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 45,
+            priceCents: 3500,
+            priceDisplayText: null,
+            category: 'manicure',
+            imageUrl: '/service-1.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+          {
+            id: 'svc-2',
+            name: 'Builder Gel',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 75,
+            priceCents: 5000,
+            priceDisplayText: null,
+            category: 'builder_gel',
+            imageUrl: '/service-2.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+          {
+            id: 'svc-3',
+            name: 'Pedicure',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 60,
+            priceCents: 4000,
+            priceDisplayText: null,
+            category: 'pedicure',
+            imageUrl: '/service-3.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('service-category-scroll')).toHaveClass(
+      '-mx-4',
+      'w-[calc(100%+2rem)]',
+      'overflow-x-auto',
+      'overflow-y-hidden',
+      'scrollbar-hide',
+    );
+    expect(screen.getByTestId('service-category-track')).toHaveClass(
+      'flex',
+      'min-w-max',
+      'flex-nowrap',
+    );
+    expect(screen.getByRole('button', { name: /builder gel/i })).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy.mock.calls[0]?.[0]).toContain(
+      'Warning: Received `%s` for a non-boolean attribute `%s`.',
+    );
+    expect(consoleErrorSpy.mock.calls[0]?.[1]).toBe('true');
+    expect(consoleErrorSpy.mock.calls[0]?.[2]).toBe('jsx');
+
+    consoleErrorSpy.mockRestore();
   });
 });

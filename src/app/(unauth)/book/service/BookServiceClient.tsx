@@ -642,40 +642,46 @@ export function BookServiceClient({
           : (
               <>
                 <div
-                  className="mb-5 flex items-center justify-center gap-2"
+                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                   style={{
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
                   }}
+                  data-testid="service-category-scroll"
                 >
-                  {availableCategories.map((category) => {
-                    const active = category === selectedCategory;
-                    const meta = CATEGORY_META[category];
-                    return (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() => {
-                          if (category !== selectedCategory) {
-                            setSelectedCategory(category);
-                            triggerHaptic('select');
-                          }
-                        }}
-                        className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200"
-                        style={{
-                          backgroundColor: active ? themeVars.accent : 'white',
-                          color: active ? 'white' : '#525252',
-                          borderWidth: active ? 0 : '1px',
-                          borderStyle: 'solid',
-                          borderColor: active ? 'transparent' : themeVars.cardBorder,
-                          boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
-                        }}
-                      >
-                        <span>{meta.icon}</span>
-                        <span>{meta.label}</span>
-                      </button>
-                    );
-                  })}
+                  <div
+                    className="flex min-w-max flex-nowrap gap-2 sm:min-w-0 sm:justify-center"
+                    data-testid="service-category-track"
+                  >
+                    {availableCategories.map((category) => {
+                      const active = category === selectedCategory;
+                      const meta = CATEGORY_META[category];
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => {
+                            if (category !== selectedCategory) {
+                              setSelectedCategory(category);
+                              triggerHaptic('select');
+                            }
+                          }}
+                          className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200"
+                          style={{
+                            backgroundColor: active ? themeVars.accent : 'white',
+                            color: active ? 'white' : '#525252',
+                            borderWidth: active ? 0 : '1px',
+                            borderStyle: 'solid',
+                            borderColor: active ? 'transparent' : themeVars.cardBorder,
+                            boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
+                          }}
+                        >
+                          <span className="shrink-0">{meta.icon}</span>
+                          <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
