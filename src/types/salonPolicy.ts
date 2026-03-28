@@ -191,6 +191,13 @@ export type SalonSettings = {
   // Booking behavior
   allowSameDayBooking?: boolean; // default: true
   requireDepositForNew?: boolean; // default: false
+  booking?: {
+    bufferMinutes?: number;
+    slotIntervalMinutes?: number;
+    currency?: string;
+    timezone?: string;
+    introPriceDefaultLabel?: string | null;
+  };
 
   // ==========================================================================
   // MODULE ENABLE/DISABLE TOGGLES

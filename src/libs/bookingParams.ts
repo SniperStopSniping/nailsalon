@@ -8,10 +8,55 @@
 import { normalizeSalonSlug } from './tenantSlug';
 import { AppConfig, AllLocales } from '@/utils/AppConfig';
 
+export type SelectedAddOnParam = {
+  addOnId: string;
+  quantity?: number;
+};
+
 type TenantRouteOptions = {
   routeSalonSlug?: string | null;
   locale?: string | null;
 };
+
+export function serializeSelectedAddOns(selectedAddOns: SelectedAddOnParam[]): string | null {
+  if (selectedAddOns.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(selectedAddOns);
+}
+
+export function parseSelectedAddOnsParam(raw: string | null): SelectedAddOnParam[] {
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const normalized: SelectedAddOnParam[] = [];
+    for (const item of parsed) {
+      if (typeof item !== 'object' || item === null || !('addOnId' in item)) {
+        continue;
+      }
+
+      const addOnId = typeof item.addOnId === 'string' ? item.addOnId : '';
+      const quantity = typeof item.quantity === 'number' ? item.quantity : undefined;
+      if (!addOnId) {
+        continue;
+      }
+
+      normalized.push({ addOnId, quantity });
+    }
+
+    return normalized;
+  } catch {
+    return [];
+  }
+}
 
 function getEffectiveTenantRoute(
   tenantRoute?: TenantRouteOptions,
@@ -130,6 +175,8 @@ export function buildBookingUrl(
   params: {
     salonSlug?: string | null;
     serviceIds?: string[];
+    baseServiceId?: string | null;
+    selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
     techId?: string | null;
     originalAppointmentId?: string | null;
@@ -150,6 +197,17 @@ export function buildBookingUrl(
 
   if (params.serviceIds && params.serviceIds.length > 0) {
     searchParams.set('serviceIds', params.serviceIds.join(','));
+  }
+
+  if (params.baseServiceId) {
+    searchParams.set('baseServiceId', params.baseServiceId);
+  }
+
+  const serializedAddOns = params.selectedAddOns
+    ? serializeSelectedAddOns(params.selectedAddOns)
+    : null;
+  if (serializedAddOns) {
+    searchParams.set('selectedAddOns', serializedAddOns);
   }
 
   // Optional but important: locationId (for multi-location support)
@@ -188,6 +246,8 @@ export function buildBookingUrl(
 export function parseBookingParams(searchParams: URLSearchParams): {
   salonSlug: string | null;
   serviceIds: string[];
+  baseServiceId: string | null;
+  selectedAddOns: SelectedAddOnParam[];
   locationId: string | null;
   techId: string | null;
   originalAppointmentId: string | null;
@@ -200,6 +260,8 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   return {
     salonSlug: searchParams.get('salonSlug') || null,
     serviceIds,
+    baseServiceId: searchParams.get('baseServiceId') || null,
+    selectedAddOns: parseSelectedAddOnsParam(searchParams.get('selectedAddOns')),
     locationId: searchParams.get('locationId') || null,
     techId: searchParams.get('techId') || null,
     originalAppointmentId: searchParams.get('originalAppointmentId') || null,
@@ -317,7 +379,9 @@ export function appendSalonSlug(
 
 export function buildChangeAppointmentUrl(params: {
   salonSlug?: string | null;
-  serviceIds: string[];
+  serviceIds?: string[];
+  baseServiceId?: string | null;
+  selectedAddOns?: SelectedAddOnParam[];
   techId?: string | null;
   locationId?: string | null;
   originalAppointmentId: string;
@@ -332,6 +396,8 @@ export function buildChangeAppointmentUrl(params: {
   return buildBookingUrl(params.basePath ?? '/change-appointment', {
     salonSlug: params.salonSlug,
     serviceIds: params.serviceIds,
+    baseServiceId: params.baseServiceId,
+    selectedAddOns: params.selectedAddOns,
     techId: params.techId ?? 'any',
     locationId: params.locationId,
     originalAppointmentId: params.originalAppointmentId,

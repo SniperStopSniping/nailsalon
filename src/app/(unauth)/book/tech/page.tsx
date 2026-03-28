@@ -8,8 +8,9 @@ import {
   technicianCanPerformServices,
   technicianSupportsLocation,
 } from '@/libs/bookingPolicy';
-import { buildBookingUrl, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getLocationById, getPrimaryLocation, getServicesByIds, getTechniciansBySalonId } from '@/libs/queries';
+import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
+import { getLocationById, getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
 
@@ -27,6 +28,8 @@ export default async function BookTechPage({
 }: {
   searchParams: {
     serviceIds?: string;
+    baseServiceId?: string;
+    selectedAddOns?: string;
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
@@ -35,8 +38,9 @@ export default async function BookTechPage({
 }) {
   const context = await getPublicPageContext('book-technician', searchParams, params);
 
-  // Parse URL params
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
+  const baseServiceId = searchParams.baseServiceId || null;
+  const selectedAddOns = parseSelectedAddOnsParam(searchParams.selectedAddOns || null);
 
   const { salon } = context;
   const tenantRoute = {
@@ -59,9 +63,11 @@ export default async function BookTechPage({
     redirect(featureRedirectPath);
   }
 
-  if (serviceIdList.length === 0) {
+  if (!baseServiceId && serviceIdList.length === 0) {
     redirect(buildBookingUrl('/book/service', {
       salonSlug: searchParams.salonSlug ?? salon.slug,
+      baseServiceId,
+      selectedAddOns,
       locationId: searchParams.locationId ?? null,
       techId: null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -77,19 +83,13 @@ export default async function BookTechPage({
   // If tech step is not in the flow, redirect to the next step
   if (!bookingFlow.includes('tech')) {
     const nextStep = getNextStep('service', bookingFlow) ?? 'time';
-    const nextParams = new URLSearchParams();
-    if (searchParams.serviceIds) {
-      nextParams.set('serviceIds', searchParams.serviceIds);
-    }
-    if (searchParams.locationId) {
-      nextParams.set('locationId', searchParams.locationId);
-    }
-    if (searchParams.salonSlug && !params?.slug) {
-      nextParams.set('salonSlug', searchParams.salonSlug);
-    }
-    const nextPath = nextParams.toString() ? `/book/${nextStep}?${nextParams.toString()}` : `/book/${nextStep}`;
-    redirect(buildBookingUrl(nextPath, {
+    redirect(buildBookingUrl(`/book/${nextStep}`, {
       salonSlug: searchParams.salonSlug ?? salon.slug,
+      serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+      baseServiceId,
+      selectedAddOns,
+      locationId: searchParams.locationId ?? null,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -123,18 +123,21 @@ export default async function BookTechPage({
     }));
   }
 
-  // Fetch selected services
-  const dbServices = await getServicesByIds(serviceIdList, salon.id);
+  const resolvedSelection = await resolvePublicBookingSelection({
+    salonId: salon.id,
+    baseServiceId,
+    selectedAddOns,
+    serviceIds: serviceIdList,
+  });
 
   // Fetch technicians for this salon
   const dbTechnicians = await getTechniciansBySalonId(salon.id);
-  const capabilityMode = resolveTechnicianCapabilityMode(dbTechnicians, dbServices);
+  const capabilityMode = resolveTechnicianCapabilityMode(dbTechnicians, resolvedSelection.requestedServices);
 
-  // Map DB services to the shape expected by the client component
-  const services = dbServices.map(service => ({
+  const services = resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
-    price: service.price / 100, // Convert cents to dollars
+    price: service.priceCents / 100,
     duration: service.durationMinutes,
   }));
 
@@ -143,7 +146,7 @@ export default async function BookTechPage({
     .filter(tech =>
       technicianCanPerformServices({
         technician: tech,
-        requestedServices: dbServices,
+        requestedServices: resolvedSelection.requestedServices,
         capabilityMode,
       })
       && technicianSupportsLocation({

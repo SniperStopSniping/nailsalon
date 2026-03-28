@@ -7,6 +7,7 @@ const {
   isRedisAvailable,
   redis,
   getSalonBySlug,
+  getSalonById,
   getServicesByIds,
   getTechnicianById,
   getLocationById,
@@ -33,6 +34,7 @@ const {
   isRedisAvailable: vi.fn(),
   redis: null,
   getSalonBySlug: vi.fn(),
+  getSalonById: vi.fn(),
   getServicesByIds: vi.fn(),
   getTechnicianById: vi.fn(),
   getLocationById: vi.fn(),
@@ -77,6 +79,7 @@ vi.mock('@/core/redis/redisClient', () => ({
 
 vi.mock('@/libs/queries', () => ({
   getSalonBySlug,
+  getSalonById,
   getServicesByIds,
   getTechnicianById,
   getLocationById,
@@ -131,6 +134,20 @@ describe('POST /api/appointments booking policy', () => {
     vi.clearAllMocks();
 
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A' });
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      settings: {
+        booking: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+          introPriceDefaultLabel: null,
+        },
+      },
+    });
     guardSalonApiRoute.mockResolvedValue(null);
     guardFeatureEntitlement.mockResolvedValue(null);
     requireStaffSession.mockResolvedValue({
@@ -198,6 +215,7 @@ describe('POST /api/appointments booking policy', () => {
       available: false,
       reason: 'outside_schedule',
     });
+    db.transaction.mockImplementation(async (callback: (tx: typeof db) => Promise<unknown>) => callback(db));
   });
 
   it('rejects booking writes when the shared booking policy says the slot is not bookable', async () => {

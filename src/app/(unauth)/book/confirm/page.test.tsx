@@ -10,6 +10,7 @@ const {
   checkFeatureEnabled,
   getPrimaryLocation,
   getLocationById,
+  getSalonById,
   getServicesByIds,
   getTechnicianById,
   bookConfirmClientSpy,
@@ -20,6 +21,7 @@ const {
   checkFeatureEnabled: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getLocationById: vi.fn(),
+  getSalonById: vi.fn(),
   getServicesByIds: vi.fn(),
   getTechnicianById: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
@@ -40,6 +42,7 @@ vi.mock('@/libs/bookingFlow', () => ({
 vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getLocationById,
+  getSalonById,
   getServicesByIds,
   getTechnicianById,
 }));
@@ -81,6 +84,19 @@ describe('BookConfirmPage directions fallback', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      settings: {
+        booking: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+          introPriceDefaultLabel: 'Founding Client Price',
+        },
+      },
+    });
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',
       name: 'Isla Nail Salon',

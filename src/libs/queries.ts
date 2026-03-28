@@ -3,6 +3,8 @@ import 'server-only';
 import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import {
+  addOnSchema,
+  type AddOn,
   type Appointment,
   appointmentSchema,
   type CancelReason,
@@ -16,6 +18,7 @@ import {
   salonLocationSchema,
   salonSchema,
   type Service,
+  serviceAddOnSchema,
   serviceSchema,
   type Technician,
   technicianSchema,
@@ -157,6 +160,38 @@ export async function getServiceById(
     .limit(1);
 
   return results[0] ?? null;
+}
+
+export async function getAllServicesBySalonId(salonId: string): Promise<Service[]> {
+  return db
+    .select()
+    .from(serviceSchema)
+    .where(eq(serviceSchema.salonId, salonId))
+    .orderBy(serviceSchema.sortOrder, serviceSchema.createdAt);
+}
+
+export async function getActiveAddOnsBySalonId(salonId: string): Promise<AddOn[]> {
+  return db
+    .select()
+    .from(addOnSchema)
+    .where(and(eq(addOnSchema.salonId, salonId), eq(addOnSchema.isActive, true)))
+    .orderBy(addOnSchema.displayOrder, addOnSchema.createdAt);
+}
+
+export async function getAllAddOnsBySalonId(salonId: string): Promise<AddOn[]> {
+  return db
+    .select()
+    .from(addOnSchema)
+    .where(eq(addOnSchema.salonId, salonId))
+    .orderBy(addOnSchema.displayOrder, addOnSchema.createdAt);
+}
+
+export async function getServiceAddOnRulesBySalonId(salonId: string) {
+  return db
+    .select()
+    .from(serviceAddOnSchema)
+    .where(eq(serviceAddOnSchema.salonId, salonId))
+    .orderBy(serviceAddOnSchema.displayOrder, serviceAddOnSchema.createdAt);
 }
 
 // =============================================================================

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   getSalonBySlug,
+  getSalonById,
   getServicesByIds,
   getLocationById,
   getTechnicianById,
@@ -40,6 +41,7 @@ const {
 
   return {
     getSalonBySlug: vi.fn(),
+    getSalonById: vi.fn(),
     getServicesByIds: vi.fn(),
     getLocationById: vi.fn(),
     getTechnicianById: vi.fn(),
@@ -54,6 +56,7 @@ const {
 
 vi.mock('@/libs/queries', () => ({
   getSalonBySlug,
+  getSalonById,
   getServicesByIds,
   getLocationById,
   getTechnicianById,
@@ -75,6 +78,19 @@ describe('GET /api/appointments/availability', () => {
     vi.clearAllMocks();
     selectResults.length = 0;
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a' });
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      settings: {
+        booking: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+          introPriceDefaultLabel: null,
+        },
+      },
+    });
     getServicesByIds.mockResolvedValue([]);
     getLocationById.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue({
@@ -108,7 +124,8 @@ describe('GET /api/appointments/availability', () => {
     expect(body.durationMinutes).toBe(90);
     expect(body.visibleSlots).not.toContain('17:00');
     expect(body.visibleSlots).not.toContain('17:30');
-    expect(body.visibleSlots).toContain('16:30');
+    expect(body.visibleSlots).not.toContain('16:30');
+    expect(body.visibleSlots).toContain('16:15');
   });
 
   it('excludes the original appointment from conflict checks during reschedule availability', async () => {
@@ -158,7 +175,8 @@ describe('GET /api/appointments/availability', () => {
     expect(response.status).toBe(200);
     expect(body.visibleSlots).not.toContain('12:00');
     expect(body.visibleSlots).not.toContain('12:30');
-    expect(body.visibleSlots).toContain('11:30');
+    expect(body.visibleSlots).not.toContain('11:30');
+    expect(body.visibleSlots).toContain('11:15');
     expect(body.visibleSlots).toContain('13:00');
   });
 

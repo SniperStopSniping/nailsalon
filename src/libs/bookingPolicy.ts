@@ -10,7 +10,7 @@ import {
   type WeeklySchedule,
 } from '@/models/Schema';
 
-export const BUFFER_MINUTES = 10;
+export const DEFAULT_BUFFER_MINUTES = 10;
 export const TORONTO_TZ = 'America/Toronto';
 
 const DAY_NAMES: (keyof WeeklySchedule)[] = [
@@ -36,6 +36,9 @@ export type AppointmentWindow = {
   id: string;
   startTime: Date | string;
   endTime: Date | string;
+  blockedDurationMinutes?: number | null;
+  totalDurationMinutes?: number | null;
+  bufferMinutes?: number | null;
 };
 
 export type BlockedSlotWindow = {
@@ -161,6 +164,21 @@ export function buildSlotWindow(
   return {
     startTime,
     endTime: new Date(startTime.getTime() + durationMinutes * 60 * 1000),
+  };
+}
+
+export function buildBlockedSlotWindow(
+  date: Date,
+  slotTime: string,
+  visibleDurationMinutes: number,
+  bufferMinutes: number = DEFAULT_BUFFER_MINUTES,
+): { startTime: Date; endTime: Date; blockedEndTime: Date } {
+  const { startTime, endTime } = buildSlotWindow(date, slotTime, visibleDurationMinutes);
+
+  return {
+    startTime,
+    endTime,
+    blockedEndTime: new Date(endTime.getTime() + bufferMinutes * 60 * 1000),
   };
 }
 
@@ -356,9 +374,16 @@ export function hasBufferedConflict(args: {
   endTime: Date;
   existingAppointments: AppointmentWindow[];
   excludedAppointmentId?: string | null;
+  bufferMinutes?: number;
 }): boolean {
-  const { startTime, endTime, existingAppointments, excludedAppointmentId } = args;
-  const requestedEndWithBuffer = new Date(endTime.getTime() + BUFFER_MINUTES * 60 * 1000);
+  const {
+    startTime,
+    endTime,
+    existingAppointments,
+    excludedAppointmentId,
+    bufferMinutes = DEFAULT_BUFFER_MINUTES,
+  } = args;
+  const requestedEndWithBuffer = new Date(endTime.getTime() + bufferMinutes * 60 * 1000);
 
   return existingAppointments.some((existing) => {
     if (excludedAppointmentId && existing.id === excludedAppointmentId) {
@@ -367,7 +392,12 @@ export function hasBufferedConflict(args: {
 
     const existingStart = toDate(existing.startTime);
     const existingEnd = toDate(existing.endTime);
-    const existingEndWithBuffer = new Date(existingEnd.getTime() + BUFFER_MINUTES * 60 * 1000);
+    const existingBlockedDuration = existing.blockedDurationMinutes
+      ?? (
+        (existing.totalDurationMinutes ?? Math.max(0, (existingEnd.getTime() - existingStart.getTime()) / 60000))
+        + (existing.bufferMinutes ?? bufferMinutes)
+      );
+    const existingEndWithBuffer = new Date(existingStart.getTime() + existingBlockedDuration * 60 * 1000);
 
     return startTime < existingEndWithBuffer && requestedEndWithBuffer > existingStart;
   });
@@ -389,6 +419,7 @@ export function canTechnicianTakeAppointment(args: {
   locationId?: string | null;
   primaryLocationId?: string | null;
   locationBusinessHours?: BusinessHours;
+  bufferMinutes?: number;
 }): TechnicianBookingDecision {
   const {
     startTime,
@@ -406,6 +437,7 @@ export function canTechnicianTakeAppointment(args: {
     locationId = null,
     primaryLocationId = null,
     locationBusinessHours = null,
+    bufferMinutes = DEFAULT_BUFFER_MINUTES,
   } = args;
 
   if (!technicianCanPerformServices({
@@ -456,6 +488,7 @@ export function canTechnicianTakeAppointment(args: {
     endTime,
     existingAppointments,
     excludedAppointmentId,
+    bufferMinutes,
   })) {
     return { available: false, reason: 'time_conflict' };
   }
@@ -584,6 +617,9 @@ export async function loadBookingPolicy(args: {
       technicianId: appointmentSchema.technicianId,
       startTime: appointmentSchema.startTime,
       endTime: appointmentSchema.endTime,
+      blockedDurationMinutes: appointmentSchema.blockedDurationMinutes,
+      totalDurationMinutes: appointmentSchema.totalDurationMinutes,
+      bufferMinutes: appointmentSchema.bufferMinutes,
     })
     .from(appointmentSchema)
     .where(and(...appointmentConditions));
@@ -608,6 +644,9 @@ export async function loadBookingPolicy(args: {
       id: appointment.id,
       startTime: appointment.startTime,
       endTime: appointment.endTime,
+      blockedDurationMinutes: appointment.blockedDurationMinutes,
+      totalDurationMinutes: appointment.totalDurationMinutes,
+      bufferMinutes: appointment.bufferMinutes,
     });
     appointmentsByTechnician.set(appointment.technicianId, existing);
   }

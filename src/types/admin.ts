@@ -54,13 +54,45 @@ export type AnalyticsResponse = {
 export type ServiceResponse = {
   id: string;
   name: string;
+  slug?: string | null;
   description?: string | null;
+  descriptionItems?: string[] | null;
   price: number; // cents
+  priceDisplayText?: string | null;
   durationMinutes: number;
   category?: string | null;
   imageUrl?: string | null;
   sortOrder?: number | null;
   isActive: boolean | null;
+  isIntroPrice?: boolean | null;
+  introPriceLabel?: string | null;
+  introPriceExpiresAt?: string | null;
+};
+
+export type AddOnResponse = {
+  id: string;
+  name: string;
+  slug: string;
+  descriptionItems?: string[] | null;
+  priceCents: number;
+  priceDisplayText?: string | null;
+  durationMinutes: number;
+  category: string;
+  pricingType: 'fixed' | 'per_unit';
+  unitLabel?: string | null;
+  maxQuantity?: number | null;
+  displayOrder?: number | null;
+  isActive: boolean | null;
+};
+
+export type ServiceAddOnRuleResponse = {
+  id: string;
+  serviceId: string;
+  addOnId: string;
+  selectionMode: 'optional' | 'required' | 'conditional';
+  defaultQuantity?: number | null;
+  maxQuantityOverride?: number | null;
+  displayOrder?: number | null;
 };
 
 /**

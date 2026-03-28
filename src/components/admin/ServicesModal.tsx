@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Clock,
   DollarSign,
+  Loader2,
   Scissors,
   Sparkles,
 } from 'lucide-react';
@@ -25,8 +26,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
-import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
 
@@ -35,20 +36,31 @@ type ServiceData = {
   id: string;
   name: string;
   description: string | null;
+  descriptionItems?: string[] | null;
   price: number;
+  priceDisplayText?: string | null;
   durationMinutes: number;
   category: string;
   imageUrl: string | null;
   isActive: boolean;
+  isIntroPrice?: boolean | null;
+  introPriceLabel?: string | null;
 };
 
 type ServicesModalProps = {
   onClose: () => void;
+  salonSlug: string | null;
 };
+
+type ServiceCategory = 'manicure' | 'builder_gel' | 'extensions' | 'pedicure' | 'hands' | 'feet' | 'combo';
 
 // Category definitions
 const CATEGORIES = [
   { id: 'all', label: 'All', icon: Sparkles },
+  { id: 'manicure', label: 'Manicure', icon: Scissors },
+  { id: 'builder_gel', label: 'Builder Gel', icon: Sparkles },
+  { id: 'extensions', label: 'Extensions', icon: Sparkles },
+  { id: 'pedicure', label: 'Pedicure', icon: Scissors },
   { id: 'hands', label: 'Hands', icon: Scissors },
   { id: 'feet', label: 'Feet', icon: Scissors },
   { id: 'combo', label: 'Combo', icon: Sparkles },
@@ -76,6 +88,10 @@ function formatDuration(minutes: number): string {
 // Get category gradient
 function getCategoryGradient(category: string): string {
   switch (category) {
+    case 'manicure': return 'from-[#f093fb] to-[#f5576c]';
+    case 'builder_gel': return 'from-[#8EC5FC] to-[#E0C3FC]';
+    case 'extensions': return 'from-[#f6d365] to-[#fda085]';
+    case 'pedicure': return 'from-[#4facfe] to-[#00f2fe]';
     case 'hands': return 'from-[#f093fb] to-[#f5576c]';
     case 'feet': return 'from-[#4facfe] to-[#00f2fe]';
     case 'combo': return 'from-[#43e97b] to-[#38f9d7]';
@@ -170,7 +186,7 @@ function ServiceRow({
 
         <div className="flex items-center gap-2">
           <div className="text-[17px] font-semibold text-[#34C759]">
-            {formatCurrency(service.price)}
+            {service.priceDisplayText || formatCurrency(service.price)}
           </div>
           <ChevronRight className="size-4 text-[#C7C7CC]" />
         </div>
@@ -182,7 +198,13 @@ function ServiceRow({
 /**
  * Empty State Component
  */
-function EmptyState({ category }: { category: string }) {
+function EmptyState({
+  category,
+  onAddService,
+}: {
+  category: string;
+  onAddService: () => void;
+}) {
   return (
     <AsyncStatePanel
       icon={<Scissors className="mx-auto size-8 text-[#8E8E93]" />}
@@ -191,7 +213,263 @@ function EmptyState({ category }: { category: string }) {
         ? 'Add services to your catalog.'
         : `No ${category} services available.`}
       className="mx-4 my-8"
+      action={(
+        <Button type="button" variant="brandSoft" size="pillSm" onClick={onAddService}>
+          Add Service
+        </Button>
+      )}
     />
+  );
+}
+
+function AddServiceDialog({
+  isOpen,
+  salonSlug,
+  onClose,
+  onCreated,
+}: {
+  isOpen: boolean;
+  salonSlug: string | null;
+  onClose: () => void;
+  onCreated: (service: ServiceData) => void;
+}) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [priceDisplayText, setPriceDisplayText] = useState('');
+  const [price, setPrice] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
+  const [category, setCategory] = useState<ServiceCategory>('manicure');
+  const [isIntroPrice, setIsIntroPrice] = useState(false);
+  const [introPriceLabel, setIntroPriceLabel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setName('');
+      setDescription('');
+      setPriceDisplayText('');
+      setPrice('');
+      setDurationMinutes('');
+      setCategory('manicure');
+      setIsIntroPrice(false);
+      setIntroPriceLabel('');
+      setSaving(false);
+      setError(null);
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async () => {
+    if (!salonSlug) {
+      setError('Select a salon before adding services.');
+      return;
+    }
+
+    const trimmedName = name.trim();
+    const parsedPrice = Number.parseFloat(price);
+    const parsedDuration = Number.parseInt(durationMinutes, 10);
+
+    if (!trimmedName) {
+      setError('Service name is required.');
+      return;
+    }
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      setError('Enter a valid price.');
+      return;
+    }
+    if (!Number.isInteger(parsedDuration) || parsedDuration < 5) {
+      setError('Enter a valid duration in minutes.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/salon/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          name: trimmedName,
+          description: description.trim() || null,
+          descriptionItems: description
+            .split('\n')
+            .map(item => item.trim())
+            .filter(Boolean),
+          price: Math.round(parsedPrice * 100),
+          priceDisplayText: priceDisplayText.trim() || null,
+          durationMinutes: parsedDuration,
+          category,
+          isIntroPrice,
+          introPriceLabel: isIntroPrice ? introPriceLabel.trim() || null : null,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error?.message ?? 'Failed to create service');
+      }
+
+      const createdService = result?.data?.service as ServiceData | undefined;
+      if (!createdService) {
+        throw new Error('Created service was missing from the response');
+      }
+
+      onCreated(createdService);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Failed to create service');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <DialogShell
+      isOpen={isOpen}
+      onClose={() => {
+        if (!saving) {
+          onClose();
+        }
+      }}
+      maxWidthClassName="max-w-md"
+      contentClassName="rounded-3xl bg-white p-6 shadow-2xl"
+      alignClassName="items-end justify-center p-4 sm:items-center"
+    >
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-[#1C1C1E]">Add Service</h2>
+          <p className="mt-1 text-sm text-[#6B7280]">
+            Create a new bookable service for this salon.
+          </p>
+        </div>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={event => setName(event.target.value)}
+            placeholder="BIAB Short"
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+          />
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={price}
+              onChange={event => setPrice(event.target.value)}
+              placeholder="65"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Duration</span>
+            <input
+              type="number"
+              min="5"
+              step="5"
+              inputMode="numeric"
+              value={durationMinutes}
+              onChange={event => setDurationMinutes(event.target.value)}
+              placeholder="75"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Category</span>
+          <select
+            value={category}
+            onChange={event => setCategory(event.target.value as ServiceCategory)}
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+          >
+            <option value="hands">Hands</option>
+            <option value="feet">Feet</option>
+            <option value="combo">Combo</option>
+            <option value="manicure">Manicure</option>
+            <option value="builder_gel">Builder Gel</option>
+            <option value="extensions">Extensions</option>
+            <option value="pedicure">Pedicure</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Description items</span>
+          <textarea
+            value={description}
+            onChange={event => setDescription(event.target.value)}
+            rows={3}
+            placeholder={'One benefit per line\nDry manicure\nDetailed cuticle work'}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-[#007AFF]"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price display text</span>
+          <input
+            type="text"
+            value={priceDisplayText}
+            onChange={event => setPriceDisplayText(event.target.value)}
+            placeholder="$70+"
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-xl border border-gray-200 px-3 py-3">
+          <span className="text-sm font-medium text-[#1C1C1E]">Intro pricing badge</span>
+          <input
+            type="checkbox"
+            checked={isIntroPrice}
+            onChange={event => setIsIntroPrice(event.target.checked)}
+            className="size-4"
+          />
+        </label>
+
+        {isIntroPrice && (
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Intro label</span>
+            <input
+              type="text"
+              value={introPriceLabel}
+              onChange={event => setIntroPriceLabel(event.target.value)}
+              placeholder="Founding Client Price"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            />
+          </label>
+        )}
+
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="brandSoft" size="pillSm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" variant="brand" size="pillSm" onClick={handleSubmit} disabled={saving}>
+            {saving
+              ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Saving...
+                  </>
+                )
+              : 'Save Service'}
+          </Button>
+        </div>
+      </div>
+    </DialogShell>
   );
 }
 
@@ -230,6 +508,11 @@ function ServiceDetail({
               <span className="rounded-full bg-gray-100 px-3 py-1 text-[13px] capitalize text-[#8E8E93]">
                 {service.category}
               </span>
+              {service.isIntroPrice && service.introPriceLabel && (
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-[13px] text-amber-700">
+                  {service.introPriceLabel}
+                </span>
+              )}
               {service.isActive
                 ? (
                     <span className="rounded-full bg-green-100 px-3 py-1 text-[13px] text-green-600">
@@ -253,7 +536,7 @@ function ServiceDetail({
               Price
             </div>
             <div className="mt-1 text-[32px] font-bold text-[#34C759]">
-              {formatCurrency(service.price)}
+              {service.priceDisplayText || formatCurrency(service.price)}
             </div>
           </AdminDetailCard>
           <AdminDetailCard>
@@ -268,10 +551,21 @@ function ServiceDetail({
         </div>
 
         {/* Description */}
-        {service.description && (
+        {(service.descriptionItems?.length || service.description) && (
           <AdminDetailCard>
             <div className="mb-2 text-[13px] font-medium uppercase text-[#8E8E93]">Description</div>
-            <p className="text-[15px] leading-relaxed text-[#1C1C1E]">{service.description}</p>
+            {service.descriptionItems && service.descriptionItems.length > 0
+              ? (
+                  <ul className="space-y-2 text-[15px] leading-relaxed text-[#1C1C1E]">
+                    {service.descriptionItems.map(item => (
+                      <li key={item} className="flex gap-2">
+                        <span className="mt-1 text-[#8E8E93]">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              : <p className="text-[15px] leading-relaxed text-[#1C1C1E]">{service.description}</p>}
           </AdminDetailCard>
         )}
       </div>
@@ -279,16 +573,23 @@ function ServiceDetail({
   );
 }
 
-export function ServicesModal({ onClose }: ServicesModalProps) {
-  const { salonSlug } = useSalon();
+export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [services, setServices] = useState<ServiceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedService, setSelectedService] = useState<ServiceData | null>(null);
+  const [showAddDialog, setShowAddDialog] = useState(false);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
+    if (!salonSlug) {
+      setServices([]);
+      setLoading(false);
+      setError('Select a salon to view services');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -307,20 +608,28 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
         id: string;
         name: string;
         description: string | null;
+        descriptionItems?: string[] | null;
         price: number;
+        priceDisplayText?: string | null;
         durationMinutes: number;
         category: string;
         imageUrl: string | null;
         isActive: boolean;
+        isIntroPrice?: boolean | null;
+        introPriceLabel?: string | null;
       }) => ({
         id: service.id,
         name: service.name,
         description: service.description,
+        descriptionItems: service.descriptionItems ?? null,
         price: service.price,
+        priceDisplayText: service.priceDisplayText ?? null,
         durationMinutes: service.durationMinutes,
         category: service.category,
         imageUrl: service.imageUrl,
         isActive: service.isActive,
+        isIntroPrice: service.isIntroPrice ?? false,
+        introPriceLabel: service.introPriceLabel ?? null,
       }));
 
       setServices(transformedServices);
@@ -355,6 +664,16 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
           title="Services"
           subtitle={`${services.length} services`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
+          rightAction={(
+            <button
+              type="button"
+              onClick={() => setShowAddDialog(true)}
+              disabled={!salonSlug}
+              className="text-[17px] font-medium text-[#007AFF] transition-opacity active:opacity-50 disabled:text-[#8E8E93] disabled:opacity-60"
+            >
+              Add
+            </button>
+          )}
         />
         <CategoryTabs
           active={activeCategory}
@@ -391,7 +710,7 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
               )
             : filteredServices.length === 0
               ? (
-                  <EmptyState category={activeCategory} />
+                  <EmptyState category={activeCategory} onAddService={() => setShowAddDialog(true)} />
                 )
               : (
                   <ListSurface className="mx-4 rounded-[10px]">
@@ -416,6 +735,17 @@ export function ServicesModal({ onClose }: ServicesModalProps) {
           />
         )}
       </AnimatePresence>
+
+      <AddServiceDialog
+        isOpen={showAddDialog}
+        salonSlug={salonSlug}
+        onClose={() => setShowAddDialog(false)}
+        onCreated={(createdService) => {
+          setShowAddDialog(false);
+          setActiveCategory(createdService.category);
+          void fetchServices();
+        }}
+      />
     </div>
   );
 }

@@ -54,6 +54,35 @@ export const autopostStatusEnum = pgEnum('autopost_status', [
   'failed',
 ]);
 
+export const serviceCategoryEnum = pgEnum('service_category', [
+  'manicure',
+  'builder_gel',
+  'extensions',
+  'pedicure',
+  // Legacy categories retained for backward compatibility with existing salons.
+  'hands',
+  'feet',
+  'combo',
+]);
+
+export const addOnCategoryEnum = pgEnum('add_on_category', [
+  'nail_art',
+  'repair',
+  'removal',
+  'pedicure_addon',
+]);
+
+export const addOnPricingTypeEnum = pgEnum('add_on_pricing_type', [
+  'fixed',
+  'per_unit',
+]);
+
+export const serviceAddOnSelectionModeEnum = pgEnum('service_add_on_selection_mode', [
+  'optional',
+  'required',
+  'conditional',
+]);
+
 export const organizationSchema = pgTable(
   'organization',
   {
@@ -238,11 +267,18 @@ export const serviceSchema = pgTable(
     // Service Details
     name: text('name').notNull(),
     description: text('description'),
+    descriptionItems: jsonb('description_items').$type<string[] | null>().default(null),
+    slug: text('slug'),
     price: integer('price').notNull(), // in cents
+    priceDisplayText: text('price_display_text'),
     durationMinutes: integer('duration_minutes').notNull(),
+    isIntroPrice: boolean('is_intro_price').default(false),
+    introPriceLabel: text('intro_price_label'),
+    introPriceExpiresAt: timestamp('intro_price_expires_at', { mode: 'date' }),
+    bookingQuestions: jsonb('booking_questions').$type<unknown[] | null>().default(null),
 
     // Categorization
-    category: text('category').notNull(), // 'hands' | 'feet' | 'combo'
+    category: serviceCategoryEnum('category').notNull(),
 
     // Display
     imageUrl: text('image_url'),
@@ -260,7 +296,44 @@ export const serviceSchema = pgTable(
   },
   table => ({
     salonIdx: index('service_salon_idx').on(table.salonId),
+    salonSlugIdx: uniqueIndex('service_salon_slug_idx').on(table.salonId, table.slug),
     categoryIdx: index('service_category_idx').on(table.salonId, table.category),
+    activeCategoryIdx: index('service_active_category_idx').on(table.salonId, table.isActive, table.category),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AddOn - Optional extras attached to a base service
+// -----------------------------------------------------------------------------
+export const addOnSchema = pgTable(
+  'add_on',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    category: addOnCategoryEnum('category').notNull(),
+    descriptionItems: jsonb('description_items').$type<string[] | null>().default(null),
+    priceCents: integer('price_cents').notNull(),
+    priceDisplayText: text('price_display_text'),
+    durationMinutes: integer('duration_minutes').notNull(),
+    pricingType: addOnPricingTypeEnum('pricing_type').notNull().default('fixed'),
+    unitLabel: text('unit_label'),
+    maxQuantity: integer('max_quantity'),
+    isActive: boolean('is_active').default(true),
+    displayOrder: integer('display_order').default(0),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('add_on_salon_idx').on(table.salonId),
+    salonSlugIdx: uniqueIndex('add_on_salon_slug_idx').on(table.salonId, table.slug),
+    activeCategoryIdx: index('add_on_active_category_idx').on(table.salonId, table.isActive, table.category),
   }),
 );
 
@@ -423,7 +496,13 @@ export const appointmentSchema = pgTable(
 
     // Totals (computed from linked services at booking time)
     totalPrice: integer('total_price').notNull(), // Sum of all service prices
-    totalDurationMinutes: integer('total_duration_minutes').notNull(), // Sum of durations
+    totalDurationMinutes: integer('total_duration_minutes').notNull(), // Visible customer-facing duration only
+    basePriceCents: integer('base_price_cents'),
+    addOnsPriceCents: integer('add_ons_price_cents').default(0),
+    baseDurationMinutes: integer('base_duration_minutes'),
+    addOnsDurationMinutes: integer('add_ons_duration_minutes').default(0),
+    bufferMinutes: integer('buffer_minutes').default(0),
+    blockedDurationMinutes: integer('blocked_duration_minutes'),
 
     // Additional
     notes: text('notes'),
@@ -459,6 +538,7 @@ export const appointmentSchema = pgTable(
     dateIdx: index('appointment_date_idx').on(table.salonId, table.startTime),
     statusIdx: index('appointment_status_idx').on(table.salonId, table.status),
     techStartTimeIdx: index('appointment_tech_start_time_idx').on(table.technicianId, table.startTime),
+    salonTechStartTimeIdx: index('appointment_salon_tech_start_time_idx').on(table.salonId, table.technicianId, table.startTime),
     deletedAtIdx: index('appointment_deleted_at_idx').on(table.deletedAt),
     // Fraud detection: basic composite for salonClientId lookups
     salonClientIdx: index('appointment_salon_client_idx').on(table.salonId, table.salonClientId),
@@ -489,6 +569,14 @@ export const appointmentServicesSchema = pgTable(
 
     // Duration snapshot (in case service duration changes later)
     durationAtBooking: integer('duration_at_booking').notNull(),
+
+    // Historical snapshot fields - render appointments from these, not live services.
+    nameSnapshot: text('name_snapshot'),
+    categorySnapshot: text('category_snapshot'),
+    priceCentsSnapshot: integer('price_cents_snapshot'),
+    durationMinutesSnapshot: integer('duration_minutes_snapshot'),
+    priceDisplayTextSnapshot: text('price_display_text_snapshot'),
+    resolvedIntroPriceLabelSnapshot: text('resolved_intro_price_label_snapshot'),
   },
   table => ({
     appointmentIdx: index('appt_services_appointment_idx').on(table.appointmentId),
@@ -498,6 +586,67 @@ export const appointmentServicesSchema = pgTable(
       table.appointmentId,
       table.serviceId,
     ),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// ServiceAddOn - Allowed add-ons for a service
+// -----------------------------------------------------------------------------
+export const serviceAddOnSchema = pgTable(
+  'service_add_on',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => serviceSchema.id, { onDelete: 'cascade' }),
+    addOnId: text('add_on_id')
+      .notNull()
+      .references(() => addOnSchema.id, { onDelete: 'cascade' }),
+    selectionMode: serviceAddOnSelectionModeEnum('selection_mode').notNull().default('optional'),
+    conditions: jsonb('conditions').$type<Record<string, unknown> | null>().default(null),
+    defaultQuantity: integer('default_quantity'),
+    maxQuantityOverride: integer('max_quantity_override'),
+    displayOrder: integer('display_order').default(0),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('service_add_on_salon_idx').on(table.salonId),
+    serviceIdx: index('service_add_on_service_idx').on(table.serviceId),
+    uniqueMappingIdx: uniqueIndex('service_add_on_unique_idx').on(table.serviceId, table.addOnId),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AppointmentAddOn - Snapshots optional extras selected at booking time
+// -----------------------------------------------------------------------------
+export const appointmentAddOnSchema = pgTable(
+  'appointment_add_on',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    addOnId: text('add_on_id').references(() => addOnSchema.id),
+    quantitySnapshot: integer('quantity_snapshot').notNull().default(1),
+    nameSnapshot: text('name_snapshot').notNull(),
+    categorySnapshot: text('category_snapshot').notNull(),
+    pricingTypeSnapshot: text('pricing_type_snapshot').notNull(),
+    unitPriceCentsSnapshot: integer('unit_price_cents_snapshot').notNull(),
+    durationMinutesSnapshot: integer('duration_minutes_snapshot').notNull(),
+    lineTotalCentsSnapshot: integer('line_total_cents_snapshot').notNull(),
+    lineDurationMinutesSnapshot: integer('line_duration_minutes_snapshot').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    appointmentIdx: index('appointment_add_on_appointment_idx').on(table.appointmentId),
+    addOnIdx: index('appointment_add_on_add_on_idx').on(table.addOnId),
   }),
 );
 
@@ -1239,6 +1388,9 @@ export type NewSalon = typeof salonSchema.$inferInsert;
 export type Service = typeof serviceSchema.$inferSelect;
 export type NewService = typeof serviceSchema.$inferInsert;
 
+export type AddOn = typeof addOnSchema.$inferSelect;
+export type NewAddOn = typeof addOnSchema.$inferInsert;
+
 export type Technician = typeof technicianSchema.$inferSelect;
 export type NewTechnician = typeof technicianSchema.$inferInsert;
 
@@ -1262,6 +1414,12 @@ export type NewAppointment = typeof appointmentSchema.$inferInsert;
 
 export type AppointmentService = typeof appointmentServicesSchema.$inferSelect;
 export type NewAppointmentService = typeof appointmentServicesSchema.$inferInsert;
+
+export type ServiceAddOn = typeof serviceAddOnSchema.$inferSelect;
+export type NewServiceAddOn = typeof serviceAddOnSchema.$inferInsert;
+
+export type AppointmentAddOn = typeof appointmentAddOnSchema.$inferSelect;
+export type NewAppointmentAddOn = typeof appointmentAddOnSchema.$inferInsert;
 
 export type AppointmentPhoto = typeof appointmentPhotoSchema.$inferSelect;
 export type NewAppointmentPhoto = typeof appointmentPhotoSchema.$inferInsert;
@@ -1318,8 +1476,38 @@ export type NewAdminSalonMembership = typeof adminSalonMembershipSchema.$inferIn
 // CONST EXPORTS
 // =============================================================================
 
-export const SERVICE_CATEGORIES = ['hands', 'feet', 'combo'] as const;
+export const SERVICE_CATEGORIES = [
+  'manicure',
+  'builder_gel',
+  'extensions',
+  'pedicure',
+  'hands',
+  'feet',
+  'combo',
+] as const;
 export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
+
+export const PUBLIC_SERVICE_CATEGORIES = [
+  'manicure',
+  'builder_gel',
+  'extensions',
+  'pedicure',
+] as const;
+export type PublicServiceCategory = (typeof PUBLIC_SERVICE_CATEGORIES)[number];
+
+export const ADD_ON_CATEGORIES = [
+  'nail_art',
+  'repair',
+  'removal',
+  'pedicure_addon',
+] as const;
+export type AddOnCategory = (typeof ADD_ON_CATEGORIES)[number];
+
+export const ADD_ON_PRICING_TYPES = ['fixed', 'per_unit'] as const;
+export type AddOnPricingType = (typeof ADD_ON_PRICING_TYPES)[number];
+
+export const SERVICE_ADD_ON_SELECTION_MODES = ['optional', 'required', 'conditional'] as const;
+export type ServiceAddOnSelectionMode = (typeof SERVICE_ADD_ON_SELECTION_MODES)[number];
 
 export const APPOINTMENT_STATUSES = [
   'pending',

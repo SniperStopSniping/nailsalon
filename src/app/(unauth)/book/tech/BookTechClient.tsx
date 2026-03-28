@@ -10,7 +10,7 @@ import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
-import { buildBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -44,7 +44,9 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   const { salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
-  const serviceIds = searchParams.get('serviceIds')?.split(',') || [];
+  const serviceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) || [];
+  const baseServiceId = searchParams.get('baseServiceId');
+  const selectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
@@ -87,7 +89,9 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
 
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
-      serviceIds,
+      serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+      baseServiceId,
+      selectedAddOns,
       techId,
       originalAppointmentId,
       locationId,
@@ -142,7 +146,9 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
     if (prevStep) {
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
-        serviceIds,
+        serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+        baseServiceId,
+        selectedAddOns,
         originalAppointmentId,
         locationId,
       }, {

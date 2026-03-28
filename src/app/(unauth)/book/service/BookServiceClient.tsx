@@ -13,22 +13,60 @@ import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
-import { buildBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
-type Category = 'hands' | 'feet' | 'combo';
+type ServiceCategory =
+  | 'manicure'
+  | 'builder_gel'
+  | 'extensions'
+  | 'pedicure'
+  | 'hands'
+  | 'feet'
+  | 'combo';
+
+type AddOnCategory = 'nail_art' | 'repair' | 'removal' | 'pedicure_addon';
+type AddOnPricingType = 'fixed' | 'per_unit';
+type SelectionMode = 'optional' | 'required' | 'conditional';
 
 export type ServiceData = {
   id: string;
   name: string;
-  description?: string | null;
-  duration: number;
-  price: number; // In dollars (converted from cents)
-  category: Category;
+  description: string | null;
+  descriptionItems: string[];
+  durationMinutes: number;
+  priceCents: number;
+  priceDisplayText: string | null;
+  category: ServiceCategory;
   imageUrl: string;
+  resolvedIntroPriceLabel: string | null;
+};
+
+export type AddOnData = {
+  id: string;
+  name: string;
+  descriptionItems: string[];
+  category: AddOnCategory;
+  pricingType: AddOnPricingType;
+  unitLabel: string | null;
+  maxQuantity: number | null;
+  durationMinutes: number;
+  priceCents: number;
+  priceDisplayText: string | null;
+  isActive: boolean;
+};
+
+export type ServiceAddOnRule = {
+  id: string;
+  serviceId: string;
+  addOnId: string;
+  selectionMode: SelectionMode;
+  defaultQuantity: number | null;
+  maxQuantityOverride: number | null;
+  displayOrder: number;
 };
 
 export type LocationData = {
@@ -44,17 +82,92 @@ export type LocationData = {
 
 type BookServiceClientProps = {
   services: ServiceData[];
+  addOns?: AddOnData[];
+  serviceAddOnRules?: ServiceAddOnRule[];
   bookingFlow: BookingStep[];
   locations: LocationData[];
+  currency?: string;
 };
 
-const CATEGORY_LABELS: { id: Category; label: string; icon: string }[] = [
-  { id: 'hands', label: 'Hands', icon: '💅' },
-  { id: 'feet', label: 'Feet', icon: '🦶' },
-  { id: 'combo', label: 'Combo', icon: '✨' },
-];
+const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = {
+  manicure: { label: 'Manicure', icon: '💅' },
+  builder_gel: { label: 'Builder Gel', icon: '✨' },
+  extensions: { label: 'Extensions', icon: '💎' },
+  pedicure: { label: 'Pedicure', icon: '🦶' },
+  hands: { label: 'Hands', icon: '💅' },
+  feet: { label: 'Feet', icon: '🦶' },
+  combo: { label: 'Combo', icon: '✨' },
+};
 
-export function BookServiceClient({ services, bookingFlow, locations }: BookServiceClientProps) {
+function formatMoney(cents: number, currency: string): string {
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining > 0 ? `${hours}h ${remaining}m` : `${hours}h`;
+}
+
+function buildDefaultSelectedAddOns(
+  serviceId: string | null,
+  rules: ServiceAddOnRule[],
+  addOns: AddOnData[],
+  current: SelectedAddOnParam[],
+): SelectedAddOnParam[] {
+  if (!serviceId) {
+    return [];
+  }
+
+  const relevantRules = rules
+    .filter(rule => rule.serviceId === serviceId)
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+  const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
+  const currentById = new Map(current.map(item => [item.addOnId, item.quantity ?? 1]));
+  const normalized: SelectedAddOnParam[] = [];
+
+  for (const rule of relevantRules) {
+    const addOn = addOnsById.get(rule.addOnId);
+    if (!addOn || !addOn.isActive) {
+      continue;
+    }
+
+    const existingQuantity = currentById.get(rule.addOnId);
+    const rawQuantity = existingQuantity ?? rule.defaultQuantity ?? (rule.selectionMode === 'required' ? 1 : 0);
+    const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+    const normalizedQuantity = Math.min(
+      maxQuantity,
+      Math.max(addOn.pricingType === 'per_unit' ? 1 : 1, rawQuantity),
+    );
+
+    if (existingQuantity !== undefined || rule.selectionMode === 'required' || rule.defaultQuantity) {
+      normalized.push({
+        addOnId: rule.addOnId,
+        quantity: addOn.pricingType === 'per_unit' ? normalizedQuantity : 1,
+      });
+    }
+  }
+
+  return normalized;
+}
+
+export function BookServiceClient({
+  services,
+  addOns = [],
+  serviceAddOnRules = [],
+  bookingFlow,
+  locations,
+  currency = 'CAD',
+}: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -62,82 +175,166 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
 
-  // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
-
-  // Get reschedule params from URL (passed from change-appointment page)
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const urlLocationId = searchParams.get('locationId') || '';
+  const urlBaseServiceId = searchParams.get('baseServiceId');
+  const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
+  const legacyServiceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
 
-  // Use shared auth hook
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
+  const {
+    technicianId = null,
+    baseServiceId: storedBaseServiceId = null,
+    selectedAddOns: storedSelectedAddOns = [],
+    setBaseServiceId = () => {},
+    setSelectedAddOns = () => {},
+    setServiceIds = () => {},
+    syncFromUrl = () => {},
+  } = useBookingState();
 
-  // Use global booking state to persist technician selection
-  const { technicianId } = useBookingState();
-
-  // Multi-location: show picker only when 2+ locations
-  const showLocationPicker = locations.length >= 2;
   const primaryLocation = locations.find(l => l.isPrimary) || locations[0];
-
-  // Check if URL locationId is valid
+  const showLocationPicker = locations.length >= 2;
   const urlLocationValid = urlLocationId && locations.some(l => l.id === urlLocationId);
   const hadInvalidLocation = !!(urlLocationId && !urlLocationValid && showLocationPicker);
-
-  // Initialize selectedLocationId from URL or primary
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(() => {
     if (urlLocationValid) {
       return urlLocationId;
     }
     return primaryLocation?.id || null;
   });
-
-  // Show toast if multi-location salon had invalid locationId in URL
   const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
 
-  // Repair URL if locationId was invalid - replace with primary
-  // This ensures later steps don't carry garbage locationId
+  const initialCategory = services[0]?.category ?? 'manicure';
+  const initialBaseServiceId = urlBaseServiceId
+    ?? legacyServiceIds[0]
+    ?? storedBaseServiceId
+    ?? services[0]?.id
+    ?? null;
+
+  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
+  const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
+  const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(
+    urlSelectedAddOns.length > 0 ? urlSelectedAddOns : (storedSelectedAddOns ?? []),
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<{
+    baseServiceId: string;
+    selectedAddOns: SelectedAddOnParam[];
+  } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (hadInvalidLocation && primaryLocation?.id) {
       const newParams = new URLSearchParams(searchParams.toString());
       newParams.set('locationId', primaryLocation.id);
-      // Replace URL without adding to history
       window.history.replaceState(null, '', `?${newParams.toString()}`);
     }
   }, [hadInvalidLocation, primaryLocation?.id, searchParams]);
 
-  const [selectedCategory, setSelectedCategory] = useState<Category>('hands');
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [pendingServiceIds, setPendingServiceIds] = useState<string[]>([]);
-  const [mounted, setMounted] = useState(false);
-
-  // Set mounted on client
   useEffect(() => {
-    setMounted(true);
+    if (urlBaseServiceId || legacyServiceIds[0]) {
+      syncFromUrl({
+        baseServiceId: urlBaseServiceId ?? legacyServiceIds[0] ?? null,
+        selectedAddOns: urlSelectedAddOns,
+        serviceIds: legacyServiceIds,
+        locationId: selectedLocationId,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selectedBaseServiceId) {
+      if (selectedAddOnsState.length > 0) {
+        setSelectedAddOnsState([]);
+      }
+      setBaseServiceId(null);
+      setServiceIds([]);
+      setSelectedAddOns([]);
+      return;
+    }
+
+    const normalized = buildDefaultSelectedAddOns(
+      selectedBaseServiceId,
+      serviceAddOnRules,
+      addOns,
+      selectedAddOnsState,
+    );
+
+    const sameSelection = normalized.length === selectedAddOnsState.length
+      && normalized.every((item, index) => (
+        item.addOnId === selectedAddOnsState[index]?.addOnId
+        && (item.quantity ?? 1) === (selectedAddOnsState[index]?.quantity ?? 1)
+      ));
+
+    if (!sameSelection) {
+      setSelectedAddOnsState(normalized);
+    }
+
+    setBaseServiceId(selectedBaseServiceId);
+    setServiceIds([selectedBaseServiceId]);
+    setSelectedAddOns(normalized);
+  }, [selectedBaseServiceId, selectedAddOnsState, serviceAddOnRules, addOns, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+
+  const availableCategories = Array.from(new Set(services.map(service => service.category)));
 
   const filteredServices = services.filter((service) => {
     if (searchQuery) {
       return service.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
+
     return service.category === selectedCategory;
   });
 
-  const toggleService = (id: string) => {
-    setSelectedServiceIds((prev) => {
-      const wasSelected = prev.includes(id);
-      triggerHaptic(wasSelected ? 'deselect' : 'select');
-      return wasSelected ? prev.filter(x => x !== id) : [...prev, id];
-    });
-  };
+  const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
+  const selectedRules = selectedBaseServiceId
+    ? serviceAddOnRules
+      .filter(rule => rule.serviceId === selectedBaseServiceId)
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+    : [];
+  const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
+  const selectedAddOnsById = new Map(selectedAddOnsState.map(item => [item.addOnId, item.quantity ?? 1]));
+  const allowedAddOns = selectedRules
+    .map((rule) => {
+      const addOn = addOnsById.get(rule.addOnId);
+      if (!addOn || !addOn.isActive) {
+        return null;
+      }
 
-  const selectedCount = selectedServiceIds.length;
-  const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
-  const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
+      return {
+        rule,
+        addOn,
+        quantity: selectedAddOnsById.get(addOn.id) ?? 0,
+      };
+    })
+    .filter(Boolean);
 
-  const goToNextStep = (serviceIds: string[]) => {
-    // Get the next step from the booking flow
+  const totalPriceCents = (selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
+    (sum, item) => {
+      if (!item || item.quantity <= 0) {
+        return sum;
+      }
+      return sum + (item.addOn.priceCents * item.quantity);
+    },
+    0,
+  );
+  const totalDurationMinutes = (selectedService?.durationMinutes ?? 0) + allowedAddOns.reduce(
+    (sum, item) => {
+      if (!item || item.quantity <= 0) {
+        return sum;
+      }
+      return sum + (item.addOn.durationMinutes * item.quantity);
+    },
+    0,
+  );
+
+  const goToNextStep = (baseServiceIdValue: string, selectedAddOnsValue: SelectedAddOnParam[]) => {
     const nextStep = getNextStep('service', bookingFlow);
     if (!nextStep) {
       return;
@@ -145,7 +342,8 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
 
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
-      serviceIds,
+      baseServiceId: baseServiceIdValue,
+      selectedAddOns: selectedAddOnsValue,
       techId: technicianId,
       originalAppointmentId,
       locationId: selectedLocationId,
@@ -160,6 +358,8 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
     if (prevStep) {
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
+        baseServiceId: selectedBaseServiceId,
+        selectedAddOns: selectedAddOnsState,
         originalAppointmentId,
         locationId: selectedLocationId,
       }, {
@@ -172,40 +372,88 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
   };
 
   const handleContinue = () => {
-    if (!selectedServiceIds.length) {
+    if (!selectedBaseServiceId) {
       return;
     }
 
     triggerHaptic('confirm');
 
     if (isLoggedIn) {
-      goToNextStep(selectedServiceIds);
+      goToNextStep(selectedBaseServiceId, selectedAddOnsState);
       return;
     }
 
-    // Not logged in - open modal for login
-    setPendingServiceIds(selectedServiceIds);
+    setPendingSelection({
+      baseServiceId: selectedBaseServiceId,
+      selectedAddOns: selectedAddOnsState,
+    });
     setIsLoginModalOpen(true);
   };
 
-  // Handle login success from the bottom login bar
+  const handleAddOnToggle = (addOnId: string, nextQuantity?: number) => {
+    if (!selectedBaseServiceId) {
+      return;
+    }
+
+    const rule = selectedRules.find(item => item.addOnId === addOnId);
+    const addOn = addOnsById.get(addOnId);
+    if (!rule || !addOn) {
+      return;
+    }
+
+    const isRequired = rule.selectionMode === 'required';
+    const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+
+    const existing = selectedAddOnsState.find(item => item.addOnId === addOnId);
+    const existingQuantity = existing?.quantity ?? 1;
+    const resolvedQuantity = nextQuantity ?? (addOn.pricingType === 'per_unit'
+      ? Math.min(maxQuantity, existingQuantity + 1)
+      : existing
+        ? 0
+        : 1);
+
+    let nextSelected = selectedAddOnsState.filter(item => item.addOnId !== addOnId);
+
+    if (resolvedQuantity > 0 || isRequired) {
+      nextSelected = [
+        ...nextSelected,
+        {
+          addOnId,
+          quantity: addOn.pricingType === 'per_unit'
+            ? Math.min(maxQuantity, Math.max(1, resolvedQuantity))
+            : 1,
+        },
+      ];
+    }
+
+    const normalized = buildDefaultSelectedAddOns(selectedBaseServiceId, serviceAddOnRules, addOns, nextSelected)
+      .sort((a, b) => {
+        const orderA = selectedRules.find(ruleItem => ruleItem.addOnId === a.addOnId)?.displayOrder ?? 0;
+        const orderB = selectedRules.find(ruleItem => ruleItem.addOnId === b.addOnId)?.displayOrder ?? 0;
+        return orderA - orderB;
+      });
+
+    setSelectedAddOnsState(normalized);
+    setSelectedAddOns(normalized);
+    triggerHaptic('select');
+  };
+
   const handleBottomLoginSuccess = (verifiedPhone: string) => {
     handleLoginSuccess(verifiedPhone);
   };
 
-  // Handle login success from the blocking modal
   const handleModalLoginSuccess = (verifiedPhone: string) => {
     handleLoginSuccess(verifiedPhone);
     setIsLoginModalOpen(false);
-    if (pendingServiceIds.length > 0) {
-      goToNextStep(pendingServiceIds);
-      setPendingServiceIds([]);
+    if (pendingSelection) {
+      goToNextStep(pendingSelection.baseServiceId, pendingSelection.selectedAddOns);
+      setPendingSelection(null);
     }
   };
 
   const handleCloseLoginModal = () => {
     setIsLoginModalOpen(false);
-    setPendingServiceIds([]);
+    setPendingSelection(null);
   };
 
   return (
@@ -219,8 +467,8 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
         <BookingStepHeader
           salonName={salonName}
           mounted={mounted}
-          title="Choose Your Services"
-          description="Pick one or more services to build your visit"
+          title="Choose Your Service"
+          description="Pick your main service, then add optional extras."
           bookingFlow={bookingFlow}
           currentStep="service"
           isFirstStep={isFirstStep}
@@ -228,7 +476,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           className="-mb-1"
         />
 
-        {/* Search Bar */}
         <div
           className="mb-4"
           style={{
@@ -264,7 +511,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           </Card>
         </div>
 
-        {/* Location Fallback Toast - shown when URL had invalid locationId for multi-location salon */}
         {showLocationFallbackToast && (
           <div
             className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
@@ -299,7 +545,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           </div>
         )}
 
-        {/* Location Picker - shown only when 2+ locations */}
         {showLocationPicker && (
           <div
             className="mb-4"
@@ -355,7 +600,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                           </div>
                         )}
                       </div>
-                      {/* Selection indicator */}
                       <div
                         className="flex size-6 shrink-0 items-center justify-center rounded-full transition-all"
                         style={{
@@ -379,7 +623,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           </div>
         )}
 
-        {/* Category Tabs */}
         {services.length === 0
           ? (
               <StateCard
@@ -405,15 +648,16 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                     transition: 'opacity 300ms ease-out 150ms',
                   }}
                 >
-                  {CATEGORY_LABELS.map((cat) => {
-                    const active = cat.id === selectedCategory;
+                  {availableCategories.map((category) => {
+                    const active = category === selectedCategory;
+                    const meta = CATEGORY_META[category];
                     return (
                       <button
-                        key={cat.id}
+                        key={category}
                         type="button"
                         onClick={() => {
-                          if (cat.id !== selectedCategory) {
-                            setSelectedCategory(cat.id);
+                          if (category !== selectedCategory) {
+                            setSelectedCategory(category);
                             triggerHaptic('select');
                           }
                         }}
@@ -427,22 +671,26 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                           boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
                         }}
                       >
-                        <span>{cat.icon}</span>
-                        <span>{cat.label}</span>
+                        <span>{meta.icon}</span>
+                        <span>{meta.label}</span>
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Services Grid */}
                 <div className="grid grid-cols-2 gap-3">
                   {filteredServices.map((service, index) => {
-                    const isSelected = selectedServiceIds.includes(service.id);
+                    const isSelected = selectedBaseServiceId === service.id;
+                    const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
                     return (
                       <button
                         key={service.id}
                         type="button"
-                        onClick={() => toggleService(service.id)}
+                        onClick={() => {
+                          setSelectedBaseServiceIdState(service.id);
+                          setSelectedCategory(service.category);
+                          triggerHaptic('select');
+                        }}
                         data-testid={`service-card-${service.id}`}
                         data-selected={isSelected ? 'true' : 'false'}
                         aria-pressed={isSelected}
@@ -460,11 +708,9 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                           borderStyle: 'solid',
                           borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
                           outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
-                          outlineOffset: isSelected ? '0px' : undefined,
                           transition: `opacity 300ms ease-out ${200 + index * 50}ms, transform 300ms ease-out ${200 + index * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                         }}
                       >
-                        {/* Image */}
                         <div
                           className="relative h-[120px] overflow-hidden"
                           style={{
@@ -477,7 +723,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                             fill
                             className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
                           />
-                          {/* Selection checkmark */}
+                          {service.resolvedIntroPriceLabel && (
+                            <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
+                              {service.resolvedIntroPriceLabel}
+                            </div>
+                          )}
                           {isSelected && (
                             <div
                               className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full shadow-lg"
@@ -492,20 +742,19 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                           )}
                         </div>
 
-                        {/* Info */}
                         <div className="p-3">
                           <div className="text-base font-bold leading-tight text-neutral-900">
                             {service.name}
                           </div>
-                          <div className="mt-2 flex items-center justify-between">
+                          <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
+                            {previewDescription}
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3">
                             <span className="text-sm text-neutral-500">
-                              {service.duration}
-                              {' '}
-                              min
+                              {formatDuration(service.durationMinutes)}
                             </span>
                             <span className="text-base font-bold" style={{ color: themeVars.accent }}>
-                              $
-                              {service.price}
+                              {service.priceDisplayText || formatMoney(service.priceCents, currency)}
                             </span>
                           </div>
                         </div>
@@ -513,28 +762,151 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                     );
                   })}
                 </div>
+
+                {selectedService && (
+                  <div
+                    className="mt-6 rounded-3xl bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                    style={{
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: themeVars.cardBorder,
+                    }}
+                  >
+                    <div className="mb-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                        Customize
+                      </div>
+                      <div className="mt-1 text-lg font-bold text-neutral-900">
+                        Optional add-ons for
+                        {' '}
+                        {selectedService.name}
+                      </div>
+                      <div className="text-sm text-neutral-500">
+                        Add extra time or upgrades without changing your main service.
+                      </div>
+                    </div>
+
+                    {allowedAddOns.length === 0
+                      ? (
+                          <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-5 text-sm text-neutral-500">
+                            No add-ons available for this service yet.
+                          </div>
+                        )
+                      : (
+                          <div className="space-y-3">
+                            {allowedAddOns.map((item) => {
+                              if (!item) {
+                                return null;
+                              }
+
+                              const { addOn, rule, quantity } = item;
+                              const isSelected = quantity > 0;
+                              const isRequired = rule.selectionMode === 'required';
+                              const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+                              const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
+                              const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
+
+                              return (
+                                <div
+                                  key={addOn.id}
+                                  className="rounded-2xl border px-4 py-3"
+                                  style={{
+                                    borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                                    backgroundColor: isSelected
+                                      ? `color-mix(in srgb, ${themeVars.primary} 8%, white)`
+                                      : 'white',
+                                  }}
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
+                                        {isRequired && (
+                                          <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                            Required
+                                          </span>
+                                        )}
+                                      </div>
+                                      {addOn.descriptionItems[0] && (
+                                        <div className="mt-1 text-sm text-neutral-500">
+                                          {addOn.descriptionItems[0]}
+                                        </div>
+                                      )}
+                                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                                        <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
+                                        <span>{formatDuration(addOn.durationMinutes)}</span>
+                                        {isSelected && (
+                                          <span>
+                                            Selected:
+                                            {' '}
+                                            {formatMoney(lineTotalCents, currency)}
+                                            {' '}
+                                            ·
+                                            {' '}
+                                            {formatDuration(lineDurationMinutes)}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {addOn.pricingType === 'per_unit'
+                                      ? (
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
+                                              disabled={isRequired ? quantity <= 1 : quantity <= 0}
+                                              className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                            >
+                                              -
+                                            </button>
+                                            <div className="min-w-[2rem] text-center text-sm font-semibold text-neutral-900">
+                                              {quantity}
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
+                                              disabled={quantity >= maxQuantity}
+                                              className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        )
+                                      : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleAddOnToggle(addOn.id)}
+                                            disabled={isRequired}
+                                            className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed"
+                                            style={{
+                                              backgroundColor: isSelected || isRequired ? themeVars.primary : '#f5f5f5',
+                                              color: isSelected || isRequired ? '#171717' : '#404040',
+                                            }}
+                                          >
+                                            {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                          </button>
+                                        )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                  </div>
+                )}
               </>
             )}
 
-        {/* Spacer for fixed bottom bar */}
-        {selectedCount > 0 && <div className="h-24" />}
-
-        {/* Spacer for floating dock when logged in */}
+        {selectedService && <div className="h-24" />}
         {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
 
-        {/* Auth Footer - shown only on first step when not logged in */}
         {isFirstStep && !isCheckingSession && !isLoggedIn && (
-          <BookingPhoneLogin
-            onLoginSuccess={handleBottomLoginSuccess}
-          />
+          <BookingPhoneLogin onLoginSuccess={handleBottomLoginSuccess} />
         )}
 
-        {/* Floating Dock - shown when logged in and this is the first step */}
-        {!isCheckingSession && isLoggedIn && isFirstStep && (
-          <BookingFloatingDock />
-        )}
+        {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
 
-        {/* Blocking Login Modal */}
         <BlockingLoginModal
           isOpen={isLoginModalOpen}
           onClose={handleCloseLoginModal}
@@ -542,8 +914,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
         />
       </div>
 
-      {/* Fixed Bottom Selection Bar */}
-      {selectedCount > 0 && (
+      {selectedService && (
         <div
           className="fixed inset-x-0 bottom-0 z-50 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.1)]"
           style={{
@@ -555,24 +926,28 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
         >
           <style jsx>
             {`
-            @keyframes slideUp {
-              from {
-                transform: translateY(100%);
+              @keyframes slideUp {
+                from {
+                  transform: translateY(100%);
+                }
+                to {
+                  transform: translateY(0);
+                }
               }
-              to {
-                transform: translateY(0);
-              }
-            }
-          `}
+            `}
           </style>
           <div className="mx-auto flex max-w-[430px] items-center justify-between p-4">
             <div>
               <div className="text-sm text-neutral-500">
-                {selectedCount === 1 ? '1 service' : `${selectedCount} services`}
+                {selectedAddOnsState.length > 0
+                  ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
+                  : '1 service'}
               </div>
               <div className="text-xl font-bold text-neutral-900">
-                $
-                {totalPrice}
+                {formatMoney(totalPriceCents, currency)}
+              </div>
+              <div className="text-sm text-neutral-500">
+                {formatDuration(totalDurationMinutes)}
               </div>
             </div>
             <button
@@ -590,7 +965,6 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
               </svg>
             </button>
           </div>
-          {/* Safe area padding for devices with home indicator */}
           <div className="h-[env(safe-area-inset-bottom)]" />
         </div>
       )}

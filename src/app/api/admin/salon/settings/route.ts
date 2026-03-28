@@ -16,10 +16,12 @@ import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
 import { salonSchema } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,7 @@ export const dynamic = 'force-dynamic';
 const adminUpdateSchema = z.object({
   reviewsEnabled: z.boolean().optional(),
   rewardsEnabled: z.boolean().optional(),
+  bookingConfig: bookingConfigSchema.partial().optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -76,11 +79,13 @@ export async function GET(request: Request): Promise<Response> {
     // 3. Resolve effective points
     const effectivePoints = resolveSalonLoyaltyPoints(salon);
     const defaults = getDefaultLoyaltyPoints();
+    const bookingConfig = await getBookingConfigForSalon(salon.id);
 
     // 4. Return settings
     return Response.json({
       reviewsEnabled: salon.reviewsEnabled ?? true,
       rewardsEnabled: salon.rewardsEnabled ?? true,
+      bookingConfig,
       effectivePoints,
       defaults,
       billingMode: salon.billingMode ?? 'NONE',
@@ -155,6 +160,7 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const updates = validated.data;
+    const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
 
     // 6. Build before/after diff for audit log (only changed fields)
     const before: Record<string, unknown> = {};
@@ -173,6 +179,21 @@ export async function PATCH(request: Request): Promise<Response> {
       dbUpdates.rewardsEnabled = updates.rewardsEnabled;
     }
 
+    if (updates.bookingConfig) {
+      const mergedBookingConfig = bookingConfigSchema.parse({
+        ...currentBookingConfig,
+        ...updates.bookingConfig,
+      });
+      const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
+
+      before.bookingConfig = currentBookingConfig;
+      after.bookingConfig = mergedBookingConfig;
+      dbUpdates.settings = {
+        ...currentSettings,
+        booking: mergedBookingConfig,
+      };
+    }
+
     // 7. If no changes, return current state
     if (Object.keys(dbUpdates).length === 0) {
       const effectivePoints = resolveSalonLoyaltyPoints(salon);
@@ -181,6 +202,7 @@ export async function PATCH(request: Request): Promise<Response> {
       return Response.json({
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
+        bookingConfig: currentBookingConfig,
         effectivePoints,
         defaults,
         billingMode: salon.billingMode ?? 'NONE',
@@ -219,10 +241,12 @@ export async function PATCH(request: Request): Promise<Response> {
     // 10. Return updated settings
     const effectivePoints = resolveSalonLoyaltyPoints(updatedSalon);
     const defaults = getDefaultLoyaltyPoints();
+    const bookingConfig = await getBookingConfigForSalon(updatedSalon.id);
 
     return Response.json({
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
+      bookingConfig,
       effectivePoints,
       defaults,
       billingMode: updatedSalon.billingMode ?? 'NONE',

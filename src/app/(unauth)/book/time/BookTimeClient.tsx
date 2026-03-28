@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
@@ -11,7 +11,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
-import { buildBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -28,8 +28,19 @@ export type TechnicianSummary = {
   imageUrl: string;
 } | null;
 
+export type AddOnSummary = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  duration: number;
+};
+
 type BookTimeClientProps = {
   services: ServiceSummary[];
+  addOns?: AddOnSummary[];
+  totalPrice?: number;
+  totalDuration?: number;
   technician: TechnicianSummary;
   bookingFlow: BookingStep[];
 };
@@ -134,7 +145,14 @@ const filterPastTimeSlots = (
   });
 };
 
-export function BookTimeClient({ services, technician, bookingFlow }: BookTimeClientProps) {
+export function BookTimeClient({
+  services,
+  addOns = [],
+  totalPrice,
+  totalDuration,
+  technician,
+  bookingFlow,
+}: BookTimeClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -143,6 +161,12 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const serviceIdsParam = searchParams.get('serviceIds') || '';
   const serviceIds = serviceIdsParam ? serviceIdsParam.split(',').filter(Boolean) : [];
+  const baseServiceId = searchParams.get('baseServiceId');
+  const selectedAddOnsParam = searchParams.get('selectedAddOns');
+  const selectedAddOns = useMemo(
+    () => parseSelectedAddOnsParam(selectedAddOnsParam),
+    [selectedAddOnsParam],
+  );
   const techId = searchParams.get('techId') || '';
   const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
@@ -154,7 +178,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state - this is the single source of truth
-  const { technicianId: stateTechId, syncFromUrl } = useBookingState();
+  const { technicianId: stateTechId = null, syncFromUrl = () => {} } = useBookingState();
 
   // Sync from URL params on mount (for deep links and reschedule flows)
   useEffect(() => {
@@ -166,9 +190,12 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
   }, []); // Only run once on mount
 
   // Use services passed from server
-  const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
-  const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
-  const serviceNames = services.map(s => s.name).join(' + ');
+  const resolvedTotalPrice = totalPrice ?? (services.reduce((sum, service) => sum + service.price, 0) + addOns.reduce((sum, addOn) => sum + addOn.price, 0));
+  const resolvedTotalDuration = totalDuration ?? (services.reduce((sum, service) => sum + service.duration, 0) + addOns.reduce((sum, addOn) => sum + addOn.duration, 0));
+  const serviceNames = [
+    ...services.map(s => s.name),
+    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+  ].join(' + ');
 
   // Use Toronto timezone for "today"
   const today = getTorontoToday();
@@ -246,9 +273,15 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       // The explicit URL selection should win over any persisted local booking state.
       const effectiveTechId = techId || stateTechId;
       const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
-      const durationParam = `&durationMinutes=${totalDuration}`;
+      const durationParam = !baseServiceId ? `&durationMinutes=${resolvedTotalDuration}` : '';
       const serviceParam = serviceIdsParam
         ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}`
+        : '';
+      const baseServiceParam = baseServiceId
+        ? `&baseServiceId=${encodeURIComponent(baseServiceId)}`
+        : '';
+      const addOnsParam = selectedAddOns.length > 0
+        ? `&selectedAddOns=${encodeURIComponent(JSON.stringify(selectedAddOns))}`
         : '';
       const locationParam = locationId
         ? `&locationId=${encodeURIComponent(locationId)}`
@@ -257,7 +290,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
         ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`
         : '';
       const response = await fetch(
-        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${locationParam}${rescheduleParam}`,
+        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}`,
         { cache: 'no-store' },
       );
 
@@ -291,7 +324,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
         setLoadingSlots(false);
       }
     }
-  }, [locationId, originalAppointmentId, salonSlug, serviceIdsParam, techId, stateTechId, totalDuration]);
+  }, [baseServiceId, locationId, originalAppointmentId, resolvedTotalDuration, salonSlug, selectedAddOns, serviceIdsParam, techId, stateTechId]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -331,6 +364,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       || !selectedDate
       || autoAdvancedTodayRef.current
       || !allowTodayAutoAdvanceRef.current
+      || availabilityError
     ) {
       return;
     }
@@ -353,7 +387,7 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     setSelectedDate(tomorrow);
     setCurrentMonth(tomorrow.getMonth());
     setCurrentYear(tomorrow.getFullYear());
-  }, [loadingSlots, mounted, selectedDate, visibleSlotTimes]);
+  }, [availabilityError, loadingSlots, mounted, selectedDate, visibleSlotTimes]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -513,7 +547,9 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
     const effectiveTechId = stateTechId || techId || 'any';
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
-      serviceIds,
+      serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+      baseServiceId,
+      selectedAddOns,
       techId: effectiveTechId,
       date: dateStr,
       time,
@@ -532,7 +568,9 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
       const effectiveTechId = stateTechId || techId;
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
-        serviceIds,
+        serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+        baseServiceId,
+        selectedAddOns,
         techId: effectiveTechId,
         locationId,
         originalAppointmentId,
@@ -580,8 +618,8 @@ export function BookTimeClient({ services, technician, bookingFlow }: BookTimeCl
         <BookingSummaryCard
           mounted={mounted}
           serviceNames={serviceNames}
-          totalDuration={totalDuration}
-          totalPrice={totalPrice}
+          totalDuration={resolvedTotalDuration}
+          totalPrice={resolvedTotalPrice}
           technician={technician}
         />
 

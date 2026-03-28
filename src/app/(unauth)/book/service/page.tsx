@@ -3,8 +3,9 @@ import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getActiveLocationsBySalonId, getServicesBySalonId } from '@/libs/queries';
+import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
 
@@ -48,18 +49,53 @@ export default async function BookServicePage({
   }
 
   // Fetch services for this salon
-  const dbServices = await getServicesBySalonId(salon.id);
+  const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const [dbServices, dbAddOns, dbServiceAddOnRules] = await Promise.all([
+    getServicesBySalonId(salon.id),
+    getActiveAddOnsBySalonId(salon.id),
+    getServiceAddOnRulesBySalonId(salon.id),
+  ]);
 
-  // Map DB services to the shape expected by the client component
-  // Convert price from cents to dollars for display
   const services = dbServices.map(service => ({
     id: service.id,
     name: service.name,
-    description: service.description,
-    duration: service.durationMinutes,
-    price: service.price / 100, // Convert cents to dollars
-    category: service.category as 'hands' | 'feet' | 'combo',
-    imageUrl: service.imageUrl || '/assets/images/biab-short.webp', // Fallback image
+    description: service.description ?? null,
+    descriptionItems: service.descriptionItems ?? [],
+    durationMinutes: service.durationMinutes,
+    priceCents: service.price,
+    priceDisplayText: service.priceDisplayText ?? null,
+    category: service.category,
+    imageUrl: service.imageUrl || '/assets/images/biab-short.webp',
+    resolvedIntroPriceLabel: resolveIntroPriceLabel({
+      isIntroPrice: service.isIntroPrice,
+      introPriceExpiresAt: service.introPriceExpiresAt,
+      introPriceLabel: service.introPriceLabel,
+      bookingConfig,
+    }),
+  }));
+
+  const addOns = dbAddOns.map(addOn => ({
+    id: addOn.id,
+    name: addOn.name,
+    descriptionItems: addOn.descriptionItems ?? [],
+    category: addOn.category,
+    pricingType: addOn.pricingType,
+    unitLabel: addOn.unitLabel ?? null,
+    maxQuantity: addOn.maxQuantity ?? null,
+    durationMinutes: addOn.durationMinutes,
+    priceCents: addOn.priceCents,
+    priceDisplayText: addOn.priceDisplayText ?? null,
+    isActive: addOn.isActive ?? true,
+  }));
+
+  const serviceAddOnRules = dbServiceAddOnRules.map(rule => ({
+    id: rule.id,
+    serviceId: rule.serviceId,
+    addOnId: rule.addOnId,
+    selectionMode: rule.selectionMode,
+    defaultQuantity: rule.defaultQuantity ?? null,
+    maxQuantityOverride: rule.maxQuantityOverride ?? null,
+    displayOrder: rule.displayOrder ?? 0,
   }));
 
   // Get the booking flow for this salon
@@ -105,7 +141,14 @@ export default async function BookServicePage({
       salon={context.salon}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-        <BookServiceClient services={services} bookingFlow={bookingFlow} locations={locations} />
+        <BookServiceClient
+          services={services}
+          addOns={addOns}
+          serviceAddOnRules={serviceAddOnRules}
+          bookingFlow={bookingFlow}
+          locations={locations}
+          currency={bookingConfig.currency}
+        />
       </Suspense>
     </PublicSalonPageShell>
   );

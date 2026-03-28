@@ -90,7 +90,7 @@ describe('BookConfirmClient', () => {
     expect(screen.getByText('Review your appointment')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(syncFromUrl).toHaveBeenCalledWith({ techId: 'tech_1' });
+    expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
   });
 
   it('routes the confirmed booking to payment methods instead of a missing payment page', async () => {

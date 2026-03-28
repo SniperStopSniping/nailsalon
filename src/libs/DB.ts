@@ -57,7 +57,15 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
   }
 
   // Create services
-  const services = [
+  const services: Array<{
+    id: string;
+    name: string;
+    price: number;
+    durationMinutes: number;
+    category: schema.ServiceCategory;
+    imageUrl: string;
+    sortOrder: number;
+  }> = [
     { id: 'srv_biab-short', name: 'BIAB Short', price: 6500, durationMinutes: 75, category: 'hands', imageUrl: '/assets/images/biab-short.webp', sortOrder: 1 },
     { id: 'srv_biab-medium', name: 'BIAB Medium', price: 7500, durationMinutes: 90, category: 'hands', imageUrl: '/assets/images/biab-medium.webp', sortOrder: 2 },
     { id: 'srv_gelx-extensions', name: 'Gel-X Extensions', price: 9000, durationMinutes: 105, category: 'hands', imageUrl: '/assets/images/gel-x-extensions.jpg', sortOrder: 3 },

@@ -2,17 +2,23 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import type { SelectedAddOnParam } from '@/libs/bookingParams';
+
 const BOOKING_STATE_KEY = 'booking_state';
 
 type BookingState = {
   technicianId: string | null; // null means "any artist", empty string means not selected
   serviceIds: string[];
+  baseServiceId: string | null;
+  selectedAddOns: SelectedAddOnParam[];
   locationId: string | null;
 };
 
 const defaultState: BookingState = {
   technicianId: null,
   serviceIds: [],
+  baseServiceId: null,
+  selectedAddOns: [],
   locationId: null,
 };
 
@@ -30,7 +36,10 @@ export function useBookingState() {
     try {
       const stored = localStorage.getItem(BOOKING_STATE_KEY);
       if (stored) {
-        return JSON.parse(stored) as BookingState;
+        return {
+          ...defaultState,
+          ...(JSON.parse(stored) as Partial<BookingState>),
+        };
       }
     } catch {
       // Invalid stored state, use default
@@ -60,6 +69,14 @@ export function useBookingState() {
     setState(prev => ({ ...prev, serviceIds }));
   }, []);
 
+  const setBaseServiceId = useCallback((baseServiceId: string | null) => {
+    setState(prev => ({ ...prev, baseServiceId }));
+  }, []);
+
+  const setSelectedAddOns = useCallback((selectedAddOns: SelectedAddOnParam[]) => {
+    setState(prev => ({ ...prev, selectedAddOns }));
+  }, []);
+
   const setLocationId = useCallback((locationId: string | null) => {
     setState(prev => ({ ...prev, locationId }));
   }, []);
@@ -79,12 +96,16 @@ export function useBookingState() {
   const syncFromUrl = useCallback((params: {
     techId?: string | null;
     serviceIds?: string[];
+    baseServiceId?: string | null;
+    selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
   }) => {
     setState(prev => ({
       ...prev,
       ...(params.techId !== undefined && { technicianId: params.techId || null }),
       ...(params.serviceIds !== undefined && { serviceIds: params.serviceIds }),
+      ...(params.baseServiceId !== undefined && { baseServiceId: params.baseServiceId || null }),
+      ...(params.selectedAddOns !== undefined && { selectedAddOns: params.selectedAddOns }),
       ...(params.locationId !== undefined && { locationId: params.locationId || null }),
     }));
   }, []);
@@ -93,9 +114,13 @@ export function useBookingState() {
     state,
     technicianId: state.technicianId,
     serviceIds: state.serviceIds,
+    baseServiceId: state.baseServiceId,
+    selectedAddOns: state.selectedAddOns,
     locationId: state.locationId,
     setTechnicianId,
     setServiceIds,
+    setBaseServiceId,
+    setSelectedAddOns,
     setLocationId,
     clearBookingState,
     syncFromUrl,

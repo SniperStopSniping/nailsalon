@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { seedDefaultCatalogForSalon } from '@/libs/defaultCatalog';
 import { getSuperAdminInfo, requireSuperAdmin } from '@/libs/superAdmin';
 import {
   adminInviteSchema,
@@ -363,6 +364,14 @@ export async function POST(request: Request): Promise<Response> {
         isActive: true,
       })
       .returning();
+
+    if (newSalon) {
+      await seedDefaultCatalogForSalon({
+        db,
+        salonId: newSalon.id,
+        onlyIfEmpty: true,
+      });
+    }
 
     // Auto-create owner invite and send SMS
     const phoneE164 = formatPhoneE164(ownerPhone);

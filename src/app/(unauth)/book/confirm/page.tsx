@@ -3,9 +3,10 @@ import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
-import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
-import { getLocationById, getPrimaryLocation, getServicesByIds, getTechnicianById } from '@/libs/queries';
+import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
+import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
 
@@ -25,6 +26,8 @@ export default async function BookConfirmPage({
 }: {
   searchParams: {
     serviceIds?: string;
+    baseServiceId?: string;
+    selectedAddOns?: string;
     techId?: string;
     date?: string;
     time?: string;
@@ -35,8 +38,9 @@ export default async function BookConfirmPage({
 }) {
   const context = await getPublicPageContext('book-confirm', searchParams, params);
 
-  // Parse URL params
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
+  const baseServiceId = searchParams.baseServiceId || null;
+  const selectedAddOns = parseSelectedAddOnsParam(searchParams.selectedAddOns || null);
   const techId = searchParams.techId || '';
   const dateStr = searchParams.date || '';
   const timeStr = searchParams.time || '';
@@ -88,8 +92,13 @@ export default async function BookConfirmPage({
     }));
   }
 
-  // Fetch the selected services
-  const dbServices = await getServicesByIds(serviceIdList, salon.id);
+  const resolvedSelection = await resolvePublicBookingSelection({
+    salonId: salon.id,
+    baseServiceId,
+    selectedAddOns,
+    serviceIds: serviceIdList,
+    technicianId: techId && techId !== 'any' ? techId : null,
+  });
 
   // Fetch the selected technician (if not "any")
   let technician = null;
@@ -138,12 +147,10 @@ export default async function BookConfirmPage({
       }
     : salonDirectionsFallback;
 
-  // Map DB services to the shape expected by the client component
-  // Convert price from cents to dollars for display
-  const services = dbServices.map(service => ({
+  const services = resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
-    price: service.price / 100, // Convert cents to dollars
+    price: service.priceCents / 100,
     duration: service.durationMinutes,
   }));
 
@@ -159,6 +166,17 @@ export default async function BookConfirmPage({
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           services={services}
+          addOns={resolvedSelection.addOns.map(addOn => ({
+            id: addOn.id,
+            name: addOn.name,
+            quantity: addOn.quantity,
+            price: addOn.lineTotalCents / 100,
+            duration: addOn.lineDurationMinutes,
+          }))}
+          baseServiceId={resolvedSelection.baseServiceId}
+          selectedAddOns={resolvedSelection.selectedAddOns}
+          totalPrice={resolvedSelection.totalPriceCents / 100}
+          totalDuration={resolvedSelection.visibleDurationMinutes}
           technician={technician}
           salonSlug={salon.slug}
           dateStr={dateStr}

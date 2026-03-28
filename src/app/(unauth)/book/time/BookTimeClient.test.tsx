@@ -64,7 +64,7 @@ describe('BookTimeClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
-    vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
+    vi.setSystemTime(new Date('2026-03-14T11:00:00Z'));
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('scrollTo', vi.fn());

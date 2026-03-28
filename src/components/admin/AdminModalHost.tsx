@@ -106,6 +106,7 @@ export function AdminModalHost({
       >
         <SettingsModal
           onClose={onCloseModal}
+          salonSlug={activeSalonSlug}
           userName={userName}
           userInitials={userInitial}
         />
@@ -136,7 +137,7 @@ export function AdminModalHost({
         isOpen={activeModal === 'services'}
         onClose={onCloseModal}
       >
-        <ServicesModal onClose={onCloseModal} />
+        <ServicesModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
       </AppModal>
 
       <AppModal

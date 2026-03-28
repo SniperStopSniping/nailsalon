@@ -20,9 +20,11 @@ import {
 } from '@/libs/bookingPolicy';
 import { requireAdminSalon, requireAdmin } from '@/libs/adminAuth';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
+import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
+import { validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -48,6 +50,7 @@ import {
 import { requireStaffSession } from '@/libs/staffAuth';
 import {
   type Appointment,
+  appointmentAddOnSchema,
   APPOINTMENT_STATUSES,
   appointmentSchema,
   type AppointmentService,
@@ -104,7 +107,12 @@ function parseStatusParam(statusParam: string | null): string[] | null {
 
 const createAppointmentSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  serviceIds: z.array(z.string()).min(1, 'At least one service is required'),
+  serviceIds: z.array(z.string()).min(1, 'At least one service is required').optional(),
+  baseServiceId: z.string().min(1, 'Base service is required').optional(),
+  selectedAddOns: z.array(z.object({
+    addOnId: z.string().min(1),
+    quantity: z.number().int().min(1).max(20).optional(),
+  })).optional().default([]),
   technicianId: z.string().nullable(), // null = "any artist"
   clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits').optional(),
   clientName: z.string().optional(),
@@ -127,6 +135,13 @@ type AppointmentResponse = {
     service: Service;
     priceAtBooking: number;
     durationAtBooking: number;
+  }>;
+  addOns?: Array<{
+    id: string | null;
+    name: string;
+    quantity: number;
+    lineTotalCents: number;
+    lineDurationMinutes: number;
   }>;
   technician: {
     id: string;
@@ -177,7 +192,8 @@ async function loadAppointmentDetailMaps(appointmentIds: string[]): Promise<Appo
     db
       .select({
         appointmentId: appointmentServicesSchema.appointmentId,
-        name: serviceSchema.name,
+        name: appointmentServicesSchema.nameSnapshot,
+        liveName: serviceSchema.name,
       })
       .from(appointmentServicesSchema)
       .leftJoin(serviceSchema, eq(serviceSchema.id, appointmentServicesSchema.serviceId))
@@ -198,7 +214,7 @@ async function loadAppointmentDetailMaps(appointmentIds: string[]): Promise<Appo
   const servicesByAppointmentId = new Map<string, Array<{ name: string }>>();
   for (const row of serviceRows) {
     const current = servicesByAppointmentId.get(row.appointmentId) ?? [];
-    current.push({ name: row.name ?? 'Unknown service' });
+    current.push({ name: row.name ?? row.liveName ?? 'Unknown service' });
     servicesByAppointmentId.set(row.appointmentId, current);
   }
 
@@ -266,6 +282,9 @@ export async function POST(request: Request): Promise<Response> {
 
     // Normalize originalAppointmentId: trim + empty→null
     const normalizedOriginalApptId = data.originalAppointmentId?.trim() || null;
+    const normalizedBaseServiceId = data.baseServiceId?.trim() || null;
+    const normalizedSelectedAddOns = data.selectedAddOns ?? [];
+    const normalizedLegacyServiceIds = data.serviceIds ?? [];
 
     // Validate and canonicalize startTime: must be valid ISO, convert to UTC
     const parsedStartTime = new Date(data.startTime);
@@ -281,6 +300,18 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
     const canonicalStartTime = parsedStartTime.toISOString(); // UTC ISO
+
+    if (!normalizedBaseServiceId && normalizedLegacyServiceIds.length === 0) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_SELECTION',
+            message: 'A base service is required',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
 
     // 2. Resolve salon from slug
     const salon = await getSalonBySlug(data.salonSlug);
@@ -382,7 +413,11 @@ export async function POST(request: Request): Promise<Response> {
       requestBodyHash = createHash('sha256')
         .update(JSON.stringify({
           salonId: salon.id, // Use resolved salonId, not slug
-          serviceIds: [...data.serviceIds].sort(), // Sorted for consistency
+          serviceIds: [...normalizedLegacyServiceIds].sort(), // Sorted for consistency
+          baseServiceId: normalizedBaseServiceId,
+          selectedAddOns: normalizedSelectedAddOns
+            .map(addOn => ({ addOnId: addOn.addOnId, quantity: addOn.quantity ?? 1 }))
+            .sort((a, b) => a.addOnId.localeCompare(b.addOnId)),
           technicianId: normalizedTechnicianId, // Already normalized (null or valid ID, NOT lowercased)
           clientPhone: normalizedPhone, // 10-digit normalized (same as DB)
           clientName: normalizedClientName, // Trimmed + empty→null
@@ -501,22 +536,107 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 3. Validate services belong to salon
-    const services = await getServicesByIds(data.serviceIds, salon.id);
+    // 3. Resolve booking selection
+    const bookingConfig = await getBookingConfigForSalon(salon.id);
+    let services: Service[] = [];
+    let selectedAddOnsForBooking: Array<{
+      addOnId: string;
+      name: string;
+      quantity: number;
+      category: string;
+      pricingType: string;
+      unitPriceCents: number;
+      unitDurationMinutes: number;
+      lineTotalCents: number;
+      lineDurationMinutes: number;
+    }> = [];
+    let basePriceCents = 0;
+    let addOnsPriceCents = 0;
+    let baseDurationMinutes = 0;
+    let addOnsDurationMinutes = 0;
+    let totalPrice = 0;
+    let totalDurationMinutes = 0;
+    let bufferMinutes = bookingConfig.bufferMinutes;
+    let blockedDurationMinutes = 0;
+    let resolvedIntroPriceLabel: string | null = null;
 
-    if (services.length !== data.serviceIds.length) {
-      const foundIds = new Set(services.map(s => s.id));
-      const missingIds = data.serviceIds.filter(id => !foundIds.has(id));
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_SERVICES',
-            message: 'One or more services not found for this salon',
-            details: { missingServiceIds: missingIds },
+    if (normalizedBaseServiceId) {
+      try {
+        const validatedSelection = await validatePublicBookingSelection({
+          salonId: salon.id,
+          selection: {
+            baseServiceId: normalizedBaseServiceId,
+            selectedAddOns: normalizedSelectedAddOns,
           },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
+          technicianId: normalizedTechnicianId,
+        });
+
+        services = [validatedSelection.baseServiceRecord];
+        selectedAddOnsForBooking = validatedSelection.quote.addOns.map(addOn => ({
+          addOnId: addOn.addOnId,
+          name: addOn.name,
+          quantity: addOn.quantity,
+          category: addOn.category,
+          pricingType: addOn.pricingType,
+          unitPriceCents: addOn.unitPriceCents,
+          unitDurationMinutes: addOn.unitDurationMinutes,
+          lineTotalCents: addOn.lineTotalCents,
+          lineDurationMinutes: addOn.lineDurationMinutes,
+        }));
+        basePriceCents = validatedSelection.quote.baseService.priceCents;
+        addOnsPriceCents = validatedSelection.quote.addOns.reduce((sum, addOn) => sum + addOn.lineTotalCents, 0);
+        baseDurationMinutes = validatedSelection.quote.baseDurationMinutes;
+        addOnsDurationMinutes = validatedSelection.quote.addOnsDurationMinutes;
+        totalPrice = validatedSelection.quote.subtotalCents;
+        totalDurationMinutes = validatedSelection.quote.visibleDurationMinutes;
+        bufferMinutes = validatedSelection.quote.bufferMinutes;
+        blockedDurationMinutes = validatedSelection.quote.blockedDurationMinutes;
+        resolvedIntroPriceLabel = validatedSelection.quote.baseService.resolvedIntroPriceLabel;
+      } catch (error) {
+        return Response.json(
+          {
+            error: {
+              code: 'INVALID_SELECTION',
+              message: error instanceof Error ? error.message : 'Invalid booking selection',
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
+      }
+    } else {
+      services = await getServicesByIds(normalizedLegacyServiceIds, salon.id);
+
+      if (services.length !== normalizedLegacyServiceIds.length) {
+        const foundIds = new Set(services.map(s => s.id));
+        const missingIds = normalizedLegacyServiceIds.filter(id => !foundIds.has(id));
+        return Response.json(
+          {
+            error: {
+              code: 'INVALID_SERVICES',
+              message: 'One or more services not found for this salon',
+              details: { missingServiceIds: missingIds },
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
+      }
+
+      basePriceCents = services.reduce((sum, s) => sum + s.price, 0);
+      addOnsPriceCents = 0;
+      baseDurationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
+      addOnsDurationMinutes = 0;
+      totalPrice = basePriceCents;
+      totalDurationMinutes = baseDurationMinutes;
+      blockedDurationMinutes = totalDurationMinutes + bufferMinutes;
+
+      if (services.length === 1) {
+        resolvedIntroPriceLabel = resolveIntroPriceLabel({
+          isIntroPrice: services[0]?.isIntroPrice,
+          introPriceExpiresAt: services[0]?.introPriceExpiresAt ?? null,
+          introPriceLabel: services[0]?.introPriceLabel ?? null,
+          bookingConfig,
+        });
+      }
     }
 
     // 4. Validate technician (if provided) belongs to salon
@@ -706,16 +826,20 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 5. Calculate total price and duration (apply discount if reward found)
-    let totalPrice = services.reduce((sum, s) => sum + s.price, 0);
     if (appliedReward && discountAmount > 0) {
       totalPrice = Math.max(0, totalPrice - discountAmount);
+      basePriceCents = Math.max(0, totalPrice - addOnsPriceCents);
     }
-    const totalDurationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
+
+    if (!appliedReward) {
+      basePriceCents = Math.max(0, totalPrice - addOnsPriceCents);
+    }
 
     // 6. Compute endTime from startTime + total duration
     // Use parsedStartTime (already validated above - not Invalid Date)
     const startTime = parsedStartTime;
     const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
+    const blockedEndTime = new Date(startTime.getTime() + blockedDurationMinutes * 60 * 1000);
 
     // 6b. Validate that start time is in the future with 30-minute minimum lead time
     // Use Toronto timezone for the comparison
@@ -785,7 +909,7 @@ export async function POST(request: Request): Promise<Response> {
     if (technician) {
       const decision = canTechnicianTakeAppointment({
         startTime,
-        endTime,
+        endTime: blockedEndTime,
         weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
         override: initialPolicy.overridesByTechnician.get(technician.id),
         isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
@@ -799,6 +923,7 @@ export async function POST(request: Request): Promise<Response> {
         locationBusinessHours: validatedLocation?.businessHours ?? null,
         existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
         excludedAppointmentId: normalizedOriginalApptId,
+        bufferMinutes: 0,
       });
 
       if (!decision.available) {
@@ -820,7 +945,7 @@ export async function POST(request: Request): Promise<Response> {
       technician = candidateTechnicians.find((tech) => {
         const decision = canTechnicianTakeAppointment({
           startTime,
-          endTime,
+          endTime: blockedEndTime,
           weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
           override: initialPolicy.overridesByTechnician.get(tech.id),
           isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(tech.id),
@@ -834,6 +959,7 @@ export async function POST(request: Request): Promise<Response> {
           locationBusinessHours: validatedLocation?.businessHours ?? null,
           existingAppointments: initialPolicy.appointmentsByTechnician.get(tech.id) ?? [],
           excludedAppointmentId: normalizedOriginalApptId,
+          bufferMinutes: 0,
         });
 
         return decision.available;
@@ -953,7 +1079,7 @@ export async function POST(request: Request): Promise<Response> {
       technician = candidateTechnicians.find((tech) => {
         const decision = canTechnicianTakeAppointment({
           startTime,
-          endTime,
+          endTime: blockedEndTime,
           weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
           override: finalPolicy.overridesByTechnician.get(tech.id),
           isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(tech.id),
@@ -967,6 +1093,7 @@ export async function POST(request: Request): Promise<Response> {
           locationBusinessHours: validatedLocation?.businessHours ?? null,
           existingAppointments: finalPolicy.appointmentsByTechnician.get(tech.id) ?? [],
           excludedAppointmentId: normalizedOriginalApptId,
+          bufferMinutes: 0,
         });
 
         return decision.available;
@@ -987,7 +1114,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const finalDecision = canTechnicianTakeAppointment({
       startTime,
-      endTime,
+      endTime: blockedEndTime,
       weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
       override: finalPolicy.overridesByTechnician.get(technician.id),
       isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(technician.id),
@@ -1001,6 +1128,7 @@ export async function POST(request: Request): Promise<Response> {
       locationBusinessHours: validatedLocation?.businessHours ?? null,
       existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
       excludedAppointmentId: normalizedOriginalApptId,
+      bufferMinutes: 0,
     });
 
     if (!finalDecision.available) {
@@ -1056,6 +1184,13 @@ export async function POST(request: Request): Promise<Response> {
 
     let appointment: Appointment | null = null;
     let appointmentServices: AppointmentService[] = [];
+    let appointmentAddOns: Array<{
+      id: string | null;
+      name: string;
+      quantity: number;
+      lineTotalCents: number;
+      lineDurationMinutes: number;
+    }> = [];
 
     if (originalAppointment && normalizedOriginalApptId) {
       try {
@@ -1075,6 +1210,12 @@ export async function POST(request: Request): Promise<Response> {
               status: 'pending',
               totalPrice,
               totalDurationMinutes,
+              basePriceCents,
+              addOnsPriceCents,
+              baseDurationMinutes,
+              addOnsDurationMinutes,
+              bufferMinutes,
+              blockedDurationMinutes,
             })
             .returning();
 
@@ -1096,6 +1237,12 @@ export async function POST(request: Request): Promise<Response> {
                 serviceId: service.id,
                 priceAtBooking,
                 durationAtBooking: service.durationMinutes,
+                nameSnapshot: service.name,
+                categorySnapshot: service.category,
+                priceCentsSnapshot: priceAtBooking,
+                durationMinutesSnapshot: service.durationMinutes,
+                priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+                resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
               })
               .returning();
 
@@ -1104,6 +1251,33 @@ export async function POST(request: Request): Promise<Response> {
             }
 
             insertedServices.push(apptService);
+          }
+
+          const insertedAddOns: typeof appointmentAddOns = [];
+          for (const addOn of selectedAddOnsForBooking) {
+            await tx
+              .insert(appointmentAddOnSchema)
+              .values({
+                id: `apptAddon_${crypto.randomUUID()}`,
+                appointmentId: createdAppointment.id,
+                addOnId: addOn.addOnId,
+                quantitySnapshot: addOn.quantity,
+                nameSnapshot: addOn.name,
+                categorySnapshot: addOn.category,
+                pricingTypeSnapshot: addOn.pricingType,
+                unitPriceCentsSnapshot: addOn.unitPriceCents,
+                durationMinutesSnapshot: addOn.unitDurationMinutes,
+                lineTotalCentsSnapshot: addOn.lineTotalCents,
+                lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+              });
+
+            insertedAddOns.push({
+              id: addOn.addOnId,
+              name: addOn.name,
+              quantity: addOn.quantity,
+              lineTotalCents: addOn.lineTotalCents,
+              lineDurationMinutes: addOn.lineDurationMinutes,
+            });
           }
 
           const [cancelledOriginal] = await tx
@@ -1129,11 +1303,13 @@ export async function POST(request: Request): Promise<Response> {
           return {
             appointment: createdAppointment,
             appointmentServices: insertedServices,
+            appointmentAddOns: insertedAddOns,
           };
         });
 
         appointment = transactionalResult.appointment;
         appointmentServices = transactionalResult.appointmentServices;
+        appointmentAddOns = transactionalResult.appointmentAddOns;
       } catch (error) {
         if (error instanceof Error && error.message === 'RESCHEDULE_CONFLICT') {
           return Response.json(
@@ -1150,56 +1326,98 @@ export async function POST(request: Request): Promise<Response> {
         throw error;
       }
     } else {
-      // 8. Insert appointment with salonClientId
-      // Use salonClient.phone as source of truth (what getOrCreateSalonClient actually stored)
-      // This guarantees appointment.clientPhone === salonClient.phone (same normalization)
-      const [createdAppointment] = await db
-        .insert(appointmentSchema)
-        .values({
-          id: appointmentId,
-          salonId: salon.id,
-          technicianId: technician?.id ?? null,
-          locationId: validatedLocationId,
-          clientPhone: salonClient.phone, // Source of truth from salonClient
-          clientName,
-          salonClientId: salonClient.id, // Always set for new appointments
-          startTime,
-          endTime,
-          status: 'pending',
-          totalPrice,
-          totalDurationMinutes,
-        })
-        .returning();
-
-      if (!createdAppointment) {
-        throw new Error('Failed to create appointment');
-      }
-
-      appointment = createdAppointment;
-
-      // 9. Insert appointment services (with price/duration snapshot)
-      // Apply reward discount to the matching service if applicable
-      for (const service of services) {
-        // If this service is discounted by a reward, set price to 0
-        const priceAtBooking = (appliedReward && service.id === discountedServiceId)
-          ? 0
-          : service.price;
-
-        const [apptService] = await db
-          .insert(appointmentServicesSchema)
+      const transactionalResult = await db.transaction(async (tx) => {
+        const [createdAppointment] = await tx
+          .insert(appointmentSchema)
           .values({
-            id: `apptSvc_${crypto.randomUUID()}`,
-            appointmentId: createdAppointment.id,
-            serviceId: service.id,
-            priceAtBooking,
-            durationAtBooking: service.durationMinutes,
+            id: appointmentId,
+            salonId: salon.id,
+            technicianId: technician?.id ?? null,
+            locationId: validatedLocationId,
+            clientPhone: salonClient.phone,
+            clientName,
+            salonClientId: salonClient.id,
+            startTime,
+            endTime,
+            status: 'pending',
+            totalPrice,
+            totalDurationMinutes,
+            basePriceCents,
+            addOnsPriceCents,
+            baseDurationMinutes,
+            addOnsDurationMinutes,
+            bufferMinutes,
+            blockedDurationMinutes,
           })
           .returning();
 
-        if (apptService) {
-          appointmentServices.push(apptService);
+        if (!createdAppointment) {
+          throw new Error('Failed to create appointment');
         }
-      }
+
+        const insertedServices: AppointmentService[] = [];
+        for (const service of services) {
+          const priceAtBooking = (appliedReward && service.id === discountedServiceId)
+            ? 0
+            : service.price;
+
+          const [apptService] = await tx
+            .insert(appointmentServicesSchema)
+            .values({
+              id: `apptSvc_${crypto.randomUUID()}`,
+              appointmentId: createdAppointment.id,
+              serviceId: service.id,
+              priceAtBooking,
+              durationAtBooking: service.durationMinutes,
+              nameSnapshot: service.name,
+              categorySnapshot: service.category,
+              priceCentsSnapshot: priceAtBooking,
+              durationMinutesSnapshot: service.durationMinutes,
+              priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+              resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+            })
+            .returning();
+
+          if (apptService) {
+            insertedServices.push(apptService);
+          }
+        }
+
+        const insertedAddOns: typeof appointmentAddOns = [];
+        for (const addOn of selectedAddOnsForBooking) {
+          await tx.insert(appointmentAddOnSchema).values({
+            id: `apptAddon_${crypto.randomUUID()}`,
+            appointmentId: createdAppointment.id,
+            addOnId: addOn.addOnId,
+            quantitySnapshot: addOn.quantity,
+            nameSnapshot: addOn.name,
+            categorySnapshot: addOn.category,
+            pricingTypeSnapshot: addOn.pricingType,
+            unitPriceCentsSnapshot: addOn.unitPriceCents,
+            durationMinutesSnapshot: addOn.unitDurationMinutes,
+            lineTotalCentsSnapshot: addOn.lineTotalCents,
+            lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+          });
+
+          insertedAddOns.push({
+            id: addOn.addOnId,
+            name: addOn.name,
+            quantity: addOn.quantity,
+            lineTotalCents: addOn.lineTotalCents,
+            lineDurationMinutes: addOn.lineDurationMinutes,
+          });
+        }
+
+        return {
+          appointment: createdAppointment,
+          appointmentServices: insertedServices,
+          appointmentAddOns: insertedAddOns,
+        };
+      });
+
+      appointment = transactionalResult.appointment;
+      appointmentServices = transactionalResult.appointmentServices;
+      appointmentAddOns = transactionalResult.appointmentAddOns;
     }
 
     // 8b. Grant welcome bonus if this is a new client (handled by upsertSalonClient)
@@ -1306,6 +1524,7 @@ export async function POST(request: Request): Promise<Response> {
             durationAtBooking: apptService?.durationAtBooking ?? service.durationMinutes,
           };
         }),
+        addOns: appointmentAddOns,
         technician: technician
           ? { id: technician.id, name: technician.name, avatarUrl: technician.avatarUrl }
           : null,

@@ -540,6 +540,17 @@ type ComparePlansModalProps = {
   onClose: () => void;
 };
 
+type BookingConfigFormState = {
+  bufferMinutes: number;
+  slotIntervalMinutes: 5 | 10 | 15 | 30;
+  currency: 'CAD' | 'USD';
+  timezone: string;
+  introPriceDefaultLabel: string;
+};
+
+const SLOT_INTERVAL_OPTIONS: Array<BookingConfigFormState['slotIntervalMinutes']> = [5, 10, 15, 30];
+const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = ['CAD', 'USD'];
+
 const PLAN_FEATURES = {
   starter: {
     name: 'Starter',
@@ -709,16 +720,19 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 
 type SettingsModalProps = {
   onClose: () => void;
+  salonSlug?: string | null;
   userName?: string;
   userInitials?: string;
 };
 
 export function SettingsModal({
   onClose,
+  salonSlug: explicitSalonSlug,
   userName = 'Justin Hodgeman',
   userInitials,
 }: SettingsModalProps) {
-  const { salonSlug } = useSalon();
+  const { salonSlug: providerSalonSlug } = useSalon();
+  const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
   const router = useRouter();
 
   // Booking flow state
@@ -769,6 +783,16 @@ export function SettingsModal({
   const [_defaultPoints, setDefaultPoints] = useState<ResolvedLoyaltyPoints | null>(null);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [bookingConfigLoading, setBookingConfigLoading] = useState(true);
+  const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
+  const [bookingConfigSaved, setBookingConfigSaved] = useState(false);
+  const [bookingConfigForm, setBookingConfigForm] = useState<BookingConfigFormState>({
+    bufferMinutes: 10,
+    slotIntervalMinutes: 15,
+    currency: 'CAD',
+    timezone: 'America/Toronto',
+    introPriceDefaultLabel: '',
+  });
 
   const [visibility, setVisibility] = useState<SalonVisibilityPolicy>({
     staff: {
@@ -854,6 +878,7 @@ export function SettingsModal({
 
     try {
       setProgramsLoading(true);
+      setBookingConfigLoading(true);
       const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`);
       if (response.ok) {
         const data = await response.json();
@@ -863,11 +888,19 @@ export function SettingsModal({
         setDefaultPoints(data.defaults ?? null);
         setBillingMode(data.billingMode ?? 'NONE');
         setSubscriptionStatus(data.subscriptionStatus ?? null);
+        setBookingConfigForm({
+          bufferMinutes: data.bookingConfig?.bufferMinutes ?? 10,
+          slotIntervalMinutes: data.bookingConfig?.slotIntervalMinutes ?? 15,
+          currency: data.bookingConfig?.currency ?? 'CAD',
+          timezone: data.bookingConfig?.timezone ?? 'America/Toronto',
+          introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
+        });
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
     } finally {
       setProgramsLoading(false);
+      setBookingConfigLoading(false);
     }
   }, [salonSlug]);
 
@@ -894,6 +927,49 @@ export function SettingsModal({
       setProgramsSaving(false);
     }
   }, [salonSlug, router]);
+
+  const saveBookingConfig = useCallback(async () => {
+    if (!salonSlug || bookingConfigSaving) {
+      return;
+    }
+
+    try {
+      setBookingConfigSaving(true);
+      setBookingConfigSaved(false);
+      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingConfig: {
+            bufferMinutes: bookingConfigForm.bufferMinutes,
+            slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
+            currency: bookingConfigForm.currency,
+            timezone: bookingConfigForm.timezone.trim(),
+            introPriceDefaultLabel: bookingConfigForm.introPriceDefaultLabel.trim() || null,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save booking configuration');
+      }
+
+      const data = await response.json();
+      setBookingConfigForm({
+        bufferMinutes: data.bookingConfig?.bufferMinutes ?? bookingConfigForm.bufferMinutes,
+        slotIntervalMinutes: data.bookingConfig?.slotIntervalMinutes ?? bookingConfigForm.slotIntervalMinutes,
+        currency: data.bookingConfig?.currency ?? bookingConfigForm.currency,
+        timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
+        introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
+      });
+      setBookingConfigSaved(true);
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to save booking config:', error);
+    } finally {
+      setBookingConfigSaving(false);
+    }
+  }, [bookingConfigForm, bookingConfigSaving, router, salonSlug]);
 
   // Fetch visibility settings
   const fetchVisibility = useCallback(async () => {
@@ -987,6 +1063,15 @@ export function SettingsModal({
     fetchPrograms();
   }, [fetchBookingFlow, fetchVisibility, fetchModules, fetchPrograms]);
 
+  useEffect(() => {
+    if (!bookingConfigSaved) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setBookingConfigSaved(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [bookingConfigSaved]);
+
   // Handle booking flow save (called by BookingFlowEditor's auto-save)
   const handleBookingFlowSave = async (flow: BookingStep[]) => {
     if (!salonSlug) {
@@ -1035,6 +1120,125 @@ export function SettingsModal({
 
         {/* Section 0: Directions Location */}
         {salonSlug && <DirectionsLocationSection salonSlug={salonSlug} />}
+
+        {/* Section 0.5: Booking Configuration */}
+        <Section
+          title="Booking Configuration"
+          footer="These settings control slot spacing, internal booking buffer, and intro pricing defaults for this salon."
+        >
+          {bookingConfigLoading
+            ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                </div>
+              )
+            : (
+                <div className="space-y-4 px-4 py-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Buffer minutes</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={60}
+                        step={5}
+                        value={bookingConfigForm.bufferMinutes}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          bufferMinutes: Math.max(0, Math.min(60, Number.parseInt(event.target.value || '0', 10) || 0)),
+                        }))}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Slot interval</span>
+                      <select
+                        value={bookingConfigForm.slotIntervalMinutes}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          slotIntervalMinutes: Number.parseInt(event.target.value, 10) as BookingConfigFormState['slotIntervalMinutes'],
+                        }))}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      >
+                        {SLOT_INTERVAL_OPTIONS.map(option => (
+                          <option key={option} value={option}>
+                            {option}
+                            {' '}
+                            minutes
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Currency</span>
+                      <select
+                        value={bookingConfigForm.currency}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          currency: event.target.value as BookingConfigFormState['currency'],
+                        }))}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      >
+                        {CURRENCY_OPTIONS.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Timezone</span>
+                      <input
+                        type="text"
+                        value={bookingConfigForm.timezone}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          timezone: event.target.value,
+                        }))}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                        placeholder="America/Toronto"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 sm:col-span-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Default intro label</span>
+                      <input
+                        type="text"
+                        value={bookingConfigForm.introPriceDefaultLabel}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          introPriceDefaultLabel: event.target.value,
+                        }))}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                        placeholder="Founding Client Price"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                    <div className="text-xs text-gray-500">
+                      Applies to slot generation and intro badges when a service does not define its own label.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveBookingConfig()}
+                      disabled={bookingConfigSaving}
+                      className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Save className="size-4" />
+                      <span>{bookingConfigSaving ? 'Saving...' : 'Save booking config'}</span>
+                    </button>
+                  </div>
+
+                  {bookingConfigSaved && (
+                    <div className="text-right text-xs font-medium text-green-600">
+                      Booking configuration saved.
+                    </div>
+                  )}
+                </div>
+              )}
+        </Section>
 
         {/* Section 1: Connectivity */}
         <Section>

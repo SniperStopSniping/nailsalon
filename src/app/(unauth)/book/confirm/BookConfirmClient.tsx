@@ -40,6 +40,14 @@ export type ServiceSummary = {
   duration: number;
 };
 
+export type AddOnSummary = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  duration: number;
+};
+
 export type TechnicianSummary = {
   id: string;
   name: string;
@@ -57,6 +65,14 @@ export type LocationSummary = {
 
 type BookConfirmClientProps = {
   services: ServiceSummary[];
+  addOns?: AddOnSummary[];
+  baseServiceId?: string | null;
+  selectedAddOns?: Array<{
+    addOnId: string;
+    quantity?: number;
+  }>;
+  totalPrice?: number;
+  totalDuration?: number;
   technician: TechnicianSummary;
   salonSlug: string;
   dateStr: string;
@@ -165,6 +181,7 @@ const SummaryRow = ({
 
 const BookingCard = ({
   services,
+  addOns,
   technician,
   totalPrice,
   totalDuration,
@@ -174,6 +191,7 @@ const BookingCard = ({
   location,
 }: {
   services: ServiceSummary[];
+  addOns: AddOnSummary[];
   technician: TechnicianSummary;
   totalPrice: number;
   totalDuration: number;
@@ -182,7 +200,10 @@ const BookingCard = ({
   pointsEarned: number;
   location: LocationSummary;
 }) => {
-  const serviceNames = services.map(s => s.name).join(' + ');
+  const serviceNames = [
+    ...services.map(s => s.name),
+    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+  ].join(' + ');
 
   const formatDate = (dateString: string) => {
     if (!dateString) {
@@ -446,6 +467,7 @@ const SessionRequiredState = ({
  */
 const ConfirmContent = ({
   services,
+  addOns,
   technician,
   totalPrice,
   totalDuration,
@@ -458,6 +480,7 @@ const ConfirmContent = ({
   location,
 }: {
   services: ServiceSummary[];
+  addOns: AddOnSummary[];
   technician: TechnicianSummary;
   totalPrice: number;
   totalDuration: number;
@@ -523,6 +546,7 @@ const ConfirmContent = ({
       >
         <BookingCard
           services={services}
+          addOns={addOns}
           technician={technician}
           totalPrice={totalPrice}
           totalDuration={totalDuration}
@@ -624,6 +648,7 @@ const ConfirmContent = ({
  */
 const SuccessContent = ({
   services,
+  addOns,
   technician,
   totalPrice,
   totalDuration,
@@ -640,6 +665,7 @@ const SuccessContent = ({
   location,
 }: {
   services: ServiceSummary[];
+  addOns: AddOnSummary[];
   technician: TechnicianSummary;
   totalPrice: number;
   totalDuration: number;
@@ -705,10 +731,11 @@ const SuccessContent = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <BookingCard
-            services={services}
-            technician={technician}
-            totalPrice={totalPrice}
+        <BookingCard
+          services={services}
+          addOns={addOns}
+          technician={technician}
+          totalPrice={totalPrice}
             totalDuration={totalDuration}
             dateStr={dateStr}
             timeStr={timeStr}
@@ -962,6 +989,11 @@ const NameCaptureModal = ({
 
 export function BookConfirmClient({
   services,
+  addOns = [],
+  baseServiceId = null,
+  selectedAddOns = [],
+  totalPrice,
+  totalDuration,
   technician,
   salonSlug,
   dateStr,
@@ -989,9 +1021,12 @@ export function BookConfirmClient({
   // Sync booking state from URL on mount (for consistency)
   const { syncFromUrl } = useBookingState();
   useEffect(() => {
-    if (techId) {
-      syncFromUrl({ techId });
-    }
+    syncFromUrl({
+      techId: techId || null,
+      baseServiceId,
+      selectedAddOns,
+      serviceIds: services.map(service => service.id),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
@@ -1010,10 +1045,10 @@ export function BookConfirmClient({
   const [isSavingName, setIsSavingName] = useState(false);
   const nameCheckInitiatedRef = useRef(false);
 
-  const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
-  const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
+  const resolvedTotalPrice = totalPrice ?? (services.reduce((sum, service) => sum + service.price, 0) + addOns.reduce((sum, addOn) => sum + addOn.price, 0));
+  const resolvedTotalDuration = totalDuration ?? (services.reduce((sum, service) => sum + service.duration, 0) + addOns.reduce((sum, addOn) => sum + addOn.duration, 0));
   // totalPrice is in dollars, convert to cents for points calculation
-  const pointsEarned = computeEarnedPointsFromCents(Math.round(totalPrice * 100));
+  const pointsEarned = computeEarnedPointsFromCents(Math.round(resolvedTotalPrice * 100));
 
   const createBooking = useCallback(async () => {
     if (bookingInitiatedRef.current) {
@@ -1035,7 +1070,14 @@ export function BookConfirmClient({
 
       const requestBody = {
         salonSlug,
-        serviceIds: services.map(s => s.id),
+        ...(baseServiceId
+          ? {
+              baseServiceId,
+              selectedAddOns,
+            }
+          : {
+              serviceIds: services.map(s => s.id),
+            }),
         technicianId: techId === 'any' ? null : techId,
         startTime: startTime.toISOString(),
         ...(location?.id && { locationId: location.id }),
@@ -1094,7 +1136,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [dateStr, isLoggedIn, timeStr, salonSlug, services, techId, originalAppointmentId, location]);
+  }, [baseServiceId, dateStr, isLoggedIn, location, originalAppointmentId, salonSlug, selectedAddOns, services, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
@@ -1144,7 +1186,9 @@ export function BookConfirmClient({
     router.push(buildChangeAppointmentUrl({
       basePath: `/${locale}/change-appointment`,
       salonSlug,
-      serviceIds: services.map(s => s.id),
+      serviceIds: baseServiceId ? undefined : services.map(s => s.id),
+      baseServiceId,
+      selectedAddOns,
       techId: technician?.id || 'any',
       locationId: location?.id ?? null,
       originalAppointmentId: appointmentId,
@@ -1209,9 +1253,10 @@ export function BookConfirmClient({
       <>
         <SuccessContent
           services={services}
+          addOns={addOns}
           technician={technician}
-          totalPrice={totalPrice}
-          totalDuration={totalDuration}
+          totalPrice={resolvedTotalPrice}
+          totalDuration={resolvedTotalDuration}
           dateStr={dateStr}
           timeStr={timeStr}
           pointsEarned={pointsEarned}
@@ -1260,9 +1305,10 @@ export function BookConfirmClient({
   return (
     <ConfirmContent
       services={services}
+      addOns={addOns}
       technician={technician}
-      totalPrice={totalPrice}
-      totalDuration={totalDuration}
+      totalPrice={resolvedTotalPrice}
+      totalDuration={resolvedTotalDuration}
       dateStr={dateStr}
       timeStr={timeStr}
       pointsEarned={pointsEarned}
