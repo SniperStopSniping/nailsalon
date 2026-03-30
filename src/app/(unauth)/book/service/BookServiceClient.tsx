@@ -761,7 +761,7 @@ export function BookServiceClient({
           : (
               <>
                 <div
-                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                  className="-mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                   style={{
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
@@ -769,17 +769,17 @@ export function BookServiceClient({
                   data-testid="featured-services-scroll"
                 >
                   {featuredServices.length > 0 && (
-                    <div className="mb-5">
-                      <div className="mb-2 px-4 sm:px-0">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                    <div className="mb-2.5">
+                      <div className="mb-1 px-4 sm:px-0">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
                           Featured services
                         </div>
-                        <div className="mt-1 text-base font-semibold text-neutral-900">
+                        <div className="mt-0.5 text-[13px] font-semibold text-neutral-900">
                           Popular premium sets and combo appointments
                         </div>
                       </div>
                       <div className="-mx-4 overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:px-0">
-                        <div className="flex min-w-max gap-3">
+                        <div className="flex min-w-max gap-2">
                           {featuredServices.map((service) => {
                             const isSelected = selectedBaseServiceId === service.id;
                             return (
@@ -808,7 +808,7 @@ export function BookServiceClient({
                                   outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
                                 }}
                               >
-                                <div className="relative h-[126px] overflow-hidden">
+                                <div className="relative h-[96px] overflow-hidden">
                                   <Image
                                     src={service.imageUrl}
                                     alt={service.name}
@@ -820,18 +820,18 @@ export function BookServiceClient({
                                     {service.category === 'combo' ? 'Best value' : CATEGORY_META[service.category].label}
                                   </div>
                                 </div>
-                                <div className="p-3">
-                                  <div className="text-base font-bold leading-tight text-neutral-900">
+                                <div className="p-2">
+                                  <div className="text-[14px] font-bold leading-tight text-neutral-900">
                                     {service.name}
                                   </div>
-                                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
+                                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
                                     {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
                                   </div>
-                                  <div className="mt-2 flex items-center justify-between gap-3">
-                                    <span className="text-sm text-neutral-500">
+                                  <div className="mt-1 flex items-center justify-between gap-3">
+                                    <span className="text-[12px] text-neutral-500">
                                       {formatDuration(service.durationMinutes)}
                                     </span>
-                                    <span className="text-base font-bold" style={{ color: themeVars.accent }}>
+                                    <span className="text-[15px] font-bold" style={{ color: themeVars.accent }}>
                                       {service.priceDisplayText || formatMoney(service.priceCents, currency)}
                                     </span>
                                   </div>
@@ -888,12 +888,12 @@ export function BookServiceClient({
                   </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {serviceRows.map((row, rowIndex) => {
                     const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
 
                     return (
-                      <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-3">
+                      <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-2">
                         <div className="grid grid-cols-2 gap-3">
                           {row.map((service, serviceIndex) => {
                             const isSelected = selectedBaseServiceId === service.id;
@@ -913,27 +913,27 @@ export function BookServiceClient({
                                 data-testid={`service-card-${service.id}`}
                                 data-selected={isSelected ? 'true' : 'false'}
                                 aria-pressed={isSelected}
-                                className={`relative overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                className={`relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                   service.category === 'combo' ? 'col-span-full' : ''
                                 }`}
                                 style={{
-                                  transform: mounted ? (isSelected ? 'scale(1.02)' : 'translateY(0)') : 'translateY(15px)',
+                                  transform: mounted ? 'translateY(0)' : 'translateY(15px)',
                                   opacity: mounted ? 1 : 0,
                                   background: isSelected
-                                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`
+                                    ? '#fdf8f1'
                                     : 'white',
                                   boxShadow: isSelected
-                                    ? '0 10px 15px -3px rgb(0 0 0 / 0.1)'
+                                    ? '0 10px 22px rgba(0,0,0,0.08)'
                                     : '0 4px 20px rgba(0,0,0,0.06)',
-                                  borderWidth: isSelected ? 0 : '1px',
+                                  borderWidth: '1px',
                                   borderStyle: 'solid',
-                                  borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
-                                  outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
+                                  borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
                                   transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                                 }}
                               >
                                 <div
-                                  className="relative h-[120px] overflow-hidden"
+                                  data-testid={`service-card-image-${service.id}`}
+                                  className={`relative overflow-hidden ${service.category === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
                                   style={{
                                     background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
                                   }}
@@ -949,44 +949,41 @@ export function BookServiceClient({
                                       {service.resolvedIntroPriceLabel}
                                     </div>
                                   )}
-                                  {isSelected && (
-                                    <div
-                                      className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full shadow-lg"
-                                      style={{
-                                        background: `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`,
-                                      }}
-                                    >
-                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
-                                        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                      </svg>
-                                    </div>
-                                  )}
                                 </div>
 
-                                <div className="p-3">
-                                  <div className="text-base font-bold leading-tight text-neutral-900">
+                                <div
+                                  data-testid={`service-card-content-${service.id}`}
+                                  className={`flex flex-1 flex-col ${service.category === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
+                                >
+                                  <div className="text-[14px] font-bold leading-tight text-neutral-900">
                                     {service.name}
                                   </div>
-                                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
+                                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
                                     {previewDescription}
                                   </div>
                                   {isSelected && hasVisibleAddOns && (
                                     <div
                                       data-testid={`service-card-addon-cue-${service.id}`}
-                                      className="mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.04em]"
+                                      className="mt-1 inline-flex items-center text-[8px] font-medium tracking-[0.01em]"
                                       style={{
-                                        backgroundColor: `color-mix(in srgb, ${themeVars.primary} 10%, white)`,
-                                        color: themeVars.primaryDark,
+                                        color: `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
                                       }}
                                     >
                                       Add-ons available
                                     </div>
                                   )}
-                                  <div className="mt-2 flex items-center justify-between gap-3">
-                                    <span className="text-sm text-neutral-500">
+                                  <div
+                                    data-testid={`service-card-meta-row-${service.id}`}
+                                    className="mt-auto flex items-end justify-between gap-3 pt-2.5"
+                                  >
+                                    <span className="text-[11px] leading-none text-neutral-500">
                                       {formatDuration(service.durationMinutes)}
                                     </span>
-                                    <span className="text-base font-bold" style={{ color: themeVars.accent }}>
+                                    <span
+                                      data-testid={`service-card-price-${service.id}`}
+                                      className="shrink-0 text-lg font-bold leading-none text-right"
+                                      style={{ color: themeVars.accent }}
+                                    >
                                       {service.priceDisplayText || formatMoney(service.priceCents, currency)}
                                     </span>
                                   </div>
@@ -999,28 +996,25 @@ export function BookServiceClient({
                         {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
                           <div
                             data-testid="service-inline-addons-panel"
-                            className="w-full rounded-3xl bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                            className="w-full rounded-[24px] bg-white px-3.5 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)] sm:px-4 sm:py-3.5"
                             style={{
                               borderWidth: '1px',
                               borderStyle: 'solid',
                               borderColor: themeVars.cardBorder,
                             }}
                           >
-                            <div className="mb-3">
-                              <div className="text-lg font-bold text-neutral-900">
+                            <div className="mb-2">
+                              <div className="text-[15px] font-semibold text-neutral-900">
                                 Customize your service
                               </div>
-                              <div className="mt-1 text-sm text-neutral-500">
+                              <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
                                 Optional add-ons for
                                 {' '}
                                 {selectedService.name}
                               </div>
-                              <div className="mt-1 text-sm text-neutral-500">
-                                Add extra time or upgrades without changing your main service.
-                              </div>
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="space-y-1.5">
                               {allowedAddOns.map((item) => {
                                 if (!item) {
                                   return null;
@@ -1036,15 +1030,16 @@ export function BookServiceClient({
                                 return (
                                   <div
                                     key={addOn.id}
-                                    className="rounded-2xl border px-4 py-3"
+                                    data-testid={`service-addon-row-${addOn.id}`}
+                                    className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
                                     style={{
                                       borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
                                       backgroundColor: isSelected
-                                        ? `color-mix(in srgb, ${themeVars.primary} 8%, white)`
+                                        ? `color-mix(in srgb, ${themeVars.primary} 5%, white)`
                                         : 'white',
                                     }}
                                   >
-                                    <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center justify-between gap-2.5">
                                       <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">
                                           <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
@@ -1055,11 +1050,11 @@ export function BookServiceClient({
                                           )}
                                         </div>
                                         {addOn.descriptionItems[0] && (
-                                          <div className="mt-1 text-sm text-neutral-500">
+                                          <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
                                             {addOn.descriptionItems[0]}
                                           </div>
                                         )}
-                                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
                                           <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
                                           <span>{formatDuration(addOn.durationMinutes)}</span>
                                           {isSelected && (
@@ -1078,23 +1073,23 @@ export function BookServiceClient({
 
                                       {addOn.pricingType === 'per_unit'
                                         ? (
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1">
                                               <button
                                                 type="button"
                                                 onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
                                                 disabled={isRequired ? quantity <= 1 : quantity <= 0}
-                                                className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                                               >
                                                 -
                                               </button>
-                                              <div className="min-w-[2rem] text-center text-sm font-semibold text-neutral-900">
+                                              <div className="min-w-[1.5rem] text-center text-sm font-semibold text-neutral-900">
                                                 {quantity}
                                               </div>
                                               <button
                                                 type="button"
                                                 onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
                                                 disabled={quantity >= maxQuantity}
-                                                className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                                               >
                                                 +
                                               </button>
@@ -1105,7 +1100,7 @@ export function BookServiceClient({
                                               type="button"
                                               onClick={() => handleAddOnToggle(addOn.id)}
                                               disabled={isRequired}
-                                              className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed"
+                                              className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed"
                                               style={{
                                                 backgroundColor: isSelected || isRequired ? themeVars.primary : '#f5f5f5',
                                                 color: isSelected || isRequired ? '#171717' : '#404040',
@@ -1128,7 +1123,7 @@ export function BookServiceClient({
               </>
             )}
 
-        {selectedService && <div className="h-24" />}
+        {selectedService && <div className="h-20" />}
         {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
 
         {isFirstStep && !isCheckingSession && !isLoggedIn && (
@@ -1146,11 +1141,9 @@ export function BookServiceClient({
 
       {selectedService && (
         <div
-          className="fixed inset-x-0 bottom-0 z-50 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.1)]"
+          data-testid="service-sticky-bar"
+          className="fixed inset-x-0 bottom-0 z-50 border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg supports-[backdrop-filter]:bg-white/80"
           style={{
-            borderTopWidth: '1px',
-            borderTopStyle: 'solid',
-            borderTopColor: themeVars.cardBorder,
             animation: 'slideUp 0.3s ease-out',
           }}
         >
@@ -1166,9 +1159,9 @@ export function BookServiceClient({
               }
             `}
           </style>
-          <div className="mx-auto flex max-w-[430px] items-center justify-between p-4">
-            <div>
-              <div className="text-sm text-neutral-500">
+          <div className="mx-auto flex max-w-[430px] items-center justify-between px-4 py-2">
+            <div className="flex flex-col gap-0.5">
+              <div className="text-[12px] leading-none text-neutral-500">
                 {selectedAddOnsState.length > 0
                   ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
                   : '1 service'}
@@ -1176,16 +1169,16 @@ export function BookServiceClient({
               {hasVisibleAddOns && (
                 <div
                   data-testid="service-sticky-addon-note"
-                  className="mt-1 text-xs font-medium"
+                  className="text-[9px] font-medium leading-none"
                   style={{ color: themeVars.accent }}
                 >
                   Optional add-ons available
                 </div>
               )}
-              <div className="text-xl font-bold text-neutral-900">
+              <div className="pt-0.5 text-[17px] font-bold leading-none text-neutral-900">
                 {formatMoney(totalPriceCents, currency)}
               </div>
-              <div className="text-sm text-neutral-500">
+              <div className="text-[11px] leading-none text-neutral-500">
                 {formatDuration(totalDurationMinutes)}
               </div>
             </div>
@@ -1193,7 +1186,7 @@ export function BookServiceClient({
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
-              className="flex items-center gap-2 rounded-full px-6 py-3 text-base font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
+              className="flex items-center gap-2 rounded-full px-4 py-2 text-[14px] font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:px-5 sm:py-2.5 sm:text-[15px]"
               style={{
                 background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
               }}

@@ -355,13 +355,31 @@ describe('BookServiceClient', () => {
     );
 
     const panel = screen.getByTestId('service-inline-addons-panel');
+    const stickyBar = screen.getByTestId('service-sticky-bar');
+    const selectedCard = screen.getByTestId('service-card-svc-1');
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(panel).toBeInTheDocument();
-    expect(panel).toHaveClass('w-full');
+    expect(panel).toHaveClass('w-full', 'rounded-[24px]', 'px-3.5', 'py-3', 'shadow-[0_8px_22px_rgba(0,0,0,0.04)]');
     expect(panel).not.toHaveClass('col-span-2');
     expect(within(panel).getByText('Customize your service')).toBeInTheDocument();
     expect(within(panel).getByText(/Optional add-ons for Colour Change/i)).toBeInTheDocument();
+    expect(within(panel).queryByText(/Add extra time or upgrades without changing your main service/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-addon-row-addon-2')).toHaveClass('px-3', 'py-2', 'rounded-[18px]');
+    expect(stickyBar).toHaveClass(
+      'bg-white/85',
+      'supports-[backdrop-filter]:bg-white/80',
+      'backdrop-blur-lg',
+      'border-white/40',
+      'shadow-[0_-8px_30px_rgba(0,0,0,0.08)]',
+    );
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
+    expect(screen.getByTestId('service-sticky-addon-note')).toHaveClass('text-[9px]');
+    expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
+    expect(screen.getByTestId('service-card-content-svc-1')).toHaveClass('flex', 'flex-1', 'flex-col', 'min-h-[104px]', 'p-2.5');
+    expect(screen.getByTestId('service-card-meta-row-svc-1')).toHaveClass('mt-auto', 'flex', 'items-end', 'justify-between', 'pt-2.5');
+    expect(screen.getByTestId('service-card-price-svc-1')).toHaveClass('shrink-0', 'text-lg', 'font-bold', 'leading-none', 'text-right');
+    expect(selectedCard.querySelector('svg')).toBeNull();
+    expect(selectedCard.getAttribute('style')).not.toContain('outline');
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
   });
 
