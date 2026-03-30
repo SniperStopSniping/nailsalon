@@ -22,6 +22,15 @@ export default withSentryConfig(
       eslint: {
         dirs: ['.'],
       },
+      images: {
+        remotePatterns: [
+          {
+            protocol: 'https',
+            hostname: 'res.cloudinary.com',
+            pathname: '/**',
+          },
+        ],
+      },
       poweredByHeader: false,
       reactStrictMode: true,
       experimental: {

@@ -28,7 +28,21 @@ const {
 }));
 
 vi.mock('next/image', () => ({
-  default: ({ alt }: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={alt} />,
+  default: ({
+    alt,
+    src,
+    className,
+    onError,
+    'data-testid': dataTestId,
+  }: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string; 'data-testid'?: string }) => (
+    <img
+      alt={alt}
+      src={src}
+      className={className}
+      data-testid={dataTestId}
+      onError={onError}
+    />
+  ),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -366,12 +380,18 @@ describe('BookServiceClient', () => {
     expect(within(panel).queryByText(/Add extra time or upgrades without changing your main service/i)).not.toBeInTheDocument();
     expect(screen.getByTestId('service-addon-row-addon-2')).toHaveClass('px-3', 'py-2', 'rounded-[18px]');
     expect(stickyBar).toHaveClass(
+      'fixed',
+      'bottom-0',
+      'left-0',
+      'right-0',
+      'z-[60]',
       'bg-white/85',
-      'supports-[backdrop-filter]:bg-white/80',
+      'supports-[backdrop-filter]:bg-white/82',
       'backdrop-blur-lg',
       'border-white/40',
       'shadow-[0_-8px_30px_rgba(0,0,0,0.08)]',
     );
+    expect(screen.getByTestId('service-sticky-spacer')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveClass('text-[9px]');
     expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
@@ -381,6 +401,59 @@ describe('BookServiceClient', () => {
     expect(selectedCard.querySelector('svg')).toBeNull();
     expect(selectedCard.getAttribute('style')).not.toContain('outline');
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('renders the fallback service image when the provided URL is blank', () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            ...services[0]!,
+            id: 'svc-blank',
+            imageUrl: '   ',
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('service-card-image-element-svc-blank')).toHaveAttribute(
+      'src',
+      '/assets/images/biab-short.webp',
+    );
+  });
+
+  it('swaps to the fallback image on first load failure and then to a placeholder on fallback failure', async () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            ...services[0]!,
+            id: 'svc-broken',
+            imageUrl: 'https://res.cloudinary.com/demo/image/upload/v1/services/broken.jpg',
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const image = screen.getByTestId('service-card-image-element-svc-broken');
+    fireEvent.error(image);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('service-card-image-element-svc-broken')).toHaveAttribute(
+        'src',
+        '/assets/images/biab-short.webp',
+      );
+    });
+
+    fireEvent.error(screen.getByTestId('service-card-image-element-svc-broken'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('service-card-image-placeholder-svc-broken')).toBeInTheDocument();
+    });
   });
 
   it('does not render the add-on cue, panel, or sticky note when the selected service has no allowed add-ons', () => {

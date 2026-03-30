@@ -9,6 +9,7 @@ import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
 import { getPublicPageContext } from '@/libs/tenant';
 
 import { BookServiceClient } from './BookServiceClient';
@@ -68,7 +69,7 @@ export default async function BookServicePage({
     priceCents: service.price,
     priceDisplayText: service.priceDisplayText ?? null,
     category: service.category,
-    imageUrl: service.imageUrl || '/assets/images/biab-short.webp',
+    imageUrl: normalizePublicServiceImageUrl(service.imageUrl),
     resolvedIntroPriceLabel: resolveIntroPriceLabel({
       isIntroPrice: service.isIntroPrice,
       introPriceExpiresAt: service.introPriceExpiresAt,

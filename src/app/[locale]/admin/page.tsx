@@ -22,6 +22,7 @@ import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
+import { StateCard } from '@/components/ui/state-card';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Main Page Component
@@ -155,6 +156,46 @@ type DashboardData = {
   };
 };
 
+type AnalyticsModuleStatus =
+  | 'loading'
+  | 'enabled'
+  | 'module_disabled'
+  | 'upgrade_required'
+  | 'error';
+
+type ModuleReason = 'ENABLED' | 'MODULE_DISABLED' | 'UPGRADE_REQUIRED';
+
+type ModuleSettingsResponse = {
+  data?: {
+    moduleReasons?: {
+      analyticsDashboard?: ModuleReason;
+    };
+  };
+};
+
+function getEmptyDashboardData(): DashboardData {
+  return {
+    revenue: { today: 0, completed: 0, trend: 0 },
+    appointments: { total: 0, completed: 0, noShows: 0, upcoming: 0 },
+    openSpots: { count: 0, nextTime: null, slots: [] },
+    staff: [],
+    badges: { referrals: 0, reviews: 0, marketing: 0, alerts: 0 },
+  };
+}
+
+function mapAnalyticsModuleStatus(reason: ModuleReason | undefined): AnalyticsModuleStatus {
+  switch (reason) {
+    case 'ENABLED':
+      return 'enabled';
+    case 'MODULE_DISABLED':
+      return 'module_disabled';
+    case 'UPGRADE_REQUIRED':
+      return 'upgrade_required';
+    default:
+      return 'error';
+  }
+}
+
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
   const router = useRouter();
@@ -169,25 +210,23 @@ function AdminDashboardContent() {
   const [showSalonSelector, setShowSalonSelector] = useState(false);
 
   // Dashboard data state
-  const [data, setData] = useState<DashboardData>({
-    revenue: { today: 0, completed: 0, trend: 0 },
-    appointments: { total: 0, completed: 0, noShows: 0, upcoming: 0 },
-    openSpots: { count: 0, nextTime: null, slots: [] },
-    staff: [],
-    badges: { referrals: 0, reviews: 0, marketing: 0, alerts: 0 },
-  });
+  const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
   const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [analyticsModuleStatus, setAnalyticsModuleStatus] = useState<AnalyticsModuleStatus>('loading');
 
   // Analytics should never block rendering:
   // - Preserve last known-good analytics on transient failures
   // - Ignore out-of-order fetches
   const lastGoodAnalyticsRef = useRef<PartialAnalytics>(getEmptyAnalytics());
   const latestFetchIdRef = useRef<string>('');
+  const latestModuleRequestIdRef = useRef<string>('');
+  const analyticsModuleCacheRef = useRef<Record<string, Exclude<AnalyticsModuleStatus, 'loading' | 'error'>>>({});
+  const latestResolvedModuleRef = useRef<{ salonSlug: string; status: AnalyticsModuleStatus } | null>(null);
 
   // Swipe page state
   const [currentPage, setCurrentPage] = useState(0);
@@ -306,6 +345,94 @@ function AdminDashboardContent() {
     router.push(`/${locale}/admin-login`);
   };
 
+  const resetAnalyticsPresentation = useCallback(() => {
+    lastGoodAnalyticsRef.current = getEmptyAnalytics();
+    setAnalyticsData(null);
+    setData(getEmptyDashboardData());
+    setLastUpdated(null);
+  }, []);
+
+  const resolveAnalyticsModuleAvailability = useCallback(async (options?: {
+    force?: boolean;
+  }): Promise<AnalyticsModuleStatus> => {
+    if (!activeDashboardSalonSlug) {
+      setAnalyticsModuleStatus('error');
+      resetAnalyticsPresentation();
+      setLoading(false);
+      return 'error';
+    }
+
+    const force = options?.force ?? false;
+    const cached = !force ? analyticsModuleCacheRef.current[activeDashboardSalonSlug] : undefined;
+    if (cached) {
+      latestResolvedModuleRef.current = {
+        salonSlug: activeDashboardSalonSlug,
+        status: cached,
+      };
+      resetAnalyticsPresentation();
+      setNonBlockingMessage(null);
+      setAnalyticsModuleStatus(cached);
+      if (cached === 'enabled') {
+        setLoading(true);
+      } else {
+        setLoading(false);
+      }
+      return cached;
+    }
+
+    if (!force && latestResolvedModuleRef.current?.salonSlug === activeDashboardSalonSlug && latestResolvedModuleRef.current.status !== 'loading') {
+      return latestResolvedModuleRef.current.status;
+    }
+
+    const requestId = crypto.randomUUID();
+    latestModuleRequestIdRef.current = requestId;
+    setAnalyticsModuleStatus('loading');
+    setNonBlockingMessage(null);
+    setLoading(true);
+    resetAnalyticsPresentation();
+
+    try {
+      const response = await fetch(`/api/admin/settings/modules?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}`);
+      const body = await response.json().catch(() => null) as ModuleSettingsResponse | null;
+      if (!response.ok) {
+        throw new Error('Failed to load analytics module availability');
+      }
+
+      const nextStatus = mapAnalyticsModuleStatus(body?.data?.moduleReasons?.analyticsDashboard);
+
+      if (latestModuleRequestIdRef.current !== requestId) {
+        return nextStatus;
+      }
+
+      setAnalyticsModuleStatus(nextStatus);
+      latestResolvedModuleRef.current = {
+        salonSlug: activeDashboardSalonSlug,
+        status: nextStatus,
+      };
+      if (nextStatus === 'enabled' || nextStatus === 'module_disabled' || nextStatus === 'upgrade_required') {
+        analyticsModuleCacheRef.current[activeDashboardSalonSlug] = nextStatus;
+      }
+
+      if (nextStatus !== 'enabled') {
+        setLoading(false);
+      }
+
+      return nextStatus;
+    } catch {
+      if (latestModuleRequestIdRef.current !== requestId) {
+        return 'error';
+      }
+
+      setAnalyticsModuleStatus('error');
+      latestResolvedModuleRef.current = {
+        salonSlug: activeDashboardSalonSlug,
+        status: 'error',
+      };
+      setLoading(false);
+      return 'error';
+    }
+  }, [activeDashboardSalonSlug, resetAnalyticsPresentation]);
+
   // Fetch fraud signals - parent owns this state
   const fetchFraudSignals = useCallback(async () => {
     try {
@@ -327,8 +454,8 @@ function AdminDashboardContent() {
   }, []);
 
   // Fetch dashboard data from analytics API
-  const fetchData = useCallback(async () => {
-    if (!activeDashboardSalonSlug) {
+  const fetchData = useCallback(async (options?: { skipModuleCheck?: boolean }) => {
+    if (!activeDashboardSalonSlug || (!options?.skipModuleCheck && analyticsModuleStatus !== 'enabled')) {
       return;
     }
 
@@ -375,8 +502,25 @@ function AdminDashboardContent() {
             return;
           }
 
-          // Expected/normal failures: no banner, no scary logs; keep last good
-          if (analyticsResponse.status === 403 || analyticsResponse.status === 404) {
+          if (analyticsResponse.status === 403) {
+            const errorCode = parsed?.error?.code;
+            if (errorCode === 'MODULE_DISABLED' || errorCode === 'UPGRADE_REQUIRED') {
+              const nextStatus = errorCode === 'MODULE_DISABLED' ? 'module_disabled' : 'upgrade_required';
+              analyticsModuleCacheRef.current[activeDashboardSalonSlug] = nextStatus;
+              latestResolvedModuleRef.current = {
+                salonSlug: activeDashboardSalonSlug,
+                status: nextStatus,
+              };
+              setAnalyticsModuleStatus(nextStatus);
+              setNonBlockingMessage(null);
+              resetAnalyticsPresentation();
+              setLoading(false);
+              return;
+            }
+
+            analyticsNonBlockingMessage = null;
+            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+          } else if (analyticsResponse.status === 404) {
             analyticsNonBlockingMessage = null;
             analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
           } else {
@@ -479,26 +623,38 @@ function AdminDashboardContent() {
         setLoading(false);
       }
     }
-  }, [activeDashboardSalonSlug, timePeriod, anchorDate, fetchFraudSignals, locale, router]);
+  }, [activeDashboardSalonSlug, timePeriod, anchorDate, locale, router, analyticsModuleStatus, resetAnalyticsPresentation]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
-    await fetchData();
-  }, [fetchData]);
+    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
+    if (nextStatus === 'enabled') {
+      await fetchData({ skipModuleCheck: true });
+    }
+  }, [fetchData, resolveAnalyticsModuleAvailability]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Fetch data when auth is ready or fetchData changes (which includes period/anchor)
   useEffect(() => {
-    if (!authLoading && adminUser && !showSalonSelector) {
+    if (!authLoading && adminUser && !showSalonSelector && activeDashboardSalonSlug) {
+      resolveAnalyticsModuleAvailability().catch(() => {
+        setAnalyticsModuleStatus('error');
+        setLoading(false);
+      });
+    }
+  }, [authLoading, adminUser, showSalonSelector, activeDashboardSalonSlug, resolveAnalyticsModuleAvailability]);
+
+  // Fetch analytics only when module availability is explicitly enabled
+  useEffect(() => {
+    if (!authLoading && adminUser && !showSalonSelector && analyticsModuleStatus === 'enabled') {
       fetchData();
       const interval = setInterval(fetchData, 30000);
       return () => clearInterval(interval);
     }
     return undefined;
-  }, [authLoading, adminUser, showSalonSelector, fetchData]);
+  }, [authLoading, adminUser, showSalonSelector, analyticsModuleStatus, fetchData]);
 
   useEffect(() => {
     if (!authLoading && adminUser && !showSalonSelector) {
@@ -630,6 +786,26 @@ function AdminDashboardContent() {
     color: svc.color,
   })) || [];
 
+  const analyticsUnavailableState = analyticsModuleStatus === 'module_disabled'
+    ? {
+        title: 'Analytics dashboard is turned off for this salon.',
+        description: 'Enable the analytics dashboard module in Settings to view performance and service mix here.',
+        tone: 'neutral' as const,
+      }
+    : analyticsModuleStatus === 'upgrade_required'
+      ? {
+          title: 'Analytics dashboard is not included for this salon.',
+          description: 'This salon does not currently have analytics dashboard access enabled.',
+          tone: 'warning' as const,
+        }
+      : analyticsModuleStatus === 'error'
+        ? {
+            title: 'Analytics availability could not be loaded right now.',
+            description: 'Pull to refresh and try again.',
+            tone: 'warning' as const,
+          }
+        : null;
+
   return (
     <div
       className="min-h-screen bg-[#F2F2F7] font-sans"
@@ -711,22 +887,34 @@ function AdminDashboardContent() {
             lastUpdated={lastUpdated}
           >
             {/* Page 1: Analytics Widgets */}
-            <AnalyticsWidgets
-              revenue={data.revenue.today ?? 0}
-              revenueTrend={data.revenue.trend ?? 0}
-              staffData={staffData}
-              utilization={utilization}
-              services={services}
-              onQuickAction={handleQuickAction}
-              timePeriod={timePeriod}
-              onTimePeriodChange={setTimePeriod}
-              dateRange={analyticsData?.dateRange}
-              anchorDate={anchorDate}
-              onPrev={onPrev}
-              onNext={onNext}
-              onToday={onToday}
-              onAnchorChange={setAnchorDate}
-            />
+            {analyticsUnavailableState
+              ? (
+              <div className="px-5 py-4" data-testid="analytics-unavailable-state">
+                <StateCard
+                  title={analyticsUnavailableState.title}
+                  description={analyticsUnavailableState.description}
+                  tone={analyticsUnavailableState.tone}
+                />
+              </div>
+                )
+              : (
+                  <AnalyticsWidgets
+                    revenue={data.revenue.today ?? 0}
+                    revenueTrend={data.revenue.trend ?? 0}
+                    staffData={staffData}
+                    utilization={utilization}
+                    services={services}
+                    onQuickAction={handleQuickAction}
+                    timePeriod={timePeriod}
+                    onTimePeriodChange={setTimePeriod}
+                    dateRange={analyticsData?.dateRange}
+                    anchorDate={anchorDate}
+                    onPrev={onPrev}
+                    onNext={onNext}
+                    onToday={onToday}
+                    onAnchorChange={setAnchorDate}
+                  />
+                )}
 
             {/* Page 2: App Grid */}
             <AppGrid

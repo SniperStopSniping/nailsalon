@@ -1,10 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
+import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
@@ -809,10 +809,9 @@ export function BookServiceClient({
                                 }}
                               >
                                 <div className="relative h-[96px] overflow-hidden">
-                                  <Image
+                                  <ServiceCardImage
                                     src={service.imageUrl}
                                     alt={service.name}
-                                    fill
                                     className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
                                   />
                                   <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
@@ -938,10 +937,11 @@ export function BookServiceClient({
                                     background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
                                   }}
                                 >
-                                  <Image
+                                  <ServiceCardImage
                                     src={service.imageUrl}
                                     alt={service.name}
-                                    fill
+                                    imageTestId={`service-card-image-element-${service.id}`}
+                                    placeholderTestId={`service-card-image-placeholder-${service.id}`}
                                     className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
                                   />
                                   {service.resolvedIntroPriceLabel && (
@@ -1123,7 +1123,12 @@ export function BookServiceClient({
               </>
             )}
 
-        {selectedService && <div className="h-20" />}
+        {selectedService && (
+          <div
+            data-testid="service-sticky-spacer"
+            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
+          />
+        )}
         {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
 
         {isFirstStep && !isCheckingSession && !isLoggedIn && (
@@ -1142,9 +1147,10 @@ export function BookServiceClient({
       {selectedService && (
         <div
           data-testid="service-sticky-bar"
-          className="fixed inset-x-0 bottom-0 z-50 border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg supports-[backdrop-filter]:bg-white/80"
+          className="fixed bottom-0 left-0 right-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg supports-[backdrop-filter]:bg-white/82"
           style={{
             animation: 'slideUp 0.3s ease-out',
+            paddingBottom: 'env(safe-area-inset-bottom)',
           }}
         >
           <style jsx>
@@ -1159,9 +1165,9 @@ export function BookServiceClient({
               }
             `}
           </style>
-          <div className="mx-auto flex max-w-[430px] items-center justify-between px-4 py-2">
-            <div className="flex flex-col gap-0.5">
-              <div className="text-[12px] leading-none text-neutral-500">
+          <div className="mx-auto flex max-w-[430px] items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="text-[11px] leading-none text-neutral-500">
                 {selectedAddOnsState.length > 0
                   ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
                   : '1 service'}
@@ -1175,18 +1181,20 @@ export function BookServiceClient({
                   Optional add-ons available
                 </div>
               )}
-              <div className="pt-0.5 text-[17px] font-bold leading-none text-neutral-900">
-                {formatMoney(totalPriceCents, currency)}
-              </div>
-              <div className="text-[11px] leading-none text-neutral-500">
-                {formatDuration(totalDurationMinutes)}
+              <div className="flex items-baseline gap-2 pt-0.5">
+                <div className="text-[17px] font-bold leading-none text-neutral-900">
+                  {formatMoney(totalPriceCents, currency)}
+                </div>
+                <div className="text-[11px] leading-none text-neutral-500">
+                  {formatDuration(totalDurationMinutes)}
+                </div>
               </div>
             </div>
             <button
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
-              className="flex items-center gap-2 rounded-full px-4 py-2 text-[14px] font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:px-5 sm:py-2.5 sm:text-[15px]"
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px]"
               style={{
                 background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
               }}
@@ -1197,7 +1205,6 @@ export function BookServiceClient({
               </svg>
             </button>
           </div>
-          <div className="h-[env(safe-area-inset-bottom)]" />
         </div>
       )}
     </div>
