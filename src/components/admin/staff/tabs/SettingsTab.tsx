@@ -20,6 +20,8 @@ type TechnicianDetail = {
   languages: string[] | null;
   commissionRate: number;
   acceptingNewClients: boolean;
+  rating: number | null;
+  reviewCount: number;
   notes: string | null;
   isActive: boolean;
   hiredAt: string | null;
@@ -75,10 +77,13 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
   const [skillLevel, setSkillLevel] = useState<SkillLevel>((technician.skillLevel as SkillLevel) ?? 'standard');
   const [commissionRate, setCommissionRate] = useState(String(Math.round(technician.commissionRate * 100)));
   const [acceptingNewClients, setAcceptingNewClients] = useState(technician.acceptingNewClients);
+  const [rating, setRating] = useState(technician.rating !== null ? technician.rating.toFixed(1) : '');
+  const [reviewCount, setReviewCount] = useState(String(technician.reviewCount));
   const [notes, setNotes] = useState(technician.notes ?? '');
   const [userId, setUserId] = useState(technician.userId ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showDisableModal, setShowDisableModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showReenableModal, setShowReenableModal] = useState(false);
@@ -97,7 +102,43 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       return;
     }
 
+    const parsedReviewCount = Number.parseInt(reviewCount, 10);
+    if (!Number.isInteger(parsedReviewCount) || parsedReviewCount < 0) {
+      setSaveError('Review count must be a whole number of 0 or more.');
+      return;
+    }
+
+    const parsedRating = rating.trim() === '' ? null : Number.parseFloat(rating);
+    if (parsedReviewCount === 0) {
+      setRating('');
+    }
+
+    if (parsedReviewCount > 0 && parsedRating === null) {
+      setSaveError('Rating is required when review count is greater than zero.');
+      return;
+    }
+
+    if (
+      parsedRating !== null
+      && (
+        Number.isNaN(parsedRating)
+        || !Number.isFinite(parsedRating)
+        || parsedRating < 1
+        || parsedRating > 5
+      )
+    ) {
+      setSaveError('Rating must be between 1 and 5 when reviews exist.');
+      return;
+    }
+
+    const normalizedRating = parsedReviewCount === 0
+      ? null
+      : parsedRating !== null
+        ? Math.round(parsedRating * 10) / 10
+        : null;
+
     setSaving(true);
+    setSaveError(null);
     try {
       const response = await fetch(`/api/admin/technicians/${technician.id}`, {
         method: 'PUT',
@@ -108,13 +149,16 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
           skillLevel,
           commissionRate: Number.parseFloat(commissionRate) / 100,
           acceptingNewClients,
+          rating: normalizedRating,
+          reviewCount: parsedReviewCount,
           notes: notes.trim() || null,
           userId: userId.trim() || null,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save settings');
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? 'Failed to save settings');
       }
 
       onUpdate({
@@ -122,6 +166,8 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
         skillLevel,
         commissionRate: Number.parseFloat(commissionRate) / 100,
         acceptingNewClients,
+        rating: normalizedRating,
+        reviewCount: parsedReviewCount,
         notes: notes.trim() || null,
         userId: userId.trim() || null,
       });
@@ -130,6 +176,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       console.error('Error saving settings:', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -374,6 +421,47 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
         </div>
       </div>
 
+      {/* Public Reputation */}
+      <div>
+        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
+          Public Reputation
+        </h3>
+        <div className="rounded-[12px] bg-white p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="technician-rating" className="mb-1 block text-[13px] text-[#8E8E93]">Rating</label>
+              <input
+                id="technician-rating"
+                type="number"
+                min="0"
+                max="5"
+                step="0.1"
+                value={rating}
+                onChange={e => setRating(e.target.value)}
+                placeholder="4.9"
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="technician-review-count" className="mb-1 block text-[13px] text-[#8E8E93]">Review count</label>
+              <input
+                id="technician-review-count"
+                type="number"
+                min="0"
+                step="1"
+                value={reviewCount}
+                onChange={e => setReviewCount(e.target.value)}
+                placeholder="0"
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              />
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] text-[#8E8E93]">
+            Rating is only shown publicly when review count is greater than zero.
+          </p>
+        </div>
+      </div>
+
       {/* Clerk Account Link */}
       <div>
         <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
@@ -480,6 +568,10 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
           />
         </div>
       </div>
+
+      {saveError && (
+        <p className="px-1 text-[13px] text-[#FF3B30]">{saveError}</p>
+      )}
 
       {/* Employment Info */}
       <div>

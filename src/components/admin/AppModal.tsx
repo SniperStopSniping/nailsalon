@@ -28,9 +28,17 @@ type AppModalProps = {
   children: ReactNode;
   /** Modal title (optional, shown in header) */
   title?: string;
+  /** Whether the modal itself can be dragged down to dismiss */
+  allowDragToDismiss?: boolean;
 };
 
-export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
+export function AppModal({
+  isOpen,
+  onClose,
+  children,
+  title,
+  allowDragToDismiss = true,
+}: AppModalProps) {
   const controls = useAnimation();
 
   // Close on escape key
@@ -97,11 +105,11 @@ export function AppModal({ isOpen, onClose, children, title }: AppModalProps) {
               damping: 30,
               stiffness: 300,
             }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.5 }}
-            onDragEnd={handleDragEnd}
-            style={{ touchAction: 'pan-x' }}
+            drag={allowDragToDismiss ? 'y' : false}
+            dragConstraints={allowDragToDismiss ? { top: 0, bottom: 0 } : undefined}
+            dragElastic={allowDragToDismiss ? { top: 0, bottom: 0.5 } : undefined}
+            onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
+            style={{ touchAction: allowDragToDismiss ? 'pan-x' : 'auto' }}
           >
             {/* Drag Handle */}
             <div className="flex cursor-grab justify-center pb-2 pt-3 active:cursor-grabbing">

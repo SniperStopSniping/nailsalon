@@ -1,4 +1,9 @@
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import {
+  FIRST_VISIT_DISCOUNT_LABEL,
+  FIRST_VISIT_DISCOUNT_PERCENT,
+  resolveAutomaticBookingDiscount,
+} from '@/libs/firstVisitDiscount';
 import { type SelectedAddOnParam } from '@/libs/bookingParams';
 import { validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { getServicesByIds } from '@/libs/queries';
@@ -40,7 +45,14 @@ export type ResolvedPublicBookingSelection = {
   requestedServices: Service[];
   services: PublicBookingServiceSummary[];
   addOns: PublicBookingAddOnSummary[];
+  subtotalBeforeDiscountCents: number;
+  discountAmountCents: number;
   totalPriceCents: number;
+  firstVisitDiscountPreview: {
+    label: string;
+    percent: number;
+    amountCents: number;
+  } | null;
   visibleDurationMinutes: number;
   blockedDurationMinutes: number;
   bufferMinutes: number;
@@ -70,6 +82,8 @@ export async function resolvePublicBookingSelection(args: {
   selectedAddOns?: SelectedAddOnParam[];
   serviceIds?: string[];
   technicianId?: string | null;
+  clientPhone?: string | null;
+  originalAppointmentId?: string | null;
 }): Promise<ResolvedPublicBookingSelection> {
   const bookingConfig = await getBookingConfigForSalon(args.salonId);
   const baseServiceId = args.baseServiceId ?? null;
@@ -83,6 +97,13 @@ export async function resolvePublicBookingSelection(args: {
         selectedAddOns,
       },
       technicianId: args.technicianId ?? null,
+    });
+    const pricing = await resolveAutomaticBookingDiscount({
+      salonId: args.salonId,
+      services: [validated.baseServiceRecord],
+      subtotalBeforeDiscountCents: validated.quote.subtotalCents,
+      clientPhone: args.clientPhone ?? null,
+      originalAppointmentId: args.originalAppointmentId ?? null,
     });
 
     return {
@@ -130,7 +151,16 @@ export async function resolvePublicBookingSelection(args: {
           priceDisplayText: addOnRecord.priceDisplayText ?? null,
         };
       }),
-      totalPriceCents: validated.quote.subtotalCents,
+      subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
+      discountAmountCents: pricing.discountAmountCents,
+      totalPriceCents: pricing.finalTotalCents,
+      firstVisitDiscountPreview: pricing.kind === 'first_visit'
+        ? {
+            label: FIRST_VISIT_DISCOUNT_LABEL,
+            percent: FIRST_VISIT_DISCOUNT_PERCENT,
+            amountCents: pricing.discountAmountCents,
+          }
+        : null,
       visibleDurationMinutes: validated.quote.visibleDurationMinutes,
       blockedDurationMinutes: validated.quote.blockedDurationMinutes,
       bufferMinutes: validated.quote.bufferMinutes,
@@ -143,6 +173,15 @@ export async function resolvePublicBookingSelection(args: {
   if (services.length !== serviceIds.length) {
     throw new Error('INVALID_SERVICES');
   }
+
+  const subtotalBeforeDiscountCents = services.reduce((sum, service) => sum + service.price, 0);
+  const pricing = await resolveAutomaticBookingDiscount({
+    salonId: args.salonId,
+    services,
+    subtotalBeforeDiscountCents,
+    clientPhone: args.clientPhone ?? null,
+    originalAppointmentId: args.originalAppointmentId ?? null,
+  });
 
   return {
     mode: 'legacy',
@@ -167,7 +206,16 @@ export async function resolvePublicBookingSelection(args: {
       }),
     })),
     addOns: [],
-    totalPriceCents: services.reduce((sum, service) => sum + service.price, 0),
+    subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
+    discountAmountCents: pricing.discountAmountCents,
+    totalPriceCents: pricing.finalTotalCents,
+    firstVisitDiscountPreview: pricing.kind === 'first_visit'
+      ? {
+          label: FIRST_VISIT_DISCOUNT_LABEL,
+          percent: FIRST_VISIT_DISCOUNT_PERCENT,
+          amountCents: pricing.discountAmountCents,
+        }
+      : null,
     visibleDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0),
     blockedDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0) + bookingConfig.bufferMinutes,
     bufferMinutes: bookingConfig.bufferMinutes,

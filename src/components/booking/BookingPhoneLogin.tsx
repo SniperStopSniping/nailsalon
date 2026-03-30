@@ -176,11 +176,11 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
                 backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
               }}
             >
-              New here? Get a free manicure! 💅
+              Continue with your phone
             </span>
           </p>
           <p className="-mt-1 text-sm text-neutral-500">
-            Enter your number to sign up or log in
+            Enter your number to sign up or log in securely
           </p>
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
@@ -213,9 +213,6 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
           {error && (
             <p className="text-xs text-red-500">{error}</p>
           )}
-          <p className="text-xs text-neutral-400">
-            *New clients only. Conditions apply.
-          </p>
         </div>
       )}
 

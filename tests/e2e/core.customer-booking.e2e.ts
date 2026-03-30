@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { cancelAppointmentViaApi, ensureTimeSlotVisible, pickFirstVisibleTimeSlot } from './support/booking';
+import { cancelAppointmentViaApi, selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
 
 test('customer can log in with OTP, book, and reach the confirmation state', async ({ page }) => {
@@ -12,7 +12,7 @@ test('customer can log in with OTP, book, and reach the confirmation state', asy
     waitUntil: 'domcontentloaded',
   });
 
-  await expect(page.getByRole('heading', { name: /choose your services/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
   const phoneInput = page.getByTestId('booking-login-phone');
   await expect(phoneInput).toBeVisible();
   await phoneInput.fill(phone);
@@ -29,21 +29,35 @@ test('customer can log in with OTP, book, and reach the confirmation state', asy
   });
 
   expect(sessionResult.ok, JSON.stringify(sessionResult.body)).toBeTruthy();
+  await expect(page.getByRole('navigation', { name: /bottom navigation/i })).toBeVisible();
 
-  await page.goto(
-    `${appPath('/book/tech')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${encodeURIComponent(e2eConfig.serviceId)}`,
-    { waitUntil: 'domcontentloaded' },
-  );
+  await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
+  await page.getByTestId('service-continue-button').click();
 
   await expect(page).toHaveURL(appPathPattern('/book/tech'));
-  await page.getByRole('button', { name: /surprise me with any available artist/i }).click({ force: true });
+  await expect(page.getByTestId('booking-summary-service')).toContainText(e2eConfig.serviceName);
+
+  const technicianCard = page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') });
+  await expect(technicianCard).toBeVisible();
+  await expect(technicianCard).not.toContainText('No reviews yet');
+  await technicianCard.click();
 
   await expect(page).toHaveURL(appPathPattern('/book/time'));
-  await ensureTimeSlotVisible(page);
-  await pickFirstVisibleTimeSlot(page);
+  await expect(page.getByTestId('booking-summary-service')).toContainText(e2eConfig.serviceName);
+  const timeStepPrice = (await page.getByTestId('booking-summary-price').textContent())?.trim();
+  expect(timeStepPrice).toBeTruthy();
+  const timeStepUrl = new URL(page.url());
+  const technicianId = timeStepUrl.searchParams.get('techId');
+  await selectBookableSlotFromApi(page, {
+    technicianId: technicianId && technicianId !== 'any' ? technicianId : null,
+    baseServiceId: timeStepUrl.searchParams.get('baseServiceId'),
+    locationId: timeStepUrl.searchParams.get('locationId'),
+    selectedAddOns: timeStepUrl.searchParams.get('selectedAddOns'),
+  });
 
   await expect(page).toHaveURL(appPathPattern('/book/confirm'));
   await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /confirm appointment/i })).toContainText(timeStepPrice!);
 
   const bookingResponsePromise = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
@@ -62,6 +76,6 @@ test('customer can log in with OTP, book, and reach the confirmation state', asy
   await expect(page.getByRole('button', { name: /view rewards & pending points/i })).toBeVisible();
 
   if (appointmentId) {
-    await cancelAppointmentViaApi(page, appointmentId);
+    await cancelAppointmentViaApi(appointmentId);
   }
 });

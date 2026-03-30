@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { roundTechnicianRating } from '@/libs/technicianRating';
 import { normalizeWeeklySchedule, resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
@@ -29,6 +30,8 @@ const getQuerySchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
+const finiteNumberSchema = z.number().finite();
+
 const updateTechnicianSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
   name: z.string().min(1).optional(),
@@ -47,9 +50,15 @@ const updateTechnicianSchema = z.object({
   acceptingNewClients: z.boolean().optional(),
   currentStatus: z.enum(STAFF_STATUSES).optional(),
   notes: z.string().nullable().optional(),
-  displayOrder: z.number().int().min(0).optional(),
+  displayOrder: finiteNumberSchema.int().min(0).optional(),
   onboardingStatus: z.enum(ONBOARDING_STATUSES).optional(),
   isActive: z.boolean().optional(),
+  rating: finiteNumberSchema
+    .min(1)
+    .max(5)
+    .nullable()
+    .optional(),
+  reviewCount: finiteNumberSchema.int().min(0).optional(),
   // Link to Clerk user account for Tech Dashboard login
   userId: z.string().nullable().optional(),
   weeklySchedule: z.object({
@@ -61,7 +70,7 @@ const updateTechnicianSchema = z.object({
     friday: z.object({ start: z.string(), end: z.string() }).nullable().optional(),
     saturday: z.object({ start: z.string(), end: z.string() }).nullable().optional(),
   }).optional(),
-});
+}).strict();
 
 // =============================================================================
 // RESPONSE TYPES
@@ -544,6 +553,37 @@ export async function PUT(
     if (updates.onboardingStatus !== undefined) {
       updateData.onboardingStatus = updates.onboardingStatus;
     }
+    const existingRating = existing.rating ? Number.parseFloat(existing.rating) : null;
+
+    if (updates.rating !== undefined || updates.reviewCount !== undefined) {
+      const effectiveReviewCount = updates.reviewCount ?? existing.reviewCount ?? 0;
+      const effectiveRating = updates.rating !== undefined ? updates.rating : existingRating;
+
+      if (updates.reviewCount !== undefined) {
+        updateData.reviewCount = effectiveReviewCount;
+      }
+
+      if (effectiveReviewCount === 0) {
+        updateData.rating = null;
+      } else if (
+        effectiveRating === null
+        || !Number.isFinite(effectiveRating)
+        || effectiveRating < 1
+        || effectiveRating > 5
+      ) {
+        return Response.json(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Rating is required when review count is greater than zero',
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
+      } else {
+        updateData.rating = roundTechnicianRating(effectiveRating).toFixed(1);
+      }
+    }
     if (updates.weeklySchedule !== undefined) {
       updateData.weeklySchedule = normalizeWeeklySchedule(updates.weeklySchedule);
     }
@@ -588,6 +628,8 @@ export async function PUT(
           displayOrder: updated!.displayOrder,
           notes: updated!.notes,
           onboardingStatus: updated!.onboardingStatus,
+          rating: updated!.rating ? Number.parseFloat(updated!.rating) : null,
+          reviewCount: updated!.reviewCount,
           weeklySchedule: resolveWeeklySchedule(updated!),
           updatedAt: updated!.updatedAt,
         },

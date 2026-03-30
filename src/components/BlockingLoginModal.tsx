@@ -434,21 +434,6 @@ export function BlockingLoginModal({
                 <span className="font-semibold" style={{ color: themeVars.accent }}>You're all set to book</span>
               </p>
 
-              {/* Points earned badge */}
-              <div
-                className="mt-4 inline-flex items-center gap-2 rounded-full px-4 py-2"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: `color-mix(in srgb, ${themeVars.primary} 30%, transparent)`,
-                  background: `linear-gradient(to right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 20%, transparent))`,
-                  animation: 'fadeSlideUp 0.4s ease-out 0.6s forwards',
-                  opacity: 0,
-                }}
-              >
-                <span className="text-lg">✨</span>
-                <span className="text-sm font-semibold text-neutral-800">+50 Welcome Points!</span>
-              </div>
             </div>
           )}
 

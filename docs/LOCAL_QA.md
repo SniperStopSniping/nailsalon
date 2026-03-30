@@ -8,6 +8,11 @@ npm install
 npm run db:migrate:dev
 ```
 
+`db:migrate:dev` now runs the normal Drizzle migration step and then verifies the
+appointment discount snapshot columns are actually present. This protects local
+Neon/dev databases from drift where a migration can be marked applied while the
+schema is still missing columns.
+
 ### 2. Seed if needed
 ```bash
 npm run db:seed
@@ -114,6 +119,14 @@ Use this if your local `3000` port is free and you want the default config behav
 ```bash
 npm run db:migrate:dev
 ```
+
+### Booking POST fails with missing appointment discount columns
+- Run:
+```bash
+npm run db:migrate:dev
+```
+- Local/dev uses migrate + verify now. Do not manually patch or reset the dev
+  database unless you are intentionally rebuilding it.
 
 ### Booking page says online booking is not ready
 - Likely no active services for the current salon

@@ -8,22 +8,22 @@ const {
   getPublicPageContext,
   checkSalonStatus,
   checkFeatureEnabled,
+  getClientSession,
   getPrimaryLocation,
   getLocationById,
-  getSalonById,
-  getServicesByIds,
   getTechnicianById,
+  resolvePublicBookingSelection,
   bookConfirmClientSpy,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   getPublicPageContext: vi.fn(),
   checkSalonStatus: vi.fn(),
   checkFeatureEnabled: vi.fn(),
+  getClientSession: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getLocationById: vi.fn(),
-  getSalonById: vi.fn(),
-  getServicesByIds: vi.fn(),
   getTechnicianById: vi.fn(),
+  resolvePublicBookingSelection: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
 }));
 
@@ -39,11 +39,17 @@ vi.mock('@/libs/bookingFlow', () => ({
   normalizeBookingFlow: vi.fn(() => ['service', 'tech', 'time', 'confirm']),
 }));
 
+vi.mock('@/libs/clientAuth', () => ({
+  getClientSession,
+}));
+
+vi.mock('@/libs/publicBookingSelection', () => ({
+  resolvePublicBookingSelection,
+}));
+
 vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getLocationById,
-  getSalonById,
-  getServicesByIds,
   getTechnicianById,
 }));
 
@@ -84,19 +90,7 @@ describe('BookConfirmPage directions fallback', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
-    getSalonById.mockResolvedValue({
-      id: 'salon_1',
-      slug: 'salon-a',
-      settings: {
-        booking: {
-          bufferMinutes: 10,
-          slotIntervalMinutes: 15,
-          currency: 'CAD',
-          timezone: 'America/Toronto',
-          introPriceDefaultLabel: 'Founding Client Price',
-        },
-      },
-    });
+    getClientSession.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',
       name: 'Isla Nail Salon',
@@ -106,13 +100,36 @@ describe('BookConfirmPage directions fallback', () => {
       zipCode: 'M2J 2C1',
     });
     getLocationById.mockResolvedValue(null);
-    getServicesByIds.mockResolvedValue([{
-      id: 'srv_1',
-      name: 'BIAB Short',
-      price: 6500,
-      durationMinutes: 75,
-    }]);
     getTechnicianById.mockResolvedValue(null);
+    resolvePublicBookingSelection.mockResolvedValue({
+      mode: 'legacy',
+      baseServiceId: null,
+      selectedAddOns: [],
+      requestedServices: [{
+        id: 'srv_1',
+        name: 'BIAB Short',
+        price: 6500,
+        durationMinutes: 75,
+      }],
+      services: [{
+        id: 'srv_1',
+        name: 'BIAB Short',
+        durationMinutes: 75,
+        priceCents: 6500,
+        category: 'builder_gel',
+        descriptionItems: [],
+        priceDisplayText: null,
+        resolvedIntroPriceLabel: null,
+      }],
+      addOns: [],
+      subtotalBeforeDiscountCents: 6500,
+      discountAmountCents: 0,
+      totalPriceCents: 6500,
+      firstVisitDiscountPreview: null,
+      visibleDurationMinutes: 75,
+      blockedDurationMinutes: 85,
+      bufferMinutes: 10,
+    });
   });
 
   it('passes the primary active location to the confirmed screen instead of the stale salon root address', async () => {

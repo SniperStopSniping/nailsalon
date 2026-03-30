@@ -10,6 +10,7 @@ export const DEFAULT_BOOKING_CONFIG = {
   currency: 'CAD',
   timezone: 'America/Toronto',
   introPriceDefaultLabel: null,
+  firstVisitDiscountEnabled: false,
 } as const;
 
 export const bookingConfigSchema = z.object({
@@ -33,6 +34,7 @@ export const bookingConfigSchema = z.object({
     }
   }, 'Invalid timezone'),
   introPriceDefaultLabel: z.string().trim().max(120).nullable().default(DEFAULT_BOOKING_CONFIG.introPriceDefaultLabel),
+  firstVisitDiscountEnabled: z.boolean().default(DEFAULT_BOOKING_CONFIG.firstVisitDiscountEnabled),
 });
 
 export type BookingConfig = z.infer<typeof bookingConfigSchema>;

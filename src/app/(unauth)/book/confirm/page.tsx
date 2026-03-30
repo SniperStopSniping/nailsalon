@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { getClientSession } from '@/libs/clientAuth';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
@@ -34,6 +35,7 @@ export default async function BookConfirmPage({
     time?: string;
     locationId?: string;
     salonSlug?: string;
+    originalAppointmentId?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -46,6 +48,7 @@ export default async function BookConfirmPage({
   const dateStr = searchParams.date || '';
   const timeStr = searchParams.time || '';
   const locationId = searchParams.locationId || '';
+  const originalAppointmentId = searchParams.originalAppointmentId || null;
 
   const { salon } = context;
   const tenantRoute = {
@@ -93,12 +96,15 @@ export default async function BookConfirmPage({
     }));
   }
 
+  const clientSession = await getClientSession();
   const resolvedSelection = await resolvePublicBookingSelection({
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
     serviceIds: serviceIdList,
     technicianId: techId && techId !== 'any' ? techId : null,
+    clientPhone: clientSession?.phone ?? null,
+    originalAppointmentId,
   });
 
   // Fetch the selected technician (if not "any")
@@ -176,6 +182,9 @@ export default async function BookConfirmPage({
           }))}
           baseServiceId={resolvedSelection.baseServiceId}
           selectedAddOns={resolvedSelection.selectedAddOns}
+          subtotalBeforeDiscount={resolvedSelection.subtotalBeforeDiscountCents / 100}
+          discountAmount={resolvedSelection.discountAmountCents / 100}
+          firstVisitDiscountPreview={resolvedSelection.firstVisitDiscountPreview}
           totalPrice={resolvedSelection.totalPriceCents / 100}
           totalDuration={resolvedSelection.visibleDurationMinutes}
           technician={technician}

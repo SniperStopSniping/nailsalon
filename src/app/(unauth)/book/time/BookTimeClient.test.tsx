@@ -88,6 +88,8 @@ describe('BookTimeClient', () => {
     render(
       <BookTimeClient
         services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
       />,
@@ -114,6 +116,8 @@ describe('BookTimeClient', () => {
     render(
       <BookTimeClient
         services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
       />,
@@ -137,6 +141,8 @@ describe('BookTimeClient', () => {
     render(
       <BookTimeClient
         services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
       />,

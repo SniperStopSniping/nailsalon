@@ -44,6 +44,8 @@ describe('SettingsTab destructive action errors', () => {
           languages: null,
           commissionRate: 0.4,
           acceptingNewClients: true,
+          rating: 4.9,
+          reviewCount: 12,
           notes: null,
           isActive: true,
           hiredAt: '2026-03-01T00:00:00.000Z',
@@ -66,6 +68,48 @@ describe('SettingsTab destructive action errors', () => {
       expect(screen.getByText(
         'This staff member has booking or client history and cannot be permanently removed. Disable them instead.',
       )).toBeInTheDocument();
+    });
+  });
+
+  it('normalizes rating to null when review count is saved as zero', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ data: { technician: {} } }), { status: 200 }));
+
+    render(
+      <SettingsTab
+        salonSlug="salon-a"
+        technician={{
+          id: 'tech_1',
+          name: 'Taylor',
+          email: null,
+          phone: '+15551234567',
+          role: 'tech',
+          skillLevel: 'standard',
+          languages: null,
+          commissionRate: 0.4,
+          acceptingNewClients: true,
+          rating: 4.9,
+          reviewCount: 12,
+          notes: null,
+          isActive: true,
+          hiredAt: '2026-03-01T00:00:00.000Z',
+          terminatedAt: null,
+          onboardingStatus: 'active',
+          userId: null,
+        }}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Rating'), { target: { value: '4.8' } });
+    fireEvent.change(screen.getByLabelText('Review count'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/technicians/tech_1', expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"rating":null'),
+      }));
     });
   });
 });

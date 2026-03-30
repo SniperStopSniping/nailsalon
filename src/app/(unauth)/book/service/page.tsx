@@ -5,6 +5,8 @@ import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { getClientSession } from '@/libs/clientAuth';
+import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
@@ -50,6 +52,7 @@ export default async function BookServicePage({
 
   // Fetch services for this salon
   const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const clientSession = await getClientSession();
   const [dbServices, dbAddOns, dbServiceAddOnRules] = await Promise.all([
     getServicesBySalonId(salon.id),
     getActiveAddOnsBySalonId(salon.id),
@@ -72,6 +75,7 @@ export default async function BookServicePage({
       introPriceLabel: service.introPriceLabel,
       bookingConfig,
     }),
+    sortOrder: service.sortOrder ?? null,
   }));
 
   const addOns = dbAddOns.map(addOn => ({
@@ -134,6 +138,12 @@ export default async function BookServicePage({
     isPrimary: loc.isPrimary ?? false,
   }));
 
+  const showFirstVisitOffer = bookingConfig.firstVisitDiscountEnabled
+    && (!clientSession || await isClientEligibleForFirstVisitDiscount({
+      salonId: salon.id,
+      clientPhone: clientSession.phone,
+    }));
+
   return (
     <PublicSalonPageShell
       appearance={context.appearance}
@@ -148,6 +158,7 @@ export default async function BookServicePage({
           bookingFlow={bookingFlow}
           locations={locations}
           currency={bookingConfig.currency}
+          showFirstVisitOffer={showFirstVisitOffer}
         />
       </Suspense>
     </PublicSalonPageShell>

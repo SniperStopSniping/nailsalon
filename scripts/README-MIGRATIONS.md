@@ -10,12 +10,12 @@ This project uses **raw SQL migrations** for schema changes, with the following 
    - `ADD COLUMN IF NOT EXISTS`
    - `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN ... END $$;` for enums
 
-2. **Drizzle is used for ORM only**, not for migration state tracking.
+2. **Drizzle migration state is not treated as sufficient proof of schema health.**
+   - Local/dev environments still use `drizzle-kit migrate`
+   - Verification scripts check the actual schema after migrations run
+   - Repair migrations should be forward-only and idempotent when drift is found
 
-3. **Migration tracking**: Not enforced via DB table. Instead:
-   - Migration files are numbered (`0034_*.sql`)
-   - Re-running is safe due to idempotent guards
-   - Verification scripts check actual schema state
+3. **Migration files remain safe to re-run** because they use idempotent guards.
 
 ## Scripts
 
@@ -48,6 +48,22 @@ This verifies:
 - No cross-tenant data corruption
 
 **Exit code 0** = all checks pass, **1** = critical failure.
+
+Appointment discount snapshot schema verification:
+
+```bash
+NODE_ENV=development npx dotenv -c development -- npx tsx scripts/verify-appointment-discount-schema.ts
+```
+
+This verifies:
+- `appointment.subtotal_before_discount_cents`
+- `appointment.discount_amount_cents`
+- `appointment.discount_type`
+- `appointment.discount_label`
+- `appointment.discount_percent`
+- `appointment.discount_applied_at`
+
+`npm run db:migrate:dev` now runs both the Drizzle migrate step and this verifier.
 
 ### 3. Backfill Data
 
@@ -126,6 +142,11 @@ If `verify-fraud-schema.ts` shows missing columns/tables:
 1. Check you're using the correct DATABASE_URL
 2. Run the migration SQL directly (it's idempotent)
 3. Re-run verification
+
+If the appointment discount verifier shows missing columns:
+1. Run `npm run db:migrate:dev`
+2. This will apply the forward-only repair migration and re-run verification
+3. Do not reset the dev database just to repair this drift
 
 ### "Cross-tenant mismatch found"
 

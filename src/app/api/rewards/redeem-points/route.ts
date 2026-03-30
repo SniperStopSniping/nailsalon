@@ -13,6 +13,7 @@ import {
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -187,6 +188,18 @@ export async function POST(request: Request): Promise<Response> {
           error: {
             code: 'INVALID_APPOINTMENT_STATUS',
             message: 'Rewards can only be applied to pending or confirmed appointments',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    if (appointment.discountType === FIRST_VISIT_DISCOUNT_TYPE) {
+      return Response.json(
+        {
+          error: {
+            code: 'FIRST_VISIT_DISCOUNT_ALREADY_APPLIED',
+            message: 'Points cannot be redeemed on an appointment that already has the first-visit discount applied',
           },
         } satisfies ErrorResponse,
         { status: 400 },

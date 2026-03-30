@@ -78,6 +78,10 @@ describe('BookConfirmClient', () => {
     render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         salonSlug="salon-a"
         dateStr="2026-03-20"
@@ -105,6 +109,10 @@ describe('BookConfirmClient', () => {
     render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         salonSlug="salon-a"
         dateStr="2026-03-20"
@@ -137,6 +145,10 @@ describe('BookConfirmClient', () => {
     render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         salonSlug="salon-a"
         dateStr="2026-03-20"
@@ -168,6 +180,10 @@ describe('BookConfirmClient', () => {
     render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
         technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
         salonSlug="salon-a"
         dateStr="2026-03-20"

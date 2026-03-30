@@ -23,7 +23,10 @@ import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
-import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
+import {
+  FIRST_VISIT_DISCOUNT_TYPE,
+  resolveAutomaticBookingDiscount,
+} from '@/libs/firstVisitDiscount';
 import { validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
 import {
@@ -38,7 +41,6 @@ import {
   getTechnicianById,
   getTechniciansBySalonId,
   normalizePhone,
-  upsertSalonClient,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
@@ -58,7 +60,6 @@ import {
   appointmentServicesSchema,
   appointmentPhotoSchema,
   referralSchema,
-  type Reward,
   rewardSchema,
   salonSchema,
   type Service,
@@ -560,6 +561,12 @@ export async function POST(request: Request): Promise<Response> {
     let bufferMinutes = bookingConfig.bufferMinutes;
     let blockedDurationMinutes = 0;
     let resolvedIntroPriceLabel: string | null = null;
+    let subtotalBeforeDiscountCents = 0;
+    let discountAmountCents = 0;
+    let appointmentDiscountType: string | null = null;
+    let appointmentDiscountLabel: string | null = null;
+    let appointmentDiscountPercent: number | null = null;
+    let discountAppliedAt: Date | null = null;
 
     if (normalizedBaseServiceId) {
       try {
@@ -639,6 +646,8 @@ export async function POST(request: Request): Promise<Response> {
         });
       }
     }
+
+    subtotalBeforeDiscountCents = totalPrice;
 
     // 4. Validate technician (if provided) belongs to salon
     // Uses normalizedTechnicianId which has already converted "any"/""/whitespace to null
@@ -781,59 +790,30 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // 4e. Check for active rewards that can be applied
-    let appliedReward: Reward | null = null;
-    let discountedServiceId: string | null = null;
-    let discountAmount = 0;
+    // 4e. Resolve automatic discount (existing active rewards win over first-visit)
+    const automaticDiscount = await resolveAutomaticBookingDiscount({
+      salonId: salon.id,
+      services,
+      subtotalBeforeDiscountCents,
+      clientPhone: normalizedPhone,
+      originalAppointmentId: normalizedOriginalApptId,
+      preserveFirstVisitDiscount: originalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
+    });
 
-    // Look for active rewards for this client that aren't expired
-    // Use normalizedPhone for DB lookups
-    const activeRewards = await db
-      .select()
-      .from(rewardSchema)
-      .where(
-        and(
-          eq(rewardSchema.salonId, salon.id),
-          eq(rewardSchema.clientPhone, normalizedPhone),
-          eq(rewardSchema.status, 'active'),
-        ),
-      );
+    const appliedReward = automaticDiscount.kind === 'reward' ? automaticDiscount.reward : null;
+    totalPrice = automaticDiscount.finalTotalCents;
+    discountAmountCents = automaticDiscount.discountAmountCents;
 
-    // Find a reward that matches one of the booked services
-    for (const reward of activeRewards) {
-      // Check if reward is expired
-      if (reward.expiresAt && new Date(reward.expiresAt) < new Date()) {
-        // Mark as expired in background
-        db.update(rewardSchema)
-          .set({ status: 'expired' })
-          .where(eq(rewardSchema.id, reward.id))
-          .catch(err => console.error('Error expiring reward:', err));
-        continue;
-      }
-
-      // Check if any booked service matches the eligible service
-      const eligibleServiceName = reward.eligibleServiceName?.toLowerCase() || 'gel manicure';
-      const matchingService = services.find(
-        s => s.name.toLowerCase().includes(eligibleServiceName)
-          || eligibleServiceName.includes(s.name.toLowerCase()),
-      );
-
-      if (matchingService) {
-        appliedReward = reward;
-        discountedServiceId = matchingService.id;
-        discountAmount = matchingService.price;
-        break;
-      }
-    }
-
-    // 5. Calculate total price and duration (apply discount if reward found)
-    if (appliedReward && discountAmount > 0) {
-      totalPrice = Math.max(0, totalPrice - discountAmount);
-      basePriceCents = Math.max(0, totalPrice - addOnsPriceCents);
-    }
-
-    if (!appliedReward) {
-      basePriceCents = Math.max(0, totalPrice - addOnsPriceCents);
+    if (automaticDiscount.kind === 'first_visit' && automaticDiscount.firstVisit) {
+      appointmentDiscountType = automaticDiscount.firstVisit.discountType;
+      appointmentDiscountLabel = automaticDiscount.firstVisit.discountLabel;
+      appointmentDiscountPercent = automaticDiscount.firstVisit.discountPercent;
+      discountAppliedAt = automaticDiscount.firstVisit.discountAppliedAt;
+    } else if (automaticDiscount.kind === 'reward') {
+      appointmentDiscountType = 'reward';
+      appointmentDiscountLabel = 'Reward applied';
+      appointmentDiscountPercent = null;
+      discountAppliedAt = new Date();
     }
 
     // 6. Compute endTime from startTime + total duration
@@ -1170,9 +1150,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 7b. Resolve salonClientId BEFORE appointment insert (required for fraud detection)
-    // This ensures stable client identity and enables fraud queries by salonClientId
-    // getOrCreateSalonClient normalizes phone internally - pass raw phone
+    // 7b. Resolve salonClientId before the appointment insert
     const salonClient = await getOrCreateSalonClient(
       salon.id,
       clientPhoneInput ?? normalizedPhone,
@@ -1180,7 +1158,6 @@ export async function POST(request: Request): Promise<Response> {
     );
 
     if (!salonClient) {
-      // Phone was invalid (getOrCreateSalonClient returns null for invalid phones)
       return Response.json(
         {
           error: {
@@ -1229,6 +1206,12 @@ export async function POST(request: Request): Promise<Response> {
               addOnsDurationMinutes,
               bufferMinutes,
               blockedDurationMinutes,
+              subtotalBeforeDiscountCents,
+              discountAmountCents,
+              discountType: appointmentDiscountType,
+              discountLabel: appointmentDiscountLabel,
+              discountPercent: appointmentDiscountPercent,
+              discountAppliedAt,
             })
             .returning();
 
@@ -1238,21 +1221,17 @@ export async function POST(request: Request): Promise<Response> {
 
           const insertedServices: AppointmentService[] = [];
           for (const service of services) {
-            const priceAtBooking = (appliedReward && service.id === discountedServiceId)
-              ? 0
-              : service.price;
-
             const [apptService] = await tx
               .insert(appointmentServicesSchema)
               .values({
                 id: `apptSvc_${crypto.randomUUID()}`,
                 appointmentId: createdAppointment.id,
                 serviceId: service.id,
-                priceAtBooking,
+                priceAtBooking: service.price,
                 durationAtBooking: service.durationMinutes,
                 nameSnapshot: service.name,
                 categorySnapshot: service.category,
-                priceCentsSnapshot: priceAtBooking,
+                priceCentsSnapshot: service.price,
                 durationMinutesSnapshot: service.durationMinutes,
                 priceDisplayTextSnapshot: service.priceDisplayText ?? null,
                 resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
@@ -1361,6 +1340,12 @@ export async function POST(request: Request): Promise<Response> {
             addOnsDurationMinutes,
             bufferMinutes,
             blockedDurationMinutes,
+            subtotalBeforeDiscountCents,
+            discountAmountCents,
+            discountType: appointmentDiscountType,
+            discountLabel: appointmentDiscountLabel,
+            discountPercent: appointmentDiscountPercent,
+            discountAppliedAt,
           })
           .returning();
 
@@ -1370,21 +1355,17 @@ export async function POST(request: Request): Promise<Response> {
 
         const insertedServices: AppointmentService[] = [];
         for (const service of services) {
-          const priceAtBooking = (appliedReward && service.id === discountedServiceId)
-            ? 0
-            : service.price;
-
           const [apptService] = await tx
             .insert(appointmentServicesSchema)
             .values({
               id: `apptSvc_${crypto.randomUUID()}`,
               appointmentId: createdAppointment.id,
               serviceId: service.id,
-              priceAtBooking,
+              priceAtBooking: service.price,
               durationAtBooking: service.durationMinutes,
               nameSnapshot: service.name,
               categorySnapshot: service.category,
-              priceCentsSnapshot: priceAtBooking,
+              priceCentsSnapshot: service.price,
               durationMinutesSnapshot: service.durationMinutes,
               priceDisplayTextSnapshot: service.priceDisplayText ?? null,
               resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
@@ -1431,17 +1412,6 @@ export async function POST(request: Request): Promise<Response> {
       appointment = transactionalResult.appointment;
       appointmentServices = transactionalResult.appointmentServices;
       appointmentAddOns = transactionalResult.appointmentAddOns;
-    }
-
-    // 8b. Grant welcome bonus if this is a new client (handled by upsertSalonClient)
-    // getOrCreateSalonClient doesn't grant bonuses, so we still call upsertSalonClient for that
-    // Use salonClient.phone as source of truth
-    try {
-      const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
-      await upsertSalonClient(salon.id, salonClient.phone, clientName ?? undefined, undefined, undefined, loyaltyPoints.welcomeBonus);
-    } catch (err) {
-      // Log but don't fail the booking if client upsert fails
-      console.error('Failed to upsert salon client:', err);
     }
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
@@ -1667,6 +1637,7 @@ export async function GET(request: Request): Promise<Response> {
         .from(salonSchema)
         .where(eq(salonSchema.id, salonId))
         .limit(1);
+      const bookingConfig = await getBookingConfigForSalon(salonId);
 
       const salonFeatures = (salonData?.features as SalonFeatures) ?? null;
       const salonSettings = (salonData?.settings as SalonSettings) ?? null;
@@ -1766,6 +1737,8 @@ export async function GET(request: Request): Promise<Response> {
           status: appt.status,
           technicianId: appt.technicianId,
           totalPrice: appt.totalPrice,
+          totalDurationMinutes: appt.totalDurationMinutes,
+          locationId: appt.locationId,
           services: services.map(s => ({ name: s.name })),
           photos,
         };
@@ -1781,6 +1754,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({
         data: {
           appointments: redactedAppointments,
+        },
+        meta: {
+          slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
         },
       });
     }

@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { getClientSession } from '@/libs/clientAuth';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
@@ -80,6 +81,7 @@ export default async function BookTimePage({
   // Uses shouldRepairBookingUrl() to prevent redirect loops
   // getLocationById validates: exists + belongs to salonId + isActive (explicit filter)
   const primaryLocation = await getPrimaryLocation(salon.id);
+  let resolvedLocationId = searchParams.locationId || primaryLocation?.id || null;
 
   // NOTE: If salon has no locations (primaryLocation is null), we don't redirect.
   // The booking flow will proceed with locationId=null (valid for single-address salons).
@@ -93,6 +95,7 @@ export default async function BookTimePage({
         locale: params?.locale,
       }));
     }
+    resolvedLocationId = validLocation?.id ?? primaryLocation.id;
   } else if (primaryLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
     // Missing locationId - inject primary (preserves all other params)
     redirect(repairBookingUrl('/book/time', searchParams, primaryLocation.id, {
@@ -100,6 +103,8 @@ export default async function BookTimePage({
       locale: params?.locale,
     }));
   }
+
+  const clientSession = await getClientSession();
 
   let resolvedSelection;
   try {
@@ -109,6 +114,7 @@ export default async function BookTimePage({
       selectedAddOns,
       serviceIds: serviceIdList,
       technicianId: techId && techId !== 'any' ? techId : null,
+      clientPhone: clientSession?.phone ?? null,
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'TECHNICIAN_SERVICE_UNSUPPORTED') {
@@ -153,6 +159,10 @@ export default async function BookTimePage({
     }
   }
 
+  const resolvedLocation = resolvedLocationId
+    ? await getLocationById(resolvedLocationId, salon.id)
+    : primaryLocation;
+
   const services = resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
@@ -181,6 +191,7 @@ export default async function BookTimePage({
           }))}
           totalPrice={resolvedSelection.totalPriceCents / 100}
           totalDuration={resolvedSelection.visibleDurationMinutes}
+          locationName={resolvedLocation?.name ?? null}
           technician={technician}
           bookingFlow={bookingFlow}
         />

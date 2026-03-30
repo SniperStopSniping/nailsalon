@@ -142,6 +142,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         whileTap={{ scale: 0.9, filter: 'brightness(0.8)' }}
         whileHover={{ scale: 1.05 }}
         transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+        data-testid={`admin-app-tile-${app.id}`}
         className={`
           relative flex size-[64px] items-center justify-center rounded-[15px] bg-gradient-to-br ${app.gradient}
         `}

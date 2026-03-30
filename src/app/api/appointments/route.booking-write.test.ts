@@ -4,6 +4,7 @@ const {
   canTechnicianTakeAppointment,
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
+  resolveAutomaticBookingDiscount,
   isRedisAvailable,
   redis,
   getSalonBySlug,
@@ -31,6 +32,7 @@ const {
   canTechnicianTakeAppointment: vi.fn(),
   loadBookingPolicy: vi.fn(),
   resolveTechnicianCapabilityMode: vi.fn(),
+  resolveAutomaticBookingDiscount: vi.fn(),
   isRedisAvailable: vi.fn(),
   redis: null,
   getSalonBySlug: vi.fn(),
@@ -70,6 +72,11 @@ vi.mock('@/libs/bookingPolicy', () => ({
   getTorontoDateString: vi.fn(() => '2026-03-13'),
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
+}));
+
+vi.mock('@/libs/firstVisitDiscount', () => ({
+  FIRST_VISIT_DISCOUNT_TYPE: 'first_visit_25',
+  resolveAutomaticBookingDiscount,
 }));
 
 vi.mock('@/core/redis/redisClient', () => ({
@@ -211,6 +218,14 @@ describe('POST /api/appointments booking policy', () => {
       appointmentsByTechnician: new Map(),
     });
     resolveTechnicianCapabilityMode.mockReturnValue('service_assignments');
+    resolveAutomaticBookingDiscount.mockResolvedValue({
+      kind: 'none',
+      subtotalBeforeDiscountCents: 6500,
+      discountAmountCents: 0,
+      finalTotalCents: 6500,
+      reward: null,
+      firstVisit: null,
+    });
     canTechnicianTakeAppointment.mockReturnValue({
       available: false,
       reason: 'outside_schedule',

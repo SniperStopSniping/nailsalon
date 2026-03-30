@@ -1082,16 +1082,6 @@ const HowPointsWork = () => (
             <Sparkles className="size-3" />
           </span>
           <span>
-            <strong>25,000 pts</strong>
-            {' '}
-            welcome bonus on first visit
-          </span>
-        </li>
-        <li className="font-body flex items-center gap-3 text-[13px] text-[var(--n5-ink-main)]">
-          <span className="flex size-6 items-center justify-center rounded-full bg-[var(--n5-accent-soft)] text-[var(--n5-accent)]">
-            <Sparkles className="size-3" />
-          </span>
-          <span>
             <strong>20 pts</strong>
             {' '}
             for every $1 spent

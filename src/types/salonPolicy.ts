@@ -197,6 +197,7 @@ export type SalonSettings = {
     currency?: string;
     timezone?: string;
     introPriceDefaultLabel?: string | null;
+    firstVisitDiscountEnabled?: boolean;
   };
 
   // ==========================================================================

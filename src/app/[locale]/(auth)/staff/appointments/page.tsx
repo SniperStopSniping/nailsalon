@@ -2,21 +2,62 @@
 
 import { useUser } from '@clerk/nextjs';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AppointmentWorkflowDialogs } from '@/components/staff/appointments/AppointmentWorkflowDialogs';
-import { StaffAppointmentsList } from '@/components/staff/appointments/StaffAppointmentsList';
-import type {
-  PaymentMethod,
-  StaffAppointmentData,
-} from '@/components/staff/appointments/types';
+import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import {
+  AppointmentsDayView,
+  type CalendarAppointment,
+} from '@/components/appointments/AppointmentsDayView';
+import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { StaffBottomNav, StaffHeader } from '@/components/staff';
+import type { StaffAppointmentData } from '@/components/staff/appointments/types';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { themeVars } from '@/theme';
 
-// =============================================================================
-// Staff Appointments Page - Enhanced with Full Workflow
-// =============================================================================
+type StaffAppointmentsResponse = {
+  data?: {
+    appointments?: StaffAppointmentData[];
+  };
+  meta?: {
+    slotIntervalMinutes?: number;
+  };
+};
+
+function formatAttemptedTime(iso: string) {
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function toCalendarAppointments(appointments: StaffAppointmentData[]): CalendarAppointment[] {
+  return appointments.map(appointment => ({
+    id: appointment.id,
+    clientName: appointment.clientName,
+    startTime: appointment.startTime,
+    endTime: appointment.endTime,
+    status: appointment.status,
+    technicianId: appointment.technicianId,
+    technicianName: null,
+    serviceLabel: appointment.services.map(service => service.name).join(', ') || 'Service',
+    totalPrice: appointment.totalPrice,
+    totalDurationMinutes: appointment.totalDurationMinutes
+      ?? Math.max(0, (new Date(appointment.endTime).getTime() - new Date(appointment.startTime).getTime()) / 60000),
+    locationName: null,
+    isLocked: appointment.status === 'in_progress',
+  }));
+}
+
+function patchAppointment(
+  appointments: CalendarAppointment[],
+  updated: CalendarAppointment,
+) {
+  return appointments.map(appointment => appointment.id === updated.id ? updated : appointment);
+}
 
 function StaffAppointmentsContent() {
   const { user, isLoaded } = useUser();
@@ -26,231 +67,408 @@ function StaffAppointmentsContent() {
   const locale = (params?.locale as string) || 'en';
 
   const [appointments, setAppointments] = useState<StaffAppointmentData[]>([]);
+  const [calendarAppointments, setCalendarAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAppointment, setSelectedAppointment] = useState<StaffAppointmentData | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(15);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<AppointmentManageDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<ManageWarning[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [completing, setCompleting] = useState(false);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
-  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const latestAppointmentsFetchIdRef = useRef(0);
   const [currentPhotoType, setCurrentPhotoType] = useState<'before' | 'after'>('after');
 
-  // Check for appointmentId in URL params (from dashboard redirect)
   const appointmentIdParam = searchParams.get('appointmentId');
 
-  // Fetch today's appointments
-  const fetchAppointments = useCallback(async () => {
-    try {
-      const response = await fetch('/api/appointments?date=today&status=confirmed,in_progress');
-      if (response.ok) {
-        const data = await response.json();
-        const appts = data.data?.appointments || [];
-        setAppointments(appts);
+  const selectedAppointment = useMemo(
+    () => appointments.find(appointment => appointment.id === selectedAppointmentId) ?? null,
+    [appointments, selectedAppointmentId],
+  );
 
-        // Auto-select appointment if specified in URL
-        if (appointmentIdParam) {
-          const targetAppt = appts.find((a: StaffAppointmentData) => a.id === appointmentIdParam);
-          if (targetAppt) {
-            setSelectedAppointment(targetAppt);
-          }
+  const fetchAppointments = useCallback(async () => {
+    const fetchId = latestAppointmentsFetchIdRef.current + 1;
+    latestAppointmentsFetchIdRef.current = fetchId;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      const response = await fetch(`/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch appointments');
+      }
+
+      const data = await response.json() as StaffAppointmentsResponse;
+      if (latestAppointmentsFetchIdRef.current !== fetchId) {
+        return;
+      }
+
+      const nextAppointments = data.data?.appointments ?? [];
+      setAppointments(nextAppointments);
+      setCalendarAppointments(toCalendarAppointments(nextAppointments));
+      setSlotIntervalMinutes(data.meta?.slotIntervalMinutes ?? 15);
+
+      if (appointmentIdParam) {
+        const target = nextAppointments.find(appointment => appointment.id === appointmentIdParam);
+        if (target) {
+          setSelectedAppointmentId(target.id);
         }
       }
-    } catch (error) {
-      console.error('Failed to fetch appointments:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [appointmentIdParam]);
+    } catch (fetchError) {
+      if (latestAppointmentsFetchIdRef.current !== fetchId) {
+        return;
+      }
 
-  useEffect(() => {
-    setMounted(true);
+      console.error('Failed to fetch appointments:', fetchError);
+      setError('Failed to load appointments');
+    } finally {
+      if (latestAppointmentsFetchIdRef.current === fetchId) {
+        setLoading(false);
+      }
+    }
+  }, [appointmentIdParam, selectedDate]);
+
+  const fetchDetail = useCallback(async (appointmentId: string) => {
+    try {
+      setDetailLoading(true);
+      setDetailError(null);
+      setAttemptedTimeLabel(null);
+      setWarnings([]);
+
+      const response = await fetch(`/api/appointments/${appointmentId}/manage`);
+      if (!response.ok) {
+        throw new Error('Failed to load appointment details');
+      }
+
+      const result = await response.json();
+      setDetail(result.data ?? null);
+    } catch (fetchError) {
+      console.error('Failed to load appointment detail:', fetchError);
+      setDetail(null);
+      setDetailError('Failed to load appointment details');
+    } finally {
+      setDetailLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     if (isLoaded) {
-      fetchAppointments();
+      void fetchAppointments();
     }
   }, [isLoaded, fetchAppointments]);
 
-  // Handle photo upload
+  useEffect(() => {
+    if (!selectedAppointmentId) {
+      setDetail(null);
+      setDetailError(null);
+      setAttemptedTimeLabel(null);
+      setWarnings([]);
+      return;
+    }
+
+    void fetchDetail(selectedAppointmentId);
+  }, [fetchDetail, selectedAppointmentId]);
+
+  const syncUpdatedCalendarEvent = useCallback((calendarEvent: CalendarAppointment) => {
+    setCalendarAppointments(current => patchAppointment(current, calendarEvent));
+    setAppointments(current => current.map((appointment) => (
+      appointment.id === calendarEvent.id
+        ? {
+            ...appointment,
+            startTime: calendarEvent.startTime,
+            endTime: calendarEvent.endTime,
+            status: calendarEvent.status,
+            totalPrice: calendarEvent.totalPrice,
+            totalDurationMinutes: calendarEvent.totalDurationMinutes,
+            technicianId: calendarEvent.technicianId,
+            services: [{ name: calendarEvent.serviceLabel }],
+          }
+        : appointment
+    )));
+  }, []);
+
+  const applyMutationResult = useCallback((result: {
+    detail: AppointmentManageDetail;
+    calendarEvent: CalendarAppointment;
+    warnings?: ManageWarning[];
+  }) => {
+    setDetail(result.detail);
+    syncUpdatedCalendarEvent(result.calendarEvent);
+    setWarnings(result.warnings ?? []);
+    setDetailError(null);
+    setAttemptedTimeLabel(null);
+  }, [syncUpdatedCalendarEvent]);
+
+  const handleMoveAppointment = useCallback(async (args: {
+    appointmentId: string;
+    startTime: string;
+  }) => {
+    const previous = calendarAppointments.find(appointment => appointment.id === args.appointmentId);
+    if (!previous) {
+      return;
+    }
+
+    const start = new Date(args.startTime);
+    const end = new Date(start.getTime() + (new Date(previous.endTime).getTime() - new Date(previous.startTime).getTime()));
+    setCalendarAppointments(current => current.map((appointment) => (
+      appointment.id === args.appointmentId
+        ? { ...appointment, startTime: start.toISOString(), endTime: end.toISOString() }
+        : appointment
+    )));
+
+    try {
+      const response = await fetch(`/api/appointments/${args.appointmentId}/manage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'move',
+          startTime: new Date(args.startTime).toISOString(),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Move failed');
+      }
+      applyMutationResult(result.data);
+    } catch (moveError) {
+      setCalendarAppointments(current => patchAppointment(current, previous));
+      setSelectedAppointmentId(args.appointmentId);
+      setDetailError(
+        typeof moveError === 'object' && moveError !== null && 'message' in moveError
+          ? String((moveError as { message?: unknown }).message)
+          : 'Unable to move appointment',
+      );
+      setAttemptedTimeLabel(formatAttemptedTime(args.startTime));
+    }
+  }, [applyMutationResult, calendarAppointments]);
+
+  const runManageMutation = useCallback(async (
+    appointmentId: string,
+    payload: Record<string, unknown>,
+  ) => {
+    setDetailSaving(true);
+    setDetailError(null);
+
+    try {
+      const response = await fetch(`/api/appointments/${appointmentId}/manage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Update failed');
+      }
+      applyMutationResult(result.data);
+    } catch (mutationError) {
+      setDetailError(
+        typeof mutationError === 'object' && mutationError !== null && 'message' in mutationError
+          ? String((mutationError as { message?: unknown }).message)
+          : 'Unable to update appointment',
+      );
+      const attemptedStartTime = typeof mutationError === 'object'
+        && mutationError !== null
+        && 'details' in mutationError
+        && typeof (mutationError as { details?: { attemptedStartTime?: string } }).details?.attemptedStartTime === 'string'
+        ? (mutationError as { details?: { attemptedStartTime?: string } }).details!.attemptedStartTime
+        : null;
+      setAttemptedTimeLabel(attemptedStartTime ? formatAttemptedTime(attemptedStartTime) : null);
+      throw mutationError;
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [applyMutationResult]);
+
   const handlePhotoUpload = async (file: File, photoType: 'before' | 'after') => {
-    if (!selectedAppointment) {
+    if (!selectedAppointmentId) {
       return;
     }
 
     setUploadingPhoto(true);
-    setUploadError(null);
+    setDetailError(null);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('photoType', photoType);
 
-      const response = await fetch(`/api/appointments/${selectedAppointment.id}/photos`, {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/photos`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Upload failed');
+        const result = await response.json();
+        throw result.error ?? new Error('Upload failed');
       }
 
-      // Refresh appointments
       await fetchAppointments();
-
-      // Update selected appointment
-      const updatedResponse = await fetch('/api/appointments?date=today&status=confirmed,in_progress');
-      if (updatedResponse.ok) {
-        const data = await updatedResponse.json();
-        const updated = data.data?.appointments?.find(
-          (a: StaffAppointmentData) => a.id === selectedAppointment.id,
-        );
-        if (updated) {
-          setSelectedAppointment(updated);
-        }
-      }
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    } catch (uploadError) {
+      setDetailError(
+        typeof uploadError === 'object' && uploadError !== null && 'message' in uploadError
+          ? String((uploadError as { message?: unknown }).message)
+          : 'Upload failed',
+      );
     } finally {
       setUploadingPhoto(false);
     }
   };
 
-  // Handle file selection
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handlePhotoUpload(file, currentPhotoType);
-    }
-    // Reset input so same file can be selected again
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  // Trigger file input for specific photo type
-  const triggerFileInput = (photoType: 'before' | 'after') => {
-    setCurrentPhotoType(photoType);
-    fileInputRef.current?.click();
-  };
-
-  // Handle start appointment
-  const handleStart = async () => {
-    if (!selectedAppointment) {
+  const handleStartAppointment = useCallback(async () => {
+    if (!selectedAppointmentId) {
       return;
     }
 
+    setDetailSaving(true);
+    setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointment.id}/complete`, {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
         method: 'POST',
       });
-
-      if (response.ok) {
-        await fetchAppointments();
-        // Update selected
-        const updatedResponse = await fetch('/api/appointments?date=today&status=confirmed,in_progress');
-        if (updatedResponse.ok) {
-        const data = await updatedResponse.json();
-        const updated = data.data?.appointments?.find(
-          (a: StaffAppointmentData) => a.id === selectedAppointment.id,
-        );
-        if (updated) {
-          setSelectedAppointment(updated);
-          }
-        }
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to start appointment');
       }
-    } catch (error) {
-      console.error('Failed to start appointment:', error);
-    }
-  };
 
-  // Handle complete appointment
-  const handleComplete = async () => {
-    if (!selectedAppointment) {
+      setAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'in_progress' }
+          : appointment
+      )));
+      setCalendarAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'in_progress', isLocked: true }
+          : appointment
+      )));
+      await fetchDetail(selectedAppointmentId);
+    } catch (startError) {
+      setDetailError(
+        typeof startError === 'object' && startError !== null && 'message' in startError
+          ? String((startError as { message?: unknown }).message)
+          : 'Unable to start appointment',
+      );
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [fetchDetail, selectedAppointmentId]);
+
+  const handleCompleteAppointment = useCallback(async () => {
+    if (!selectedAppointmentId) {
       return;
     }
 
-    setCompleting(true);
-    setUploadError(null);
-
+    setDetailSaving(true);
+    setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointment.id}/complete`, {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentStatus: 'paid' }),
       });
-
+      const result = await response.json();
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Failed to complete appointment');
+        throw result.error ?? new Error('Unable to complete appointment');
       }
 
-      // Refresh and close
-      await fetchAppointments();
-      setSelectedAppointment(null);
-      setShowCompleteDialog(false);
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Failed to complete');
+      setAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'completed' }
+          : appointment
+      )));
+      setCalendarAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'completed', isLocked: true }
+          : appointment
+      )));
+      await fetchDetail(selectedAppointmentId);
+    } catch (completeError) {
+      setDetailError(
+        typeof completeError === 'object' && completeError !== null && 'message' in completeError
+          ? String((completeError as { message?: unknown }).message)
+          : 'Unable to complete appointment',
+      );
     } finally {
-      setCompleting(false);
+      setDetailSaving(false);
     }
-  };
+  }, [fetchDetail, selectedAppointmentId]);
 
-  // Handle cancel appointment
-  const handleCancel = async (reason: string) => {
-    if (!selectedAppointment) {
+  const handleCancelAppointment = useCallback(async (reason: string) => {
+    if (!selectedAppointmentId) {
       return;
     }
 
-    setCancelling(true);
-
+    setDetailSaving(true);
+    setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointment.id}/cancel`, {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/cancel`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: reason }),
       });
-
-      if (response.ok) {
-        await fetchAppointments();
-        setSelectedAppointment(null);
-        setShowCancelDialog(false);
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to cancel appointment');
       }
-    } catch (error) {
-      console.error('Failed to cancel:', error);
+
+      setAppointments(current => current.filter(appointment => appointment.id !== selectedAppointmentId));
+      setCalendarAppointments(current => current.filter(appointment => appointment.id !== selectedAppointmentId));
+      setSelectedAppointmentId(null);
+    } catch (cancelError) {
+      setDetailError(
+        typeof cancelError === 'object' && cancelError !== null && 'message' in cancelError
+          ? String((cancelError as { message?: unknown }).message)
+          : 'Unable to cancel appointment',
+      );
     } finally {
-      setCancelling(false);
+      setDetailSaving(false);
     }
-  };
+  }, [selectedAppointmentId]);
 
-  // Format time for display
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
+  const handleSaveEdits = useCallback(async (args: {
+    baseServiceId: string;
+    technicianId: string | null;
+    startTime: string;
+  }) => {
+    if (!detail || !selectedAppointmentId) {
+      return;
+    }
 
-  // Format price
-  const formatPrice = (cents: number) => {
-    return `$${(cents / 100).toFixed(0)}`;
-  };
+    const originalStartTime = new Date(detail.appointment.startTime).toISOString();
+    const nextStartTime = new Date(args.startTime).toISOString();
+
+    if (args.baseServiceId !== (detail.appointment.baseServiceId ?? '')) {
+      await runManageMutation(selectedAppointmentId, {
+        operation: 'changeService',
+        baseServiceId: args.baseServiceId,
+        startTime: nextStartTime,
+      });
+      return;
+    }
+
+    if (nextStartTime !== originalStartTime) {
+      await runManageMutation(selectedAppointmentId, {
+        operation: 'move',
+        startTime: nextStartTime,
+      });
+    }
+  }, [detail, runManageMutation, selectedAppointmentId]);
+
+  const resourceId = appointments[0]?.technicianId ?? 'my-calendar';
 
   if (!isLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: themeVars.background }}>
-        <div className="w-full max-w-md px-4">
+      <div className="flex min-h-screen items-center justify-center px-4" style={{ backgroundColor: themeVars.background }}>
+        <div className="w-full max-w-md">
           <AsyncStatePanel
             loading
-            title="Loading staff appointments"
-            description="Checking your session and today’s appointment list."
+            title="Loading appointments"
+            description="Preparing the staff schedule workspace."
           />
         </div>
       </div>
@@ -259,10 +477,7 @@ function StaffAppointmentsContent() {
 
   if (!user) {
     return (
-      <div
-        className="flex min-h-screen flex-col items-center justify-center p-4"
-        style={{ backgroundColor: themeVars.background }}
-      >
+      <div className="flex min-h-screen items-center justify-center px-4" style={{ backgroundColor: themeVars.background }}>
         <div className="w-full max-w-md">
           <AsyncStatePanel
             icon="🔐"
@@ -281,104 +496,90 @@ function StaffAppointmentsContent() {
         background: `linear-gradient(to bottom, ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
-      <div className="mx-auto max-w-2xl px-4">
-        <div
-          className="pb-4 pt-6"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
-            transition: 'opacity 300ms ease-out, transform 300ms ease-out',
-          }}
-        >
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4">
+        <div className="pb-4 pt-6">
           <StaffHeader
-            title="Photo Upload"
-            subtitle={`Today’s Appointments (${appointments.length})`}
+            title="Appointments"
+            subtitle={`Day view (${appointments.length})`}
             showBack
             onBack={() => router.push(`/${locale}/staff`)}
           />
         </div>
 
-        {/* Loading */}
-        {loading && (
-          <AsyncStatePanel
-            loading
-            title="Loading appointments"
-            description="Pulling the current workflow queue for today."
+        <div className="min-h-0 flex-1 overflow-hidden rounded-3xl border border-white/60 bg-white shadow-sm">
+          <AppointmentsDayView
+            selectedDate={selectedDate}
+            onSelectedDateChange={setSelectedDate}
+            appointments={calendarAppointments}
+            resources={[{ id: resourceId, label: 'My calendar' }]}
+            slotIntervalMinutes={slotIntervalMinutes}
+            loading={loading}
+            error={error}
+            onRetry={fetchAppointments}
+            onAppointmentSelect={setSelectedAppointmentId}
+            onMoveAppointment={({ appointmentId, startTime }) => void handleMoveAppointment({ appointmentId, startTime })}
+            emptyTitle="No appointments scheduled"
+            emptyDescription="As soon as you have assigned appointments for this day, they will appear here."
+            resourceLabel="View"
+            includeUnassignedResource={false}
           />
-        )}
-
-        {/* Appointments List */}
-        {!loading && appointments.length === 0 && (
-          <AsyncStatePanel
-            icon="☀️"
-            title="No active appointments today"
-            description="As soon as a booking needs photos or workflow updates, it will appear here."
-          />
-        )}
-
-        {!loading && appointments.length > 0 && (
-          <StaffAppointmentsList
-            appointments={appointments}
-            mounted={mounted}
-            onSelect={setSelectedAppointment}
-            formatTime={formatTime}
-            formatPrice={formatPrice}
-          />
-        )}
+        </div>
       </div>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={handleFileSelect}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void handlePhotoUpload(file, currentPhotoType);
+          }
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }}
       />
 
-      <AppointmentWorkflowDialogs
-        appointment={selectedAppointment}
-        showCompleteDialog={showCompleteDialog}
-        showCancelDialog={showCancelDialog}
+      <AppointmentQuickEditSheet
+        isOpen={Boolean(selectedAppointmentId)}
+        onClose={() => {
+          setSelectedAppointmentId(null);
+          setDetail(null);
+          setDetailError(null);
+          setAttemptedTimeLabel(null);
+          setWarnings([]);
+        }}
+        detail={detail}
+        loading={detailLoading}
+        saving={detailSaving}
+        actionError={detailError}
+        attemptedTimeLabel={attemptedTimeLabel}
+        warnings={warnings}
+        photos={selectedAppointment?.photos ?? []}
         uploadingPhoto={uploadingPhoto}
-        uploadError={uploadError}
-        completing={completing}
-        cancelling={cancelling}
-        paymentMethod={paymentMethod}
-        onCloseWorkflow={() => {
-          if (!uploadingPhoto) {
-            setSelectedAppointment(null);
-            setUploadError(null);
-          }
+        onUploadPhoto={(photoType) => {
+          setCurrentPhotoType(photoType);
+          fileInputRef.current?.click();
         }}
-        onStart={handleStart}
-        onTriggerFileInput={triggerFileInput}
-        onOpenCompleteDialog={() => setShowCompleteDialog(true)}
-        onCloseCompleteDialog={() => {
-          if (!completing) {
-            setShowCompleteDialog(false);
+        onSaveEdits={handleSaveEdits}
+        onMoveToNextAvailable={async () => {
+          if (!selectedAppointmentId) {
+            return;
           }
+          await runManageMutation(selectedAppointmentId, { operation: 'moveToNextAvailable' });
         }}
-        onComplete={handleComplete}
-        onOpenCancelDialog={() => setShowCancelDialog(true)}
-        onCloseCancelDialog={() => {
-          if (!cancelling) {
-            setShowCancelDialog(false);
-          }
-        }}
-        onCancel={handleCancel}
-        onPaymentMethodChange={setPaymentMethod}
-        formatTime={formatTime}
-        formatPrice={formatPrice}
+        onCancelAppointment={handleCancelAppointment}
+        onMarkCompleted={handleCompleteAppointment}
+        onStartAppointment={handleStartAppointment}
       />
 
-      {/* Bottom Navigation */}
       <StaffBottomNav activeItem="photos" />
     </div>
   );
 }
 
-// Wrap in Suspense for useSearchParams
 export default function StaffAppointmentsPage() {
   return (
     <Suspense fallback={(

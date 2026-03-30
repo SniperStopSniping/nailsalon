@@ -1,200 +1,108 @@
 'use client';
 
-/**
- * AppointmentsModal Component
- *
- * iOS Calendar Day View for appointments.
- * Features:
- * - Time grid with hour markers
- * - Floating appointment cards
- * - Current time indicator (red line)
- * - Day selector header
- * - Fetches real data from /api/admin/appointments
- */
+import { Plus } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { motion } from 'framer-motion';
-import { Calendar, Plus } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-
-import { AsyncStatePanel } from '@/components/ui/async-state-panel';
-import { Button } from '@/components/ui/button';
+import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import {
+  AppointmentsDayView,
+  type CalendarAppointment,
+  type CalendarResource,
+} from '@/components/appointments/AppointmentsDayView';
+import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
-
-// Generate hours from 8 AM to 8 PM
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
-
-// Appointment interface for display
-type Appointment = {
-  id: string;
-  client: string;
-  service: string;
-  time: string;
-  startRow: number; // Hours after 8 AM (e.g., 9:30 = 1.5)
-  duration: number; // In hours
-  color: string;
-  borderColor: string;
-  avatar: string;
-  status: string;
-  technician: string | null; // Tech name or null if unassigned
-};
-
-// Color schemes for different appointment statuses
-const STATUS_COLORS: Record<string, { color: string; borderColor: string }> = {
-  confirmed: { color: 'bg-blue-50 text-blue-700', borderColor: 'border-blue-500' },
-  pending: { color: 'bg-yellow-50 text-yellow-700', borderColor: 'border-yellow-500' },
-  in_progress: { color: 'bg-green-50 text-green-700', borderColor: 'border-green-500' },
-  completed: { color: 'bg-gray-50 text-gray-600', borderColor: 'border-gray-400' },
-  cancelled: { color: 'bg-red-50 text-red-600', borderColor: 'border-red-400' },
-  no_show: { color: 'bg-orange-50 text-orange-600', borderColor: 'border-orange-400' },
-};
 
 type AppointmentsModalProps = {
   onClose: () => void;
 };
 
-/**
- * Format hour to 12-hour format
- */
-function formatHour(hour: number): string {
-  const h = hour > 12 ? hour - 12 : hour;
-  const period = hour >= 12 ? 'PM' : 'AM';
-  return `${h} ${period}`;
-}
+type AdminAppointmentsResponse = {
+  data?: {
+    appointments?: AdminAppointmentRecord[];
+    technicians?: Array<{ id: string; name: string }>;
+  };
+  meta?: {
+    slotIntervalMinutes?: number;
+  };
+};
 
-/**
- * Get current time position as percentage of day
- */
-function getCurrentTimePosition(): { top: number; time: string } {
-  const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
+type AdminAppointmentRecord = {
+  id: string;
+  clientName: string | null;
+  startTime: string;
+  endTime: string;
+  status: string;
+  totalPrice: number;
+  totalDurationMinutes: number;
+  locationId?: string | null;
+  services?: Array<{ name: string }>;
+  technician?: { id: string; name: string } | null;
+};
 
-  // Calculate position relative to 8 AM start
-  const hoursAfter8 = hours - 8 + minutes / 60;
-  const top = hoursAfter8 * 96 + 16; // 96px per hour + 16px offset
-
-  const timeStr = now.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: false,
-  });
-
-  return { top, time: timeStr };
-}
-
-/**
- * Format time range for display
- */
-function formatTimeRange(startTime: string, endTime: string): string {
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-
-  const formatTime = (d: Date) => d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-
-  return `${formatTime(start)} - ${formatTime(end)}`;
-}
-
-/**
- * Calculate start row (hours after 8 AM) from ISO datetime
- */
-function calculateStartRow(startTime: string): number {
-  const date = new Date(startTime);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  return hours - 8 + minutes / 60;
-}
-
-/**
- * Calculate duration in hours from start and end times
- */
-function calculateDuration(startTime: string, endTime: string): number {
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-  return (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-}
-
-/**
- * Get initials from name
- */
-function getInitials(name: string | null): string {
-  if (!name) {
-    return '??';
-  }
-  return name
-    .split(' ')
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-/**
- * Empty State
- */
-function EmptyState({ selectedDate }: { selectedDate: Date }) {
-  const isToday = selectedDate.toDateString() === new Date().toDateString();
-  const formattedDate = selectedDate.toLocaleDateString('en-US', {
-    weekday: 'long',
+function formatAttemptedTime(iso: string) {
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'short',
     month: 'short',
     day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
+}
 
-  return (
-    <AsyncStatePanel
-      icon={<Calendar className="mx-auto size-8 text-[#8E8E93]" />}
-      title={isToday ? 'No appointments scheduled' : `No appointments on ${formattedDate}`}
-      description={isToday
-        ? 'You are clear for the rest of today.'
-        : 'No visits are scheduled for this day yet.'}
-      className="mx-4 my-8"
-    />
-  );
+function toCalendarAppointments(
+  appointments: AdminAppointmentRecord[] = [],
+): CalendarAppointment[] {
+  return appointments.map(appointment => ({
+    id: appointment.id,
+    clientName: appointment.clientName,
+    startTime: appointment.startTime,
+    endTime: appointment.endTime,
+    status: appointment.status,
+    technicianId: appointment.technician?.id ?? null,
+    technicianName: appointment.technician?.name ?? null,
+    serviceLabel: appointment.services?.map(service => service.name).join(', ') || 'Service',
+    totalPrice: appointment.totalPrice,
+    totalDurationMinutes: appointment.totalDurationMinutes,
+    locationName: null,
+    isLocked: appointment.status === 'in_progress',
+  }));
+}
+
+function patchAppointment(
+  appointments: CalendarAppointment[],
+  updated: CalendarAppointment,
+) {
+  return appointments.map(appointment => appointment.id === updated.id ? updated : appointment);
 }
 
 export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
+  const [resources, setResources] = useState<CalendarResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(15);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<AppointmentManageDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<ManageWarning[]>([]);
+  const latestAppointmentsFetchIdRef = useRef(0);
 
-  const { top: currentTimeTop, time: currentTime } = getCurrentTimePosition();
-  const dayName = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
-  const dayNumber = selectedDate.getDate();
-  const monthName = selectedDate.toLocaleDateString('en-US', { month: 'short' });
-
-  // Get the current week's dates
-  const getWeekDates = useCallback(() => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - dayOfWeek);
-
-    return Array.from({ length: 7 }, (_, i) => {
-      const date = new Date(weekStart);
-      date.setDate(weekStart.getDate() + i);
-      return date;
-    });
-  }, []);
-
-  const weekDates = getWeekDates();
-  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
-  // Fetch appointments for the selected date
   const fetchAppointments = useCallback(async () => {
+    const fetchId = latestAppointmentsFetchIdRef.current + 1;
+    latestAppointmentsFetchIdRef.current = fetchId;
+
     try {
       setLoading(true);
       setError(null);
 
-      // Format date as YYYY-MM-DD
       const dateStr = selectedDate.toISOString().split('T')[0];
-
       const response = await fetch(
         `/api/admin/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`,
       );
@@ -203,209 +111,329 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         throw new Error('Failed to load appointments');
       }
 
-      const result = await response.json();
-      const rawAppointments = result.data?.appointments || [];
+      const result = await response.json() as AdminAppointmentsResponse;
+      if (latestAppointmentsFetchIdRef.current !== fetchId) {
+        return;
+      }
 
-      // Transform API data to component format
-      const transformedAppointments: Appointment[] = rawAppointments.map((appt: {
-        id: string;
-        clientName: string | null;
-        startTime: string;
-        endTime: string;
-        status: string;
-        services?: { name: string }[];
-        technician?: { id: string; name: string } | null;
-      }) => {
-        const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed;
-        const serviceNames = appt.services?.map(s => s.name).join(', ') || 'Service';
+      setAppointments(toCalendarAppointments(result.data?.appointments));
+      setResources(result.data?.technicians?.map(technician => ({
+        id: technician.id,
+        label: technician.name,
+      })) ?? []);
+      setSlotIntervalMinutes(result.meta?.slotIntervalMinutes ?? 15);
+    } catch (fetchError) {
+      if (latestAppointmentsFetchIdRef.current !== fetchId) {
+        return;
+      }
 
-        return {
-          id: appt.id,
-          client: appt.clientName || 'Guest',
-          service: serviceNames,
-          time: formatTimeRange(appt.startTime, appt.endTime),
-          startRow: calculateStartRow(appt.startTime),
-          duration: calculateDuration(appt.startTime, appt.endTime),
-          color: statusColors!.color,
-          borderColor: statusColors!.borderColor,
-          avatar: getInitials(appt.clientName),
-          status: appt.status,
-          technician: appt.technician?.name ?? null,
-        };
-      });
-
-      // Filter to only show appointments within the visible time range (8 AM - 8 PM)
-      const visibleAppointments = transformedAppointments.filter(
-        appt => appt.startRow >= 0 && appt.startRow < 12,
-      );
-
-      setAppointments(visibleAppointments);
-    } catch (err) {
-      console.error('Failed to fetch appointments:', err);
+      console.error('Failed to fetch appointments:', fetchError);
       setError('Failed to load appointments');
     } finally {
-      setLoading(false);
+      if (latestAppointmentsFetchIdRef.current === fetchId) {
+        setLoading(false);
+      }
     }
   }, [selectedDate]);
 
+  const fetchDetail = useCallback(async (appointmentId: string) => {
+    try {
+      setDetailLoading(true);
+      setDetailError(null);
+      setAttemptedTimeLabel(null);
+      setWarnings([]);
+
+      const response = await fetch(`/api/appointments/${appointmentId}/manage`);
+      if (!response.ok) {
+        throw new Error('Failed to load appointment details');
+      }
+
+      const result = await response.json();
+      setDetail(result.data ?? null);
+    } catch (fetchError) {
+      console.error('Failed to fetch manage detail:', fetchError);
+      setDetailError('Failed to load appointment details');
+      setDetail(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchAppointments();
+    void fetchAppointments();
   }, [fetchAppointments]);
 
-  const handleDateSelect = (date: Date) => {
-    setSelectedDate(date);
-  };
+  useEffect(() => {
+    if (!selectedAppointmentId) {
+      setDetail(null);
+      setDetailError(null);
+      setAttemptedTimeLabel(null);
+      setWarnings([]);
+      return;
+    }
 
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
+    void fetchDetail(selectedAppointmentId);
+  }, [fetchDetail, selectedAppointmentId]);
 
-  const isSelected = (date: Date) => {
-    return date.toDateString() === selectedDate.toDateString();
-  };
+  const applyMutationResult = useCallback((result: {
+    detail: AppointmentManageDetail;
+    calendarEvent: CalendarAppointment;
+    warnings?: ManageWarning[];
+  }) => {
+    setDetail(result.detail);
+    setAppointments(current => patchAppointment(current, result.calendarEvent));
+    setWarnings(result.warnings ?? []);
+    setDetailError(null);
+    setAttemptedTimeLabel(null);
+  }, []);
+
+  const handleMoveAppointment = useCallback(async (args: {
+    appointmentId: string;
+    startTime: string;
+  }) => {
+    const previous = appointments.find(appointment => appointment.id === args.appointmentId);
+    if (!previous) {
+      return;
+    }
+
+    const start = new Date(args.startTime);
+    const end = new Date(start.getTime() + (new Date(previous.endTime).getTime() - new Date(previous.startTime).getTime()));
+    setAppointments(current => current.map((appointment) => (
+      appointment.id === args.appointmentId
+        ? { ...appointment, startTime: start.toISOString(), endTime: end.toISOString() }
+        : appointment
+    )));
+
+    try {
+      const response = await fetch(`/api/appointments/${args.appointmentId}/manage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'move',
+          startTime: new Date(args.startTime).toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json();
+        throw payload.error ?? new Error('Move failed');
+      }
+
+      const result = await response.json();
+      applyMutationResult(result.data);
+    } catch (moveError) {
+      setAppointments(current => patchAppointment(current, previous));
+      setSelectedAppointmentId(args.appointmentId);
+      setDetailError(
+        typeof moveError === 'object' && moveError !== null && 'message' in moveError
+          ? String((moveError as { message?: unknown }).message)
+          : 'Unable to move appointment',
+      );
+      setAttemptedTimeLabel(formatAttemptedTime(args.startTime));
+    }
+  }, [appointments, applyMutationResult]);
+
+  const runManageMutation = useCallback(async (
+    appointmentId: string,
+    payload: Record<string, unknown>,
+  ) => {
+    setDetailSaving(true);
+    setDetailError(null);
+
+    try {
+      const response = await fetch(`/api/appointments/${appointmentId}/manage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Update failed');
+      }
+
+      applyMutationResult(result.data);
+    } catch (mutationError) {
+      setDetailError(
+        typeof mutationError === 'object' && mutationError !== null && 'message' in mutationError
+          ? String((mutationError as { message?: unknown }).message)
+          : 'Unable to update appointment',
+      );
+      const attemptedStartTime = typeof mutationError === 'object'
+        && mutationError !== null
+        && 'details' in mutationError
+        && typeof (mutationError as { details?: { attemptedStartTime?: string } }).details?.attemptedStartTime === 'string'
+        ? (mutationError as { details?: { attemptedStartTime?: string } }).details!.attemptedStartTime
+        : null;
+      setAttemptedTimeLabel(attemptedStartTime ? formatAttemptedTime(attemptedStartTime) : null);
+      throw mutationError;
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [applyMutationResult]);
+
+  const handleSaveEdits = useCallback(async (args: {
+    baseServiceId: string;
+    technicianId: string | null;
+    startTime: string;
+  }) => {
+    if (!detail || !selectedAppointmentId) {
+      return;
+    }
+
+    const originalStartTime = new Date(detail.appointment.startTime).toISOString();
+    const nextStartTime = new Date(args.startTime).toISOString();
+
+    if (args.baseServiceId !== (detail.appointment.baseServiceId ?? '')) {
+      await runManageMutation(selectedAppointmentId, {
+        operation: 'changeService',
+        baseServiceId: args.baseServiceId,
+        startTime: nextStartTime,
+        technicianId: args.technicianId,
+      });
+      return;
+    }
+
+    if (args.technicianId !== detail.appointment.technicianId && nextStartTime === originalStartTime) {
+      await runManageMutation(selectedAppointmentId, {
+        operation: 'reassignTechnician',
+        technicianId: args.technicianId,
+      });
+      return;
+    }
+
+    if (nextStartTime !== originalStartTime || args.technicianId !== detail.appointment.technicianId) {
+      await runManageMutation(selectedAppointmentId, {
+        operation: 'move',
+        startTime: nextStartTime,
+        technicianId: args.technicianId,
+      });
+    }
+  }, [detail, runManageMutation, selectedAppointmentId]);
+
+  const handleStartAppointment = useCallback(async () => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+
+    setDetailSaving(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
+        method: 'POST',
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to start appointment');
+      }
+
+      setAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'in_progress', isLocked: true }
+          : appointment
+      )));
+      await fetchDetail(selectedAppointmentId);
+    } catch (startError) {
+      setDetailError(
+        typeof startError === 'object' && startError !== null && 'message' in startError
+          ? String((startError as { message?: unknown }).message)
+          : 'Unable to start appointment',
+      );
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [fetchDetail, selectedAppointmentId]);
+
+  const handleCompleteAppointment = useCallback(async () => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+
+    setDetailSaving(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentStatus: 'paid' }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to complete appointment');
+      }
+
+      setAppointments(current => current.map((appointment) => (
+        appointment.id === selectedAppointmentId
+          ? { ...appointment, status: 'completed', isLocked: true }
+          : appointment
+      )));
+      await fetchDetail(selectedAppointmentId);
+    } catch (completeError) {
+      setDetailError(
+        typeof completeError === 'object' && completeError !== null && 'message' in completeError
+          ? String((completeError as { message?: unknown }).message)
+          : 'Unable to complete appointment',
+      );
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [fetchDetail, selectedAppointmentId]);
+
+  const handleCancelAppointment = useCallback(async (reason: string) => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+
+    setDetailSaving(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/cancel`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: reason }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to cancel appointment');
+      }
+
+      setAppointments(current => current.filter(appointment => appointment.id !== selectedAppointmentId));
+      setSelectedAppointmentId(null);
+    } catch (cancelError) {
+      setDetailError(
+        typeof cancelError === 'object' && cancelError !== null && 'message' in cancelError
+          ? String((cancelError as { message?: unknown }).message)
+          : 'Unable to cancel appointment',
+      );
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [selectedAppointmentId]);
 
   return (
     <div className="flex min-h-full w-full flex-col bg-white font-sans text-black">
-      {/* Header */}
       <ModalHeader
-        title={dayName}
-        subtitle={`${monthName} ${dayNumber}`}
+        title={selectedDate.toLocaleDateString('en-US', { weekday: 'long' })}
+        subtitle={selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         leftAction={<BackButton onClick={onClose} label="Back" />}
       />
 
-      {/* Day Selector Row */}
-      <div className="flex justify-between border-b border-gray-100 bg-white px-4 pb-2 pt-1">
-        {weekDates.map((date, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => handleDateSelect(date)}
-            aria-label={`Select ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`}
-            className={`
-              flex h-12 w-9 flex-col items-center justify-center rounded-full text-[13px] font-medium transition-colors
-              ${isSelected(date)
-            ? 'bg-black text-white'
-            : isToday(date)
-              ? 'bg-blue-100 text-blue-600'
-              : 'text-gray-400 hover:bg-gray-100'
-          }
-            `}
-          >
-            <span className="mb-0.5 text-[10px]">{days[i]}</span>
-            <span className="text-[14px]">{date.getDate()}</span>
-          </button>
-        ))}
-      </div>
+      <AppointmentsDayView
+        selectedDate={selectedDate}
+        onSelectedDateChange={setSelectedDate}
+        appointments={appointments}
+        resources={resources}
+        slotIntervalMinutes={slotIntervalMinutes}
+        loading={loading}
+        error={error}
+        onRetry={fetchAppointments}
+        onAppointmentSelect={setSelectedAppointmentId}
+        onMoveAppointment={({ appointmentId, startTime }) => void handleMoveAppointment({ appointmentId, startTime })}
+        emptyTitle="No appointments scheduled"
+        emptyDescription="You are clear for the selected day."
+        resourceLabel="Artist"
+      />
 
-      {/* Scrollable Timeline */}
-      <div className="relative flex-1 overflow-y-auto bg-white">
-        {loading ? (
-          <div className="p-4">
-            <AsyncStatePanel
-              loading
-              title="Loading appointments"
-              description="Pulling the latest salon schedule for this day."
-            />
-          </div>
-        ) : error ? (
-          <div className="p-4">
-            <AsyncStatePanel
-              tone="error"
-              title="Unable to load appointments"
-              description={error}
-              action={(
-                <Button type="button" variant="brandSoft" size="pillSm" onClick={fetchAppointments}>
-                  Try again
-                </Button>
-              )}
-            />
-          </div>
-        ) : appointments.length === 0 ? (
-          <EmptyState selectedDate={selectedDate} />
-        ) : (
-          <>
-            {/* Current Time Line (Red) - only show for today */}
-            {isToday(selectedDate) && currentTimeTop > 0 && currentTimeTop < 13 * 96 && (
-              <div
-                className="pointer-events-none absolute left-14 z-20 w-[calc(100%-56px)]"
-                style={{ top: currentTimeTop }}
-              >
-                <div className="relative h-[2px] w-full bg-red-500">
-                  <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
-                  <span className="absolute -left-12 -top-1.5 text-[10px] font-bold text-red-500">
-                    {currentTime}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Time Grid */}
-            <div className="pb-20 pt-4">
-              {HOURS.map(hour => (
-                <div key={hour} className="relative flex h-24">
-                  {/* Time Column */}
-                  <div className="-mt-1.5 w-14 pr-3 text-right text-[11px] font-medium text-gray-400">
-                    {formatHour(hour)}
-                  </div>
-                  {/* Row Lines */}
-                  <div className="relative flex-1 border-t border-gray-100">
-                    {/* Half-hour dotted line */}
-                    <div className="absolute left-0 top-12 w-full border-t border-dashed border-gray-50" />
-                  </div>
-                </div>
-              ))}
-
-              {/* Floating Appointment Cards */}
-              {appointments.map(appt => (
-                <motion.div
-                  key={appt.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-                  style={{
-                    position: 'absolute',
-                    top: `${appt.startRow * 96 + 16}px`,
-                    left: '60px',
-                    right: '12px',
-                    height: `${Math.max(appt.duration * 96 - 4, 40)}px`,
-                  }}
-                  className={`
-                    flex cursor-pointer flex-col justify-center overflow-hidden rounded-[6px] border-l-[3px] 
-                    p-3 shadow-sm transition-all active:brightness-95
-                    ${appt.color} ${appt.borderColor}
-                  `}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold leading-tight">
-                        {appt.service}
-                      </div>
-                      <div className="mt-0.5 truncate text-[11px] opacity-80">
-                        {appt.client}
-                        {appt.technician && (
-                          <span className="ml-1.5 text-[10px] opacity-70">
-                            ·
-                            {appt.technician}
-                          </span>
-                        )}
-                        {!appt.technician && (
-                          <span className="ml-1.5 text-[10px] italic opacity-50">· Unassigned</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="ml-2 shrink-0 text-[10px] font-semibold opacity-70">
-                      {appt.time.split('-')[0]}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Floating Action Button */}
       <button
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
@@ -415,13 +443,38 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         <Plus className="size-8" />
       </button>
 
-      {/* New Appointment Modal */}
+      <AppointmentQuickEditSheet
+        isOpen={Boolean(selectedAppointmentId)}
+        onClose={() => {
+          setSelectedAppointmentId(null);
+          setDetail(null);
+          setDetailError(null);
+          setAttemptedTimeLabel(null);
+          setWarnings([]);
+        }}
+        detail={detail}
+        loading={detailLoading}
+        saving={detailSaving}
+        actionError={detailError}
+        attemptedTimeLabel={attemptedTimeLabel}
+        warnings={warnings}
+        onSaveEdits={handleSaveEdits}
+        onMoveToNextAvailable={async () => {
+          if (!selectedAppointmentId) {
+            return;
+          }
+          await runManageMutation(selectedAppointmentId, { operation: 'moveToNextAvailable' });
+        }}
+        onCancelAppointment={handleCancelAppointment}
+        onMarkCompleted={handleCompleteAppointment}
+        onStartAppointment={handleStartAppointment}
+      />
+
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
         onClose={() => setShowNewAppointmentModal(false)}
         onSuccess={() => {
-          // Refresh appointments after creating a new one
-          fetchAppointments();
+          void fetchAppointments();
         }}
         preselectedDate={selectedDate}
       />

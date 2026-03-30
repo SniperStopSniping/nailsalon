@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { requireActiveAdminSalon, db } = vi.hoisted(() => {
+const { requireActiveAdminSalon, db, getBookingConfigForSalon, getTechniciansBySalonId } = vi.hoisted(() => {
   const limit = vi.fn(async () => []);
   const orderBy = vi.fn(() => ({ limit }));
   const where = vi.fn(() => ({ orderBy }));
@@ -10,12 +10,22 @@ const { requireActiveAdminSalon, db } = vi.hoisted(() => {
 
   return {
     requireActiveAdminSalon: vi.fn(),
+    getBookingConfigForSalon: vi.fn(async () => ({ slotIntervalMinutes: 15 })),
+    getTechniciansBySalonId: vi.fn(async () => []),
     db: { select },
   };
 });
 
 vi.mock('@/libs/adminAuth', () => ({
   requireActiveAdminSalon,
+}));
+
+vi.mock('@/libs/bookingConfig', () => ({
+  getBookingConfigForSalon,
+}));
+
+vi.mock('@/libs/queries', () => ({
+  getTechniciansBySalonId,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -59,6 +69,14 @@ describe('GET /api/admin/appointments', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ data: { appointments: [] } });
+    expect(body).toEqual({
+      data: {
+        appointments: [],
+        technicians: [],
+      },
+      meta: {
+        slotIntervalMinutes: 15,
+      },
+    });
   });
 });

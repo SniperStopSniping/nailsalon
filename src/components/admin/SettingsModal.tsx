@@ -546,6 +546,7 @@ type BookingConfigFormState = {
   currency: 'CAD' | 'USD';
   timezone: string;
   introPriceDefaultLabel: string;
+  firstVisitDiscountEnabled: boolean;
 };
 
 const SLOT_INTERVAL_OPTIONS: Array<BookingConfigFormState['slotIntervalMinutes']> = [5, 10, 15, 30];
@@ -792,6 +793,7 @@ export function SettingsModal({
     currency: 'CAD',
     timezone: 'America/Toronto',
     introPriceDefaultLabel: '',
+    firstVisitDiscountEnabled: false,
   });
 
   const [visibility, setVisibility] = useState<SalonVisibilityPolicy>({
@@ -894,6 +896,7 @@ export function SettingsModal({
           currency: data.bookingConfig?.currency ?? 'CAD',
           timezone: data.bookingConfig?.timezone ?? 'America/Toronto',
           introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
+          firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? false,
         });
       }
     } catch (error) {
@@ -946,6 +949,7 @@ export function SettingsModal({
             currency: bookingConfigForm.currency,
             timezone: bookingConfigForm.timezone.trim(),
             introPriceDefaultLabel: bookingConfigForm.introPriceDefaultLabel.trim() || null,
+            firstVisitDiscountEnabled: bookingConfigForm.firstVisitDiscountEnabled,
           },
         }),
       });
@@ -961,6 +965,7 @@ export function SettingsModal({
         currency: data.bookingConfig?.currency ?? bookingConfigForm.currency,
         timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
         introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
+        firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? bookingConfigForm.firstVisitDiscountEnabled,
       });
       setBookingConfigSaved(true);
       router.refresh();
@@ -1214,6 +1219,24 @@ export function SettingsModal({
                         placeholder="Founding Client Price"
                       />
                     </label>
+
+                    <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 px-3 py-3 sm:col-span-2">
+                      <div className="space-y-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">First-visit offer</span>
+                        <p className="text-sm text-gray-700">
+                          Offer 25% off for first-time clients automatically during booking.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={bookingConfigForm.firstVisitDiscountEnabled}
+                        onChange={event => setBookingConfigForm(prev => ({
+                          ...prev,
+                          firstVisitDiscountEnabled: event.target.checked,
+                        }))}
+                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                      />
+                    </label>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
@@ -1436,14 +1459,6 @@ export function SettingsModal({
                           Loyalty Points (Read-only)
                         </div>
                         <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Welcome Bonus</span>
-                            <span className="font-medium text-gray-900">
-                              {effectivePoints.welcomeBonus.toLocaleString()}
-                              {' '}
-                              pts
-                            </span>
-                          </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Profile Completion</span>
                             <span className="font-medium text-gray-900">

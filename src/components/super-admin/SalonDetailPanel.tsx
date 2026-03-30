@@ -352,7 +352,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Billing & Programs state (Step 21E)
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
-  const [welcomeBonusOverride, setWelcomeBonusOverride] = useState<string>('');
   const [profileCompletionOverride, setProfileCompletionOverride] = useState<string>('');
   const [referralRefereeOverride, setReferralRefereeOverride] = useState<string>('');
   const [referralReferrerOverride, setReferralReferrerOverride] = useState<string>('');
@@ -446,7 +445,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setReviewsEnabled(data.settings.reviewsEnabled ?? true);
       setRewardsEnabled(data.settings.rewardsEnabled ?? true);
       setBillingMode((data.settings.billingMode as 'NONE' | 'STRIPE') ?? 'NONE');
-      setWelcomeBonusOverride(data.settings.welcomeBonusPointsOverride?.toString() ?? '');
       setProfileCompletionOverride(data.settings.profileCompletionPointsOverride?.toString() ?? '');
       setReferralRefereeOverride(data.settings.referralRefereePointsOverride?.toString() ?? '');
       setReferralReferrerOverride(data.settings.referralReferrerPointsOverride?.toString() ?? '');
@@ -1401,32 +1399,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       Leave empty to use system defaults. Set a value to override for this salon only.
                     </p>
 
-                    {/* Welcome Bonus */}
-                    <div className="mb-3">
-                      <label htmlFor="welcomeBonus" className="mb-1 block text-sm font-medium text-gray-700">
-                        Welcome Bonus
-                        <span className="ml-2 text-xs font-normal text-gray-400">
-                          (Default:
-                          {' '}
-                          {getDefaultLoyaltyPoints().welcomeBonus.toLocaleString()}
-                          )
-                        </span>
-                      </label>
-                      <input
-                        type="number"
-                        id="welcomeBonus"
-                        value={welcomeBonusOverride}
-                        onChange={(e) => {
-                          setWelcomeBonusOverride(e.target.value);
-                          markDirty();
-                        }}
-                        placeholder="Use default"
-                        min={0}
-                        max={250000}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-
                     {/* Profile Completion */}
                     <div className="mb-3">
                       <label htmlFor="profileCompletion" className="mb-1 block text-sm font-medium text-gray-700">
@@ -1520,7 +1492,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                               reviewsEnabled,
                               rewardsEnabled,
                               billingMode,
-                              welcomeBonusPointsOverride: parsePointsOverride(welcomeBonusOverride),
                               profileCompletionPointsOverride: parsePointsOverride(profileCompletionOverride),
                               referralRefereePointsOverride: parsePointsOverride(referralRefereeOverride),
                               referralReferrerPointsOverride: parsePointsOverride(referralReferrerOverride),

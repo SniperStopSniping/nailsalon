@@ -79,8 +79,8 @@ export async function POST(request: Request) {
     // Resolve effective loyalty points for this salon
     const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
 
-    // 2. Ensure salonClient exists (creates with welcome bonus if new)
-    await upsertSalonClient(salon.id, normalizedPhone, firstName, email, undefined, loyaltyPoints.welcomeBonus);
+    // 2. Ensure salonClient exists (starts at 0 loyalty points if new)
+    await upsertSalonClient(salon.id, normalizedPhone, firstName, email);
 
     // 3. Upsert global client with name and email
     const clientId = `client_${crypto.randomUUID()}`;

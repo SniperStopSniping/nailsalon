@@ -12,7 +12,9 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
+import { getTechniciansBySalonId } from '@/libs/queries';
 import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, serviceSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -125,26 +127,44 @@ export async function GET(request: Request): Promise<Response> {
       whereClauses.push(inArray(appointmentSchema.status, statuses));
     }
 
-    const appointments = await db
-      .select({
-        id: appointmentSchema.id,
-        clientName: appointmentSchema.clientName,
-        clientPhone: appointmentSchema.clientPhone,
-        technicianId: appointmentSchema.technicianId,
-        technicianName: technicianSchema.name,
-        startTime: appointmentSchema.startTime,
-        endTime: appointmentSchema.endTime,
-        status: appointmentSchema.status,
-        createdAt: appointmentSchema.createdAt,
-      })
-      .from(appointmentSchema)
-      .leftJoin(technicianSchema, eq(appointmentSchema.technicianId, technicianSchema.id))
-      .where(and(...whereClauses))
-      .orderBy(orderBy)
-      .limit(limit);
+    const [appointments, bookingConfig, technicians] = await Promise.all([
+      db
+        .select({
+          id: appointmentSchema.id,
+          clientName: appointmentSchema.clientName,
+          clientPhone: appointmentSchema.clientPhone,
+          technicianId: appointmentSchema.technicianId,
+          technicianName: technicianSchema.name,
+          startTime: appointmentSchema.startTime,
+          endTime: appointmentSchema.endTime,
+          status: appointmentSchema.status,
+          totalPrice: appointmentSchema.totalPrice,
+          totalDurationMinutes: appointmentSchema.totalDurationMinutes,
+          locationId: appointmentSchema.locationId,
+          createdAt: appointmentSchema.createdAt,
+        })
+        .from(appointmentSchema)
+        .leftJoin(technicianSchema, eq(appointmentSchema.technicianId, technicianSchema.id))
+        .where(and(...whereClauses))
+        .orderBy(orderBy)
+        .limit(limit),
+      getBookingConfigForSalon(salonId),
+      getTechniciansBySalonId(salonId),
+    ]);
 
     if (appointments.length === 0) {
-      return Response.json({ data: { appointments: [] } }, { status: 200 });
+      return Response.json({
+        data: {
+          appointments: [],
+          technicians: technicians.map(technician => ({
+            id: technician.id,
+            name: technician.name,
+          })),
+        },
+        meta: {
+          slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+        },
+      }, { status: 200 });
     }
 
     const appointmentIds = appointments.map(a => a.id);
@@ -172,6 +192,9 @@ export async function GET(request: Request): Promise<Response> {
       startTime: a.startTime.toISOString(),
       endTime: a.endTime.toISOString(),
       status: a.status,
+      totalPrice: a.totalPrice,
+      totalDurationMinutes: a.totalDurationMinutes,
+      locationId: a.locationId,
       createdAt: a.createdAt.toISOString(),
       services: servicesByAppointment.get(a.id) ?? [],
       technician: a.technicianId && a.technicianName
@@ -179,7 +202,18 @@ export async function GET(request: Request): Promise<Response> {
         : null,
     }));
 
-    return Response.json({ data: { appointments: payload } }, { status: 200 });
+    return Response.json({
+      data: {
+        appointments: payload,
+        technicians: technicians.map(technician => ({
+          id: technician.id,
+          name: technician.name,
+        })),
+      },
+      meta: {
+        slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+      },
+    }, { status: 200 });
   } catch (err) {
     console.error('[AdminAppointments] failed', err);
     return Response.json(

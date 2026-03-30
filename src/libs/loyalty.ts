@@ -60,7 +60,7 @@ export function resolveSalonLoyaltyPoints(salon: SalonOverrides): ResolvedLoyalt
   };
 
   return {
-    welcomeBonus: clamp(salon.welcomeBonusPointsOverride, LOYALTY_POINTS.WELCOME_BONUS),
+    welcomeBonus: LOYALTY_POINTS.WELCOME_BONUS,
     profileCompletion: clamp(salon.profileCompletionPointsOverride, LOYALTY_POINTS.PROFILE_COMPLETION),
     referralReferee: clamp(salon.referralRefereePointsOverride, LOYALTY_POINTS.REFERRAL_REFEREE_BONUS),
     referralReferrer: clamp(salon.referralReferrerPointsOverride, LOYALTY_POINTS.REFERRAL_REFERRER_BONUS),

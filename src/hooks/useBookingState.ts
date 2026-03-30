@@ -27,30 +27,33 @@ const defaultState: BookingState = {
  * This is the single source of truth for booking selections.
  */
 export function useBookingState() {
-  const [state, setState] = useState<BookingState>(() => {
-    // Initialize from localStorage on mount
+  const [state, setState] = useState<BookingState>(defaultState);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
-      return defaultState;
+      setIsHydrated(true);
+      return;
     }
 
     try {
       const stored = localStorage.getItem(BOOKING_STATE_KEY);
       if (stored) {
-        return {
+        setState({
           ...defaultState,
           ...(JSON.parse(stored) as Partial<BookingState>),
-        };
+        });
       }
     } catch {
       // Invalid stored state, use default
+    } finally {
+      setIsHydrated(true);
     }
-
-    return defaultState;
-  });
+  }, []);
 
   // Persist to localStorage whenever state changes
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || !isHydrated) {
       return;
     }
 
@@ -59,7 +62,7 @@ export function useBookingState() {
     } catch {
       // localStorage might be disabled or full, ignore
     }
-  }, [state]);
+  }, [isHydrated, state]);
 
   const setTechnicianId = useCallback((techId: string | null) => {
     setState(prev => ({ ...prev, technicianId: techId }));
@@ -112,6 +115,7 @@ export function useBookingState() {
 
   return {
     state,
+    isHydrated,
     technicianId: state.technicianId,
     serviceIds: state.serviceIds,
     baseServiceId: state.baseServiceId,

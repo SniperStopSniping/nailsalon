@@ -96,6 +96,7 @@ export function AdminModalHost({
       <AppModal
         isOpen={activeModal === 'bookings'}
         onClose={onCloseModal}
+        allowDragToDismiss={false}
       >
         <AppointmentsModal onClose={onCloseModal} />
       </AppModal>

@@ -6,7 +6,7 @@
  *
  * Allows salon admins to:
  * - GET: View settings including effective points (read-only for points/billing)
- * - PATCH: Update ONLY reviewsEnabled and rewardsEnabled
+ * - PATCH: Update reviewsEnabled, rewardsEnabled, and typed booking configuration
  *
  * Any attempt to update billingMode or *PointsOverride returns 403 Forbidden.
  */

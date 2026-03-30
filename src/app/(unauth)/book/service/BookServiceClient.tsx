@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
+import { getFeaturedServices } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
@@ -44,6 +45,7 @@ export type ServiceData = {
   category: ServiceCategory;
   imageUrl: string;
   resolvedIntroPriceLabel: string | null;
+  sortOrder?: number | null;
 };
 
 export type AddOnData = {
@@ -88,6 +90,7 @@ type BookServiceClientProps = {
   bookingFlow: BookingStep[];
   locations: LocationData[];
   currency?: string;
+  showFirstVisitOffer?: boolean;
 };
 
 const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = {
@@ -117,6 +120,34 @@ function formatDuration(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const remaining = minutes % 60;
   return remaining > 0 ? `${hours}h ${remaining}m` : `${hours}h`;
+}
+
+function buildServiceRows(services: ServiceData[]): ServiceData[][] {
+  const rows: ServiceData[][] = [];
+  let currentRow: ServiceData[] = [];
+
+  for (const service of services) {
+    if (service.category === 'combo') {
+      if (currentRow.length > 0) {
+        rows.push(currentRow);
+        currentRow = [];
+      }
+      rows.push([service]);
+      continue;
+    }
+
+    currentRow.push(service);
+    if (currentRow.length === 2) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
+  }
+
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
+  }
+
+  return rows;
 }
 
 function buildDefaultSelectedAddOns(
@@ -168,6 +199,7 @@ export function BookServiceClient({
   bookingFlow,
   locations,
   currency = 'CAD',
+  showFirstVisitOffer = false,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -188,10 +220,12 @@ export function BookServiceClient({
     technicianId = null,
     baseServiceId: storedBaseServiceId = null,
     selectedAddOns: storedSelectedAddOns = [],
+    locationId: storedLocationId = null,
     setBaseServiceId = () => {},
     setSelectedAddOns = () => {},
     setServiceIds = () => {},
     syncFromUrl = () => {},
+    isHydrated = false,
   } = useBookingState();
 
   const primaryLocation = locations.find(l => l.isPrimary) || locations[0];
@@ -206,18 +240,20 @@ export function BookServiceClient({
   });
   const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
 
-  const initialCategory = services[0]?.category ?? 'manicure';
-  const initialBaseServiceId = urlBaseServiceId
-    ?? legacyServiceIds[0]
-    ?? storedBaseServiceId
-    ?? services[0]?.id
-    ?? null;
+  const urlDrivenBaseServiceId = urlBaseServiceId ?? legacyServiceIds[0] ?? null;
+  const initialBaseServiceId = urlDrivenBaseServiceId ?? services[0]?.id ?? null;
+  const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? services[0] ?? null;
+  const initialCategory = initialSelectedService?.category ?? 'manicure';
+  const initialSelectedAddOns = buildDefaultSelectedAddOns(
+    initialBaseServiceId,
+    serviceAddOnRules,
+    addOns,
+    urlSelectedAddOns,
+  );
 
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
-  const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(
-    urlSelectedAddOns.length > 0 ? urlSelectedAddOns : (storedSelectedAddOns ?? []),
-  );
+  const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<{
@@ -225,10 +261,57 @@ export function BookServiceClient({
     selectedAddOns: SelectedAddOnParam[];
   } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const hasUserChangedSelectionRef = useRef(false);
+  const hasAppliedHydratedBookingStateRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isHydrated || hasAppliedHydratedBookingStateRef.current || hasUserChangedSelectionRef.current) {
+      return;
+    }
+
+    hasAppliedHydratedBookingStateRef.current = true;
+
+    if (!urlLocationId && storedLocationId && locations.some(location => location.id === storedLocationId)) {
+      setSelectedLocationId(storedLocationId);
+    }
+
+    const hasUrlDrivenSelection = Boolean(urlDrivenBaseServiceId || urlSelectedAddOns.length > 0);
+    if (hasUrlDrivenSelection || !storedBaseServiceId) {
+      return;
+    }
+
+    const storedService = services.find(service => service.id === storedBaseServiceId);
+    if (!storedService) {
+      return;
+    }
+
+    const normalizedStoredAddOns = buildDefaultSelectedAddOns(
+      storedBaseServiceId,
+      serviceAddOnRules,
+      addOns,
+      storedSelectedAddOns,
+    );
+
+    setSelectedBaseServiceIdState(storedBaseServiceId);
+    setSelectedCategory(storedService.category);
+    setSelectedAddOnsState(normalizedStoredAddOns);
+  }, [
+    addOns,
+    isHydrated,
+    locations,
+    serviceAddOnRules,
+    services,
+    storedBaseServiceId,
+    storedLocationId,
+    storedSelectedAddOns,
+    urlDrivenBaseServiceId,
+    urlLocationId,
+    urlSelectedAddOns,
+  ]);
 
   useEffect(() => {
     if (hadInvalidLocation && primaryLocation?.id) {
@@ -251,6 +334,10 @@ export function BookServiceClient({
   }, []);
 
   useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
     if (!selectedBaseServiceId) {
       if (selectedAddOnsState.length > 0) {
         setSelectedAddOnsState([]);
@@ -281,7 +368,7 @@ export function BookServiceClient({
     setBaseServiceId(selectedBaseServiceId);
     setServiceIds([selectedBaseServiceId]);
     setSelectedAddOns(normalized);
-  }, [selectedBaseServiceId, selectedAddOnsState, serviceAddOnRules, addOns, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+  }, [addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
   const availableCategorySet = new Set(services.map(service => service.category));
   const availableCategories = [
@@ -321,6 +408,7 @@ export function BookServiceClient({
       };
     })
     .filter(Boolean);
+  const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
 
   const totalPriceCents = (selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
     (sum, item) => {
@@ -340,6 +428,8 @@ export function BookServiceClient({
     },
     0,
   );
+  const featuredServices = getFeaturedServices(services);
+  const serviceRows = buildServiceRows(filteredServices);
 
   const goToNextStep = (baseServiceIdValue: string, selectedAddOnsValue: SelectedAddOnParam[]) => {
     const nextStep = getNextStep('service', bookingFlow);
@@ -440,6 +530,7 @@ export function BookServiceClient({
         return orderA - orderB;
       });
 
+    hasUserChangedSelectionRef.current = true;
     setSelectedAddOnsState(normalized);
     setSelectedAddOns(normalized);
     triggerHaptic('select');
@@ -518,6 +609,26 @@ export function BookServiceClient({
           </Card>
         </div>
 
+        {showFirstVisitOffer && (
+          <div
+            className="mb-4 rounded-2xl border px-4 py-3"
+            style={{
+              borderColor: `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+              backgroundColor: 'color-mix(in srgb, white 82%, var(--theme-accent) 18%)',
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 115ms, transform 300ms ease-out 115ms',
+            }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              First-visit offer
+            </p>
+            <p className="mt-1 text-sm font-medium text-neutral-800">
+              New clients may be eligible for 25% off their first appointment
+            </p>
+          </div>
+        )}
+
         {showLocationFallbackToast && (
           <div
             className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
@@ -573,6 +684,7 @@ export function BookServiceClient({
                     type="button"
                     onClick={() => {
                       if (selectedLocationId !== location.id) {
+                        hasUserChangedSelectionRef.current = true;
                         setSelectedLocationId(location.id);
                         triggerHaptic('select');
                       }
@@ -654,6 +766,91 @@ export function BookServiceClient({
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
                   }}
+                  data-testid="featured-services-scroll"
+                >
+                  {featuredServices.length > 0 && (
+                    <div className="mb-5">
+                      <div className="mb-2 px-4 sm:px-0">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                          Featured services
+                        </div>
+                        <div className="mt-1 text-base font-semibold text-neutral-900">
+                          Popular premium sets and combo appointments
+                        </div>
+                      </div>
+                      <div className="-mx-4 overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:px-0">
+                        <div className="flex min-w-max gap-3">
+                          {featuredServices.map((service) => {
+                            const isSelected = selectedBaseServiceId === service.id;
+                            return (
+                              <button
+                                key={`featured-${service.id}`}
+                                type="button"
+                                onClick={() => {
+                                  hasUserChangedSelectionRef.current = true;
+                                  setSelectedBaseServiceIdState(service.id);
+                                  setSelectedCategory(service.category);
+                                  triggerHaptic('select');
+                                }}
+                                className={`relative shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                  service.category === 'combo' ? 'w-[320px]' : 'w-[260px]'
+                                }`}
+                                style={{
+                                  background: isSelected
+                                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
+                                    : 'white',
+                                  boxShadow: isSelected
+                                    ? '0 12px 24px rgba(0,0,0,0.12)'
+                                    : '0 4px 20px rgba(0,0,0,0.06)',
+                                  borderWidth: isSelected ? 0 : '1px',
+                                  borderStyle: 'solid',
+                                  borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
+                                  outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
+                                }}
+                              >
+                                <div className="relative h-[126px] overflow-hidden">
+                                  <Image
+                                    src={service.imageUrl}
+                                    alt={service.name}
+                                    fill
+                                    className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
+                                  />
+                                  <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
+                                  <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
+                                    {service.category === 'combo' ? 'Best value' : CATEGORY_META[service.category].label}
+                                  </div>
+                                </div>
+                                <div className="p-3">
+                                  <div className="text-base font-bold leading-tight text-neutral-900">
+                                    {service.name}
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
+                                    {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
+                                  </div>
+                                  <div className="mt-2 flex items-center justify-between gap-3">
+                                    <span className="text-sm text-neutral-500">
+                                      {formatDuration(service.durationMinutes)}
+                                    </span>
+                                    <span className="text-base font-bold" style={{ color: themeVars.accent }}>
+                                      {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                  style={{
+                    opacity: mounted ? 1 : 0,
+                    transition: 'opacity 300ms ease-out 150ms',
+                  }}
                   data-testid="service-category-scroll"
                 >
                   <div
@@ -691,223 +888,243 @@ export function BookServiceClient({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  {filteredServices.map((service, index) => {
-                    const isSelected = selectedBaseServiceId === service.id;
-                    const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
+                <div className="space-y-3">
+                  {serviceRows.map((row, rowIndex) => {
+                    const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
+
                     return (
-                      <button
-                        key={service.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedBaseServiceIdState(service.id);
-                          setSelectedCategory(service.category);
-                          triggerHaptic('select');
-                        }}
-                        data-testid={`service-card-${service.id}`}
-                        data-selected={isSelected ? 'true' : 'false'}
-                        aria-pressed={isSelected}
-                        className="relative overflow-hidden rounded-2xl text-left transition-all duration-200"
-                        style={{
-                          transform: mounted ? (isSelected ? 'scale(1.02)' : 'translateY(0)') : 'translateY(15px)',
-                          opacity: mounted ? 1 : 0,
-                          background: isSelected
-                            ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`
-                            : 'white',
-                          boxShadow: isSelected
-                            ? '0 10px 15px -3px rgb(0 0 0 / 0.1)'
-                            : '0 4px 20px rgba(0,0,0,0.06)',
-                          borderWidth: isSelected ? 0 : '1px',
-                          borderStyle: 'solid',
-                          borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
-                          outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
-                          transition: `opacity 300ms ease-out ${200 + index * 50}ms, transform 300ms ease-out ${200 + index * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
-                        }}
-                      >
-                        <div
-                          className="relative h-[120px] overflow-hidden"
-                          style={{
-                            background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
-                          }}
-                        >
-                          <Image
-                            src={service.imageUrl}
-                            alt={service.name}
-                            fill
-                            className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
-                          />
-                          {service.resolvedIntroPriceLabel && (
-                            <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
-                              {service.resolvedIntroPriceLabel}
-                            </div>
-                          )}
-                          {isSelected && (
-                            <div
-                              className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full shadow-lg"
-                              style={{
-                                background: `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`,
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
-                                <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </div>
-                          )}
+                      <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          {row.map((service, serviceIndex) => {
+                            const isSelected = selectedBaseServiceId === service.id;
+                            const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
+                            const animationIndex = rowIndex * 2 + serviceIndex;
+
+                            return (
+                              <button
+                                key={service.id}
+                                type="button"
+                                onClick={() => {
+                                  hasUserChangedSelectionRef.current = true;
+                                  setSelectedBaseServiceIdState(service.id);
+                                  setSelectedCategory(service.category);
+                                  triggerHaptic('select');
+                                }}
+                                data-testid={`service-card-${service.id}`}
+                                data-selected={isSelected ? 'true' : 'false'}
+                                aria-pressed={isSelected}
+                                className={`relative overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                  service.category === 'combo' ? 'col-span-full' : ''
+                                }`}
+                                style={{
+                                  transform: mounted ? (isSelected ? 'scale(1.02)' : 'translateY(0)') : 'translateY(15px)',
+                                  opacity: mounted ? 1 : 0,
+                                  background: isSelected
+                                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`
+                                    : 'white',
+                                  boxShadow: isSelected
+                                    ? '0 10px 15px -3px rgb(0 0 0 / 0.1)'
+                                    : '0 4px 20px rgba(0,0,0,0.06)',
+                                  borderWidth: isSelected ? 0 : '1px',
+                                  borderStyle: 'solid',
+                                  borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
+                                  outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
+                                  transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
+                                }}
+                              >
+                                <div
+                                  className="relative h-[120px] overflow-hidden"
+                                  style={{
+                                    background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                                  }}
+                                >
+                                  <Image
+                                    src={service.imageUrl}
+                                    alt={service.name}
+                                    fill
+                                    className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
+                                  />
+                                  {service.resolvedIntroPriceLabel && (
+                                    <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
+                                      {service.resolvedIntroPriceLabel}
+                                    </div>
+                                  )}
+                                  {isSelected && (
+                                    <div
+                                      className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full shadow-lg"
+                                      style={{
+                                        background: `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+                                      }}
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
+                                        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="p-3">
+                                  <div className="text-base font-bold leading-tight text-neutral-900">
+                                    {service.name}
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
+                                    {previewDescription}
+                                  </div>
+                                  {isSelected && hasVisibleAddOns && (
+                                    <div
+                                      data-testid={`service-card-addon-cue-${service.id}`}
+                                      className="mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.04em]"
+                                      style={{
+                                        backgroundColor: `color-mix(in srgb, ${themeVars.primary} 10%, white)`,
+                                        color: themeVars.primaryDark,
+                                      }}
+                                    >
+                                      Add-ons available
+                                    </div>
+                                  )}
+                                  <div className="mt-2 flex items-center justify-between gap-3">
+                                    <span className="text-sm text-neutral-500">
+                                      {formatDuration(service.durationMinutes)}
+                                    </span>
+                                    <span className="text-base font-bold" style={{ color: themeVars.accent }}>
+                                      {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
 
-                        <div className="p-3">
-                          <div className="text-base font-bold leading-tight text-neutral-900">
-                            {service.name}
+                        {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
+                          <div
+                            data-testid="service-inline-addons-panel"
+                            className="w-full rounded-3xl bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                            style={{
+                              borderWidth: '1px',
+                              borderStyle: 'solid',
+                              borderColor: themeVars.cardBorder,
+                            }}
+                          >
+                            <div className="mb-3">
+                              <div className="text-lg font-bold text-neutral-900">
+                                Customize your service
+                              </div>
+                              <div className="mt-1 text-sm text-neutral-500">
+                                Optional add-ons for
+                                {' '}
+                                {selectedService.name}
+                              </div>
+                              <div className="mt-1 text-sm text-neutral-500">
+                                Add extra time or upgrades without changing your main service.
+                              </div>
+                            </div>
+
+                            <div className="space-y-3">
+                              {allowedAddOns.map((item) => {
+                                if (!item) {
+                                  return null;
+                                }
+
+                                const { addOn, rule, quantity } = item;
+                                const isSelected = quantity > 0;
+                                const isRequired = rule.selectionMode === 'required';
+                                const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+                                const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
+                                const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
+
+                                return (
+                                  <div
+                                    key={addOn.id}
+                                    className="rounded-2xl border px-4 py-3"
+                                    style={{
+                                      borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                                      backgroundColor: isSelected
+                                        ? `color-mix(in srgb, ${themeVars.primary} 8%, white)`
+                                        : 'white',
+                                    }}
+                                  >
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
+                                          {isRequired && (
+                                            <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                              Required
+                                            </span>
+                                          )}
+                                        </div>
+                                        {addOn.descriptionItems[0] && (
+                                          <div className="mt-1 text-sm text-neutral-500">
+                                            {addOn.descriptionItems[0]}
+                                          </div>
+                                        )}
+                                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                                          <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
+                                          <span>{formatDuration(addOn.durationMinutes)}</span>
+                                          {isSelected && (
+                                            <span>
+                                              Selected:
+                                              {' '}
+                                              {formatMoney(lineTotalCents, currency)}
+                                              {' '}
+                                              ·
+                                              {' '}
+                                              {formatDuration(lineDurationMinutes)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {addOn.pricingType === 'per_unit'
+                                        ? (
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
+                                                disabled={isRequired ? quantity <= 1 : quantity <= 0}
+                                                className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                              >
+                                                -
+                                              </button>
+                                              <div className="min-w-[2rem] text-center text-sm font-semibold text-neutral-900">
+                                                {quantity}
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
+                                                disabled={quantity >= maxQuantity}
+                                                className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          )
+                                        : (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAddOnToggle(addOn.id)}
+                                              disabled={isRequired}
+                                              className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed"
+                                              style={{
+                                                backgroundColor: isSelected || isRequired ? themeVars.primary : '#f5f5f5',
+                                                color: isSelected || isRequired ? '#171717' : '#404040',
+                                              }}
+                                            >
+                                              {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                            </button>
+                                          )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-neutral-500">
-                            {previewDescription}
-                          </div>
-                          <div className="mt-2 flex items-center justify-between gap-3">
-                            <span className="text-sm text-neutral-500">
-                              {formatDuration(service.durationMinutes)}
-                            </span>
-                            <span className="text-base font-bold" style={{ color: themeVars.accent }}>
-                              {service.priceDisplayText || formatMoney(service.priceCents, currency)}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
-
-                {selectedService && (
-                  <div
-                    className="mt-6 rounded-3xl bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                    style={{
-                      borderWidth: '1px',
-                      borderStyle: 'solid',
-                      borderColor: themeVars.cardBorder,
-                    }}
-                  >
-                    <div className="mb-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
-                        Customize
-                      </div>
-                      <div className="mt-1 text-lg font-bold text-neutral-900">
-                        Optional add-ons for
-                        {' '}
-                        {selectedService.name}
-                      </div>
-                      <div className="text-sm text-neutral-500">
-                        Add extra time or upgrades without changing your main service.
-                      </div>
-                    </div>
-
-                    {allowedAddOns.length === 0
-                      ? (
-                          <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-5 text-sm text-neutral-500">
-                            No add-ons available for this service yet.
-                          </div>
-                        )
-                      : (
-                          <div className="space-y-3">
-                            {allowedAddOns.map((item) => {
-                              if (!item) {
-                                return null;
-                              }
-
-                              const { addOn, rule, quantity } = item;
-                              const isSelected = quantity > 0;
-                              const isRequired = rule.selectionMode === 'required';
-                              const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
-                              const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
-                              const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
-
-                              return (
-                                <div
-                                  key={addOn.id}
-                                  className="rounded-2xl border px-4 py-3"
-                                  style={{
-                                    borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
-                                    backgroundColor: isSelected
-                                      ? `color-mix(in srgb, ${themeVars.primary} 8%, white)`
-                                      : 'white',
-                                  }}
-                                >
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
-                                        {isRequired && (
-                                          <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                            Required
-                                          </span>
-                                        )}
-                                      </div>
-                                      {addOn.descriptionItems[0] && (
-                                        <div className="mt-1 text-sm text-neutral-500">
-                                          {addOn.descriptionItems[0]}
-                                        </div>
-                                      )}
-                                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
-                                        <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
-                                        <span>{formatDuration(addOn.durationMinutes)}</span>
-                                        {isSelected && (
-                                          <span>
-                                            Selected:
-                                            {' '}
-                                            {formatMoney(lineTotalCents, currency)}
-                                            {' '}
-                                            ·
-                                            {' '}
-                                            {formatDuration(lineDurationMinutes)}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {addOn.pricingType === 'per_unit'
-                                      ? (
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
-                                              disabled={isRequired ? quantity <= 1 : quantity <= 0}
-                                              className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                            >
-                                              -
-                                            </button>
-                                            <div className="min-w-[2rem] text-center text-sm font-semibold text-neutral-900">
-                                              {quantity}
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
-                                              disabled={quantity >= maxQuantity}
-                                              className="flex size-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                            >
-                                              +
-                                            </button>
-                                          </div>
-                                        )
-                                      : (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleAddOnToggle(addOn.id)}
-                                            disabled={isRequired}
-                                            className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed"
-                                            style={{
-                                              backgroundColor: isSelected || isRequired ? themeVars.primary : '#f5f5f5',
-                                              color: isSelected || isRequired ? '#171717' : '#404040',
-                                            }}
-                                          >
-                                            {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
-                                          </button>
-                                        )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                  </div>
-                )}
               </>
             )}
 
@@ -956,6 +1173,15 @@ export function BookServiceClient({
                   ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
                   : '1 service'}
               </div>
+              {hasVisibleAddOns && (
+                <div
+                  data-testid="service-sticky-addon-note"
+                  className="mt-1 text-xs font-medium"
+                  style={{ color: themeVars.accent }}
+                >
+                  Optional add-ons available
+                </div>
+              )}
               <div className="text-xl font-bold text-neutral-900">
                 {formatMoney(totalPriceCents, currency)}
               </div>

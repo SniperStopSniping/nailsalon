@@ -8,6 +8,8 @@ export type StaffAppointmentData = {
   technicianId: string | null;
   services: Array<{ name: string }>;
   totalPrice: number;
+  totalDurationMinutes?: number;
+  locationId?: string | null;
   photos: Array<{
     id: string;
     imageUrl: string;

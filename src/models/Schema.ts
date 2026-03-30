@@ -495,7 +495,7 @@ export const appointmentSchema = pgTable(
     deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
 
     // Totals (computed from linked services at booking time)
-    totalPrice: integer('total_price').notNull(), // Sum of all service prices
+    totalPrice: integer('total_price').notNull(), // Final amount after any applied discount
     totalDurationMinutes: integer('total_duration_minutes').notNull(), // Visible customer-facing duration only
     basePriceCents: integer('base_price_cents'),
     addOnsPriceCents: integer('add_ons_price_cents').default(0),
@@ -503,6 +503,12 @@ export const appointmentSchema = pgTable(
     addOnsDurationMinutes: integer('add_ons_duration_minutes').default(0),
     bufferMinutes: integer('buffer_minutes').default(0),
     blockedDurationMinutes: integer('blocked_duration_minutes'),
+    subtotalBeforeDiscountCents: integer('subtotal_before_discount_cents'),
+    discountAmountCents: integer('discount_amount_cents').default(0),
+    discountType: text('discount_type'),
+    discountLabel: text('discount_label'),
+    discountPercent: integer('discount_percent'),
+    discountAppliedAt: timestamp('discount_applied_at', { mode: 'date' }),
 
     // Additional
     notes: text('notes'),

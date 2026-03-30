@@ -96,6 +96,9 @@ describe('BookTechClient', () => {
           unavailableReason: null,
         }]}
         services={[{ id: 'svc_1', name: 'BIAB', price: 50, duration: 75 }]}
+        totalPrice={50}
+        totalDuration={75}
+        locationName="Yorkville"
         bookingFlow={['service', 'tech', 'time', 'confirm']}
       />,
     );
@@ -120,6 +123,9 @@ describe('BookTechClient', () => {
           unavailableReason: 'Not assigned to this service yet',
         }]}
         services={[{ id: 'svc_1', name: 'BIAB + Classic Pedicure', price: 85, duration: 110 }]}
+        totalPrice={85}
+        totalDuration={110}
+        locationName="Yorkville"
         bookingFlow={['service', 'tech', 'time', 'confirm']}
       />,
     );
@@ -131,5 +137,33 @@ describe('BookTechClient', () => {
     fireEvent.click(techButton);
     expect(routerPush).not.toHaveBeenCalled();
     expect(setTechnicianId).not.toHaveBeenCalled();
+  });
+
+  it('shows service context above the technician list and uses neutral trust text for artists with no reviews', () => {
+    render(
+      <BookTechClient
+        technicians={[{
+          id: 'tech_1',
+          name: 'Taylor',
+          imageUrl: null,
+          specialties: ['Gel Manicure'],
+          rating: null,
+          reviewCount: 0,
+          bookable: true,
+          unavailableReason: null,
+        }]}
+        services={[{ id: 'svc_1', name: 'Colour Change', price: 25, duration: 30 }]}
+        totalPrice={25}
+        totalDuration={30}
+        locationName="Isla Nail Studio"
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    expect(screen.getByText('Selected service')).toBeInTheDocument();
+    expect(screen.getByText('Colour Change')).toBeInTheDocument();
+    expect(screen.getByText('Isla Nail Studio')).toBeInTheDocument();
+    expect(screen.getByText('No reviews yet')).toBeInTheDocument();
+    expect(screen.queryByText(/\(0\)/)).not.toBeInTheDocument();
   });
 });

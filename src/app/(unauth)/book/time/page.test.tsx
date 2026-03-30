@@ -4,6 +4,7 @@ const {
   buildTenantRedirectPath,
   checkFeatureEnabled,
   checkSalonStatus,
+  getClientSession,
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
@@ -15,6 +16,7 @@ const {
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
   checkSalonStatus: vi.fn(),
+  getClientSession: vi.fn(),
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
@@ -32,6 +34,10 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
   PublicSalonPageShell: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@/libs/clientAuth', () => ({
+  getClientSession,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -61,6 +67,7 @@ describe('BookTimePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+    getClientSession.mockResolvedValue(null);
   });
 
   it('redirects back to service selection when no services are selected', async () => {
@@ -155,5 +162,43 @@ describe('BookTimePage', () => {
     })).rejects.toThrow(
       'REDIRECT:/book/tech?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techError=unsupported',
     );
+  });
+
+  it('passes the logged-in client phone into public booking selection so time-step totals match confirm', async () => {
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: null,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getPrimaryLocation.mockResolvedValue(null);
+    getClientSession.mockResolvedValue({ phone: '+14165550123' });
+    resolvePublicBookingSelection.mockResolvedValue({
+      services: [{
+        id: 'svc_1',
+        name: 'BIAB',
+        priceCents: 5000,
+        durationMinutes: 75,
+      }],
+      addOns: [],
+      totalPriceCents: 3750,
+      visibleDurationMinutes: 75,
+    });
+
+    await BookTimePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_1',
+        techId: 'any',
+      },
+    });
+
+    expect(resolvePublicBookingSelection).toHaveBeenCalledWith(expect.objectContaining({
+      clientPhone: '+14165550123',
+    }));
   });
 });

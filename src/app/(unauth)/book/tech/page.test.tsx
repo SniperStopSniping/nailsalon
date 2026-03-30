@@ -10,6 +10,7 @@ const {
   buildTenantRedirectPath,
   checkFeatureEnabled,
   checkSalonStatus,
+  getClientSession,
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
@@ -23,6 +24,7 @@ const {
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
   checkSalonStatus: vi.fn(),
+  getClientSession: vi.fn(),
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
@@ -47,6 +49,10 @@ vi.mock('@/libs/queries', () => ({
 
 vi.mock('@/libs/publicBookingSelection', () => ({
   resolvePublicBookingSelection,
+}));
+
+vi.mock('@/libs/clientAuth', () => ({
+  getClientSession,
 }));
 
 vi.mock('@/libs/bookingPolicy', () => ({
@@ -77,6 +83,7 @@ describe('BookTechPage', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
+    getClientSession.mockResolvedValue({ phone: '+14165550123' });
     getPrimaryLocation.mockResolvedValue(null);
     resolvePublicBookingSelection.mockResolvedValue({
       mode: 'base-service',
@@ -93,6 +100,8 @@ describe('BookTechPage', () => {
       }],
       addOns: [],
       selectedAddOns: [],
+      totalPriceCents: 8500,
+      visibleDurationMinutes: 110,
     });
     getTechniciansBySalonId.mockResolvedValue([{
       id: 'tech_1',
@@ -115,5 +124,8 @@ describe('BookTechPage', () => {
 
     expect(screen.getByText(/"bookable":false/)).toBeInTheDocument();
     expect(screen.getByText(/"unavailableReason":"Not assigned to this service yet"/)).toBeInTheDocument();
+    expect(resolvePublicBookingSelection).toHaveBeenCalledWith(expect.objectContaining({
+      clientPhone: '+14165550123',
+    }));
   });
 });

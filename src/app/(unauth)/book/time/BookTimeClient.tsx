@@ -39,8 +39,9 @@ export type AddOnSummary = {
 type BookTimeClientProps = {
   services: ServiceSummary[];
   addOns?: AddOnSummary[];
-  totalPrice?: number;
-  totalDuration?: number;
+  totalPrice: number;
+  totalDuration: number;
+  locationName?: string | null;
   technician: TechnicianSummary;
   bookingFlow: BookingStep[];
 };
@@ -150,6 +151,7 @@ export function BookTimeClient({
   addOns = [],
   totalPrice,
   totalDuration,
+  locationName = null,
   technician,
   bookingFlow,
 }: BookTimeClientProps) {
@@ -189,9 +191,6 @@ export function BookTimeClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Use services passed from server
-  const resolvedTotalPrice = totalPrice ?? (services.reduce((sum, service) => sum + service.price, 0) + addOns.reduce((sum, addOn) => sum + addOn.price, 0));
-  const resolvedTotalDuration = totalDuration ?? (services.reduce((sum, service) => sum + service.duration, 0) + addOns.reduce((sum, addOn) => sum + addOn.duration, 0));
   const serviceNames = [
     ...services.map(s => s.name),
     ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
@@ -273,7 +272,7 @@ export function BookTimeClient({
       // The explicit URL selection should win over any persisted local booking state.
       const effectiveTechId = techId || stateTechId;
       const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
-      const durationParam = !baseServiceId ? `&durationMinutes=${resolvedTotalDuration}` : '';
+      const durationParam = !baseServiceId ? `&durationMinutes=${totalDuration}` : '';
       const serviceParam = serviceIdsParam
         ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}`
         : '';
@@ -324,7 +323,7 @@ export function BookTimeClient({
         setLoadingSlots(false);
       }
     }
-  }, [baseServiceId, locationId, originalAppointmentId, resolvedTotalDuration, salonSlug, selectedAddOns, serviceIdsParam, techId, stateTechId]);
+  }, [baseServiceId, locationId, originalAppointmentId, totalDuration, salonSlug, selectedAddOns, serviceIdsParam, techId, stateTechId]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -618,8 +617,9 @@ export function BookTimeClient({
         <BookingSummaryCard
           mounted={mounted}
           serviceNames={serviceNames}
-          totalDuration={resolvedTotalDuration}
-          totalPrice={resolvedTotalPrice}
+          totalDuration={totalDuration}
+          totalPrice={totalPrice}
+          locationName={locationName}
           technician={technician}
         />
 

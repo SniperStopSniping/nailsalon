@@ -10,7 +10,6 @@ import {
   type CancelReason,
   type Client,
   clientSchema,
-  rewardSchema,
   type Salon,
   type SalonClient,
   salonClientSchema,
@@ -679,15 +678,11 @@ export async function getOrCreateSalonClient(
  * - Otherwise: use (salonId, phone) as conflict target
  *   This handles guest bookings or phone-only identification
  *
- * Welcome bonus is granted atomically on first creation OR for legacy clients
- * who were created before the welcome bonus feature (welcomeBonusGrantedAt IS NULL).
- *
  * @param salonId - The salon's unique ID
  * @param phone - The client's phone number (will be normalized to 10 digits)
  * @param fullName - Optional name
  * @param email - Optional email
  * @param globalClientId - Optional link to global client table
- * @param welcomeBonusPoints - Resolved welcome bonus points (use resolveSalonLoyaltyPoints)
  * @returns The upserted salon client
  */
 export async function upsertSalonClient(
@@ -696,7 +691,7 @@ export async function upsertSalonClient(
   fullName?: string,
   email?: string,
   globalClientId?: string,
-  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
+  _welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
 ): Promise<SalonClient> {
   const normalizedPhone = normalizePhone(phone);
   const salonClientId = `sc_${crypto.randomUUID()}`;
@@ -718,7 +713,6 @@ export async function upsertSalonClient(
 
     if (existingByClientId.length > 0) {
       const existing = existingByClientId[0]!;
-      // Update existing record + maybe grant welcome bonus (legacy clients)
       const [updated] = await db
         .update(salonClientSchema)
         .set({
@@ -729,9 +723,6 @@ export async function upsertSalonClient(
         })
         .where(eq(salonClientSchema.id, existing.id))
         .returning();
-
-      // Grant welcome bonus for legacy clients (created before this feature)
-      await grantWelcomeBonusIfEligible(existing.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
 
       return updated!;
     }
@@ -762,21 +753,17 @@ export async function upsertSalonClient(
         .where(eq(salonClientSchema.id, existing.id))
         .returning();
 
-      // Grant welcome bonus for legacy clients (created before this feature)
-      await grantWelcomeBonusIfEligible(existing.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
-
       return updated!;
     }
 
-    // Create new record with global client link + welcome bonus (atomic)
-    return await createSalonClientWithWelcomeBonus(
+    // Create new record with global client link.
+    return await createSalonClient(
       salonClientId,
       salonId,
       normalizedPhone,
       fullName,
       email,
       globalClientId,
-      welcomeBonusPoints,
     );
   }
 
@@ -794,7 +781,7 @@ export async function upsertSalonClient(
     .limit(1);
 
   if (existingClient) {
-    // Existing client - update + maybe grant welcome bonus (legacy clients)
+    // Existing client - update in place.
     const [updated] = await db
       .update(salonClientSchema)
       .set({
@@ -802,155 +789,52 @@ export async function upsertSalonClient(
         ...(email && { email }),
         updatedAt: new Date(),
       })
-      .where(eq(salonClientSchema.id, existingClient.id))
-      .returning();
-
-    // Grant welcome bonus for legacy clients (created before this feature)
-    await grantWelcomeBonusIfEligible(existingClient.id, salonId, normalizedPhone, fullName, welcomeBonusPoints);
+        .where(eq(salonClientSchema.id, existingClient.id))
+        .returning();
 
     return updated!;
   }
 
-  // New client - create with welcome bonus (atomic)
-  return await createSalonClientWithWelcomeBonus(
+  // New client - create without any automatic welcome points.
+  return await createSalonClient(
     salonClientId,
     salonId,
     normalizedPhone,
     fullName,
     email,
     null,
-    welcomeBonusPoints,
   );
 }
 
 /**
- * Create a new salon client with welcome bonus in a single atomic transaction.
- * This ensures the welcome bonus is only granted once even under race conditions.
- *
- * @param welcomeBonusPoints - Resolved welcome bonus points for this salon
+ * Create a new salon client profile with zero starting points.
  */
-async function createSalonClientWithWelcomeBonus(
+async function createSalonClient(
   salonClientId: string,
   salonId: string,
   phone: string,
   fullName?: string,
   email?: string,
   globalClientId?: string | null,
-  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
 ): Promise<SalonClient> {
-  return await db.transaction(async (tx) => {
-    // Insert new salon client with welcome bonus
-    const [newClient] = await tx
-      .insert(salonClientSchema)
-      .values({
-        id: salonClientId,
-        salonId,
-        phone,
-        fullName,
-        email,
-        clientId: globalClientId ?? null,
-        loyaltyPoints: welcomeBonusPoints,
-        welcomeBonusGrantedAt: new Date(),
-      })
-      .returning();
-
-    if (!newClient) {
-      throw new Error('Failed to create salon client');
-    }
-
-    // Create welcome bonus reward record for visibility
-    const rewardId = `reward_${crypto.randomUUID()}`;
-    const expiresAt = new Date();
-    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-
-    await tx.insert(rewardSchema).values({
-      id: rewardId,
+  const [newClient] = await db
+    .insert(salonClientSchema)
+    .values({
+      id: salonClientId,
       salonId,
-      clientPhone: phone,
-      clientName: fullName ?? null,
-      type: 'welcome_bonus',
-      points: welcomeBonusPoints,
-      eligibleServiceName: 'Free Gel Manicure',
-      status: 'active',
-      expiresAt,
-    });
+      phone,
+      fullName,
+      email,
+      clientId: globalClientId ?? null,
+      loyaltyPoints: 0,
+    })
+    .returning();
 
-    // eslint-disable-next-line no-console
-    console.warn(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to ${phone} at salon ${salonId}`);
-
-    return newClient;
-  });
-}
-
-/**
- * Grant welcome bonus to existing salon client if not already granted.
- * Uses atomic conditional update to prevent race conditions.
- * This handles legacy clients created before the welcome bonus feature.
- *
- * @param salonClientId - The salon client's ID
- * @param salonId - The salon's ID (for reward record)
- * @param phone - Client phone (for reward record)
- * @param fullName - Client name (for reward record)
- * @param welcomeBonusPoints - Resolved welcome bonus points for this salon
- */
-async function grantWelcomeBonusIfEligible(
-  salonClientId: string,
-  salonId: string,
-  phone: string,
-  fullName?: string,
-  welcomeBonusPoints: number = WELCOME_BONUS_POINTS,
-): Promise<boolean> {
-  try {
-    return await db.transaction(async (tx) => {
-      // Atomic conditional update: only set welcomeBonusGrantedAt if currently NULL
-      // and increment points in the same update
-      const updateResult = await tx
-        .update(salonClientSchema)
-        .set({
-          welcomeBonusGrantedAt: new Date(),
-          loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${welcomeBonusPoints}`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(salonClientSchema.id, salonClientId),
-            isNull(salonClientSchema.welcomeBonusGrantedAt),
-          ),
-        )
-        .returning();
-
-      // If no rows updated, bonus was already granted
-      if (updateResult.length === 0) {
-        return false;
-      }
-
-      // Create welcome bonus reward record for visibility
-      const rewardId = `reward_${crypto.randomUUID()}`;
-      const expiresAt = new Date();
-      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-
-      await tx.insert(rewardSchema).values({
-        id: rewardId,
-        salonId,
-        clientPhone: phone,
-        clientName: fullName ?? null,
-        type: 'welcome_bonus',
-        points: welcomeBonusPoints,
-        eligibleServiceName: 'Free Gel Manicure',
-        status: 'active',
-        expiresAt,
-      });
-
-      // eslint-disable-next-line no-console
-      console.warn(`[Welcome] Granted ${welcomeBonusPoints} point welcome bonus to legacy client ${phone}`);
-
-      return true;
-    });
-  } catch (error) {
-    // Log but don't fail - this is best-effort for legacy clients
-    console.error('Failed to grant welcome bonus:', error);
-    return false;
+  if (!newClient) {
+    throw new Error('Failed to create salon client');
   }
+
+  return newClient;
 }
 
 /**

@@ -12,7 +12,7 @@
  * - Salon must have reviewsEnabled = true
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logReviewCreated } from '@/libs/auditLog';
@@ -25,7 +25,7 @@ import {
 import { db } from '@/libs/DB';
 import { getAppointmentById, getSalonClientByPhone } from '@/libs/queries';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
-import { reviewSchema } from '@/models/Schema';
+import { reviewSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +51,12 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+class ReviewAlreadyExistsError extends Error {
+  constructor() {
+    super('ALREADY_REVIEWED');
+  }
+}
 
 // =============================================================================
 // POST /api/client/reviews - Create review
@@ -179,40 +185,56 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 8. Check if review already exists (server-side check before DB unique constraint)
-    const existingReview = await db
-      .select({ id: reviewSchema.id })
-      .from(reviewSchema)
-      .where(eq(reviewSchema.appointmentId, appointmentId))
-      .limit(1);
-
-    if (existingReview.length > 0) {
-      return Response.json(
-        {
-          error: {
-            code: 'ALREADY_REVIEWED',
-            message: 'You have already submitted a review for this appointment',
-          },
-        } satisfies ErrorResponse,
-        { status: 409 },
-      );
-    }
-
-    // 9. Create review with proper identity references
+    // 8. Create review and update technician aggregate in one transaction
     const reviewId = `review_${crypto.randomUUID()}`;
-    const [review] = await db
-      .insert(reviewSchema)
-      .values({
-        id: reviewId,
-        salonId: salon.id,
-        appointmentId,
-        salonClientId: salonClient.id,
-        clientNameSnapshot: salonClient.fullName ?? appointment.clientName,
-        technicianId: appointment.technicianId,
-        rating,
-        comment: comment?.trim() || null,
-      })
-      .returning();
+    const [review] = await db.transaction(async (tx) => {
+      const existingReview = await tx
+        .select({ id: reviewSchema.id })
+        .from(reviewSchema)
+        .where(eq(reviewSchema.appointmentId, appointmentId))
+        .limit(1);
+
+      if (existingReview.length > 0) {
+        throw new ReviewAlreadyExistsError();
+      }
+
+      const insertedReviews = await tx
+        .insert(reviewSchema)
+        .values({
+          id: reviewId,
+          salonId: salon.id,
+          appointmentId,
+          salonClientId: salonClient.id,
+          clientNameSnapshot: salonClient.fullName ?? appointment.clientName,
+          technicianId: appointment.technicianId,
+          rating,
+          comment: comment?.trim() || null,
+        })
+        .returning();
+
+      if (appointment.technicianId) {
+        const updatedTechnicians = await tx
+          .update(technicianSchema)
+          .set({
+            reviewCount: sql`${technicianSchema.reviewCount} + 1`,
+            rating: sql`round(((coalesce(${technicianSchema.rating}, 0::numeric) * ${technicianSchema.reviewCount}) + ${rating}) / (${technicianSchema.reviewCount} + 1), 1)`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(technicianSchema.id, appointment.technicianId),
+              eq(technicianSchema.salonId, salon.id),
+            ),
+          )
+          .returning();
+
+        if (updatedTechnicians.length === 0) {
+          throw new Error('TECHNICIAN_AGGREGATE_UPDATE_FAILED');
+        }
+      }
+
+      return insertedReviews;
+    });
 
     // Audit log (using salonClientId, not raw phone)
     void logReviewCreated(salon.id, reviewId, appointmentId, rating, salonClient.id, ip);
@@ -232,6 +254,18 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
   } catch (error) {
+    if (error instanceof ReviewAlreadyExistsError) {
+      return Response.json(
+        {
+          error: {
+            code: 'ALREADY_REVIEWED',
+            message: 'You have already submitted a review for this appointment',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
     // Handle unique constraint violation (race condition)
     if (error instanceof Error && error.message.includes('unique')) {
       return Response.json(

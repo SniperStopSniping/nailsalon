@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { getDefaultComboCatalogTemplate } from './defaultCatalog';
+import { getDefaultCatalogTemplate, getDefaultComboCatalogTemplate } from './defaultCatalog';
+
+describe('default catalog template', () => {
+  it('includes Colour Change after Gel Manicure in the manicure seed list', () => {
+    const template = getDefaultCatalogTemplate();
+    const serviceSlugs = template.services.map(service => service.slug);
+
+    expect(serviceSlugs).toContain('colour-change');
+    expect(serviceSlugs.indexOf('colour-change')).toBe(serviceSlugs.indexOf('gel-manicure') + 1);
+  });
+});
 
 describe('default combo catalog template', () => {
   it('includes the six launch combo services with combo-only small add-on mappings', () => {

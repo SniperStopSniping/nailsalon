@@ -173,7 +173,6 @@ const MemberCard = ({
   profileImageInputRef,
   onProfileImageChange,
   onEditProfile,
-  hasProfileReward,
 }: {
   userName: string;
   userEmail: string | null;
@@ -186,7 +185,6 @@ const MemberCard = ({
   profileImageInputRef: React.RefObject<HTMLInputElement | null>;
   onProfileImageChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onEditProfile: () => void;
-  hasProfileReward: boolean;
 }) => {
   const progressPercent = Math.min(100, (activePoints / 2500) * 100);
 
@@ -288,17 +286,6 @@ const MemberCard = ({
                 {' '}
                 this year
               </span>
-              {hasProfileReward && (
-                <span
-                  className="font-body px-3 py-1 text-[11px] font-semibold text-[var(--n5-accent)]"
-                  style={{
-                    borderRadius: n5.radiusPill,
-                    backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, white)',
-                  }}
-                >
-                  Welcome bonus added
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -630,7 +617,7 @@ const ProfileCompleteBanner = ({ onComplete }: { onComplete: () => void }) => (
   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
     <SectionCard
       title="Complete your profile"
-      description="Add your name and email to unlock your 2,500-point welcome bonus."
+      description="Add your name and email to earn a 2,500-point profile reward."
       className="mt-4 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
       actions={<Gift className="size-5 text-[var(--n5-accent)]" />}
       contentClassName="pt-0"
@@ -785,7 +772,7 @@ const ProfileEditSheet = ({
                 Complete your profile
               </h2>
               <p className="font-body mt-1 text-[13px] text-[var(--n5-ink-muted)]">
-                Add your details to unlock your 2,500-point welcome bonus.
+                Add your details to earn your 2,500-point profile reward.
               </p>
             </div>
 
@@ -954,7 +941,6 @@ export default function ProfileContent() {
   // Profile completion state
   const [showEditSheet, setShowEditSheet] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [hasProfileReward, setHasProfileReward] = useState(false);
 
   // Derived: profile is complete if we have both name (not Guest) and email
   const isProfileComplete = userName !== 'Guest' && userName.trim() !== '' && clientEmail.trim() !== '';
@@ -1166,7 +1152,6 @@ export default function ProfileContent() {
 
         // Show confetti if reward was granted
         if (data.data?.rewardGranted) {
-          setHasProfileReward(true);
           setShowConfetti(true);
 
           // Refresh points to include new reward
@@ -1257,7 +1242,6 @@ export default function ProfileContent() {
                     profileImageInputRef={profileImageInputRef}
                     onProfileImageChange={handleProfileImageChange}
                     onEditProfile={() => setShowEditSheet(true)}
-                    hasProfileReward={hasProfileReward}
                   />
 
                   {/* Profile Completion Banner - shown when profile is incomplete */}
@@ -1312,7 +1296,7 @@ export default function ProfileContent() {
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
         title="2,500 points added"
-        message="Thanks for completing your profile. Your welcome bonus is now in your rewards balance."
+        message="Thanks for completing your profile. Your reward points are now in your balance."
         emoji="🎉"
         autoDismissMs={4000}
       />

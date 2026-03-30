@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { type BookingConfig, DEFAULT_BOOKING_CONFIG } from '@/libs/bookingConfig';
 import { descriptionItemsToLegacyText } from '@/libs/bookingCatalog';
@@ -7,6 +7,7 @@ import {
   salonSchema,
   serviceAddOnSchema,
   serviceSchema,
+  technicianServicesSchema,
 } from '@/models/Schema';
 
 type DefaultServiceTemplate = {
@@ -60,6 +61,20 @@ const DEFAULT_SERVICES: DefaultServiceTemplate[] = [
       'Russian manicure prep',
       'Gel color',
       'Cuticle oil finish',
+    ],
+    isIntroPrice: true,
+    introPriceLabel: 'Founding Client Price',
+  },
+  {
+    name: 'Colour Change',
+    slug: 'colour-change',
+    category: 'manicure',
+    priceCents: 2500,
+    durationMinutes: 30,
+    descriptionItems: [
+      'Polish / colour refresh only',
+      'Fresh colour application',
+      'Not a refill or builder service',
     ],
     isIntroPrice: true,
     introPriceLabel: 'Founding Client Price',
@@ -355,6 +370,7 @@ const DEFAULT_COMBO_SERVICE_SLUGS = new Set(
 
 const DEFAULT_COMBO_SERVICES = DEFAULT_SERVICES.filter(service => DEFAULT_COMBO_SERVICE_SLUGS.has(service.slug));
 const DEFAULT_COMBO_SERVICE_ADD_ONS = DEFAULT_SERVICE_ADD_ONS.filter(mapping => DEFAULT_COMBO_SERVICE_SLUGS.has(mapping.serviceSlug));
+const DEFAULT_COLOUR_CHANGE_SERVICE = DEFAULT_SERVICES.find(service => service.slug === 'colour-change');
 
 export function getDefaultCatalogTemplate() {
   return {
@@ -632,5 +648,130 @@ export async function backfillMissingDefaultComboServicesForSalon(args: {
   return {
     insertedServices,
     insertedMappings,
+  };
+}
+
+export async function backfillMissingColourChangeForSalon(args: {
+  db: any;
+  salonId: string;
+}) {
+  const { db, salonId } = args;
+  const serviceTemplate = DEFAULT_COLOUR_CHANGE_SERVICE;
+
+  if (!serviceTemplate) {
+    throw new Error('DEFAULT_COLOUR_CHANGE_TEMPLATE_MISSING');
+  }
+
+  type ExistingServiceRow = {
+    id: string;
+    slug: string | null;
+    sortOrder: number | null;
+  };
+
+  const existingServices = await db
+    .select({
+      id: serviceSchema.id,
+      slug: serviceSchema.slug,
+      sortOrder: serviceSchema.sortOrder,
+    })
+    .from(serviceSchema)
+    .where(eq(serviceSchema.salonId, salonId)) as ExistingServiceRow[];
+
+  const existingColourChange = existingServices.find(service => service.slug === serviceTemplate.slug);
+  if (existingColourChange) {
+    return {
+      insertedService: false,
+      insertedAssignments: 0,
+    };
+  }
+
+  const nextSortOrder = Math.max(0, ...existingServices.map(service => service.sortOrder ?? 0)) + 1;
+  const colourChangeServiceId = buildServiceId(salonId, serviceTemplate.slug);
+
+  const insertedService = await db
+    .insert(serviceSchema)
+    .values({
+      id: colourChangeServiceId,
+      salonId,
+      name: serviceTemplate.name,
+      slug: serviceTemplate.slug,
+      description: descriptionItemsToLegacyText(serviceTemplate.descriptionItems),
+      descriptionItems: serviceTemplate.descriptionItems,
+      price: serviceTemplate.priceCents,
+      priceDisplayText: serviceTemplate.priceDisplayText ?? null,
+      durationMinutes: serviceTemplate.durationMinutes,
+      isIntroPrice: serviceTemplate.isIntroPrice ?? false,
+      introPriceLabel: serviceTemplate.introPriceLabel ?? null,
+      category: serviceTemplate.category,
+      sortOrder: nextSortOrder,
+      isActive: true,
+    })
+    .onConflictDoNothing()
+    .returning({ id: serviceSchema.id });
+
+  if (insertedService.length === 0) {
+    return {
+      insertedService: false,
+      insertedAssignments: 0,
+    };
+  }
+
+  const manicureServiceIds = await db
+    .select({ id: serviceSchema.id })
+    .from(serviceSchema)
+    .where(
+      and(
+        eq(serviceSchema.salonId, salonId),
+        eq(serviceSchema.category, 'manicure'),
+        eq(serviceSchema.isActive, true),
+      ),
+    ) as Array<{ id: string }>;
+
+  const eligibleSourceServiceIds = manicureServiceIds
+    .map(service => service.id)
+    .filter(serviceId => serviceId !== colourChangeServiceId);
+
+  if (eligibleSourceServiceIds.length === 0) {
+    return {
+      insertedService: true,
+      insertedAssignments: 0,
+    };
+  }
+
+  const manicureAssignments = await db
+    .select({
+      technicianId: technicianServicesSchema.technicianId,
+    })
+    .from(technicianServicesSchema)
+    .where(
+      and(
+        inArray(technicianServicesSchema.serviceId, eligibleSourceServiceIds),
+        eq(technicianServicesSchema.enabled, true),
+      ),
+    ) as Array<{ technicianId: string }>;
+
+  const eligibleTechnicianIds = Array.from(new Set(manicureAssignments.map(row => row.technicianId)));
+  let insertedAssignments = 0;
+
+  for (const technicianId of eligibleTechnicianIds) {
+    const insertedAssignment = await db
+      .insert(technicianServicesSchema)
+      .values({
+        technicianId,
+        serviceId: colourChangeServiceId,
+        priority: 0,
+        enabled: true,
+      })
+      .onConflictDoNothing()
+      .returning({ technicianId: technicianServicesSchema.technicianId });
+
+    if (insertedAssignment.length > 0) {
+      insertedAssignments += 1;
+    }
+  }
+
+  return {
+    insertedService: true,
+    insertedAssignments,
   };
 }

@@ -71,8 +71,15 @@ type BookConfirmClientProps = {
     addOnId: string;
     quantity?: number;
   }>;
-  totalPrice?: number;
-  totalDuration?: number;
+  subtotalBeforeDiscount: number;
+  discountAmount: number;
+  firstVisitDiscountPreview?: {
+    label: string;
+    percent: number;
+    amountCents: number;
+  } | null;
+  totalPrice: number;
+  totalDuration: number;
   technician: TechnicianSummary;
   salonSlug: string;
   dateStr: string;
@@ -483,6 +490,9 @@ const ConfirmContent = ({
   onEditSelection,
   isSubmitting,
   location,
+  subtotalBeforeDiscount,
+  discountAmount,
+  firstVisitDiscountPreview,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -496,6 +506,9 @@ const ConfirmContent = ({
   onEditSelection: () => void;
   isSubmitting: boolean;
   location: LocationSummary;
+  subtotalBeforeDiscount: number;
+  discountAmount: number;
+  firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
 }) => (
   <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
     <nav
@@ -574,6 +587,19 @@ const ConfirmContent = ({
           className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
           contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
         >
+          {firstVisitDiscountPreview && discountAmount > 0 && (
+            <div className="rounded-xl border px-3 py-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
+              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                Offer
+              </span>
+              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                First visit discount applied: -{firstVisitDiscountPreview.percent}%
+              </p>
+              <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                Subtotal ${subtotalBeforeDiscount.toFixed(2)} · Savings ${discountAmount.toFixed(2)}
+              </p>
+            </div>
+          )}
           <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
             <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
               Duration
@@ -997,6 +1023,9 @@ export function BookConfirmClient({
   addOns = [],
   baseServiceId = null,
   selectedAddOns = [],
+  subtotalBeforeDiscount,
+  discountAmount = 0,
+  firstVisitDiscountPreview = null,
   totalPrice,
   totalDuration,
   technician,
@@ -1050,8 +1079,9 @@ export function BookConfirmClient({
   const [isSavingName, setIsSavingName] = useState(false);
   const nameCheckInitiatedRef = useRef(false);
 
-  const resolvedTotalPrice = totalPrice ?? (services.reduce((sum, service) => sum + service.price, 0) + addOns.reduce((sum, addOn) => sum + addOn.price, 0));
-  const resolvedTotalDuration = totalDuration ?? (services.reduce((sum, service) => sum + service.duration, 0) + addOns.reduce((sum, addOn) => sum + addOn.duration, 0));
+  const resolvedTotalPrice = totalPrice;
+  const resolvedTotalDuration = totalDuration;
+  const resolvedSubtotalBeforeDiscount = subtotalBeforeDiscount;
   // totalPrice is in dollars, convert to cents for points calculation
   const pointsEarned = computeEarnedPointsFromCents(Math.round(resolvedTotalPrice * 100));
 
@@ -1317,6 +1347,9 @@ export function BookConfirmClient({
       dateStr={dateStr}
       timeStr={timeStr}
       pointsEarned={pointsEarned}
+      subtotalBeforeDiscount={resolvedSubtotalBeforeDiscount}
+      discountAmount={discountAmount}
+      firstVisitDiscountPreview={firstVisitDiscountPreview}
       onConfirm={createBooking}
       onEditSelection={() => router.back()}
       isSubmitting={isBooking}

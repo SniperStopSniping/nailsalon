@@ -7,12 +7,14 @@ import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { StateCard } from '@/components/ui/state-card';
 import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
+import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -21,7 +23,7 @@ export type TechnicianData = {
   name: string;
   imageUrl: string | null;
   specialties: string[];
-  rating: number;
+  rating: number | null;
   reviewCount: number;
   bookable: boolean;
   unavailableReason: string | null;
@@ -34,13 +36,33 @@ export type ServiceSummary = {
   duration: number;
 };
 
+export type AddOnSummary = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  duration: number;
+};
+
 type BookTechClientProps = {
   technicians: TechnicianData[];
   services: ServiceSummary[];
+  addOns?: AddOnSummary[];
+  totalPrice: number;
+  totalDuration: number;
+  locationName?: string | null;
   bookingFlow: BookingStep[];
 };
 
-export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps) {
+export function BookTechClient({
+  technicians,
+  services,
+  addOns = [],
+  totalPrice,
+  totalDuration,
+  locationName = null,
+  bookingFlow,
+}: BookTechClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -62,12 +84,16 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state for technician persistence
-  const { technicianId, setTechnicianId, syncFromUrl } = useBookingState();
+  const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState();
 
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [pendingTechId, setPendingTechId] = useState<string | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const serviceNames = [
+    ...services.map(service => service.name),
+    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+  ].join(' + ');
 
   // Initialize mounted and sync from URL params/state on mount
   useEffect(() => {
@@ -82,6 +108,14 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+
+  useEffect(() => {
+    if (!isHydrated || selectedTech || !technicianId || searchParams.get('techId')) {
+      return;
+    }
+
+    setSelectedTech(technicianId);
+  }, [isHydrated, searchParams, selectedTech, technicianId]);
 
   const goToNextStep = (techId: string) => {
     // Save to global state first
@@ -198,10 +232,23 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
           />
         )}
 
+        <BookingSummaryCard
+          mounted={mounted}
+          label="Selected service"
+          serviceNames={serviceNames}
+          totalDuration={totalDuration}
+          totalPrice={totalPrice}
+          locationName={locationName}
+        />
+
         {/* Technicians grid */}
         <div className="grid grid-cols-2 gap-3">
           {technicians.map((tech, index) => {
             const isSelected = selectedTech === tech.id && tech.bookable;
+            const ratingDisplay = getPublicTechnicianRatingDisplay({
+              rating: tech.rating,
+              reviewCount: tech.reviewCount,
+            });
             return (
               <button
                 key={tech.id}
@@ -266,35 +313,37 @@ export function BookTechClient({ technicians, bookingFlow }: BookTechClientProps
                     {tech.name}
                   </div>
 
-                  {tech.bookable
-                    ? (
-                        <div className="mb-2 flex items-center gap-1.5">
-                          <div className="flex items-center gap-0.5">
-                            {[1, 2, 3, 4, 5].map(star => (
-                              <svg
-                                key={star}
-                                width="14"
-                                height="14"
-                                viewBox="0 0 12 12"
-                                style={{ fill: star <= Math.floor(tech.rating) ? themeVars.primary : '#e5e5e5' }}
-                              >
-                                <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
-                              </svg>
-                            ))}
-                          </div>
-                          <span className="text-sm font-bold text-neutral-900">{tech.rating}</span>
-                          <span className="text-xs text-neutral-400">
-                            (
-                            {tech.reviewCount}
-                            )
-                          </span>
-                        </div>
-                      )
-                    : (
-                        <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
-                          {tech.unavailableReason ?? 'Unavailable for this service'}
-                        </div>
-                      )}
+                  {!tech.bookable ? (
+                    <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
+                      {tech.unavailableReason ?? 'Unavailable for this service'}
+                    </div>
+                  ) : ratingDisplay.kind === 'rated' ? (
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <svg
+                            key={star}
+                            width="14"
+                            height="14"
+                            viewBox="0 0 12 12"
+                            style={{ fill: star <= Math.floor(ratingDisplay.ratingValue) ? themeVars.primary : '#e5e5e5' }}
+                          >
+                            <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
+                          </svg>
+                        ))}
+                      </div>
+                      <span className="text-sm font-bold text-neutral-900">{ratingDisplay.ratingText}</span>
+                      <span className="text-xs text-neutral-400">
+                        (
+                        {ratingDisplay.reviewCountText}
+                        )
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
+                      {ratingDisplay.label}
+                    </div>
+                  )}
 
                   {/* Specialties */}
                   <div className="flex flex-wrap justify-center gap-1">

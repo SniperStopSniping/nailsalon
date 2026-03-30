@@ -15,6 +15,7 @@ describe('bookingConfig', () => {
         currency: 'USD',
         timezone: 'America/New_York',
         introPriceDefaultLabel: 'Soft Opening Price',
+        firstVisitDiscountEnabled: true,
       },
     })).toEqual({
       bufferMinutes: 15,
@@ -22,6 +23,7 @@ describe('bookingConfig', () => {
       currency: 'USD',
       timezone: 'America/New_York',
       introPriceDefaultLabel: 'Soft Opening Price',
+      firstVisitDiscountEnabled: true,
     });
   });
 

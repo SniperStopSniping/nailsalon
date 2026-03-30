@@ -26,6 +26,7 @@ describe('BookingSummaryCard', () => {
         serviceNames="BIAB"
         totalDuration={75}
         totalPrice={50}
+        locationName="Yorkville"
         technician={{ name: 'Daniela Ruiz', imageUrl: '/broken-avatar.jpg' }}
       />,
     );
@@ -33,5 +34,6 @@ describe('BookingSummaryCard', () => {
     fireEvent.error(screen.getByAltText('Daniela Ruiz'));
 
     expect(screen.getByText('DR')).toBeInTheDocument();
+    expect(screen.getByText('Yorkville')).toBeInTheDocument();
   });
 });

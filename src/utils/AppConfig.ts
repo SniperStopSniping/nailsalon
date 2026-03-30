@@ -31,8 +31,8 @@ export const PLAN_ID = {
 // =============================================================================
 
 export const LOYALTY_POINTS = {
-  /** Welcome bonus for new clients (matches free gel manicure tier) */
-  WELCOME_BONUS: 25_000,
+  /** Welcome bonus is retired; new clients start at zero points */
+  WELCOME_BONUS: 0,
   /** Bonus for completing profile (name + email) */
   PROFILE_COMPLETION: 2_500,
   /** Points earned per dollar spent */

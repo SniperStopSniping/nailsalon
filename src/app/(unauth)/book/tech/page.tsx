@@ -6,6 +6,7 @@ import { type BookingStep, getNextStep, normalizeBookingFlow } from '@/libs/book
 import { technicianSupportsLocation } from '@/libs/bookingPolicy';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
+import { getClientSession } from '@/libs/clientAuth';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
@@ -121,12 +122,17 @@ export default async function BookTechPage({
     }));
   }
 
+  const clientSession = await getClientSession();
   const resolvedSelection = await resolvePublicBookingSelection({
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
     serviceIds: serviceIdList,
+    clientPhone: clientSession?.phone ?? null,
   });
+  const resolvedLocation = resolvedLocationId
+    ? await getLocationById(resolvedLocationId, salon.id)
+    : null;
 
   // Fetch technicians for this salon
   const dbTechnicians = await getTechniciansBySalonId(salon.id);
@@ -160,9 +166,9 @@ export default async function BookTechPage({
       return {
         id: tech.id,
         name: tech.name,
-        imageUrl: normalizePublicAvatarUrl(tech.avatarUrl) ?? '/assets/images/tech-daniela.jpeg',
+        imageUrl: normalizePublicAvatarUrl(tech.avatarUrl),
         specialties: tech.specialties || [],
-        rating: Number(tech.rating) || 5.0,
+        rating: tech.rating ? Number(tech.rating) : null,
         reviewCount: tech.reviewCount || 0,
         bookable: compatibility.bookable && locationSupported,
         unavailableReason: compatibility.bookable
@@ -179,7 +185,21 @@ export default async function BookTechPage({
       salon={context.salon}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-        <BookTechClient services={services} technicians={technicians} bookingFlow={bookingFlow} />
+        <BookTechClient
+          services={services}
+          addOns={resolvedSelection.addOns.map(addOn => ({
+            id: addOn.id,
+            name: addOn.name,
+            quantity: addOn.quantity,
+            price: addOn.lineTotalCents / 100,
+            duration: addOn.lineDurationMinutes,
+          }))}
+          totalPrice={resolvedSelection.totalPriceCents / 100}
+          totalDuration={resolvedSelection.visibleDurationMinutes}
+          locationName={resolvedLocation?.name ?? primaryLocation?.name ?? null}
+          technicians={technicians}
+          bookingFlow={bookingFlow}
+        />
       </Suspense>
     </PublicSalonPageShell>
   );
