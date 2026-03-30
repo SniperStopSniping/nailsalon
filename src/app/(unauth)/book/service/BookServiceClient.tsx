@@ -241,15 +241,17 @@ export function BookServiceClient({
   const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
 
   const urlDrivenBaseServiceId = urlBaseServiceId ?? legacyServiceIds[0] ?? null;
-  const initialBaseServiceId = urlDrivenBaseServiceId ?? services[0]?.id ?? null;
-  const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? services[0] ?? null;
-  const initialCategory = initialSelectedService?.category ?? 'manicure';
-  const initialSelectedAddOns = buildDefaultSelectedAddOns(
-    initialBaseServiceId,
-    serviceAddOnRules,
-    addOns,
-    urlSelectedAddOns,
-  );
+  const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
+  const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
+  const initialCategory = initialSelectedService?.category ?? services[0]?.category ?? 'manicure';
+  const initialSelectedAddOns = initialBaseServiceId
+    ? buildDefaultSelectedAddOns(
+      initialBaseServiceId,
+      serviceAddOnRules,
+      addOns,
+      urlSelectedAddOns,
+    )
+    : [];
 
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
@@ -263,6 +265,7 @@ export function BookServiceClient({
   const [mounted, setMounted] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
+  const hasManuallyClearedSelectionRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -273,19 +276,25 @@ export function BookServiceClient({
       return;
     }
 
-    hasAppliedHydratedBookingStateRef.current = true;
-
     if (!urlLocationId && storedLocationId && locations.some(location => location.id === storedLocationId)) {
       setSelectedLocationId(storedLocationId);
     }
 
     const hasUrlDrivenSelection = Boolean(urlDrivenBaseServiceId || urlSelectedAddOns.length > 0);
-    if (hasUrlDrivenSelection || !storedBaseServiceId) {
+    if (hasUrlDrivenSelection) {
+      hasManuallyClearedSelectionRef.current = false;
+      hasAppliedHydratedBookingStateRef.current = true;
+      return;
+    }
+
+    if (hasManuallyClearedSelectionRef.current || !storedBaseServiceId) {
+      hasAppliedHydratedBookingStateRef.current = true;
       return;
     }
 
     const storedService = services.find(service => service.id === storedBaseServiceId);
     if (!storedService) {
+      hasAppliedHydratedBookingStateRef.current = true;
       return;
     }
 
@@ -299,6 +308,8 @@ export function BookServiceClient({
     setSelectedBaseServiceIdState(storedBaseServiceId);
     setSelectedCategory(storedService.category);
     setSelectedAddOnsState(normalizedStoredAddOns);
+    hasManuallyClearedSelectionRef.current = false;
+    hasAppliedHydratedBookingStateRef.current = true;
   }, [
     addOns,
     isHydrated,
@@ -369,6 +380,22 @@ export function BookServiceClient({
     setServiceIds([selectedBaseServiceId]);
     setSelectedAddOns(normalized);
   }, [addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+
+  const handleServiceSelection = (service: ServiceData) => {
+    hasUserChangedSelectionRef.current = true;
+
+    if (selectedBaseServiceId === service.id) {
+      hasManuallyClearedSelectionRef.current = true;
+      setSelectedBaseServiceIdState(null);
+      setSelectedAddOnsState([]);
+    } else {
+      hasManuallyClearedSelectionRef.current = false;
+      setSelectedBaseServiceIdState(service.id);
+      setSelectedCategory(service.category);
+    }
+
+    triggerHaptic('select');
+  };
 
   const availableCategorySet = new Set(services.map(service => service.category));
   const availableCategories = [
@@ -786,12 +813,7 @@ export function BookServiceClient({
                               <button
                                 key={`featured-${service.id}`}
                                 type="button"
-                                onClick={() => {
-                                  hasUserChangedSelectionRef.current = true;
-                                  setSelectedBaseServiceIdState(service.id);
-                                  setSelectedCategory(service.category);
-                                  triggerHaptic('select');
-                                }}
+                                onClick={() => handleServiceSelection(service)}
                                 className={`relative shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                   service.category === 'combo' ? 'w-[320px]' : 'w-[260px]'
                                 }`}
@@ -903,12 +925,7 @@ export function BookServiceClient({
                               <button
                                 key={service.id}
                                 type="button"
-                                onClick={() => {
-                                  hasUserChangedSelectionRef.current = true;
-                                  setSelectedBaseServiceIdState(service.id);
-                                  setSelectedCategory(service.category);
-                                  triggerHaptic('select');
-                                }}
+                                onClick={() => handleServiceSelection(service)}
                                 data-testid={`service-card-${service.id}`}
                                 data-selected={isSelected ? 'true' : 'false'}
                                 aria-pressed={isSelected}

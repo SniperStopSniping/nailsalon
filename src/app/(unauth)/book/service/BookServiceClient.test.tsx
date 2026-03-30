@@ -357,7 +357,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-card-svc-6')).toHaveClass('col-span-full');
   });
 
-  it('shows the add-on cue, inline panel, and sticky note when the selected service has add-ons', () => {
+  it('starts with no selected service, add-on panel, or sticky CTA on a fresh visit', () => {
     render(
       <BookServiceClient
         services={services}
@@ -367,6 +367,26 @@ describe('BookServiceClient', () => {
         locations={[]}
       />,
     );
+
+    expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
+  });
+
+  it('shows the add-on cue, inline panel, and sticky note when the user selects a service with add-ons', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
 
     const panel = screen.getByTestId('service-inline-addons-panel');
     const stickyBar = screen.getByTestId('service-sticky-bar');
@@ -401,6 +421,35 @@ describe('BookServiceClient', () => {
     expect(selectedCard.querySelector('svg')).toBeNull();
     expect(selectedCard.getAttribute('style')).not.toContain('outline');
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('clears the selection and hides service-dependent UI when the selected service is tapped again', async () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const selectedCard = screen.getByTestId('service-card-svc-1');
+
+    fireEvent.click(selectedCard);
+    await waitFor(() => {
+      expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+    });
+
+    fireEvent.click(selectedCard);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
+    });
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
   });
 
   it('renders the fallback service image when the provided URL is blank', () => {
@@ -465,9 +514,12 @@ describe('BookServiceClient', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('service-card-svc-3'));
+
     expect(screen.queryByTestId('service-card-addon-cue-svc-3')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-addon-note')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
     expect(screen.queryByText(/Optional add-ons for/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/No add-ons available for this service yet/i)).not.toBeInTheDocument();
   });
@@ -482,6 +534,8 @@ describe('BookServiceClient', () => {
         locations={[]}
       />,
     );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
 
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(screen.getByText(/Optional add-ons for Colour Change/i)).toBeInTheDocument();
@@ -548,6 +602,51 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-card-addon-cue-svc-2')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
     expect(screen.getByText(/1 service \+ 1 add-on/i)).toBeInTheDocument();
+  });
+
+  it('keeps a manually unselected restored service cleared for the current page session', async () => {
+    bookingStateMock.values = {
+      technicianId: null,
+      baseServiceId: 'svc-2',
+      selectedAddOns: [{ addOnId: 'addon-1' }],
+      locationId: 'loc-2',
+      isHydrated: true,
+    };
+
+    const { rerender } = render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'true');
+    });
+
+    fireEvent.click(within(screen.getByTestId('service-category-track')).getByRole('button', { name: /extensions/i }));
+    fireEvent.click(screen.getByTestId('service-card-svc-2'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+    });
+
+    rerender(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'false');
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
   });
 
   it('keeps URL service, add-ons, and location ahead of persisted state', async () => {
