@@ -424,9 +424,51 @@ This command starts a local server using the production build. You can now open 
 
 ### Error Monitoring
 
-The project uses [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-nextjsboilerplate-logo) to monitor errors. In the development environment, no additional setup is needed: NextJS SaaS Boilerplate is pre-configured to use Sentry and Spotlight (Sentry for Development). All errors will automatically be sent to your local Spotlight instance, allowing you to experience Sentry locally.
+The project uses [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-nextjsboilerplate-logo) to monitor client, Node, and Edge errors.
 
-For production environment, you'll need to create a Sentry account and a new project. Then, in `next.config.mjs`, you need to update the `org` and `project` attributes in `withSentryConfig` function. Additionally, add your Sentry DSN to `sentry.client.config.ts`, `sentry.edge.config.ts` and `sentry.server.config.ts`.
+Runtime initialization lives in:
+- `sentry.client.config.ts` for the browser
+- `src/instrumentation.ts` for Node.js and Edge in the App Router
+
+Build-time release creation and source map upload are configured in `next.config.mjs`.
+
+Local and development environments can omit all Sentry environment variables. In that case, the app still runs normally and Sentry initialization is skipped cleanly.
+
+Production requires these environment variables:
+
+```shell
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_ORG=
+SENTRY_PROJECT=
+SENTRY_AUTH_TOKEN=
+```
+
+Optional production overrides:
+
+```shell
+SENTRY_RELEASE=
+SENTRY_ENVIRONMENT=
+```
+
+Release names resolve in this order:
+1. `SENTRY_RELEASE`
+2. `VERCEL_GIT_COMMIT_SHA`
+3. `GITHUB_SHA`
+4. `package.json` version
+
+If a production build is missing any required Sentry variables, the build fails with a clear error so release creation and source map upload are not silently skipped.
+
+### Production Sentry setup
+
+1. Create or open your Sentry project.
+2. Create a Sentry auth token with permission to create releases and upload source maps.
+3. In Vercel, set:
+   - `NEXT_PUBLIC_SENTRY_DSN`
+   - `SENTRY_ORG`
+   - `SENTRY_PROJECT`
+   - `SENTRY_AUTH_TOKEN`
+4. Optionally set `SENTRY_RELEASE` and `SENTRY_ENVIRONMENT` if you do not want the default release/environment fallback behavior.
+5. Redeploy. Production builds will then create a Sentry release and upload source maps through the Next.js Sentry plugin.
 
 ### Code coverage
 

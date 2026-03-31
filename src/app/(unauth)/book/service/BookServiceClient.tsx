@@ -814,6 +814,7 @@ export function BookServiceClient({
                                 key={`featured-${service.id}`}
                                 type="button"
                                 onClick={() => handleServiceSelection(service)}
+                                data-testid={`featured-service-card-${service.id}`}
                                 className={`relative shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                   service.category === 'combo' ? 'w-[320px]' : 'w-[260px]'
                                 }`}
@@ -822,19 +823,19 @@ export function BookServiceClient({
                                     ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
                                     : 'white',
                                   boxShadow: isSelected
-                                    ? '0 12px 24px rgba(0,0,0,0.12)'
+                                    ? '0 14px 28px rgba(0,0,0,0.14)'
                                     : '0 4px 20px rgba(0,0,0,0.06)',
-                                  borderWidth: isSelected ? 0 : '1px',
+                                  borderWidth: '1px',
                                   borderStyle: 'solid',
-                                  borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
-                                  outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
+                                  borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
                                 }}
                               >
                                 <div className="relative h-[96px] overflow-hidden">
                                   <ServiceCardImage
                                     src={service.imageUrl}
                                     alt={service.name}
-                                    className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
+                                    imageTestId={`featured-service-card-image-${service.id}`}
+                                    className="object-cover transition-transform duration-300"
                                   />
                                   <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
                                   <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">

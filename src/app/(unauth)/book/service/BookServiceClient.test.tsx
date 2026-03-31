@@ -357,6 +357,38 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-card-svc-6')).toHaveClass('col-span-full');
   });
 
+  it('uses stable border-and-shadow emphasis for selected featured cards without image scaling', () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            id: 'svc-combo',
+            name: 'BIAB + Classic Pedicure',
+            description: null,
+            descriptionItems: ['Builder gel overlay with a classic pedicure pairing'],
+            durationMinutes: 110,
+            priceCents: 8500,
+            priceDisplayText: null,
+            category: 'combo',
+            imageUrl: '/service-combo.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+          ...services,
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const featuredCard = screen.getByTestId('featured-service-card-svc-combo');
+    fireEvent.click(featuredCard);
+
+    expect(featuredCard.getAttribute('style')).toContain('0 14px 28px rgba(0,0,0,0.14)');
+    expect(featuredCard.getAttribute('style')).toContain('border-width: 1px');
+    expect(featuredCard.getAttribute('style')).not.toContain('outline');
+    expect(screen.getByTestId('featured-service-card-image-svc-combo')).not.toHaveClass('scale-105');
+  });
+
   it('starts with no selected service, add-on panel, or sticky CTA on a fresh visit', () => {
     render(
       <BookServiceClient
