@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}));
 const {
   requireStaffSession,
   requireAdminSalon,
+  getSalonById,
   select,
   queueSelectResults,
 } = vi.hoisted(() => {
@@ -22,6 +23,7 @@ const {
   return {
     requireStaffSession: vi.fn(),
     requireAdminSalon: vi.fn(),
+    getSalonById: vi.fn(),
     select,
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
@@ -47,6 +49,7 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('@/libs/queries', () => ({
   getSalonBySlug: vi.fn(),
+  getSalonById,
 }));
 
 vi.mock('@/libs/featureGating', () => ({
@@ -77,6 +80,7 @@ describe('GET /api/appointments access', () => {
       }),
       salon: null,
     });
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
   });
 
   it('rejects filter-driven reads when no authenticated staff or admin context is present', async () => {
@@ -208,6 +212,9 @@ describe('GET /api/appointments access', () => {
             ],
           },
         ],
+      },
+      meta: {
+        slotIntervalMinutes: 15,
       },
     });
     expect(select).toHaveBeenCalledTimes(4);

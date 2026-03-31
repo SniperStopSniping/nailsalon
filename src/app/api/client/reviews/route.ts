@@ -116,7 +116,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 4. Get appointment and validate
-    const appointment = await getAppointmentById(appointmentId);
+    const appointment = await getAppointmentById(appointmentId, salon.id);
 
     if (!appointment) {
       return Response.json(
@@ -325,7 +325,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     const { salon } = salonGuard;
 
-    const appointment = await getAppointmentById(appointmentId);
+    const appointment = await getAppointmentById(appointmentId, salon.id);
     if (!appointment || appointment.salonId !== salon.id) {
       return Response.json(
         {

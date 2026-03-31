@@ -107,14 +107,24 @@ export async function PATCH(
         notes: validated.data.notes || appointment.notes,
         updatedAt: now,
       })
-      .where(eq(appointmentSchema.id, appointmentId));
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, appointment.salonId),
+        ),
+      );
 
     // 5. Unlink any rewards that were pending use with this appointment
     // (Return them to 'active' status so they can be used for another booking)
     const linkedReward = await db
       .select()
       .from(rewardSchema)
-      .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+      .where(
+        and(
+          eq(rewardSchema.usedInAppointmentId, appointmentId),
+          eq(rewardSchema.salonId, appointment.salonId),
+        ),
+      )
       .limit(1);
 
     if (linkedReward.length > 0) {

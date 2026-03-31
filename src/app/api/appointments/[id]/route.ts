@@ -128,6 +128,7 @@ export async function PATCH(
     // 5. Update the appointment
     const updatedAppointment = await updateAppointmentStatus(
       appointmentId,
+      existingAppointment.salonId,
       data.status ?? existingAppointment.status,
       data.cancelReason,
     );
@@ -180,7 +181,12 @@ export async function PATCH(
       const linkedReward = await db
         .select()
         .from(rewardSchema)
-        .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+        .where(
+          and(
+            eq(rewardSchema.usedInAppointmentId, appointmentId),
+            eq(rewardSchema.salonId, existingAppointment.salonId),
+          ),
+        )
         .limit(1);
 
       if (linkedReward.length > 0) {
@@ -237,7 +243,12 @@ export async function PATCH(
       const linkedReward = await db
         .select()
         .from(rewardSchema)
-        .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+        .where(
+          and(
+            eq(rewardSchema.usedInAppointmentId, appointmentId),
+            eq(rewardSchema.salonId, existingAppointment.salonId),
+          ),
+        )
         .limit(1);
 
       if (linkedReward.length > 0) {

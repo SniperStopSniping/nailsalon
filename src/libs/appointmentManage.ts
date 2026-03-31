@@ -331,11 +331,17 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
 
 async function loadManagedAppointment(
   appointmentId: string,
+  salonId: string,
 ): Promise<LoadedManagedAppointment> {
   const [appointment] = await db
     .select()
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(
+      and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, salonId),
+      ),
+    )
     .limit(1);
 
   if (!appointment) {
@@ -610,10 +616,11 @@ function getChangeServiceAddOnRetention(
 
 export async function getAppointmentManageDetail(args: {
   appointmentId: string;
+  salonId: string;
   canReassignTechnician: boolean;
   salonSlug: string;
 }): Promise<AppointmentManageDetail> {
-  const loaded = await loadManagedAppointment(args.appointmentId);
+  const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
 
@@ -704,7 +711,12 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
       blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
       updatedAt: new Date(),
     })
-    .where(eq(appointmentSchema.id, args.loaded.appointment.id))
+    .where(
+      and(
+        eq(appointmentSchema.id, args.loaded.appointment.id),
+        eq(appointmentSchema.salonId, args.loaded.appointment.salonId),
+      ),
+    )
     .returning();
 
   if (!appointment) {
@@ -732,7 +744,12 @@ async function mutateReassign(args: ReassignArgs): Promise<MutationResult> {
       technicianId: validated.technician?.id ?? null,
       updatedAt: new Date(),
     })
-    .where(eq(appointmentSchema.id, args.loaded.appointment.id))
+    .where(
+      and(
+        eq(appointmentSchema.id, args.loaded.appointment.id),
+        eq(appointmentSchema.salonId, args.loaded.appointment.salonId),
+      ),
+    )
     .returning();
 
   if (!appointment) {
@@ -907,7 +924,12 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
         discountAppliedAt: discount.discountAppliedAt,
         updatedAt: new Date(),
       })
-      .where(eq(appointmentSchema.id, args.loaded.appointment.id))
+      .where(
+        and(
+          eq(appointmentSchema.id, args.loaded.appointment.id),
+          eq(appointmentSchema.salonId, args.loaded.appointment.salonId),
+        ),
+      )
       .returning();
 
     if (!updatedAppointment) {
@@ -922,6 +944,7 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
 
 export async function runAppointmentManageMutation(args: {
   appointmentId: string;
+  salonId: string;
   operation: ManageAction;
   startTime?: Date;
   baseServiceId?: string;
@@ -932,7 +955,7 @@ export async function runAppointmentManageMutation(args: {
   calendarEvent: AppointmentCalendarEvent;
   warnings: ManageWarning[];
 }> {
-  const loaded = await loadManagedAppointment(args.appointmentId);
+  const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   let result: MutationResult;
 
   switch (args.operation) {
@@ -981,10 +1004,14 @@ export async function runAppointmentManageMutation(args: {
 
   const detail = await getAppointmentManageDetail({
     appointmentId: result.appointment.id,
+    salonId: result.appointment.salonId,
     canReassignTechnician: args.canReassignTechnician,
     salonSlug: salon?.slug ?? '',
   });
-  const reloaded = await loadManagedAppointment(result.appointment.id);
+  const reloaded = await loadManagedAppointment(
+    result.appointment.id,
+    result.appointment.salonId,
+  );
 
   return {
     detail,

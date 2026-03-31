@@ -222,7 +222,12 @@ export async function PUT(
       const [prevTech] = await db
         .select({ name: technicianSchema.name })
         .from(technicianSchema)
-        .where(eq(technicianSchema.id, appointment.technicianId))
+        .where(
+          and(
+            eq(technicianSchema.id, appointment.technicianId),
+            eq(technicianSchema.salonId, salon.id),
+          ),
+        )
         .limit(1);
       previousTechName = prevTech?.name ?? null;
     }
@@ -234,7 +239,12 @@ export async function PUT(
         technicianId,
         updatedAt: new Date(),
       })
-      .where(eq(appointmentSchema.id, appointmentId))
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salon.id),
+        ),
+      )
       .returning();
 
     // 10. Audit logging

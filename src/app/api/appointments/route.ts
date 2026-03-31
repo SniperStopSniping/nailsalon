@@ -43,10 +43,10 @@ import {
   normalizePhone,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
+import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   sendBookingConfirmationToClient,
-  sendBookingNotificationToTech,
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
@@ -722,7 +722,10 @@ export async function POST(request: Request): Promise<Response> {
     // and that the authenticated actor is allowed to reschedule it.
     let originalAppointment = null;
     if (normalizedOriginalApptId) {
-      originalAppointment = await getAppointmentById(normalizedOriginalApptId);
+      originalAppointment = await getAppointmentById(
+        normalizedOriginalApptId,
+        salon.id,
+      );
       if (!originalAppointment) {
         return Response.json(
           {
@@ -1559,18 +1562,32 @@ export async function POST(request: Request): Promise<Response> {
       totalPrice,
     });
 
-    if (technician) {
-      await sendBookingNotificationToTech(salon.id, {
-        technicianId: technician.id,
-        technicianName: technician.name,
-        appointmentId: appointment.id,
-        clientName: clientName ?? 'Guest',
-        clientPhone: salonClient.phone,
-        services: services.map(s => s.name),
-        startTime: startTime.toISOString(),
-        totalDurationMinutes,
-      });
-    }
+    await sendBookingNotificationsForNewBooking({
+      salon: {
+        id: salon.id,
+        name: salon.name,
+        ownerName: salon.ownerName,
+        ownerPhone: salon.ownerPhone,
+        ownerEmail: salon.ownerEmail,
+        features: (salon.features as SalonFeatures | null | undefined) ?? null,
+        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+      },
+      technician: technician
+        ? {
+            id: technician.id,
+            name: technician.name,
+            phone: technician.phone,
+            email: technician.email,
+          }
+        : null,
+      appointmentId: appointment.id,
+      clientName: clientName ?? 'Guest',
+      clientPhone: salonClient.phone,
+      services: services.map(s => s.name),
+      startTime: startTime.toISOString(),
+      totalDurationMinutes,
+      totalPrice,
+    });
 
     // 13. Return response (same object that was cached, if caching was enabled)
     return Response.json(response, { status: 201 });

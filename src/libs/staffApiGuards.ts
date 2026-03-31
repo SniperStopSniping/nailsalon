@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import {
@@ -80,7 +80,18 @@ export async function requireStaffAppointmentAccess(
   const [appointment] = await db
     .select()
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(
+      and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, auth.session.salonId),
+        ...(options.assignedOnly
+          ? [eq(appointmentSchema.technicianId, auth.session.technicianId)]
+          : []),
+        ...(!options.allowDeleted
+          ? [isNull(appointmentSchema.deletedAt)]
+          : []),
+      ),
+    )
     .limit(1);
 
   if (!appointment) {
@@ -90,43 +101,6 @@ export async function requireStaffAppointmentAccess(
         404,
         'APPOINTMENT_NOT_FOUND',
         `Appointment with ID "${appointmentId}" not found`,
-      ),
-    };
-  }
-
-  if (appointment.salonId !== auth.session.salonId) {
-    return {
-      ok: false,
-      response: errorResponse(
-        403,
-        'FORBIDDEN',
-        options.tenantForbiddenMessage ?? 'You do not have access to this appointment',
-      ),
-    };
-  }
-
-  if (!options.allowDeleted && appointment.deletedAt) {
-    return {
-      ok: false,
-      response: errorResponse(
-        410,
-        'APPOINTMENT_DELETED',
-        'This appointment has been deleted',
-      ),
-    };
-  }
-
-  if (
-    options.assignedOnly
-    && appointment.technicianId !== auth.session.technicianId
-  ) {
-    return {
-      ok: false,
-      response: errorResponse(
-        403,
-        'FORBIDDEN',
-        options.assignmentForbiddenMessage
-          ?? 'You can only manage your own appointments',
       ),
     };
   }

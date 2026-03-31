@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { canTransition } from '@/core/appointments/appointmentStateMachine';
@@ -185,7 +185,13 @@ export async function POST(
     const [updated] = await db
       .update(appointmentSchema)
       .set(updateData)
-      .where(eq(appointmentSchema.id, appointmentId))
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, session.salonId),
+          eq(appointmentSchema.technicianId, session.technicianId),
+        ),
+      )
       .returning();
 
     // 14. Audit logging (Step 16A)

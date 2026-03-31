@@ -235,10 +235,14 @@ export async function GET(
     if (!access.ok) {
       return access.response;
     }
+    const { appointment } = access;
 
     // 2. Fetch photos for this appointment
     const photos = await db.query.appointmentPhotoSchema.findMany({
-      where: (photo, { eq }) => eq(photo.appointmentId, appointmentId),
+      where: (photo, { and, eq }) => and(
+        eq(photo.appointmentId, appointmentId),
+        eq(photo.salonId, appointment.salonId),
+      ),
       orderBy: (photo, { desc }) => [desc(photo.createdAt)],
     });
 

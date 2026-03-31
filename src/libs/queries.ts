@@ -488,11 +488,19 @@ export async function upsertClient(
  */
 export async function getAppointmentById(
   appointmentId: string,
+  salonId?: string,
 ): Promise<Appointment | null> {
   const results = await db
     .select()
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(
+      salonId
+        ? and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, salonId),
+          )
+        : eq(appointmentSchema.id, appointmentId),
+    )
     .limit(1);
 
   return results[0] ?? null;
@@ -507,6 +515,7 @@ export async function getAppointmentById(
  */
 export async function updateAppointmentStatus(
   appointmentId: string,
+  salonId: string,
   status: Appointment['status'],
   cancelReason?: CancelReason,
 ): Promise<Appointment | null> {
@@ -517,7 +526,12 @@ export async function updateAppointmentStatus(
       cancelReason,
       updatedAt: new Date(),
     })
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(
+      and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, salonId),
+      ),
+    )
     .returning();
 
   return updated ?? null;

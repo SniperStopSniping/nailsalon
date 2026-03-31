@@ -94,6 +94,7 @@ describe('appointment manage route', () => {
     expect(response.status).toBe(200);
     expect(getAppointmentManageDetail).toHaveBeenCalledWith({
       appointmentId: 'appt_1',
+      salonId: 'salon_1',
       canReassignTechnician: false,
       salonSlug: 'salon-a',
     });
@@ -152,6 +153,7 @@ describe('appointment manage route', () => {
     expect(response.status).toBe(200);
     expect(runAppointmentManageMutation).toHaveBeenCalledWith(expect.objectContaining({
       appointmentId: 'appt_1',
+      salonId: 'salon_1',
       operation: 'move',
       canReassignTechnician: true,
     }));

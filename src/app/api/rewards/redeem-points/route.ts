@@ -226,7 +226,12 @@ export async function POST(request: Request): Promise<Response> {
             ? `${appointment.notes}\n[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`
             : `[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`,
         })
-        .where(eq(appointmentSchema.id, appointmentId));
+        .where(
+          and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, salon.id),
+          ),
+        );
 
       // Deduct points from client's balance
       await tx

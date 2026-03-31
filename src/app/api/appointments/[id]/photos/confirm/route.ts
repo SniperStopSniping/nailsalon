@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -69,7 +69,7 @@ export async function POST(
     if (!access.ok) {
       return access.response;
     }
-    const { session } = access;
+    const { appointment, session } = access;
 
     const salon = await getSalonById(session.salonId);
     if (!salon) {
@@ -227,7 +227,13 @@ export async function POST(
         canvasStateUpdatedAt: now,
         updatedAt: now,
       })
-      .where(eq(appointmentSchema.id, appointmentId));
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, appointment.salonId),
+          eq(appointmentSchema.technicianId, session.technicianId),
+        ),
+      );
 
     // 12. Enqueue autopost if kind === 'after' and autoPostEnabled
     if (kind === 'after') {

@@ -40,11 +40,30 @@ vi.mock('@/libs/pointsCalculation', () => ({
   computeEarnedPointsFromCents: vi.fn(() => 0),
 }));
 
-import { PATCH } from './route';
+import { PATCH, POST } from './route';
 
 describe('PATCH /api/appointments/[id]/complete', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('rejects unauthenticated start attempts', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED' } }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments/appt_1/complete', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(401);
   });
 
   it('rejects unauthenticated completion attempts', async () => {

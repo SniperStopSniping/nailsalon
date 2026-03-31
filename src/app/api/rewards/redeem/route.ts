@@ -212,7 +212,12 @@ export async function POST(request: Request): Promise<Response> {
     const existingReward = await db
       .select()
       .from(rewardSchema)
-      .where(eq(rewardSchema.usedInAppointmentId, appointmentId))
+      .where(
+        and(
+          eq(rewardSchema.usedInAppointmentId, appointmentId),
+          eq(rewardSchema.salonId, salon.id),
+        ),
+      )
       .limit(1);
 
     if (existingReward.length > 0) {
@@ -283,7 +288,12 @@ export async function POST(request: Request): Promise<Response> {
             ? `${appointment.notes}\n[Reward applied: ${reward.eligibleServiceName || 'Discount'} - $${discountDollars} off]`
             : `[Reward applied: ${reward.eligibleServiceName || 'Discount'} - $${discountDollars} off]`,
         })
-        .where(eq(appointmentSchema.id, appointmentId));
+        .where(
+          and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, salon.id),
+          ),
+        );
 
       // Mark the reward as pending (will be marked as 'used' when appointment completes)
       await tx

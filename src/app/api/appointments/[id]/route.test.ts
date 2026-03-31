@@ -106,7 +106,12 @@ describe('appointment detail route auth', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(updateAppointmentStatus).toHaveBeenCalledWith('appt_1', 'cancelled', 'client_request');
+    expect(updateAppointmentStatus).toHaveBeenCalledWith(
+      'appt_1',
+      'salon_1',
+      'cancelled',
+      'client_request',
+    );
     expect(body).toEqual({
       data: {
         appointment: {

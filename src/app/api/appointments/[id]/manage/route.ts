@@ -95,6 +95,7 @@ export async function GET(
     const salonSlug = await getSalonSlug(access.appointment.salonId);
     const detail = await getAppointmentManageDetail({
       appointmentId: access.appointment.id,
+      salonId: access.appointment.salonId,
       canReassignTechnician: access.actorRole === 'admin',
       salonSlug,
     });
@@ -155,6 +156,7 @@ export async function PATCH(
 
     const result = await runAppointmentManageMutation({
       appointmentId: params.id,
+      salonId: access.appointment.salonId,
       operation: parsed.data.operation,
       startTime: 'startTime' in parsed.data && parsed.data.startTime
         ? new Date(parsed.data.startTime)

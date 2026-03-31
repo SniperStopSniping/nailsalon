@@ -147,15 +147,18 @@ export async function GET(
     }
 
     // Get all appointments for this client at this salon
+    const appointmentWhereClauses = [
+      eq(appointmentSchema.salonId, salon.id),
+      inArray(appointmentSchema.clientPhone, phoneVariants),
+      ...(access.actorRole === 'staff'
+        ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
+        : []),
+    ];
+
     const appointments = await db
       .select()
       .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
-        ),
-      )
+      .where(and(...appointmentWhereClauses))
       .orderBy(desc(appointmentSchema.startTime));
 
     // Get services for each appointment
@@ -194,16 +197,19 @@ export async function GET(
     );
 
     // Get all photos for this client at this salon
-    const photos = await db
-      .select()
-      .from(appointmentPhotoSchema)
-      .where(
-        and(
-          eq(appointmentPhotoSchema.salonId, salon.id),
-          eq(appointmentPhotoSchema.normalizedClientPhone, normalizedPhone),
-        ),
-      )
-      .orderBy(desc(appointmentPhotoSchema.createdAt));
+    const appointmentIds = appointments.map(appt => appt.id);
+    const photos = appointmentIds.length === 0
+      ? []
+      : await db
+        .select()
+        .from(appointmentPhotoSchema)
+        .where(
+          and(
+            eq(appointmentPhotoSchema.salonId, salon.id),
+            inArray(appointmentPhotoSchema.appointmentId, appointmentIds),
+          ),
+        )
+        .orderBy(desc(appointmentPhotoSchema.createdAt));
 
     // Calculate stats
     const completedAppointments = appointments.filter(a => a.status === 'completed');

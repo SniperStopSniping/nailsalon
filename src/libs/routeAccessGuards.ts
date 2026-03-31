@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import type { AdminWithSalons } from '@/libs/adminAuth';
-import { requireAdmin } from '@/libs/adminAuth';
+import { requireActiveAdminSalon, requireAdmin } from '@/libs/adminAuth';
 import { normalizeClientPhone } from '@/libs/clientApiGuards';
 import type { ClientSessionPrincipal } from '@/libs/clientAuth';
 import { getClientSession } from '@/libs/clientAuth';
@@ -70,11 +70,54 @@ function errorResponse(
   );
 }
 
-async function loadAppointment(appointmentId: string): Promise<Appointment | null> {
+async function loadAppointmentForSalon(
+  appointmentId: string,
+  salonId: string,
+): Promise<Appointment | null> {
   const [appointment] = await db
     .select()
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(
+      and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, salonId),
+      ),
+    )
+    .limit(1);
+
+  return appointment ?? null;
+}
+
+function getClientPhoneVariants(phone: string): string[] {
+  const normalizedPhone = normalizeClientPhone(phone);
+  const rawDigits = phone.replace(/\D/g, '');
+
+  return Array.from(
+    new Set(
+      [
+        phone,
+        rawDigits,
+        normalizedPhone,
+        rawDigits ? `+${rawDigits}` : null,
+        normalizedPhone ? `+1${normalizedPhone}` : null,
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+async function loadAppointmentForClient(
+  appointmentId: string,
+  phoneVariants: string[],
+): Promise<Appointment | null> {
+  const [appointment] = await db
+    .select()
+    .from(appointmentSchema)
+    .where(
+      and(
+        eq(appointmentSchema.id, appointmentId),
+        inArray(appointmentSchema.clientPhone, phoneVariants),
+      ),
+    )
     .limit(1);
 
   return appointment ?? null;
@@ -183,31 +226,23 @@ async function requireAppointmentAccessInternal(
   appointmentId: string,
   options: AppointmentAccessOptions,
 ): Promise<AppointmentAccessSuccess | GuardFailure> {
-  const appointment = await loadAppointment(appointmentId);
-  if (!appointment) {
-    return {
-      ok: false,
-      response: errorResponse(
-        404,
-        'APPOINTMENT_NOT_FOUND',
-        `Appointment with ID "${appointmentId}" not found`,
-      ),
-    };
-  }
-
   let authFailure: Response | null = null;
   let forbidden: Response | null = null;
 
   const staffAuth = await requireStaffSession();
   if (staffAuth.ok) {
-    if (staffAuth.session.salonId !== appointment.salonId) {
+    const appointment = await loadAppointmentForSalon(
+      appointmentId,
+      staffAuth.session.salonId,
+    );
+
+    if (!appointment) {
       return {
         ok: false,
         response: errorResponse(
-          403,
-          'FORBIDDEN',
-          options.tenantForbiddenMessage
-            ?? 'You do not have access to this appointment',
+          404,
+          'APPOINTMENT_NOT_FOUND',
+          `Appointment with ID "${appointmentId}" not found`,
         ),
       };
     }
@@ -239,24 +274,56 @@ async function requireAppointmentAccessInternal(
     authFailure = staffAuth.response;
   }
 
-  const adminGuard = await requireAdmin(appointment.salonId);
-  if (adminGuard.ok) {
+  const activeAdminContext = await requireActiveAdminSalon();
+  if (activeAdminContext.salon && activeAdminContext.admin && !activeAdminContext.error) {
+    const appointment = await loadAppointmentForSalon(
+      appointmentId,
+      activeAdminContext.salon.id,
+    );
+
+    if (!appointment) {
+      return {
+        ok: false,
+        response: errorResponse(
+          404,
+          'APPOINTMENT_NOT_FOUND',
+          `Appointment with ID "${appointmentId}" not found`,
+        ),
+      };
+    }
+
     return {
       ok: true,
       appointment,
       actorRole: 'admin',
-      admin: adminGuard.admin,
+      admin: activeAdminContext.admin,
     };
   }
 
-  if (adminGuard.response.status === 403) {
-    forbidden = adminGuard.response;
-  } else if (adminGuard.response.status !== 401) {
-    authFailure = adminGuard.response;
+  if (activeAdminContext.error?.status === 403) {
+    forbidden = activeAdminContext.error;
+  } else if (activeAdminContext.error && activeAdminContext.error.status !== 401) {
+    authFailure = activeAdminContext.error;
   }
 
   const clientSession = await getClientSession();
   if (clientSession) {
+    const appointment = await loadAppointmentForClient(
+      appointmentId,
+      getClientPhoneVariants(clientSession.phone),
+    );
+
+    if (!appointment) {
+      return {
+        ok: false,
+        response: errorResponse(
+          404,
+          'APPOINTMENT_NOT_FOUND',
+          `Appointment with ID "${appointmentId}" not found`,
+        ),
+      };
+    }
+
     if (options.allowClient && clientOwnsAppointment(appointment, clientSession)) {
       return {
         ok: true,

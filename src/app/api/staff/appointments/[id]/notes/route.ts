@@ -9,7 +9,7 @@
  * - Audit logged (without exposing note content)
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logNotesUpdated } from '@/libs/appointmentAudit';
@@ -79,7 +79,13 @@ export async function PUT(
         techNotes: parsed.data.techNotes ?? null,
         updatedAt: new Date(),
       })
-      .where(eq(appointmentSchema.id, appointmentId))
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, session.salonId),
+          eq(appointmentSchema.technicianId, session.technicianId),
+        ),
+      )
       .returning();
 
     // 6. Audit log (note content is NOT logged for privacy)

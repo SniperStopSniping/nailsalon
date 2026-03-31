@@ -65,6 +65,7 @@ export async function PATCH(
     if (!access.ok) {
       return access.response;
     }
+    const { appointment: existingAppointment } = access;
 
     // 1. Parse and validate request body
     let body = {};
@@ -99,6 +100,7 @@ export async function PATCH(
         .where(
           and(
             eq(appointmentPhotoSchema.appointmentId, appointmentId),
+            eq(appointmentPhotoSchema.salonId, existingAppointment.salonId),
             eq(appointmentPhotoSchema.photoType, 'after'),
           ),
         )
@@ -140,6 +142,10 @@ export async function PATCH(
         .where(
           and(
             eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, existingAppointment.salonId),
+            ...(access.actorRole === 'staff'
+              ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
+              : []),
             inArray(appointmentSchema.status, [...validStates]),
             isNull(appointmentSchema.completedAt), // Extra safety: prevent re-completion
           ),
@@ -173,7 +179,10 @@ export async function PATCH(
     // CRITICAL: Check idempotent flag EXPLICITLY - fraud eval MUST NOT run on idempotent completions
     if (!result.success) {
       // Atomic update failed - re-fetch to determine why
-      const currentAppointment = await getAppointmentById(appointmentId);
+      const currentAppointment = await getAppointmentById(
+        appointmentId,
+        existingAppointment.salonId,
+      );
 
       if (currentAppointment?.status === 'completed') {
         // IDEMPOTENT: Already completed - return current state
@@ -316,7 +325,12 @@ async function handleSuccessfulCompletion(
         const updateResult = await db
           .update(appointmentSchema)
           .set({ salonClientId: salonClient.id })
-          .where(eq(appointmentSchema.id, appointmentId))
+          .where(
+            and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, completedAppointment.salonId),
+            ),
+          )
           .returning();
 
         if (updateResult.length === 1) {
@@ -415,20 +429,16 @@ export async function POST(
 ): Promise<Response> {
   try {
     const appointmentId = params.id;
-
-    // 1. Verify appointment exists
-    const appointment = await getAppointmentById(appointmentId);
-    if (!appointment) {
-      return Response.json(
-        {
-          error: {
-            code: 'APPOINTMENT_NOT_FOUND',
-            message: `Appointment with ID "${appointmentId}" not found`,
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+    const access = await requireAppointmentManagerAccess(appointmentId, {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can start this appointment',
+      assignmentForbiddenMessage: 'You can only start your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    });
+    if (!access.ok) {
+      return access.response;
     }
+    const { appointment } = access;
 
     // 2. Check appointment is in valid state to start
     if (appointment.status !== 'confirmed') {
@@ -453,7 +463,15 @@ export async function POST(
         startedAt: now,
         updatedAt: now,
       })
-      .where(eq(appointmentSchema.id, appointmentId));
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, appointment.salonId),
+          ...(access.actorRole === 'staff'
+            ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
+            : []),
+        ),
+      );
 
     // 4. Return success response
     return Response.json({
