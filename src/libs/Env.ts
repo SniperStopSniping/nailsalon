@@ -14,6 +14,9 @@ export const Env = createEnv({
     TWILIO_AUTH_TOKEN: z.string().optional(),
     TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
     TWILIO_PHONE_NUMBER: z.string().optional(), // For sending SMS notifications
+    RESEND_API_KEY: z.string().optional(),
+    RESEND_FROM_EMAIL: z.string().optional(),
+    RESEND_REPLY_TO_EMAIL: z.string().optional(),
     // Cloudinary (for photo uploads)
     CLOUDINARY_CLOUD_NAME: z.string().optional(),
     CLOUDINARY_API_KEY: z.string().optional(),
@@ -53,6 +56,9 @@ export const Env = createEnv({
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_VERIFY_SERVICE_SID: process.env.TWILIO_VERIFY_SERVICE_SID,
     TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
+    RESEND_REPLY_TO_EMAIL: process.env.RESEND_REPLY_TO_EMAIL,
     CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
     CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,

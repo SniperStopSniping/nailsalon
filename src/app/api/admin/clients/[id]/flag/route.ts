@@ -90,10 +90,22 @@ export async function PUT(
       );
     }
 
-    // 3. Step 16.3: Check if clientFlags module is enabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'clientFlags' });
-    if (moduleGuard) {
-      return moduleGuard;
+    // 3. Respect separate module gates for flagging vs blocking.
+    const requiresProblemFlagControl = isProblemClient !== undefined || flagReason !== undefined;
+    const requiresBlockingControl = isBlocked !== undefined || blockedReason !== undefined;
+
+    if (requiresProblemFlagControl) {
+      const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'clientFlags' });
+      if (moduleGuard) {
+        return moduleGuard;
+      }
+    }
+
+    if (requiresBlockingControl) {
+      const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'clientBlocking' });
+      if (moduleGuard) {
+        return moduleGuard;
+      }
     }
 
     // 4. Get the salon client record

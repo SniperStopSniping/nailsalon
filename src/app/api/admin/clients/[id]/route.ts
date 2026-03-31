@@ -144,7 +144,7 @@ export async function GET(
       .orderBy(appointmentSchema.startTime)
       .limit(5);
 
-    // Get past appointments (most recent 20)
+    // Get completed appointments (most recent 20)
     const pastAppointments = await db
       .select({
         id: appointmentSchema.id,
@@ -161,6 +161,30 @@ export async function GET(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
           lt(appointmentSchema.startTime, now),
+          eq(appointmentSchema.status, 'completed'),
+        ),
+      )
+      .orderBy(desc(appointmentSchema.startTime))
+      .limit(20);
+
+    // Get recent issues separately so completed history stays clean.
+    const recentIssues = await db
+      .select({
+        id: appointmentSchema.id,
+        startTime: appointmentSchema.startTime,
+        endTime: appointmentSchema.endTime,
+        status: appointmentSchema.status,
+        totalPrice: appointmentSchema.totalPrice,
+        technicianId: appointmentSchema.technicianId,
+        notes: appointmentSchema.notes,
+      })
+      .from(appointmentSchema)
+      .where(
+        and(
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+          lt(appointmentSchema.startTime, now),
+          inArray(appointmentSchema.status, ['cancelled', 'no_show']),
         ),
       )
       .orderBy(desc(appointmentSchema.startTime))
@@ -170,11 +194,13 @@ export async function GET(
     const allAppointmentIds = [
       ...upcomingAppointments.map(a => a.id),
       ...pastAppointments.map(a => a.id),
+      ...recentIssues.map(a => a.id),
     ];
 
     const allTechIds = [
       ...upcomingAppointments.map(a => a.technicianId),
       ...pastAppointments.map(a => a.technicianId),
+      ...recentIssues.map(a => a.technicianId),
     ].filter((id): id is string => id !== null);
 
     // Get technicians
@@ -248,6 +274,7 @@ export async function GET(
         },
         upcomingAppointments: upcomingAppointments.map(formatAppointment),
         pastAppointments: pastAppointments.map(formatAppointment),
+        recentIssues: recentIssues.map(formatAppointment),
       },
     });
   } catch (error) {

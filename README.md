@@ -434,7 +434,7 @@ Build-time release creation and source map upload are configured in `next.config
 
 Local and development environments can omit all Sentry environment variables. In that case, the app still runs normally and Sentry initialization is skipped cleanly.
 
-Production requires these environment variables:
+Under the current strict build guard, Vercel Production **and** Vercel Preview both require these environment variables:
 
 ```shell
 NEXT_PUBLIC_SENTRY_DSN=
@@ -460,15 +460,61 @@ If a production build is missing any required Sentry variables, the build fails 
 
 ### Production Sentry setup
 
-1. Create or open your Sentry project.
-2. Create a Sentry auth token with permission to create releases and upload source maps.
-3. In Vercel, set:
-   - `NEXT_PUBLIC_SENTRY_DSN`
-   - `SENTRY_ORG`
-   - `SENTRY_PROJECT`
-   - `SENTRY_AUTH_TOKEN`
-4. Optionally set `SENTRY_RELEASE` and `SENTRY_ENVIRONMENT` if you do not want the default release/environment fallback behavior.
-5. Redeploy. Production builds will then create a Sentry release and upload source maps through the Next.js Sentry plugin.
+1. Create or open your Sentry production project.
+2. Recommended: create a second Sentry project for Preview so preview issues, releases, and source maps do not mix with Production.
+3. For each project, open `Project Settings` -> `Client Keys (DSN)` and copy the full DSN.
+4. Create a Sentry `Internal Integration` token with these permissions:
+   - `project:releases`
+   - `org:read`
+5. In Vercel `Production`, set:
+   - `NEXT_PUBLIC_SENTRY_DSN` = production project DSN
+   - `SENTRY_ORG` = org slug
+   - `SENTRY_PROJECT` = production project slug
+   - `SENTRY_AUTH_TOKEN` = internal integration token
+6. In Vercel `Preview`, set the same four variables, ideally pointing to the Preview project/DSN.
+7. `Development` can stay unset unless you want Sentry active in `vercel dev`.
+8. Optionally set `SENTRY_RELEASE` and `SENTRY_ENVIRONMENT` if you do not want the default release/environment fallback behavior.
+9. Redeploy. Production and Preview builds will then create a Sentry release and upload source maps through the Next.js Sentry plugin.
+
+### Post-deploy verification
+
+After the first deploy with Sentry env configured:
+
+1. Open Sentry `Releases` and confirm a new release exists for the deploy.
+2. Open `Settings` -> `Projects` -> your project -> `Source Maps` and confirm artifacts were uploaded.
+3. Trigger one admin-only smoke test error from the UI and confirm the event appears in Sentry `Issues`.
+4. Open that event and confirm:
+   - the `environment` is correct
+   - the `release` field is populated
+   - the stack trace is de-minified and points to your source files
+5. If stack traces are not readable, use `sentry-cli sourcemaps explain <EVENT_ID>`.
+
+Important:
+- Do not use a raw browser-console throw as the smoke test. Browser devtools-thrown errors are sandboxed and are not a reliable verification method.
+- There is currently no built-in admin-only Sentry smoke-test route/button in the repo. The safest exact method is a one-time temporary admin-only button which throws `new Error('Sentry Test Error')`, then remove it after verification.
+
+### Booking notification emails
+
+Owner and technician booking emails use Resend through a small server-side helper.
+
+Required env to enable booking emails:
+
+```shell
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+```
+
+Optional:
+
+```shell
+RESEND_REPLY_TO_EMAIL=
+```
+
+Notes:
+- Booking notification email is optional; if Resend env is missing, booking creation still succeeds and email delivery is skipped.
+- Owner notifications use the salon record's `ownerPhone` and `ownerEmail`.
+- Technician notifications use the assigned technician profile's `phone` and `email`.
+- If owner and technician resolve to the same phone or email, the app sends one deduplicated internal alert per channel.
 
 ### Code coverage
 

@@ -199,6 +199,14 @@ export type SalonSettings = {
     introPriceDefaultLabel?: string | null;
     firstVisitDiscountEnabled?: boolean;
   };
+  notifications?: {
+    newBooking?: {
+      technicianEnabled?: boolean;
+      ownerEnabled?: boolean;
+      technicianChannel?: 'sms' | 'email' | 'both';
+      ownerChannel?: 'sms' | 'email' | 'both';
+    };
+  };
 
   // ==========================================================================
   // MODULE ENABLE/DISABLE TOGGLES

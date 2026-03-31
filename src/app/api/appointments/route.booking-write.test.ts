@@ -27,6 +27,7 @@ const {
   requireAdmin,
   requireClientApiSession,
   requireStaffSession,
+  sendBookingNotificationsForNewBooking,
   db,
 } = vi.hoisted(() => ({
   canTechnicianTakeAppointment: vi.fn(),
@@ -55,6 +56,7 @@ const {
   requireAdmin: vi.fn(),
   requireClientApiSession: vi.fn(),
   requireStaffSession: vi.fn(),
+  sendBookingNotificationsForNewBooking: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -127,9 +129,12 @@ vi.mock('@/libs/staffAuth', () => ({
   requireStaffSession,
 }));
 
+vi.mock('@/libs/bookingNotifications', () => ({
+  sendBookingNotificationsForNewBooking,
+}));
+
 vi.mock('@/libs/SMS', () => ({
   sendBookingConfirmationToClient: vi.fn(),
-  sendBookingNotificationToTech: vi.fn(),
   sendCancellationNotificationToTech: vi.fn(),
   sendRescheduleConfirmation: vi.fn(),
 }));
@@ -175,6 +180,7 @@ describe('POST /api/appointments booking policy', () => {
         sessionId: 'client_session_1',
       },
     });
+    sendBookingNotificationsForNewBooking.mockResolvedValue(undefined);
     getServicesByIds.mockResolvedValue([{
       id: 'srv_1',
       name: 'BIAB',
@@ -362,6 +368,13 @@ describe('POST /api/appointments booking policy', () => {
     expect(canTechnicianTakeAppointment).toHaveBeenCalledWith(expect.objectContaining({
       requestedServices: [expect.objectContaining({ id: 'srv_1' })],
       locationId: 'loc_1',
+    }));
+    expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_1',
+      clientName: 'Guest',
+      clientPhone: '1111111111',
+      services: ['BIAB'],
+      totalPrice: 6500,
     }));
   });
 

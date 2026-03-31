@@ -382,11 +382,18 @@ describe('BookServiceClient', () => {
       'overflow-x-auto',
       'overflow-y-hidden',
       'scrollbar-hide',
+      'md:mx-0',
+      'md:w-full',
+      'md:overflow-visible',
+      'md:px-0',
     );
     expect(screen.getByTestId('service-category-track')).toHaveClass(
       'flex',
       'min-w-max',
       'flex-nowrap',
+      'md:min-w-0',
+      'md:flex-wrap',
+      'md:justify-center',
     );
     const track = screen.getByTestId('service-category-track');
     const chipNames = within(track)

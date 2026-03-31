@@ -15,6 +15,12 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
+import {
+  bookingNotificationSettingsUpdateSchema,
+  mergeBookingNotificationSettings,
+  resolveBookingNotificationCapabilities,
+  resolveBookingNotificationSettingsFromSettings,
+} from '@/libs/bookingNotificationSettings';
 import { logAuditEvent } from '@/libs/auditLog';
 import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
@@ -34,6 +40,7 @@ const adminUpdateSchema = z.object({
   reviewsEnabled: z.boolean().optional(),
   rewardsEnabled: z.boolean().optional(),
   bookingConfig: bookingConfigSchema.partial().optional(),
+  bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -80,12 +87,26 @@ export async function GET(request: Request): Promise<Response> {
     const effectivePoints = resolveSalonLoyaltyPoints(salon);
     const defaults = getDefaultLoyaltyPoints();
     const bookingConfig = await getBookingConfigForSalon(salon.id);
+    const bookingNotifications = resolveBookingNotificationSettingsFromSettings(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
+    const notificationCapabilities = resolveBookingNotificationCapabilities({
+      features: salon.features,
+      settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+      ownerPhone: salon.ownerPhone,
+      ownerEmail: salon.ownerEmail,
+    });
 
     // 4. Return settings
     return Response.json({
       reviewsEnabled: salon.reviewsEnabled ?? true,
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
+      bookingNotifications,
+      ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
+      ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
+      smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+      emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,
       billingMode: salon.billingMode ?? 'NONE',
@@ -160,12 +181,26 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const updates = validated.data;
+    const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
+    const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
 
     // 6. Build before/after diff for audit log (only changed fields)
     const before: Record<string, unknown> = {};
     const after: Record<string, unknown> = {};
     const dbUpdates: Record<string, unknown> = {};
+    let nextSettings: SalonSettings | null = null;
+
+    const ensureNextSettings = (): SalonSettings => {
+      if (nextSettings) {
+        return nextSettings;
+      }
+
+      nextSettings = { ...currentSettings };
+      return nextSettings;
+    };
 
     if (updates.reviewsEnabled !== undefined && updates.reviewsEnabled !== salon.reviewsEnabled) {
       before.reviewsEnabled = salon.reviewsEnabled;
@@ -184,25 +219,47 @@ export async function PATCH(request: Request): Promise<Response> {
         ...currentBookingConfig,
         ...updates.bookingConfig,
       });
-      const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
 
       before.bookingConfig = currentBookingConfig;
       after.bookingConfig = mergedBookingConfig;
-      dbUpdates.settings = {
-        ...currentSettings,
-        booking: mergedBookingConfig,
-      };
+      ensureNextSettings().booking = mergedBookingConfig;
+    }
+
+    if (updates.bookingNotifications) {
+      const mergedBookingNotifications = mergeBookingNotificationSettings(
+        currentBookingNotifications,
+        updates.bookingNotifications,
+      );
+
+      before.bookingNotifications = currentBookingNotifications;
+      after.bookingNotifications = mergedBookingNotifications;
+      ensureNextSettings().notifications = mergedBookingNotifications;
+    }
+
+    if (nextSettings) {
+      dbUpdates.settings = nextSettings;
     }
 
     // 7. If no changes, return current state
     if (Object.keys(dbUpdates).length === 0) {
       const effectivePoints = resolveSalonLoyaltyPoints(salon);
       const defaults = getDefaultLoyaltyPoints();
+      const notificationCapabilities = resolveBookingNotificationCapabilities({
+        features: salon.features,
+        settings: currentSettings,
+        ownerPhone: salon.ownerPhone,
+        ownerEmail: salon.ownerEmail,
+      });
 
       return Response.json({
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
+        bookingNotifications: currentBookingNotifications,
+        ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
+        ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
+        smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+        emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
         effectivePoints,
         defaults,
         billingMode: salon.billingMode ?? 'NONE',
@@ -242,11 +299,25 @@ export async function PATCH(request: Request): Promise<Response> {
     const effectivePoints = resolveSalonLoyaltyPoints(updatedSalon);
     const defaults = getDefaultLoyaltyPoints();
     const bookingConfig = await getBookingConfigForSalon(updatedSalon.id);
+    const bookingNotifications = resolveBookingNotificationSettingsFromSettings(
+      (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+    );
+    const notificationCapabilities = resolveBookingNotificationCapabilities({
+      features: updatedSalon.features,
+      settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ownerPhone: updatedSalon.ownerPhone,
+      ownerEmail: updatedSalon.ownerEmail,
+    });
 
     return Response.json({
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
+      bookingNotifications,
+      ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
+      ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
+      smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+      emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,
       billingMode: updatedSalon.billingMode ?? 'NONE',

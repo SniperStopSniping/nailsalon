@@ -1059,7 +1059,7 @@ export function BookServiceClient({
                 </div>
 
                 <div
-                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide md:mx-0 md:w-full md:overflow-visible md:px-0"
                   style={{
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
@@ -1067,7 +1067,7 @@ export function BookServiceClient({
                   data-testid="service-category-scroll"
                 >
                   <div
-                    className="flex min-w-max flex-nowrap gap-2 sm:min-w-0 sm:justify-center"
+                    className="flex min-w-max flex-nowrap gap-2 md:min-w-0 md:flex-wrap md:justify-center"
                     data-testid="service-category-track"
                   >
                     {availableCategories.map((category) => {

@@ -25,7 +25,6 @@ import {
   Gift,
   MapPin,
   MessageSquare,
-  Moon,
   Save,
   Search,
   Shield,
@@ -549,8 +548,29 @@ type BookingConfigFormState = {
   firstVisitDiscountEnabled: boolean;
 };
 
+type BookingNotificationChannel = 'sms' | 'email' | 'both';
+
+type BookingNotificationFormState = {
+  technicianEnabled: boolean;
+  ownerEnabled: boolean;
+  technicianChannel: BookingNotificationChannel;
+  ownerChannel: BookingNotificationChannel;
+};
+
+type BookingNotificationCapabilitiesState = {
+  ownerPhonePresent: boolean;
+  ownerEmailPresent: boolean;
+  smsChannelAvailable: boolean;
+  emailChannelAvailable: boolean;
+};
+
 const SLOT_INTERVAL_OPTIONS: Array<BookingConfigFormState['slotIntervalMinutes']> = [5, 10, 15, 30];
 const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = ['CAD', 'USD'];
+const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{ value: BookingNotificationChannel; label: string }> = [
+  { value: 'sms', label: 'SMS' },
+  { value: 'email', label: 'Email' },
+  { value: 'both', label: 'Both' },
+];
 
 const PLAN_FEATURES = {
   starter: {
@@ -795,6 +815,20 @@ export function SettingsModal({
     introPriceDefaultLabel: '',
     firstVisitDiscountEnabled: false,
   });
+  const [bookingNotificationsSaving, setBookingNotificationsSaving] = useState(false);
+  const [bookingNotificationsSaved, setBookingNotificationsSaved] = useState(false);
+  const [bookingNotificationsForm, setBookingNotificationsForm] = useState<BookingNotificationFormState>({
+    technicianEnabled: true,
+    ownerEnabled: false,
+    technicianChannel: 'sms',
+    ownerChannel: 'both',
+  });
+  const [bookingNotificationCapabilities, setBookingNotificationCapabilities] = useState<BookingNotificationCapabilitiesState>({
+    ownerPhonePresent: false,
+    ownerEmailPresent: false,
+    smsChannelAvailable: false,
+    emailChannelAvailable: false,
+  });
 
   const [visibility, setVisibility] = useState<SalonVisibilityPolicy>({
     staff: {
@@ -898,6 +932,18 @@ export function SettingsModal({
           introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
           firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? false,
         });
+        setBookingNotificationsForm({
+          technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? true,
+          ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? false,
+          technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? 'sms',
+          ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? 'both',
+        });
+        setBookingNotificationCapabilities({
+          ownerPhonePresent: data.ownerPhonePresent ?? false,
+          ownerEmailPresent: data.ownerEmailPresent ?? false,
+          smsChannelAvailable: data.smsChannelAvailable ?? false,
+          emailChannelAvailable: data.emailChannelAvailable ?? false,
+        });
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
@@ -975,6 +1021,55 @@ export function SettingsModal({
       setBookingConfigSaving(false);
     }
   }, [bookingConfigForm, bookingConfigSaving, router, salonSlug]);
+
+  const saveBookingNotifications = useCallback(async () => {
+    if (!salonSlug || bookingNotificationsSaving) {
+      return;
+    }
+
+    try {
+      setBookingNotificationsSaving(true);
+      setBookingNotificationsSaved(false);
+      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingNotifications: {
+            newBooking: {
+              technicianEnabled: bookingNotificationsForm.technicianEnabled,
+              ownerEnabled: bookingNotificationsForm.ownerEnabled,
+              technicianChannel: bookingNotificationsForm.technicianChannel,
+              ownerChannel: bookingNotificationsForm.ownerChannel,
+            },
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save booking notification settings');
+      }
+
+      const data = await response.json();
+      setBookingNotificationsForm({
+        technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? bookingNotificationsForm.technicianEnabled,
+        ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? bookingNotificationsForm.ownerEnabled,
+        technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? bookingNotificationsForm.technicianChannel,
+        ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? bookingNotificationsForm.ownerChannel,
+      });
+      setBookingNotificationCapabilities({
+        ownerPhonePresent: data.ownerPhonePresent ?? bookingNotificationCapabilities.ownerPhonePresent,
+        ownerEmailPresent: data.ownerEmailPresent ?? bookingNotificationCapabilities.ownerEmailPresent,
+        smsChannelAvailable: data.smsChannelAvailable ?? bookingNotificationCapabilities.smsChannelAvailable,
+        emailChannelAvailable: data.emailChannelAvailable ?? bookingNotificationCapabilities.emailChannelAvailable,
+      });
+      setBookingNotificationsSaved(true);
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to save booking notifications:', error);
+    } finally {
+      setBookingNotificationsSaving(false);
+    }
+  }, [bookingNotificationCapabilities, bookingNotificationsForm, bookingNotificationsSaving, router, salonSlug]);
 
   // Fetch visibility settings
   const fetchVisibility = useCallback(async () => {
@@ -1076,6 +1171,15 @@ export function SettingsModal({
     const timer = window.setTimeout(() => setBookingConfigSaved(false), 2500);
     return () => window.clearTimeout(timer);
   }, [bookingConfigSaved]);
+
+  useEffect(() => {
+    if (!bookingNotificationsSaved) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setBookingNotificationsSaved(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [bookingNotificationsSaved]);
 
   // Handle booking flow save (called by BookingFlowEditor's auto-save)
   const handleBookingFlowSave = async (flow: BookingStep[]) => {
@@ -1270,16 +1374,188 @@ export function SettingsModal({
         </Section>
 
         {/* Section 2: Notifications */}
-        <Section footer="Customize how you receive alerts for new bookings and reviews.">
-          <Row icon={Bell} iconColor="bg-[#FF3B30]" label="Notifications" />
-          <Row
-            icon={Moon}
-            iconColor="bg-[#5856D6]"
-            label="Do Not Disturb"
-            type="toggle"
-            defaultOn={false}
-            isLast
-          />
+        <Section
+          title="Notifications"
+          footer="Control who gets notified when a new booking is created. Client confirmations still send separately."
+        >
+          {programsLoading
+            ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                </div>
+              )
+            : (
+                <div className="space-y-4 px-4 py-4">
+                  <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Bell className="size-4 text-[#FF3B30]" />
+                          <span className="text-sm font-semibold text-[#1C1C1E]">Notify assigned technician</span>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          Send a new-booking alert to the artist assigned to the appointment.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={bookingNotificationsForm.technicianEnabled}
+                        onChange={event => {
+                          setBookingNotificationsForm(prev => ({
+                            ...prev,
+                            technicianEnabled: event.target.checked,
+                          }));
+                          setBookingNotificationsSaved(false);
+                        }}
+                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                        aria-label="Notify assigned technician"
+                      />
+                    </div>
+
+                    <label className="mt-3 flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                      <select
+                        value={bookingNotificationsForm.technicianChannel}
+                        onChange={event => {
+                          setBookingNotificationsForm(prev => ({
+                            ...prev,
+                            technicianChannel: event.target.value as BookingNotificationChannel,
+                          }));
+                          setBookingNotificationsSaved(false);
+                        }}
+                        disabled={!bookingNotificationsForm.technicianEnabled}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                        aria-label="Technician notification channel"
+                      >
+                        {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                          const unavailable = (option.value === 'sms' || option.value === 'both')
+                            ? !bookingNotificationCapabilities.smsChannelAvailable
+                            : false;
+                          const emailUnavailable = (option.value === 'email' || option.value === 'both')
+                            ? !bookingNotificationCapabilities.emailChannelAvailable
+                            : false;
+                          const disabled = unavailable || emailUnavailable;
+
+                          return (
+                            <option key={option.value} value={option.value} disabled={disabled}>
+                              {option.label}
+                              {disabled ? ' (Unavailable)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    <p className="mt-2 text-xs text-gray-500">
+                      Technician email alerts require an email on each technician profile.
+                    </p>
+                  </div>
+
+                  <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <User className="size-4 text-[#007AFF]" />
+                          <span className="text-sm font-semibold text-[#1C1C1E]">Notify salon owner</span>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          Use the owner phone and email saved on the salon record.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={bookingNotificationsForm.ownerEnabled}
+                        onChange={event => {
+                          setBookingNotificationsForm(prev => ({
+                            ...prev,
+                            ownerEnabled: event.target.checked,
+                          }));
+                          setBookingNotificationsSaved(false);
+                        }}
+                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                        aria-label="Notify salon owner"
+                      />
+                    </div>
+
+                    <label className="mt-3 flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                      <select
+                        value={bookingNotificationsForm.ownerChannel}
+                        onChange={event => {
+                          setBookingNotificationsForm(prev => ({
+                            ...prev,
+                            ownerChannel: event.target.value as BookingNotificationChannel,
+                          }));
+                          setBookingNotificationsSaved(false);
+                        }}
+                        disabled={!bookingNotificationsForm.ownerEnabled}
+                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                        aria-label="Owner notification channel"
+                      >
+                        {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                          const smsUnavailable = (option.value === 'sms' || option.value === 'both')
+                            ? (!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.ownerPhonePresent)
+                            : false;
+                          const emailUnavailable = (option.value === 'email' || option.value === 'both')
+                            ? (!bookingNotificationCapabilities.emailChannelAvailable || !bookingNotificationCapabilities.ownerEmailPresent)
+                            : false;
+                          const disabled = smsUnavailable || emailUnavailable;
+
+                          return (
+                            <option key={option.value} value={option.value} disabled={disabled}>
+                              {option.label}
+                              {disabled ? ' (Unavailable)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    {(!bookingNotificationCapabilities.ownerPhonePresent || !bookingNotificationCapabilities.ownerEmailPresent) && (
+                      <div className="mt-3 flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                        <div>
+                          Owner alerts use the salon owner contact on the salon record.
+                          {!bookingNotificationCapabilities.ownerPhonePresent && ' Phone is missing.'}
+                          {!bookingNotificationCapabilities.ownerEmailPresent && ' Email is missing.'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {(!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.emailChannelAvailable) && (
+                    <div className="rounded-[10px] border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                      {!bookingNotificationCapabilities.smsChannelAvailable && (
+                        <div>SMS alerts are unavailable until SMS reminders are enabled for the salon and Twilio is configured.</div>
+                      )}
+                      {!bookingNotificationCapabilities.emailChannelAvailable && (
+                        <div>Email alerts are unavailable until Resend is configured.</div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                    <div className="text-xs text-gray-500">
+                      Duplicate owner and technician destinations are deduplicated automatically per channel.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveBookingNotifications()}
+                      disabled={bookingNotificationsSaving}
+                      className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Save className="size-4" />
+                      <span>{bookingNotificationsSaving ? 'Saving...' : 'Save alerts'}</span>
+                    </button>
+                  </div>
+
+                  {bookingNotificationsSaved && (
+                    <div className="text-right text-xs font-medium text-green-600">
+                      Booking alerts saved.
+                    </div>
+                  )}
+                </div>
+              )}
         </Section>
 
         {/* Section 3: General */}

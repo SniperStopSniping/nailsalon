@@ -34,12 +34,26 @@ export type BookingConfirmationParams = {
 export type TechNotificationParams = {
   technicianId: string;
   technicianName: string;
+  technicianPhone?: string | null;
   appointmentId: string;
   clientName: string;
   clientPhone: string;
   services: string[];
   startTime: string;
   totalDurationMinutes: number;
+  totalPrice?: number;
+};
+
+export type InternalBookingNotificationSmsParams = {
+  phone: string;
+  salonName: string;
+  clientName: string;
+  clientPhone: string;
+  services: string[];
+  startTime: string;
+  totalDurationMinutes: number;
+  totalPrice: number;
+  technicianName?: string | null;
 };
 
 export type ReminderParams = {
@@ -165,9 +179,51 @@ export async function sendBookingNotificationToTech(
     return;
   }
 
-  const { technicianName, clientName, clientPhone, services, startTime, totalDurationMinutes } = params;
+  const { technicianName, technicianPhone, clientName, clientPhone, services, startTime, totalDurationMinutes, totalPrice = 0 } = params;
 
-  // Format date for display
+  if (!technicianPhone) {
+    console.warn('[SMS SKIPPED] Technician phone missing for booking notification:', {
+      salonId,
+      technicianId: params.technicianId,
+      technicianName,
+    });
+    return;
+  }
+
+  await sendInternalBookingNotificationSms(salonId, {
+    phone: technicianPhone,
+    salonName: '',
+    clientName,
+    clientPhone,
+    services,
+    startTime,
+    totalDurationMinutes,
+    totalPrice,
+    technicianName,
+  });
+}
+
+export async function sendInternalBookingNotificationSms(
+  salonId: string,
+  params: InternalBookingNotificationSmsParams,
+): Promise<void> {
+  if (!await isSmsEnabled(salonId)) {
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+
+  const {
+    phone,
+    salonName,
+    clientName,
+    clientPhone,
+    services,
+    startTime,
+    totalDurationMinutes,
+    totalPrice,
+    technicianName,
+  } = params;
+
   const date = new Date(startTime);
   const formattedDate = date.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -180,21 +236,23 @@ export async function sendBookingNotificationToTech(
     hour12: true,
   });
 
-  // Note: In production, you'd look up the tech's phone number from the database
-  // For now, we just log - tech notification would need their phone stored
-  const message = `📱 New Booking!
+  const messageLines = [
+    `📱 New booking${salonName ? ` at ${salonName}` : ''}`,
+    '',
+    `👤 ${clientName}`,
+    `📞 ${clientPhone}`,
+    `📅 ${formattedDate} at ${formattedTime}`,
+    `💇 ${services.join(', ')}`,
+    `⏱️ ${totalDurationMinutes} min`,
+  ];
 
-${technicianName}, you have a new appointment:
+  if (technicianName) {
+    messageLines.push(`👩‍🎨 ${technicianName}`);
+  }
 
-👤 ${clientName}
-📞 ${clientPhone}
-📅 ${formattedDate} at ${formattedTime}
-💇 ${services.join(', ')}
-⏱️ ${totalDurationMinutes} min`;
+  messageLines.push(`💰 $${(totalPrice / 100).toFixed(0)}`);
 
-  // TODO: Look up technician's phone number from database
-  // await sendSMS(techPhone, message);
-  console.warn('[TECH NOTIFICATION]', message);
+  await sendSMS(phone, messageLines.join('\n'));
 }
 
 /**

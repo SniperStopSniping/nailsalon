@@ -174,7 +174,71 @@ describe('/api/admin/clients/[id]/flag auth', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(guardModuleOr403).toHaveBeenNthCalledWith(1, { salonId: 'salon_1', module: 'clientFlags' });
+    expect(guardModuleOr403).toHaveBeenNthCalledWith(2, { salonId: 'salon_1', module: 'clientBlocking' });
     expect(body.data.client.adminFlags.flaggedBy).toBe('admin_1');
     expect(body.data.client.isBlocked).toBe(true);
+  });
+
+  it('uses the clientBlocking module gate for booking blocks without requiring clientFlags', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Owner',
+    });
+    guardModuleOr403.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: { code: 'MODULE_DISABLED', message: 'Module disabled' },
+    }), { status: 403 }));
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_1/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          isBlocked: true,
+          blockedReason: 'Repeated no-shows',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(guardModuleOr403).toHaveBeenCalledTimes(1);
+    expect(guardModuleOr403).toHaveBeenCalledWith({ salonId: 'salon_1', module: 'clientBlocking' });
+  });
+
+  it('uses the clientFlags module gate for problem flags without requiring clientBlocking', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Owner',
+    });
+    guardModuleOr403.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: { code: 'MODULE_DISABLED', message: 'Module disabled' },
+    }), { status: 403 }));
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_1/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          isProblemClient: true,
+          flagReason: 'Aggressive behavior',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(guardModuleOr403).toHaveBeenCalledTimes(1);
+    expect(guardModuleOr403).toHaveBeenCalledWith({ salonId: 'salon_1', module: 'clientFlags' });
   });
 });
