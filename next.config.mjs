@@ -33,8 +33,50 @@ if (isProductionBuild) {
   assertProductionSentryBuildEnv(process.env);
 }
 
+function applyScopedPrismaOtelIgnoreWarnings(baseConfig) {
+  const existingWebpack = baseConfig.webpack;
+  const ignoreRules = [
+    (warning, compilation) => {
+      try {
+        if (!warning.module) {
+          return false;
+        }
+
+        const readableIdentifier = warning.module.readableIdentifier(compilation.requestShortener);
+        const isKnownPrismaOtelModule = /@opentelemetry\/instrumentation/.test(readableIdentifier)
+          || /@prisma\/instrumentation/.test(readableIdentifier);
+        const isCriticalDependencyMessage = /Critical dependency/.test(warning.message);
+
+        return isKnownPrismaOtelModule && isCriticalDependencyMessage;
+      } catch {
+        return false;
+      }
+    },
+    { module: /@opentelemetry\/instrumentation/, message: /Critical dependency/ },
+    { module: /@prisma\/instrumentation/, message: /Critical dependency/ },
+  ];
+
+  return {
+    ...baseConfig,
+    webpack(config, options) {
+      const nextWebpackConfig = typeof existingWebpack === 'function'
+        ? existingWebpack(config, options)
+        : config;
+      const resolvedConfig = nextWebpackConfig ?? config;
+
+      if (resolvedConfig.ignoreWarnings === undefined) {
+        resolvedConfig.ignoreWarnings = ignoreRules;
+      } else if (Array.isArray(resolvedConfig.ignoreWarnings)) {
+        resolvedConfig.ignoreWarnings.push(...ignoreRules);
+      }
+
+      return resolvedConfig;
+    },
+  };
+}
+
 /** @type {import('next').NextConfig} */
-const nextConfig = bundleAnalyzer(
+const baseNextConfig = bundleAnalyzer(
   withNextIntlConfig({
     eslint: {
       dirs: ['.'],
@@ -59,6 +101,7 @@ const nextConfig = bundleAnalyzer(
     },
   }),
 );
+const nextConfig = shouldEnableSentryPlugin ? baseNextConfig : applyScopedPrismaOtelIgnoreWarnings(baseNextConfig);
 
 export default shouldEnableSentryPlugin
   ? withSentryConfig(

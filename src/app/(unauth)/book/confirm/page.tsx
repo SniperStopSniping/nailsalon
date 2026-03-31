@@ -3,14 +3,13 @@ import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
-import { parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
-import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
-import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
+import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
+import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
-import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -97,28 +96,80 @@ export default async function BookConfirmPage({
   }
 
   const clientSession = await getClientSession();
-  const resolvedSelection = await resolvePublicBookingSelection({
+  const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
+  const techStepEnabled = bookingFlow.includes('tech');
+  const resolvedTechnicianContext = await resolvePublicBookingTechnicianContext({
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
     serviceIds: serviceIdList,
-    technicianId: techId && techId !== 'any' ? techId : null,
+    technicianId: techId || null,
+    locationId: locationId || primaryLocation?.id || null,
     clientPhone: clientSession?.phone ?? null,
     originalAppointmentId,
+    allowAutoSkip: techStepEnabled,
   });
 
-  // Fetch the selected technician (if not "any")
-  let technician = null;
-  if (techId && techId !== 'any') {
-    const dbTech = await getTechnicianById(techId, salon.id);
-    if (dbTech) {
-      technician = {
-        id: dbTech.id,
-        name: dbTech.name,
-        imageUrl: normalizePublicAvatarUrl(dbTech.avatarUrl),
-      };
+  if (techStepEnabled && resolvedTechnicianContext.shouldAutoSkipTech && resolvedTechnicianContext.soleCompatibleTechnician) {
+    if (techId !== resolvedTechnicianContext.soleCompatibleTechnician.id) {
+      redirect(buildBookingUrl('/book/confirm', {
+        salonSlug: searchParams.salonSlug ?? salon.slug,
+        serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+        baseServiceId,
+        selectedAddOns,
+        techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
+        date: dateStr,
+        time: timeStr,
+        locationId: locationId || primaryLocation?.id || null,
+        originalAppointmentId,
+      }, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
+    }
+  } else if (techStepEnabled) {
+    const hasExplicitTechId = Boolean(techId && techId !== 'any');
+    const requestedAnyArtist = techId === 'any';
+
+    if (hasExplicitTechId && !resolvedTechnicianContext.hasValidExplicitTechnician) {
+      redirect(buildBookingUrl('/book/tech', {
+        salonSlug: searchParams.salonSlug ?? salon.slug,
+        serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+        baseServiceId,
+        selectedAddOns,
+        locationId: locationId || primaryLocation?.id || null,
+        techId: null,
+        techError: 'unsupported',
+        originalAppointmentId,
+      }, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
+    }
+
+    if (!hasExplicitTechId && !requestedAnyArtist) {
+      redirect(buildBookingUrl('/book/tech', {
+        salonSlug: searchParams.salonSlug ?? salon.slug,
+        serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+        baseServiceId,
+        selectedAddOns,
+        locationId: locationId || primaryLocation?.id || null,
+        techId: null,
+        originalAppointmentId,
+      }, {
+        routeSalonSlug: params?.slug,
+        locale: params?.locale,
+      }));
     }
   }
+
+  const technician = resolvedTechnicianContext.effectiveTechnician
+    ? {
+        id: resolvedTechnicianContext.effectiveTechnician.id,
+        name: resolvedTechnicianContext.effectiveTechnician.name,
+        imageUrl: resolvedTechnicianContext.effectiveTechnician.imageUrl,
+      }
+    : null;
 
   // Fetch the selected location (already validated above, or use primary)
   // At this point locationId is guaranteed to be valid or we've redirected
@@ -154,15 +205,15 @@ export default async function BookConfirmPage({
       }
     : salonDirectionsFallback;
 
-  const services = resolvedSelection.services.map(service => ({
+  const services = resolvedTechnicianContext.resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
     price: service.priceCents / 100,
     duration: service.durationMinutes,
   }));
-
-  // Get the booking flow for this salon
-  const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);
+  const effectiveBookingFlow = resolvedTechnicianContext.shouldAutoSkipTech
+    ? bookingFlow.filter(step => step !== 'tech')
+    : bookingFlow;
 
   return (
     <PublicSalonPageShell
@@ -173,25 +224,26 @@ export default async function BookConfirmPage({
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           services={services}
-          addOns={resolvedSelection.addOns.map(addOn => ({
+          addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
           }))}
-          baseServiceId={resolvedSelection.baseServiceId}
-          selectedAddOns={resolvedSelection.selectedAddOns}
-          subtotalBeforeDiscount={resolvedSelection.subtotalBeforeDiscountCents / 100}
-          discountAmount={resolvedSelection.discountAmountCents / 100}
-          firstVisitDiscountPreview={resolvedSelection.firstVisitDiscountPreview}
-          totalPrice={resolvedSelection.totalPriceCents / 100}
-          totalDuration={resolvedSelection.visibleDurationMinutes}
+          baseServiceId={resolvedTechnicianContext.resolvedSelection.baseServiceId}
+          selectedAddOns={resolvedTechnicianContext.resolvedSelection.selectedAddOns}
+          subtotalBeforeDiscount={resolvedTechnicianContext.resolvedSelection.subtotalBeforeDiscountCents / 100}
+          discountAmount={resolvedTechnicianContext.resolvedSelection.discountAmountCents / 100}
+          firstVisitDiscountPreview={resolvedTechnicianContext.resolvedSelection.firstVisitDiscountPreview}
+          totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
+          totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}
           technician={technician}
           salonSlug={salon.slug}
           dateStr={dateStr}
           timeStr={timeStr}
-          bookingFlow={bookingFlow}
+          technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
+          bookingFlow={effectiveBookingFlow}
           location={locationSummary}
         />
       </Suspense>

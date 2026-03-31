@@ -81,6 +81,7 @@ type BookConfirmClientProps = {
   totalPrice: number;
   totalDuration: number;
   technician: TechnicianSummary;
+  technicianSelectionSource?: 'explicit' | 'auto' | null;
   salonSlug: string;
   dateStr: string;
   timeStr: string;
@@ -1029,6 +1030,7 @@ export function BookConfirmClient({
   totalPrice,
   totalDuration,
   technician,
+  technicianSelectionSource = null,
   salonSlug,
   dateStr,
   timeStr,
@@ -1057,6 +1059,7 @@ export function BookConfirmClient({
   useEffect(() => {
     syncFromUrl({
       techId: techId || null,
+      technicianSelectionSource,
       baseServiceId,
       selectedAddOns,
       serviceIds: services.map(service => service.id),

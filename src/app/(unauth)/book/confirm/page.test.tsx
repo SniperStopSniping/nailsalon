@@ -11,8 +11,7 @@ const {
   getClientSession,
   getPrimaryLocation,
   getLocationById,
-  getTechnicianById,
-  resolvePublicBookingSelection,
+  resolvePublicBookingTechnicianContext,
   bookConfirmClientSpy,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
@@ -22,8 +21,7 @@ const {
   getClientSession: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getLocationById: vi.fn(),
-  getTechnicianById: vi.fn(),
-  resolvePublicBookingSelection: vi.fn(),
+  resolvePublicBookingTechnicianContext: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
 }));
 
@@ -43,14 +41,13 @@ vi.mock('@/libs/clientAuth', () => ({
   getClientSession,
 }));
 
-vi.mock('@/libs/publicBookingSelection', () => ({
-  resolvePublicBookingSelection,
+vi.mock('@/libs/publicBookingTechnicians', () => ({
+  resolvePublicBookingTechnicianContext,
 }));
 
 vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getLocationById,
-  getTechnicianById,
 }));
 
 vi.mock('@/libs/salonStatus', () => ({
@@ -100,35 +97,48 @@ describe('BookConfirmPage directions fallback', () => {
       zipCode: 'M2J 2C1',
     });
     getLocationById.mockResolvedValue(null);
-    getTechnicianById.mockResolvedValue(null);
-    resolvePublicBookingSelection.mockResolvedValue({
-      mode: 'legacy',
-      baseServiceId: null,
-      selectedAddOns: [],
-      requestedServices: [{
-        id: 'srv_1',
-        name: 'BIAB Short',
-        price: 6500,
-        durationMinutes: 75,
-      }],
-      services: [{
-        id: 'srv_1',
-        name: 'BIAB Short',
-        durationMinutes: 75,
-        priceCents: 6500,
-        category: 'builder_gel',
-        descriptionItems: [],
-        priceDisplayText: null,
-        resolvedIntroPriceLabel: null,
-      }],
-      addOns: [],
-      subtotalBeforeDiscountCents: 6500,
-      discountAmountCents: 0,
-      totalPriceCents: 6500,
-      firstVisitDiscountPreview: null,
-      visibleDurationMinutes: 75,
-      blockedDurationMinutes: 85,
-      bufferMinutes: 10,
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'legacy',
+        baseServiceId: null,
+        selectedAddOns: [],
+        requestedServices: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          price: 6500,
+          durationMinutes: 75,
+        }],
+        services: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          durationMinutes: 75,
+          priceCents: 6500,
+          category: 'builder_gel',
+          descriptionItems: [],
+          priceDisplayText: null,
+          resolvedIntroPriceLabel: null,
+        }],
+        addOns: [],
+        subtotalBeforeDiscountCents: 6500,
+        discountAmountCents: 0,
+        totalPriceCents: 6500,
+        firstVisitDiscountPreview: null,
+        visibleDurationMinutes: 75,
+        blockedDurationMinutes: 85,
+        bufferMinutes: 10,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
     });
   });
 
@@ -183,6 +193,102 @@ describe('BookConfirmPage directions fallback', () => {
         state: 'CA',
         zipCode: '90001',
       },
+    }));
+  });
+
+  it('passes the sole compatible technician and collapses confirm to the effective three-step flow', async () => {
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'base-service',
+        baseServiceId: 'srv_1',
+        selectedAddOns: [],
+        requestedServices: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          category: 'builder_gel',
+        }],
+        services: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          durationMinutes: 75,
+          priceCents: 6500,
+          category: 'builder_gel',
+          descriptionItems: [],
+          priceDisplayText: null,
+          resolvedIntroPriceLabel: null,
+        }],
+        addOns: [],
+        subtotalBeforeDiscountCents: 6500,
+        discountAmountCents: 0,
+        totalPriceCents: 6500,
+        firstVisitDiscountPreview: null,
+        visibleDurationMinutes: 75,
+        blockedDurationMinutes: 85,
+        bufferMinutes: 10,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 1,
+      compatibleTechnicianIds: ['tech_1'],
+      soleCompatibleTechnician: {
+        id: 'tech_1',
+        name: 'Mila',
+        imageUrl: '/mila.jpg',
+        specialties: [],
+        rating: 4.9,
+        reviewCount: 12,
+        enabledServiceIds: ['srv_1'],
+        serviceIds: ['srv_1'],
+        primaryLocationId: null,
+      },
+      requestedTechnicianId: 'tech_1',
+      hasValidExplicitTechnician: true,
+      validExplicitTechnician: {
+        id: 'tech_1',
+        name: 'Mila',
+        imageUrl: '/mila.jpg',
+        specialties: [],
+        rating: 4.9,
+        reviewCount: 12,
+        enabledServiceIds: ['srv_1'],
+        serviceIds: ['srv_1'],
+        primaryLocationId: null,
+      },
+      effectiveTechnicianId: 'tech_1',
+      effectiveTechnician: {
+        id: 'tech_1',
+        name: 'Mila',
+        imageUrl: '/mila.jpg',
+        specialties: [],
+        rating: 4.9,
+        reviewCount: 12,
+        enabledServiceIds: ['srv_1'],
+        serviceIds: ['srv_1'],
+        primaryLocationId: null,
+      },
+      effectiveTechnicianSelectionSource: 'explicit',
+      shouldAutoSkipTech: true,
+    });
+
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'srv_1',
+        techId: 'tech_1',
+        date: '2026-03-20',
+        time: '10:00',
+      },
+    });
+
+    render(element);
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      technician: {
+        id: 'tech_1',
+        name: 'Mila',
+        imageUrl: '/mila.jpg',
+      },
+      bookingFlow: ['service', 'time', 'confirm'],
     }));
   });
 });

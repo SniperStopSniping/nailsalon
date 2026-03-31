@@ -3,15 +3,12 @@ import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, getNextStep, normalizeBookingFlow } from '@/libs/bookingFlow';
-import { technicianSupportsLocation } from '@/libs/bookingPolicy';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
-import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
 import { getClientSession } from '@/libs/clientAuth';
-import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
-import { getLocationById, getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
+import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
+import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
-import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookTechClient } from './BookTechClient';
 
@@ -29,6 +26,7 @@ export default async function BookTechPage({
     serviceIds?: string;
     baseServiceId?: string;
     selectedAddOns?: string;
+    techId?: string;
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
@@ -123,60 +121,64 @@ export default async function BookTechPage({
   }
 
   const clientSession = await getClientSession();
-  const resolvedSelection = await resolvePublicBookingSelection({
+  const resolvedTechnicianContext = await resolvePublicBookingTechnicianContext({
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
     serviceIds: serviceIdList,
+    technicianId: searchParams.techId ?? null,
+    locationId: resolvedLocationId,
     clientPhone: clientSession?.phone ?? null,
+    originalAppointmentId: searchParams.originalAppointmentId ?? null,
+    allowAutoSkip: true,
   });
   const resolvedLocation = resolvedLocationId
     ? await getLocationById(resolvedLocationId, salon.id)
     : null;
 
-  // Fetch technicians for this salon
-  const dbTechnicians = await getTechniciansBySalonId(salon.id);
+  if (resolvedTechnicianContext.shouldAutoSkipTech && resolvedTechnicianContext.soleCompatibleTechnician) {
+    const nextStep = getNextStep('tech', bookingFlow) ?? 'time';
+    redirect(buildBookingUrl(`/book/${nextStep}`, {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
+      baseServiceId,
+      selectedAddOns,
+      locationId: resolvedLocationId,
+      techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
+  }
 
-  const services = resolvedSelection.services.map(service => ({
+  const services = resolvedTechnicianContext.resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
     price: service.priceCents / 100,
     duration: service.durationMinutes,
   }));
 
-  // Map DB technicians to the shape expected by the client component
-  const technicians = dbTechnicians
-    .filter(tech =>
-      technicianSupportsLocation({
-        technician: tech,
-        locationId: resolvedLocationId,
-      }),
-    )
-    .map((tech) => {
-      const compatibility = getPublicTechnicianCompatibility({
-        selectionMode: resolvedSelection.mode,
-        technician: tech,
-        requestedServices: resolvedSelection.requestedServices,
-      });
-      const locationSupported = technicianSupportsLocation({
-        technician: tech,
-        locationId: resolvedLocationId,
-      });
+  const compatibleTechnicianIds = new Set(resolvedTechnicianContext.compatibleTechnicianIds);
 
+  // Map DB technicians to the shape expected by the client component
+  const technicians = resolvedTechnicianContext.activeTechnicians
+    .map((technician) => {
+      const bookable = compatibleTechnicianIds.has(technician.id);
       return {
-        id: tech.id,
-        name: tech.name,
-        imageUrl: normalizePublicAvatarUrl(tech.avatarUrl),
-        specialties: tech.specialties || [],
-        rating: tech.rating ? Number(tech.rating) : null,
-        reviewCount: tech.reviewCount || 0,
-        bookable: compatibility.bookable && locationSupported,
-        unavailableReason: compatibility.bookable
+        id: technician.id,
+        name: technician.name,
+        imageUrl: technician.imageUrl,
+        specialties: technician.specialties || [],
+        rating: technician.rating,
+        reviewCount: technician.reviewCount || 0,
+        bookable,
+        unavailableReason: bookable
           ? null
           : 'Not assigned to this service yet',
       };
     })
-    .filter(tech => resolvedSelection.mode === 'base-service' || tech.bookable);
+    .filter(technician => resolvedTechnicianContext.resolvedSelection.mode === 'base-service' || technician.bookable);
 
   return (
     <PublicSalonPageShell
@@ -187,15 +189,15 @@ export default async function BookTechPage({
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookTechClient
           services={services}
-          addOns={resolvedSelection.addOns.map(addOn => ({
+          addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
           }))}
-          totalPrice={resolvedSelection.totalPriceCents / 100}
-          totalDuration={resolvedSelection.visibleDurationMinutes}
+          totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
+          totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}
           locationName={resolvedLocation?.name ?? primaryLocation?.name ?? null}
           technicians={technicians}
           bookingFlow={bookingFlow}

@@ -14,6 +14,7 @@ describe('useBookingState', () => {
   it('uses default state during server render and hydrates persisted state after mount', async () => {
     window.localStorage.setItem('booking_state', JSON.stringify({
       technicianId: 'tech-1',
+      technicianSelectionSource: 'explicit',
       serviceIds: ['svc-1'],
       baseServiceId: 'svc-1',
       selectedAddOns: [{ addOnId: 'addon-1' }],
@@ -46,6 +47,7 @@ describe('useBookingState', () => {
     });
 
     expect(result.current.technicianId).toBe('tech-1');
+    expect(result.current.technicianSelectionSource).toBe('explicit');
     expect(result.current.serviceIds).toEqual(['svc-1']);
     expect(result.current.baseServiceId).toBe('svc-1');
     expect(result.current.selectedAddOns).toEqual([{ addOnId: 'addon-1' }]);
@@ -55,6 +57,7 @@ describe('useBookingState', () => {
   it('does not overwrite persisted booking state with defaults before hydration completes', async () => {
     const storedState = {
       technicianId: 'tech-2',
+      technicianSelectionSource: 'auto',
       serviceIds: ['svc-2'],
       baseServiceId: 'svc-2',
       selectedAddOns: [{ addOnId: 'addon-2', quantity: 2 }],
@@ -67,6 +70,7 @@ describe('useBookingState', () => {
 
     expect(setItemSpy).not.toHaveBeenCalledWith('booking_state', JSON.stringify({
       technicianId: null,
+      technicianSelectionSource: null,
       serviceIds: [],
       baseServiceId: null,
       selectedAddOns: [],

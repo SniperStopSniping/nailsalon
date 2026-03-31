@@ -43,6 +43,7 @@ type BookTimeClientProps = {
   totalDuration: number;
   locationName?: string | null;
   technician: TechnicianSummary;
+  technicianSelectionSource?: 'explicit' | 'auto' | null;
   bookingFlow: BookingStep[];
 };
 
@@ -153,6 +154,7 @@ export function BookTimeClient({
   totalDuration,
   locationName = null,
   technician,
+  technicianSelectionSource = null,
   bookingFlow,
 }: BookTimeClientProps) {
   const router = useRouter();
@@ -186,7 +188,10 @@ export function BookTimeClient({
   useEffect(() => {
     const urlTechId = searchParams.get('techId');
     if (urlTechId) {
-      syncFromUrl({ techId: urlTechId });
+      syncFromUrl({
+        techId: urlTechId,
+        technicianSelectionSource,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount

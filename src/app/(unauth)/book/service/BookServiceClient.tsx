@@ -8,6 +8,7 @@ import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
@@ -17,6 +18,12 @@ import { getFeaturedServices } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
+import {
+  getPublicTechnicianCompatibility,
+  technicianSupportsPublicLocation,
+  type PublicTechnicianPreview,
+} from '@/libs/publicTechnicianCompatibility';
+import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { PUBLIC_SERVICE_CATEGORIES } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -83,12 +90,15 @@ export type LocationData = {
   isPrimary: boolean;
 };
 
+type TechnicianPreviewData = PublicTechnicianPreview;
+
 type BookServiceClientProps = {
   services: ServiceData[];
   addOns?: AddOnData[];
   serviceAddOnRules?: ServiceAddOnRule[];
   bookingFlow: BookingStep[];
   locations: LocationData[];
+  technicians?: TechnicianPreviewData[];
   currency?: string;
   showFirstVisitOffer?: boolean;
 };
@@ -198,6 +208,7 @@ export function BookServiceClient({
   serviceAddOnRules = [],
   bookingFlow,
   locations,
+  technicians = [],
   currency = 'CAD',
   showFirstVisitOffer = false,
 }: BookServiceClientProps) {
@@ -212,18 +223,22 @@ export function BookServiceClient({
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const urlLocationId = searchParams.get('locationId') || '';
   const urlBaseServiceId = searchParams.get('baseServiceId');
+  const urlTechId = searchParams.get('techId');
   const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
   const legacyServiceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
 
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
   const {
     technicianId = null,
+    technicianSelectionSource = null,
     baseServiceId: storedBaseServiceId = null,
     selectedAddOns: storedSelectedAddOns = [],
     locationId: storedLocationId = null,
+    setTechnicianId = () => {},
     setBaseServiceId = () => {},
     setSelectedAddOns = () => {},
     setServiceIds = () => {},
+    setLocationId = () => {},
     syncFromUrl = () => {},
     isHydrated = false,
   } = useBookingState();
@@ -280,7 +295,7 @@ export function BookServiceClient({
       setSelectedLocationId(storedLocationId);
     }
 
-    const hasUrlDrivenSelection = Boolean(urlDrivenBaseServiceId || urlSelectedAddOns.length > 0);
+    const hasUrlDrivenSelection = Boolean(urlDrivenBaseServiceId || urlSelectedAddOns.length > 0 || urlTechId);
     if (hasUrlDrivenSelection) {
       hasManuallyClearedSelectionRef.current = false;
       hasAppliedHydratedBookingStateRef.current = true;
@@ -321,6 +336,7 @@ export function BookServiceClient({
     storedSelectedAddOns,
     urlDrivenBaseServiceId,
     urlLocationId,
+    urlTechId,
     urlSelectedAddOns,
   ]);
 
@@ -333,8 +349,10 @@ export function BookServiceClient({
   }, [hadInvalidLocation, primaryLocation?.id, searchParams]);
 
   useEffect(() => {
-    if (urlBaseServiceId || legacyServiceIds[0]) {
+    if (urlBaseServiceId || legacyServiceIds[0] || urlTechId) {
       syncFromUrl({
+        techId: urlTechId,
+        technicianSelectionSource: urlTechId && urlTechId !== 'any' ? 'explicit' : null,
         baseServiceId: urlBaseServiceId ?? legacyServiceIds[0] ?? null,
         selectedAddOns: urlSelectedAddOns,
         serviceIds: legacyServiceIds,
@@ -381,6 +399,14 @@ export function BookServiceClient({
     setSelectedAddOns(normalized);
   }, [addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    setLocationId(selectedLocationId);
+  }, [isHydrated, selectedLocationId, setLocationId]);
+
   const handleServiceSelection = (service: ServiceData) => {
     hasUserChangedSelectionRef.current = true;
 
@@ -388,6 +414,9 @@ export function BookServiceClient({
       hasManuallyClearedSelectionRef.current = true;
       setSelectedBaseServiceIdState(null);
       setSelectedAddOnsState([]);
+      if (technicianSelectionSource === 'auto') {
+        setTechnicianId(null, null);
+      }
     } else {
       hasManuallyClearedSelectionRef.current = false;
       setSelectedBaseServiceIdState(service.id);
@@ -436,6 +465,93 @@ export function BookServiceClient({
     })
     .filter(Boolean);
   const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
+  const locationCompatiblePreviewTechnicians = technicians.filter((technician) =>
+    technicianSupportsPublicLocation({
+      technician,
+      locationId: selectedLocationId,
+    }),
+  );
+  const compatiblePreviewTechnicians = selectedService
+    ? locationCompatiblePreviewTechnicians.filter((technician) =>
+      getPublicTechnicianCompatibility({
+        selectionMode: 'base-service',
+        technician,
+        requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
+      }).bookable,
+    )
+    : [];
+  const hasSingleTechnicianSalonPreview = !selectedService && locationCompatiblePreviewTechnicians.length === 1;
+  const soleCompatiblePreviewTechnician = compatiblePreviewTechnicians.length === 1
+    ? compatiblePreviewTechnicians[0] ?? null
+    : null;
+  const hasConflictingExplicitTechnician = Boolean(
+    technicianSelectionSource === 'explicit'
+    && technicianId
+    && soleCompatiblePreviewTechnician
+    && technicianId !== soleCompatiblePreviewTechnician.id,
+  );
+  const shouldPreviewAutoSkipTech = Boolean(
+    bookingFlow.includes('tech')
+    && soleCompatiblePreviewTechnician
+    && !hasConflictingExplicitTechnician,
+  );
+  const shouldCollapseTechStepInHeader = Boolean(
+    bookingFlow.includes('tech')
+    && (hasSingleTechnicianSalonPreview || shouldPreviewAutoSkipTech),
+  );
+  const effectiveBookingFlow = shouldCollapseTechStepInHeader
+    ? bookingFlow.filter(step => step !== 'tech')
+    : bookingFlow;
+
+  useEffect(() => {
+    if (!isHydrated || !bookingFlow.includes('tech')) {
+      return;
+    }
+
+    if (!selectedBaseServiceId) {
+      if (!hasAppliedHydratedBookingStateRef.current && storedBaseServiceId) {
+        return;
+      }
+
+      if (technicianSelectionSource === 'auto' || technicianId) {
+        setTechnicianId(null, null);
+      }
+      return;
+    }
+
+    const compatibleTechnicianIds = new Set(compatiblePreviewTechnicians.map(technician => technician.id));
+    const hasValidExplicitTechnician = Boolean(
+      technicianSelectionSource === 'explicit'
+      && technicianId
+      && compatibleTechnicianIds.has(technicianId),
+    );
+
+    if (technicianSelectionSource === 'explicit' && technicianId && !hasValidExplicitTechnician) {
+      setTechnicianId(null, null);
+      return;
+    }
+
+    if (technicianSelectionSource === 'auto') {
+      if (!soleCompatiblePreviewTechnician || technicianId !== soleCompatiblePreviewTechnician.id) {
+        setTechnicianId(null, null);
+        return;
+      }
+    }
+
+    if (!technicianId && soleCompatiblePreviewTechnician) {
+      setTechnicianId(soleCompatiblePreviewTechnician.id, 'auto');
+    }
+  }, [
+    bookingFlow,
+    compatiblePreviewTechnicians,
+    isHydrated,
+    selectedBaseServiceId,
+    setTechnicianId,
+    soleCompatiblePreviewTechnician,
+    storedBaseServiceId,
+    technicianId,
+    technicianSelectionSource,
+  ]);
 
   const totalPriceCents = (selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
     (sum, item) => {
@@ -457,18 +573,47 @@ export function BookServiceClient({
   );
   const featuredServices = getFeaturedServices(services);
   const serviceRows = buildServiceRows(filteredServices);
+  const soleCompatiblePreviewRating = soleCompatiblePreviewTechnician
+    ? getPublicTechnicianRatingDisplay({
+      rating: soleCompatiblePreviewTechnician.rating,
+      reviewCount: soleCompatiblePreviewTechnician.reviewCount,
+    })
+    : null;
+  const effectiveContinueTechnicianId = shouldPreviewAutoSkipTech
+    ? soleCompatiblePreviewTechnician?.id ?? null
+    : technicianSelectionSource === 'explicit' && technicianId && compatiblePreviewTechnicians.some(
+      technician => technician.id === technicianId,
+    )
+      ? technicianId
+      : null;
+  const effectiveContinueTechnicianSelectionSource = effectiveContinueTechnicianId
+    ? (
+        technicianSelectionSource === 'explicit' && technicianId === effectiveContinueTechnicianId
+          ? 'explicit'
+          : shouldPreviewAutoSkipTech
+            ? 'auto'
+            : 'explicit'
+      )
+    : null;
 
   const goToNextStep = (baseServiceIdValue: string, selectedAddOnsValue: SelectedAddOnParam[]) => {
-    const nextStep = getNextStep('service', bookingFlow);
+    const nextStep = getNextStep('service', effectiveBookingFlow);
     if (!nextStep) {
       return;
+    }
+
+    if (effectiveContinueTechnicianId) {
+      setTechnicianId(
+        effectiveContinueTechnicianId,
+        effectiveContinueTechnicianSelectionSource,
+      );
     }
 
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
       baseServiceId: baseServiceIdValue,
       selectedAddOns: selectedAddOnsValue,
-      techId: technicianId,
+      techId: effectiveContinueTechnicianId,
       originalAppointmentId,
       locationId: selectedLocationId,
     }, {
@@ -594,7 +739,7 @@ export function BookServiceClient({
           mounted={mounted}
           title="Choose Your Service"
           description="Pick your main service, then add optional extras."
-          bookingFlow={bookingFlow}
+          bookingFlow={effectiveBookingFlow}
           currentStep="service"
           isFirstStep={isFirstStep}
           onBack={handleBack}
@@ -765,6 +910,52 @@ export function BookServiceClient({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {selectedService && shouldPreviewAutoSkipTech && soleCompatiblePreviewTechnician && (
+          <div
+            data-testid="service-auto-technician-preview"
+            className="mb-4 flex items-center gap-3 rounded-full border bg-white/90 px-3 py-2 shadow-[0_4px_18px_rgba(0,0,0,0.05)] backdrop-blur-sm"
+            style={{
+              borderColor: `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+              transition: 'opacity 300ms ease-out 130ms, transform 300ms ease-out 130ms',
+            }}
+          >
+            <TechnicianAvatar
+              name={soleCompatiblePreviewTechnician.name}
+              imageUrl={soleCompatiblePreviewTechnician.imageUrl}
+              className="size-10 shrink-0"
+              sizes="40px"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                Your artist
+              </div>
+              <div className="truncate text-sm font-semibold text-neutral-900">
+                {soleCompatiblePreviewTechnician.name}
+              </div>
+            </div>
+            <div className="shrink-0 text-right text-[11px] text-neutral-500">
+              {soleCompatiblePreviewRating?.kind === 'rated'
+                ? (
+                    <>
+                      <div className="font-semibold text-neutral-800">
+                        {soleCompatiblePreviewRating.ratingText}
+                        {' '}
+                        ★
+                      </div>
+                      <div>
+                        {soleCompatiblePreviewRating.reviewCountText}
+                        {' '}
+                        reviews
+                      </div>
+                    </>
+                  )
+                : 'New artist'}
             </div>
           </div>
         )}

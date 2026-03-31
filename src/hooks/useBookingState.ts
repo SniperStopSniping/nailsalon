@@ -6,8 +6,11 @@ import type { SelectedAddOnParam } from '@/libs/bookingParams';
 
 const BOOKING_STATE_KEY = 'booking_state';
 
+export type BookingTechnicianSelectionSource = 'explicit' | 'auto' | null;
+
 type BookingState = {
   technicianId: string | null; // null means "any artist", empty string means not selected
+  technicianSelectionSource: BookingTechnicianSelectionSource;
   serviceIds: string[];
   baseServiceId: string | null;
   selectedAddOns: SelectedAddOnParam[];
@@ -16,6 +19,7 @@ type BookingState = {
 
 const defaultState: BookingState = {
   technicianId: null,
+  technicianSelectionSource: null,
   serviceIds: [],
   baseServiceId: null,
   selectedAddOns: [],
@@ -39,9 +43,11 @@ export function useBookingState() {
     try {
       const stored = localStorage.getItem(BOOKING_STATE_KEY);
       if (stored) {
+        const parsed = JSON.parse(stored) as Partial<BookingState>;
         setState({
           ...defaultState,
-          ...(JSON.parse(stored) as Partial<BookingState>),
+          ...parsed,
+          technicianSelectionSource: parsed.technicianSelectionSource ?? (parsed.technicianId ? 'explicit' : null),
         });
       }
     } catch {
@@ -64,8 +70,15 @@ export function useBookingState() {
     }
   }, [isHydrated, state]);
 
-  const setTechnicianId = useCallback((techId: string | null) => {
-    setState(prev => ({ ...prev, technicianId: techId }));
+  const setTechnicianId = useCallback((
+    techId: string | null,
+    technicianSelectionSource: BookingTechnicianSelectionSource = techId ? 'explicit' : null,
+  ) => {
+    setState(prev => ({
+      ...prev,
+      technicianId: techId,
+      technicianSelectionSource: techId ? technicianSelectionSource : null,
+    }));
   }, []);
 
   const setServiceIds = useCallback((serviceIds: string[]) => {
@@ -98,14 +111,24 @@ export function useBookingState() {
   // Sync from URL params on mount (for deep links and reschedule flows)
   const syncFromUrl = useCallback((params: {
     techId?: string | null;
+    technicianSelectionSource?: BookingTechnicianSelectionSource;
     serviceIds?: string[];
     baseServiceId?: string | null;
     selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
   }) => {
+    const normalizedTechId = params.techId && params.techId !== 'any'
+      ? params.techId
+      : null;
+
     setState(prev => ({
       ...prev,
-      ...(params.techId !== undefined && { technicianId: params.techId || null }),
+      ...(params.techId !== undefined && {
+        technicianId: normalizedTechId,
+        technicianSelectionSource: normalizedTechId
+          ? (params.technicianSelectionSource ?? 'explicit')
+          : null,
+      }),
       ...(params.serviceIds !== undefined && { serviceIds: params.serviceIds }),
       ...(params.baseServiceId !== undefined && { baseServiceId: params.baseServiceId || null }),
       ...(params.selectedAddOns !== undefined && { selectedAddOns: params.selectedAddOns }),
@@ -117,6 +140,7 @@ export function useBookingState() {
     state,
     isHydrated,
     technicianId: state.technicianId,
+    technicianSelectionSource: state.technicianSelectionSource,
     serviceIds: state.serviceIds,
     baseServiceId: state.baseServiceId,
     selectedAddOns: state.selectedAddOns,

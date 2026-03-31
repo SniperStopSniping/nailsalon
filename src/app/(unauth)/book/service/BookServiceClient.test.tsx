@@ -5,20 +5,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   bookingStateMock,
+  clientSessionMock,
   navigationMock,
 } = vi.hoisted(() => ({
   bookingStateMock: {
     values: {
       technicianId: null as string | null,
+      technicianSelectionSource: null as 'explicit' | 'auto' | null,
       baseServiceId: null as string | null,
       selectedAddOns: [] as { addOnId: string; quantity?: number }[],
       locationId: null as string | null,
       isHydrated: true,
     },
+    setTechnicianId: vi.fn(),
     setBaseServiceId: vi.fn(),
     setSelectedAddOns: vi.fn(),
     setServiceIds: vi.fn(),
+    setLocationId: vi.fn(),
     syncFromUrl: vi.fn(),
+  },
+  clientSessionMock: {
+    isLoggedIn: false,
+    isCheckingSession: false,
+    handleLoginSuccess: vi.fn(),
   },
   navigationMock: {
     routerBack: vi.fn(),
@@ -59,7 +68,11 @@ vi.mock('@/components/BlockingLoginModal', () => ({
 }));
 
 vi.mock('@/components/booking/BookingStepHeader', () => ({
-  BookingStepHeader: () => null,
+  BookingStepHeader: ({
+    bookingFlow,
+  }: {
+    bookingFlow: string[];
+  }) => <div data-testid="booking-step-header">{bookingFlow.join(' > ')}</div>,
 }));
 
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
@@ -72,22 +85,25 @@ vi.mock('@/components/booking/BookingPhoneLogin', () => ({
 
 vi.mock('@/hooks/useClientSession', () => ({
   useClientSession: () => ({
-    isLoggedIn: false,
-    isCheckingSession: false,
-    handleLoginSuccess: vi.fn(),
+    isLoggedIn: clientSessionMock.isLoggedIn,
+    isCheckingSession: clientSessionMock.isCheckingSession,
+    handleLoginSuccess: clientSessionMock.handleLoginSuccess,
   }),
 }));
 
 vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => ({
     technicianId: bookingStateMock.values.technicianId,
+    technicianSelectionSource: bookingStateMock.values.technicianSelectionSource,
     baseServiceId: bookingStateMock.values.baseServiceId,
     selectedAddOns: bookingStateMock.values.selectedAddOns,
     locationId: bookingStateMock.values.locationId,
     isHydrated: bookingStateMock.values.isHydrated,
+    setTechnicianId: bookingStateMock.setTechnicianId,
     setBaseServiceId: bookingStateMock.setBaseServiceId,
     setSelectedAddOns: bookingStateMock.setSelectedAddOns,
     setServiceIds: bookingStateMock.setServiceIds,
+    setLocationId: bookingStateMock.setLocationId,
     syncFromUrl: bookingStateMock.syncFromUrl,
   }),
 }));
@@ -218,12 +234,51 @@ const locations = [
   },
 ];
 
+const technicians = [
+  {
+    id: 'tech-1',
+    name: 'Mila',
+    imageUrl: null,
+    specialties: ['Fresh colour application'],
+    rating: 4.9,
+    reviewCount: 42,
+    enabledServiceIds: ['svc-1'],
+    serviceIds: ['svc-1'],
+    primaryLocationId: 'loc-1',
+  },
+  {
+    id: 'tech-2',
+    name: 'Taylor',
+    imageUrl: null,
+    specialties: ['Full set extensions'],
+    rating: null,
+    reviewCount: 0,
+    enabledServiceIds: ['svc-2'],
+    serviceIds: ['svc-2'],
+    primaryLocationId: null,
+  },
+  {
+    id: 'tech-3',
+    name: 'Avery',
+    imageUrl: null,
+    specialties: ['Gel X'],
+    rating: 4.8,
+    reviewCount: 18,
+    enabledServiceIds: ['svc-2'],
+    serviceIds: ['svc-2'],
+    primaryLocationId: null,
+  },
+];
+
 describe('BookServiceClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
+    clientSessionMock.isLoggedIn = false;
+    clientSessionMock.isCheckingSession = false;
     bookingStateMock.values = {
       technicianId: null,
+      technicianSelectionSource: null,
       baseServiceId: null,
       selectedAddOns: [],
       locationId: null,
@@ -401,10 +456,103 @@ describe('BookServiceClient', () => {
     );
 
     expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
+  });
+
+  it('starts with a three-step header on a fresh visit when the salon has exactly one location-compatible technician', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+        technicians={[technicians[0]!]}
+      />,
+    );
+
+    expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+  });
+
+  it('renders a compact one-tech preview, collapses to three steps, and skips directly to time when exactly one technician is compatible', () => {
+    clientSessionMock.isLoggedIn = true;
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+        technicians={technicians}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
+    expect(screen.getByText('Mila')).toBeInTheDocument();
+    expect(screen.getByText('42 reviews')).toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+
+    fireEvent.click(screen.getByTestId('service-continue-button'));
+
+    expect(navigationMock.routerPush).toHaveBeenCalledWith(
+      '/en/salon-a/book/time?baseServiceId=svc-1&locationId=loc-1&techId=tech-1',
+    );
+    expect(bookingStateMock.setTechnicianId).toHaveBeenCalledWith('tech-1', 'auto');
+  });
+
+  it('restores the normal artist step when the selection changes from one-tech to multi-tech', async () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+        technicians={technicians}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+
+    fireEvent.click(within(screen.getByTestId('service-category-track')).getByRole('button', { name: /extensions/i }));
+    fireEvent.click(screen.getByTestId('service-card-svc-2'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
+  });
+
+  it('does not auto-skip when no compatible technician exists for the selected service', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+        technicians={technicians.filter(technician => technician.id !== 'tech-1')}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
+    expect(bookingStateMock.setTechnicianId).not.toHaveBeenCalledWith('tech-1', 'auto');
   });
 
   it('shows the add-on cue, inline panel, and sticky note when the user selects a service with add-ons', () => {
@@ -593,6 +741,7 @@ describe('BookServiceClient', () => {
   it('applies persisted booking state only after hydration when no URL selection exists', async () => {
     bookingStateMock.values = {
       technicianId: null,
+      technicianSelectionSource: null,
       baseServiceId: 'svc-2',
       selectedAddOns: [{ addOnId: 'addon-1' }],
       locationId: 'loc-2',
@@ -639,6 +788,7 @@ describe('BookServiceClient', () => {
   it('keeps a manually unselected restored service cleared for the current page session', async () => {
     bookingStateMock.values = {
       technicianId: null,
+      technicianSelectionSource: null,
       baseServiceId: 'svc-2',
       selectedAddOns: [{ addOnId: 'addon-1' }],
       locationId: 'loc-2',
@@ -686,6 +836,7 @@ describe('BookServiceClient', () => {
     navigationMock.searchParams.set('selectedAddOns', JSON.stringify([{ addOnId: 'addon-2' }]));
     bookingStateMock.values = {
       technicianId: null,
+      technicianSelectionSource: null,
       baseServiceId: 'svc-2',
       selectedAddOns: [{ addOnId: 'addon-1' }],
       locationId: 'loc-2',
@@ -709,12 +860,14 @@ describe('BookServiceClient', () => {
     expect(screen.queryByText(/Optional add-ons for Gel X/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(bookingStateMock.syncFromUrl).toHaveBeenCalledWith({
+      expect(bookingStateMock.syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({
         baseServiceId: 'svc-1',
-        selectedAddOns: [{ addOnId: 'addon-2' }],
+        selectedAddOns: [{ addOnId: 'addon-2', quantity: undefined }],
         serviceIds: [],
         locationId: 'loc-1',
-      });
+        techId: null,
+        technicianSelectionSource: null,
+      }));
     });
   });
 
@@ -723,6 +876,7 @@ describe('BookServiceClient', () => {
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1&locationId=missing');
     bookingStateMock.values = {
       technicianId: null,
+      technicianSelectionSource: null,
       baseServiceId: 'svc-2',
       selectedAddOns: [{ addOnId: 'addon-1' }],
       locationId: 'loc-2',
@@ -742,12 +896,14 @@ describe('BookServiceClient', () => {
     expect(screen.getByText(/Location not found, defaulted to Downtown\./i)).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(bookingStateMock.syncFromUrl).toHaveBeenCalledWith({
+      expect(bookingStateMock.syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({
         baseServiceId: 'svc-1',
         selectedAddOns: [],
         serviceIds: [],
         locationId: 'loc-1',
-      });
+        techId: null,
+        technicianSelectionSource: null,
+      }));
     });
 
     expect(replaceStateSpy).toHaveBeenCalled();

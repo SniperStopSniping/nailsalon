@@ -7,10 +7,11 @@ import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/booking
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
-import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
+import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
 import { getPublicPageContext } from '@/libs/tenant';
+import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookServiceClient } from './BookServiceClient';
 
@@ -54,10 +55,11 @@ export default async function BookServicePage({
   // Fetch services for this salon
   const bookingConfig = await getBookingConfigForSalon(salon.id);
   const clientSession = await getClientSession();
-  const [dbServices, dbAddOns, dbServiceAddOnRules] = await Promise.all([
+  const [dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians] = await Promise.all([
     getServicesBySalonId(salon.id),
     getActiveAddOnsBySalonId(salon.id),
     getServiceAddOnRulesBySalonId(salon.id),
+    getTechniciansBySalonId(salon.id),
   ]);
 
   const services = dbServices.map(service => ({
@@ -101,6 +103,18 @@ export default async function BookServicePage({
     defaultQuantity: rule.defaultQuantity ?? null,
     maxQuantityOverride: rule.maxQuantityOverride ?? null,
     displayOrder: rule.displayOrder ?? 0,
+  }));
+
+  const technicians = dbTechnicians.map(technician => ({
+    id: technician.id,
+    name: technician.name,
+    imageUrl: normalizePublicAvatarUrl(technician.avatarUrl),
+    specialties: technician.specialties ?? [],
+    rating: technician.rating ? Number(technician.rating) : null,
+    reviewCount: technician.reviewCount ?? 0,
+    enabledServiceIds: technician.enabledServiceIds ?? [],
+    serviceIds: technician.serviceIds ?? [],
+    primaryLocationId: technician.primaryLocationId ?? null,
   }));
 
   // Get the booking flow for this salon
@@ -158,6 +172,7 @@ export default async function BookServicePage({
           serviceAddOnRules={serviceAddOnRules}
           bookingFlow={bookingFlow}
           locations={locations}
+          technicians={technicians}
           currency={bookingConfig.currency}
           showFirstVisitOffer={showFirstVisitOffer}
         />

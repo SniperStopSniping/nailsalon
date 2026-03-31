@@ -101,7 +101,10 @@ export function BookTechClient({
 
     const urlTechId = searchParams.get('techId');
     if (urlTechId) {
-      syncFromUrl({ techId: urlTechId });
+      syncFromUrl({
+        techId: urlTechId,
+        technicianSelectionSource: urlTechId === 'any' ? null : 'explicit',
+      });
       setSelectedTech(urlTechId);
     } else if (technicianId) {
       setSelectedTech(technicianId);
@@ -119,7 +122,7 @@ export function BookTechClient({
 
   const goToNextStep = (techId: string) => {
     // Save to global state first
-    setTechnicianId(techId === 'any' ? null : techId);
+    setTechnicianId(techId === 'any' ? null : techId, techId === 'any' ? null : 'explicit');
 
     const nextStep = getNextStep('tech', bookingFlow);
     if (!nextStep) {
@@ -149,7 +152,7 @@ export function BookTechClient({
     // Always allow selection
     setSelectedTech(techId);
     // Save to global state immediately
-    setTechnicianId(techId === 'any' ? null : techId);
+    setTechnicianId(techId === 'any' ? null : techId, techId === 'any' ? null : 'explicit');
 
     // Gate navigation on login when this is the first step
     if (isFirstStep && !isLoggedIn) {
@@ -172,7 +175,7 @@ export function BookTechClient({
     if (pendingTechId) {
       setSelectedTech(pendingTechId);
       // Save to global state
-      setTechnicianId(pendingTechId === 'any' ? null : pendingTechId);
+      setTechnicianId(pendingTechId === 'any' ? null : pendingTechId, pendingTechId === 'any' ? null : 'explicit');
       setTimeout(() => {
         goToNextStep(pendingTechId);
       }, 300);

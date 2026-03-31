@@ -2,13 +2,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
-import {
-  resolveTechnicianCapabilityMode,
-  technicianCanPerformServices,
-  type BookingPolicyTechnician,
-  type RequestedService,
-} from '@/libs/bookingPolicy';
 import { mapAddOnToCatalogSummary, mapServiceAddOnRule, mapServiceToCatalogSummary } from '@/libs/bookingCatalog';
+import {
+  getPublicTechnicianCompatibility as resolveSharedPublicTechnicianCompatibility,
+  type PublicRequestedService,
+  type PublicTechnicianPreview,
+} from '@/libs/publicTechnicianCompatibility';
 import {
   addOnSchema,
   type AddOn,
@@ -108,29 +107,10 @@ export function getBlockedEndTimeWithBuffer(startTime: Date, blockedDurationMinu
 
 export function getPublicTechnicianCompatibility(args: {
   selectionMode: 'base-service' | 'legacy';
-  technician: Pick<BookingPolicyTechnician, 'enabledServiceIds' | 'serviceIds' | 'specialties'>;
-  requestedServices: RequestedService[];
+  technician: Pick<PublicTechnicianPreview, 'enabledServiceIds' | 'serviceIds' | 'specialties'>;
+  requestedServices: PublicRequestedService[];
 }): PublicTechnicianCompatibility {
-  if (args.requestedServices.length === 0) {
-    return { bookable: true, reason: null };
-  }
-
-  if (args.selectionMode === 'base-service') {
-    const enabledServiceIds = new Set(args.technician.enabledServiceIds ?? []);
-    const bookable = args.requestedServices.every(service => enabledServiceIds.has(service.id));
-    return bookable
-      ? { bookable: true, reason: null }
-      : { bookable: false, reason: 'service_unsupported' };
-  }
-
-  const capabilityMode = resolveTechnicianCapabilityMode([args.technician], args.requestedServices);
-  return technicianCanPerformServices({
-    technician: args.technician,
-    requestedServices: args.requestedServices,
-    capabilityMode,
-  })
-    ? { bookable: true, reason: null }
-    : { bookable: false, reason: 'service_unsupported' };
+  return resolveSharedPublicTechnicianCompatibility(args);
 }
 
 export async function getAllowedAddOnsForService(salonId: string, serviceId: string) {
