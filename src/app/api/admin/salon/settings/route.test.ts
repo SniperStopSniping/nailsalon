@@ -155,6 +155,12 @@ describe('/api/admin/salon/settings notification settings', () => {
         technicianChannel: 'sms',
         ownerChannel: 'both',
       },
+      appointmentCancelled: {
+        technicianEnabled: true,
+        ownerEnabled: false,
+        technicianChannel: 'sms',
+        ownerChannel: 'both',
+      },
     });
     expect(body.ownerPhonePresent).toBe(true);
     expect(body.ownerEmailPresent).toBe(true);
@@ -216,6 +222,12 @@ describe('/api/admin/salon/settings notification settings', () => {
             technicianChannel: 'sms',
             ownerChannel: 'both',
           },
+          appointmentCancelled: {
+            technicianEnabled: true,
+            ownerEnabled: false,
+            technicianChannel: 'sms',
+            ownerChannel: 'both',
+          },
         },
       },
     });
@@ -239,6 +251,7 @@ describe('/api/admin/salon/settings notification settings', () => {
     expect(response.status).toBe(200);
     expect(body.bookingNotifications.newBooking.ownerEnabled).toBe(true);
     expect(body.bookingNotifications.newBooking.ownerChannel).toBe('both');
+    expect(body.bookingNotifications.appointmentCancelled.ownerEnabled).toBe(false);
     expect(logAuditEvent).toHaveBeenCalled();
   });
 

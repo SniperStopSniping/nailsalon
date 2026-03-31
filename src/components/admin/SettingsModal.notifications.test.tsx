@@ -164,33 +164,39 @@ describe('SettingsModal booking notifications', () => {
               introPriceDefaultLabel: null,
               firstVisitDiscountEnabled: false,
             },
-          bookingNotifications: {
-            newBooking: {
-              technicianEnabled: true,
-              ownerEnabled: true,
-              technicianChannel: 'both',
-              ownerChannel: 'both',
+            bookingNotifications: {
+              newBooking: {
+                technicianEnabled: true,
+                ownerEnabled: true,
+                technicianChannel: 'both',
+                ownerChannel: 'both',
+              },
+              appointmentCancelled: {
+                technicianEnabled: true,
+                ownerEnabled: true,
+                technicianChannel: 'sms',
+                ownerChannel: 'both',
+              },
             },
-          },
-          ownerPhonePresent: true,
-          ownerEmailPresent: true,
-          smsChannelAvailable: true,
-          emailChannelAvailable: true,
-          effectivePoints: {
-            welcomeBonus: 0,
-            profileCompletion: 0,
-            referralReferee: 0,
-            referralReferrer: 0,
-          },
-          defaults: {
-            welcomeBonus: 0,
-            profileCompletion: 0,
-            referralReferee: 0,
-            referralReferrer: 0,
-          },
-          billingMode: 'NONE',
-          subscriptionStatus: null,
-        }), { status: 200 }));
+            ownerPhonePresent: true,
+            ownerEmailPresent: true,
+            smsChannelAvailable: true,
+            emailChannelAvailable: true,
+            effectivePoints: {
+              welcomeBonus: 0,
+              profileCompletion: 0,
+              referralReferee: 0,
+              referralReferrer: 0,
+            },
+            defaults: {
+              welcomeBonus: 0,
+              profileCompletion: 0,
+              referralReferee: 0,
+              referralReferrer: 0,
+            },
+            billingMode: 'NONE',
+            subscriptionStatus: null,
+          }), { status: 200 }));
         }
 
         return Promise.resolve(new Response(JSON.stringify({
@@ -206,6 +212,12 @@ describe('SettingsModal booking notifications', () => {
           },
           bookingNotifications: {
             newBooking: {
+              technicianEnabled: true,
+              ownerEnabled: false,
+              technicianChannel: 'sms',
+              ownerChannel: 'both',
+            },
+            appointmentCancelled: {
               technicianEnabled: true,
               ownerEnabled: false,
               technicianChannel: 'sms',
@@ -237,20 +249,18 @@ describe('SettingsModal booking notifications', () => {
     });
   });
 
-  it('loads booking notification settings and saves updated owner preferences', async () => {
+  it('loads notification settings and saves both booking and cancellation preferences', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    const ownerToggle = await screen.findByLabelText('Notify salon owner');
-    expect(ownerToggle).not.toBeChecked();
+    const ownerNewBookingToggle = await screen.findByLabelText('Notify salon owner for new booking alerts');
+    expect(ownerNewBookingToggle).not.toBeChecked();
 
-    const technicianChannel = await screen.findByLabelText('Technician notification channel');
-    expect(technicianChannel).toHaveValue('sms');
-
-    fireEvent.click(ownerToggle);
-    fireEvent.change(screen.getByLabelText('Technician notification channel'), {
+    fireEvent.click(ownerNewBookingToggle);
+    fireEvent.click(await screen.findByLabelText('Notify salon owner for cancellation alerts'));
+    fireEvent.change(screen.getByLabelText('Technician notification channel for new booking alerts'), {
       target: { value: 'both' },
     });
-    fireEvent.change(screen.getByLabelText('Owner notification channel'), {
+    fireEvent.change(screen.getByLabelText('Owner notification channel for new booking alerts'), {
       target: { value: 'both' },
     });
     fireEvent.click(screen.getByRole('button', { name: /save alerts/i }));
@@ -269,13 +279,19 @@ describe('SettingsModal booking notifications', () => {
                 technicianChannel: 'both',
                 ownerChannel: 'both',
               },
+              appointmentCancelled: {
+                technicianEnabled: true,
+                ownerEnabled: true,
+                technicianChannel: 'sms',
+                ownerChannel: 'both',
+              },
             },
           }),
         }),
       );
     });
 
-    expect(await screen.findByText('Booking alerts saved.')).toBeInTheDocument();
+    expect(await screen.findByText('Notification settings saved.')).toBeInTheDocument();
     expect(refreshMock).toHaveBeenCalled();
   });
 });

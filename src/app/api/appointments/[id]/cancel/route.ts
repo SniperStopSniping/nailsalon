@@ -1,10 +1,18 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
-import { updateSalonClientStats } from '@/libs/queries';
+import {
+  getAppointmentServiceNames,
+  getSalonById,
+  getTechnicianById,
+  updateSalonClientStats,
+} from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
+import { sendCancellationConfirmation } from '@/libs/SMS';
 import { appointmentSchema, CANCEL_REASONS, rewardSchema, salonClientSchema } from '@/models/Schema';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -185,7 +193,53 @@ export async function PATCH(
       });
     }
 
-    // 6. Return success response
+    // 6. Send cancellation notifications after data updates succeed
+    if (validated.data.cancelReason !== 'rescheduled') {
+      const [salon, technician, serviceNames] = await Promise.all([
+        getSalonById(appointment.salonId),
+        appointment.technicianId
+          ? getTechnicianById(appointment.technicianId, appointment.salonId)
+          : Promise.resolve(null),
+        getAppointmentServiceNames(appointmentId),
+      ]);
+
+      await sendCancellationConfirmation(appointment.salonId, {
+        phone: appointment.clientPhone,
+        clientName: appointment.clientName || undefined,
+        appointmentId,
+        salonName: salon?.name || 'the salon',
+      });
+
+      if (salon) {
+        await sendBookingNotificationsForAppointmentCancelled({
+          salon: {
+            id: salon.id,
+            name: salon.name,
+            ownerName: salon.ownerName,
+            ownerPhone: salon.ownerPhone,
+            ownerEmail: salon.ownerEmail,
+            features: (salon.features as SalonFeatures | null | undefined) ?? null,
+            settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+          },
+          technician: technician
+            ? {
+                id: technician.id,
+                name: technician.name,
+                phone: technician.phone,
+                email: technician.email,
+              }
+            : null,
+          appointmentId,
+          clientName: appointment.clientName || 'Guest',
+          clientPhone: appointment.clientPhone,
+          services: serviceNames,
+          startTime: appointment.startTime.toISOString(),
+          cancelReason: validated.data.cancelReason,
+        });
+      }
+    }
+
+    // 7. Return success response
     const response: SuccessResponse = {
       data: {
         appointment: {

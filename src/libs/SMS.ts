@@ -56,6 +56,17 @@ export type InternalBookingNotificationSmsParams = {
   technicianName?: string | null;
 };
 
+export type InternalCancellationNotificationSmsParams = {
+  phone: string;
+  salonName: string;
+  clientName: string;
+  clientPhone?: string | null;
+  services: string[];
+  startTime: string;
+  cancelReason: string;
+  technicianName?: string | null;
+};
+
 export type ReminderParams = {
   phone: string;
   clientName?: string;
@@ -206,10 +217,10 @@ export async function sendBookingNotificationToTech(
 export async function sendInternalBookingNotificationSms(
   salonId: string,
   params: InternalBookingNotificationSmsParams,
-): Promise<void> {
+): Promise<boolean> {
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
-    return;
+    return false;
   }
 
   const {
@@ -252,7 +263,66 @@ export async function sendInternalBookingNotificationSms(
 
   messageLines.push(`💰 $${(totalPrice / 100).toFixed(0)}`);
 
-  await sendSMS(phone, messageLines.join('\n'));
+  return sendSMS(phone, messageLines.join('\n'));
+}
+
+export async function sendInternalCancellationNotificationSms(
+  salonId: string,
+  params: InternalCancellationNotificationSmsParams,
+): Promise<boolean> {
+  if (!await isSmsEnabled(salonId)) {
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return false;
+  }
+
+  const {
+    phone,
+    salonName,
+    clientName,
+    clientPhone,
+    services,
+    startTime,
+    cancelReason,
+    technicianName,
+  } = params;
+
+  const date = new Date(startTime);
+  const formattedDate = date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+  const formattedTime = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const statusLabel = cancelReason === 'no_show'
+    ? 'marked as no-show'
+    : 'cancelled';
+
+  const messageLines = [
+    `📱 Appointment ${statusLabel}${salonName ? ` at ${salonName}` : ''}`,
+    '',
+    `👤 ${clientName}`,
+    `📅 ${formattedDate} at ${formattedTime}`,
+    `💇 ${services.join(', ')}`,
+  ];
+
+  if (clientPhone) {
+    messageLines.splice(3, 0, `📞 ${clientPhone}`);
+  }
+
+  if (technicianName) {
+    messageLines.push(`👩‍🎨 ${technicianName}`);
+  }
+
+  if (cancelReason !== 'client_request') {
+    messageLines.push(`Reason: ${cancelReason.replaceAll('_', ' ')}`);
+  }
+
+  return sendSMS(phone, messageLines.join('\n'));
 }
 
 /**
@@ -422,7 +492,19 @@ export async function sendCancellationNotificationToTech(
   const actionText = cancelReason === 'rescheduled' ? 'rescheduled' : 'cancelled';
   const emoji = cancelReason === 'rescheduled' ? '📅' : '❌';
 
-  const message = `${emoji} Appointment ${actionText}
+  if (technicianPhone) {
+    await sendInternalCancellationNotificationSms(salonId, {
+      phone: technicianPhone,
+      salonName: '',
+      clientName,
+      clientPhone: null,
+      services,
+      startTime,
+      cancelReason,
+      technicianName,
+    });
+  } else {
+    const message = `${emoji} Appointment ${actionText}
 
 ${technicianName}, an appointment has been ${actionText}:
 
@@ -430,10 +512,6 @@ ${technicianName}, an appointment has been ${actionText}:
 📅 ${formattedDate} at ${formattedTime}
 💇 ${services.join(', ')}`;
 
-  // Log for now - in production, send if technicianPhone is available
-  if (technicianPhone) {
-    await sendSMS(technicianPhone, message);
-  } else {
     console.warn('[TECH NOTIFICATION]', message);
   }
 }

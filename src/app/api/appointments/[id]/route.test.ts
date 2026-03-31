@@ -4,13 +4,17 @@ const {
   requireAppointmentAccess,
   updateAppointmentStatus,
   getSalonById,
+  getAppointmentServiceNames,
   getTechnicianById,
+  sendBookingNotificationsForAppointmentCancelled,
   db,
 } = vi.hoisted(() => ({
   requireAppointmentAccess: vi.fn(),
   updateAppointmentStatus: vi.fn(),
   getSalonById: vi.fn(),
+  getAppointmentServiceNames: vi.fn(),
   getTechnicianById: vi.fn(),
+  sendBookingNotificationsForAppointmentCancelled: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -30,6 +34,7 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 vi.mock('@/libs/queries', () => ({
   updateAppointmentStatus,
   getSalonById,
+  getAppointmentServiceNames,
   getTechnicianById,
 }));
 
@@ -39,7 +44,10 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('@/libs/SMS', () => ({
   sendCancellationConfirmation: vi.fn(),
-  sendCancellationNotificationToTech: vi.fn(),
+}));
+
+vi.mock('@/libs/bookingNotifications', () => ({
+  sendBookingNotificationsForAppointmentCancelled,
 }));
 
 import { GET, PATCH } from './route';
@@ -47,6 +55,7 @@ import { GET, PATCH } from './route';
 describe('appointment detail route auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
   });
 
   it('rejects unauthenticated appointment updates', async () => {
@@ -180,5 +189,67 @@ describe('appointment detail route auth', () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it('sends cancellation notifications with the assigned technician contact when cancelled', async () => {
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'client',
+      clientSession: {
+        phone: '+15551234567',
+        clientName: 'Ava',
+        sessionId: 'client_session_1',
+      },
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        clientPhone: '+15551234567',
+        clientName: 'Ava',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        notes: null,
+      },
+    });
+    updateAppointmentStatus.mockResolvedValue({
+      id: 'appt_1',
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    });
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      name: 'Salon A',
+      ownerName: 'Owner',
+      ownerPhone: '4169021427',
+      ownerEmail: 'owner@example.com',
+      features: { marketing: { smsReminders: true } },
+      settings: { modules: { smsReminders: true } },
+    });
+    getTechnicianById.mockResolvedValue({
+      id: 'tech_1',
+      name: 'Taylor',
+      phone: '4169021427',
+      email: 'taylor@example.com',
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled', cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_1',
+      technician: expect.objectContaining({
+        id: 'tech_1',
+        phone: '4169021427',
+      }),
+      services: ['BIAB Fill'],
+      cancelReason: 'client_request',
+    }));
   });
 });

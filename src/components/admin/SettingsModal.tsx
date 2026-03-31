@@ -549,13 +549,16 @@ type BookingConfigFormState = {
 };
 
 type BookingNotificationChannel = 'sms' | 'email' | 'both';
+type BookingNotificationEventKey = 'newBooking' | 'appointmentCancelled';
 
-type BookingNotificationFormState = {
+type BookingNotificationEventFormState = {
   technicianEnabled: boolean;
   ownerEnabled: boolean;
   technicianChannel: BookingNotificationChannel;
   ownerChannel: BookingNotificationChannel;
 };
+
+type BookingNotificationFormState = Record<BookingNotificationEventKey, BookingNotificationEventFormState>;
 
 type BookingNotificationCapabilitiesState = {
   ownerPhonePresent: boolean;
@@ -571,6 +574,13 @@ const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{ value: BookingNotificationCh
   { value: 'email', label: 'Email' },
   { value: 'both', label: 'Both' },
 ];
+
+const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFormState = {
+  technicianEnabled: true,
+  ownerEnabled: false,
+  technicianChannel: 'sms',
+  ownerChannel: 'both',
+};
 
 const PLAN_FEATURES = {
   starter: {
@@ -818,10 +828,8 @@ export function SettingsModal({
   const [bookingNotificationsSaving, setBookingNotificationsSaving] = useState(false);
   const [bookingNotificationsSaved, setBookingNotificationsSaved] = useState(false);
   const [bookingNotificationsForm, setBookingNotificationsForm] = useState<BookingNotificationFormState>({
-    technicianEnabled: true,
-    ownerEnabled: false,
-    technicianChannel: 'sms',
-    ownerChannel: 'both',
+    newBooking: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
+    appointmentCancelled: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
   });
   const [bookingNotificationCapabilities, setBookingNotificationCapabilities] = useState<BookingNotificationCapabilitiesState>({
     ownerPhonePresent: false,
@@ -933,10 +941,18 @@ export function SettingsModal({
           firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? false,
         });
         setBookingNotificationsForm({
-          technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? true,
-          ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? false,
-          technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? 'sms',
-          ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? 'both',
+          newBooking: {
+            technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? true,
+            ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? false,
+            technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? 'sms',
+            ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? 'both',
+          },
+          appointmentCancelled: {
+            technicianEnabled: data.bookingNotifications?.appointmentCancelled?.technicianEnabled ?? true,
+            ownerEnabled: data.bookingNotifications?.appointmentCancelled?.ownerEnabled ?? false,
+            technicianChannel: data.bookingNotifications?.appointmentCancelled?.technicianChannel ?? 'sms',
+            ownerChannel: data.bookingNotifications?.appointmentCancelled?.ownerChannel ?? 'both',
+          },
         });
         setBookingNotificationCapabilities({
           ownerPhonePresent: data.ownerPhonePresent ?? false,
@@ -1036,10 +1052,16 @@ export function SettingsModal({
         body: JSON.stringify({
           bookingNotifications: {
             newBooking: {
-              technicianEnabled: bookingNotificationsForm.technicianEnabled,
-              ownerEnabled: bookingNotificationsForm.ownerEnabled,
-              technicianChannel: bookingNotificationsForm.technicianChannel,
-              ownerChannel: bookingNotificationsForm.ownerChannel,
+              technicianEnabled: bookingNotificationsForm.newBooking.technicianEnabled,
+              ownerEnabled: bookingNotificationsForm.newBooking.ownerEnabled,
+              technicianChannel: bookingNotificationsForm.newBooking.technicianChannel,
+              ownerChannel: bookingNotificationsForm.newBooking.ownerChannel,
+            },
+            appointmentCancelled: {
+              technicianEnabled: bookingNotificationsForm.appointmentCancelled.technicianEnabled,
+              ownerEnabled: bookingNotificationsForm.appointmentCancelled.ownerEnabled,
+              technicianChannel: bookingNotificationsForm.appointmentCancelled.technicianChannel,
+              ownerChannel: bookingNotificationsForm.appointmentCancelled.ownerChannel,
             },
           },
         }),
@@ -1051,10 +1073,18 @@ export function SettingsModal({
 
       const data = await response.json();
       setBookingNotificationsForm({
-        technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? bookingNotificationsForm.technicianEnabled,
-        ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? bookingNotificationsForm.ownerEnabled,
-        technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? bookingNotificationsForm.technicianChannel,
-        ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? bookingNotificationsForm.ownerChannel,
+        newBooking: {
+          technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? bookingNotificationsForm.newBooking.technicianEnabled,
+          ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? bookingNotificationsForm.newBooking.ownerEnabled,
+          technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? bookingNotificationsForm.newBooking.technicianChannel,
+          ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? bookingNotificationsForm.newBooking.ownerChannel,
+        },
+        appointmentCancelled: {
+          technicianEnabled: data.bookingNotifications?.appointmentCancelled?.technicianEnabled ?? bookingNotificationsForm.appointmentCancelled.technicianEnabled,
+          ownerEnabled: data.bookingNotifications?.appointmentCancelled?.ownerEnabled ?? bookingNotificationsForm.appointmentCancelled.ownerEnabled,
+          technicianChannel: data.bookingNotifications?.appointmentCancelled?.technicianChannel ?? bookingNotificationsForm.appointmentCancelled.technicianChannel,
+          ownerChannel: data.bookingNotifications?.appointmentCancelled?.ownerChannel ?? bookingNotificationsForm.appointmentCancelled.ownerChannel,
+        },
       });
       setBookingNotificationCapabilities({
         ownerPhonePresent: data.ownerPhonePresent ?? bookingNotificationCapabilities.ownerPhonePresent,
@@ -1070,6 +1100,20 @@ export function SettingsModal({
       setBookingNotificationsSaving(false);
     }
   }, [bookingNotificationCapabilities, bookingNotificationsForm, bookingNotificationsSaving, router, salonSlug]);
+
+  const updateBookingNotificationEvent = useCallback((
+    eventKey: BookingNotificationEventKey,
+    updates: Partial<BookingNotificationEventFormState>,
+  ) => {
+    setBookingNotificationsForm(prev => ({
+      ...prev,
+      [eventKey]: {
+        ...prev[eventKey],
+        ...updates,
+      },
+    }));
+    setBookingNotificationsSaved(false);
+  }, []);
 
   // Fetch visibility settings
   const fetchVisibility = useCallback(async () => {
@@ -1376,7 +1420,7 @@ export function SettingsModal({
         {/* Section 2: Notifications */}
         <Section
           title="Notifications"
-          footer="Control who gets notified when a new booking is created. Client confirmations still send separately."
+          footer="Control who gets notified when bookings are created or cancelled. Client confirmations still send separately."
         >
           {programsLoading
             ? (
@@ -1386,142 +1430,152 @@ export function SettingsModal({
               )
             : (
                 <div className="space-y-4 px-4 py-4">
-                  <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Bell className="size-4 text-[#FF3B30]" />
-                          <span className="text-sm font-semibold text-[#1C1C1E]">Notify assigned technician</span>
+                  {([
+                    {
+                      key: 'newBooking',
+                      title: 'New booking alerts',
+                      subtitle: 'Notify your team when a client books successfully.',
+                      technicianDescription: 'Send a new-booking alert to the artist assigned to the appointment.',
+                    },
+                    {
+                      key: 'appointmentCancelled',
+                      title: 'Cancellation alerts',
+                      subtitle: 'Notify your team when an appointment is cancelled or marked as no-show.',
+                      technicianDescription: 'Send a cancellation alert to the artist assigned to the appointment.',
+                    },
+                  ] as const).map(notificationEvent => {
+                    const eventForm = bookingNotificationsForm[notificationEvent.key];
+
+                    return (
+                      <div key={notificationEvent.key} className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
+                        <div className="space-y-1 px-1">
+                          <div className="text-sm font-semibold text-[#1C1C1E]">{notificationEvent.title}</div>
+                          <p className="text-xs text-gray-500">{notificationEvent.subtitle}</p>
                         </div>
-                        <p className="text-sm text-gray-600">
-                          Send a new-booking alert to the artist assigned to the appointment.
-                        </p>
+
+                        <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Bell className="size-4 text-[#FF3B30]" />
+                                <span className="text-sm font-semibold text-[#1C1C1E]">Notify assigned technician</span>
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                {notificationEvent.technicianDescription}
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={eventForm.technicianEnabled}
+                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
+                                technicianEnabled: event.target.checked,
+                              })}
+                              className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                              aria-label={`Notify assigned technician for ${notificationEvent.title.toLowerCase()}`}
+                            />
+                          </div>
+
+                          <label className="mt-3 flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                            <select
+                              value={eventForm.technicianChannel}
+                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
+                                technicianChannel: event.target.value as BookingNotificationChannel,
+                              })}
+                              disabled={!eventForm.technicianEnabled}
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                              aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
+                            >
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                                const smsUnavailable = (option.value === 'sms' || option.value === 'both')
+                                  ? !bookingNotificationCapabilities.smsChannelAvailable
+                                  : false;
+                                const emailUnavailable = (option.value === 'email' || option.value === 'both')
+                                  ? !bookingNotificationCapabilities.emailChannelAvailable
+                                  : false;
+                                const disabled = smsUnavailable || emailUnavailable;
+
+                                return (
+                                  <option key={option.value} value={option.value} disabled={disabled}>
+                                    {option.label}
+                                    {disabled ? ' (Unavailable)' : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
+
+                          <p className="mt-2 text-xs text-gray-500">
+                            Technician email alerts require an email on each technician profile.
+                          </p>
+                        </div>
+
+                        <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <User className="size-4 text-[#007AFF]" />
+                                <span className="text-sm font-semibold text-[#1C1C1E]">Notify salon owner</span>
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                Use the owner phone and email saved on the salon record.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={eventForm.ownerEnabled}
+                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
+                                ownerEnabled: event.target.checked,
+                              })}
+                              className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                              aria-label={`Notify salon owner for ${notificationEvent.title.toLowerCase()}`}
+                            />
+                          </div>
+
+                          <label className="mt-3 flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                            <select
+                              value={eventForm.ownerChannel}
+                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
+                                ownerChannel: event.target.value as BookingNotificationChannel,
+                              })}
+                              disabled={!eventForm.ownerEnabled}
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                              aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
+                            >
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                                const smsUnavailable = (option.value === 'sms' || option.value === 'both')
+                                  ? (!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.ownerPhonePresent)
+                                  : false;
+                                const emailUnavailable = (option.value === 'email' || option.value === 'both')
+                                  ? (!bookingNotificationCapabilities.emailChannelAvailable || !bookingNotificationCapabilities.ownerEmailPresent)
+                                  : false;
+                                const disabled = smsUnavailable || emailUnavailable;
+
+                                return (
+                                  <option key={option.value} value={option.value} disabled={disabled}>
+                                    {option.label}
+                                    {disabled ? ' (Unavailable)' : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
+                        </div>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={bookingNotificationsForm.technicianEnabled}
-                        onChange={event => {
-                          setBookingNotificationsForm(prev => ({
-                            ...prev,
-                            technicianEnabled: event.target.checked,
-                          }));
-                          setBookingNotificationsSaved(false);
-                        }}
-                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
-                        aria-label="Notify assigned technician"
-                      />
+                    );
+                  })}
+
+                  {(!bookingNotificationCapabilities.ownerPhonePresent || !bookingNotificationCapabilities.ownerEmailPresent) && (
+                    <div className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                      <div>
+                        Owner alerts use the salon owner contact on the salon record.
+                        {!bookingNotificationCapabilities.ownerPhonePresent && ' Phone is missing.'}
+                        {!bookingNotificationCapabilities.ownerEmailPresent && ' Email is missing.'}
+                      </div>
                     </div>
-
-                    <label className="mt-3 flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
-                      <select
-                        value={bookingNotificationsForm.technicianChannel}
-                        onChange={event => {
-                          setBookingNotificationsForm(prev => ({
-                            ...prev,
-                            technicianChannel: event.target.value as BookingNotificationChannel,
-                          }));
-                          setBookingNotificationsSaved(false);
-                        }}
-                        disabled={!bookingNotificationsForm.technicianEnabled}
-                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
-                        aria-label="Technician notification channel"
-                      >
-                        {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
-                          const unavailable = (option.value === 'sms' || option.value === 'both')
-                            ? !bookingNotificationCapabilities.smsChannelAvailable
-                            : false;
-                          const emailUnavailable = (option.value === 'email' || option.value === 'both')
-                            ? !bookingNotificationCapabilities.emailChannelAvailable
-                            : false;
-                          const disabled = unavailable || emailUnavailable;
-
-                          return (
-                            <option key={option.value} value={option.value} disabled={disabled}>
-                              {option.label}
-                              {disabled ? ' (Unavailable)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </label>
-
-                    <p className="mt-2 text-xs text-gray-500">
-                      Technician email alerts require an email on each technician profile.
-                    </p>
-                  </div>
-
-                  <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <User className="size-4 text-[#007AFF]" />
-                          <span className="text-sm font-semibold text-[#1C1C1E]">Notify salon owner</span>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          Use the owner phone and email saved on the salon record.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={bookingNotificationsForm.ownerEnabled}
-                        onChange={event => {
-                          setBookingNotificationsForm(prev => ({
-                            ...prev,
-                            ownerEnabled: event.target.checked,
-                          }));
-                          setBookingNotificationsSaved(false);
-                        }}
-                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
-                        aria-label="Notify salon owner"
-                      />
-                    </div>
-
-                    <label className="mt-3 flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
-                      <select
-                        value={bookingNotificationsForm.ownerChannel}
-                        onChange={event => {
-                          setBookingNotificationsForm(prev => ({
-                            ...prev,
-                            ownerChannel: event.target.value as BookingNotificationChannel,
-                          }));
-                          setBookingNotificationsSaved(false);
-                        }}
-                        disabled={!bookingNotificationsForm.ownerEnabled}
-                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
-                        aria-label="Owner notification channel"
-                      >
-                        {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
-                          const smsUnavailable = (option.value === 'sms' || option.value === 'both')
-                            ? (!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.ownerPhonePresent)
-                            : false;
-                          const emailUnavailable = (option.value === 'email' || option.value === 'both')
-                            ? (!bookingNotificationCapabilities.emailChannelAvailable || !bookingNotificationCapabilities.ownerEmailPresent)
-                            : false;
-                          const disabled = smsUnavailable || emailUnavailable;
-
-                          return (
-                            <option key={option.value} value={option.value} disabled={disabled}>
-                              {option.label}
-                              {disabled ? ' (Unavailable)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </label>
-
-                    {(!bookingNotificationCapabilities.ownerPhonePresent || !bookingNotificationCapabilities.ownerEmailPresent) && (
-                      <div className="mt-3 flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                        <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                        <div>
-                          Owner alerts use the salon owner contact on the salon record.
-                          {!bookingNotificationCapabilities.ownerPhonePresent && ' Phone is missing.'}
-                          {!bookingNotificationCapabilities.ownerEmailPresent && ' Email is missing.'}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  )}
 
                   {(!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.emailChannelAvailable) && (
                     <div className="rounded-[10px] border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
@@ -1551,7 +1605,7 @@ export function SettingsModal({
 
                   {bookingNotificationsSaved && (
                     <div className="text-right text-xs font-medium text-green-600">
-                      Booking alerts saved.
+                      Notification settings saved.
                     </div>
                   )}
                 </div>

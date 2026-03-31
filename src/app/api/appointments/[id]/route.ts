@@ -1,21 +1,26 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
 import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
-import { getSalonById, getTechnicianById, updateAppointmentStatus } from '@/libs/queries';
+import {
+  getAppointmentServiceNames,
+  getSalonById,
+  getTechnicianById,
+  updateAppointmentStatus,
+} from '@/libs/queries';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
-import { sendCancellationConfirmation, sendCancellationNotificationToTech } from '@/libs/SMS';
+import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
   APPOINTMENT_STATUSES,
-  appointmentServicesSchema,
   CANCEL_REASONS,
   referralSchema,
   rewardSchema,
   salonClientSchema,
   salonSchema,
-  serviceSchema,
 } from '@/models/Schema';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -137,47 +142,9 @@ export async function PATCH(
       throw new Error('Failed to update appointment');
     }
 
-    // 6. If status changed to 'cancelled', send SMS notifications (gated by smsRemindersEnabled toggle)
-    if (data.status === 'cancelled' && data.cancelReason !== 'rescheduled') {
-      // Get salon info for SMS
-      const salon = await getSalonById(existingAppointment.salonId);
-      const salonName = salon?.name || 'the salon';
-
-      // Send cancellation SMS to client
-      await sendCancellationConfirmation(existingAppointment.salonId, {
-        phone: existingAppointment.clientPhone,
-        clientName: existingAppointment.clientName || undefined,
-        appointmentId,
-        salonName,
-      });
-
-      // Notify technician if one was assigned
-      if (existingAppointment.technicianId) {
-        const technician = await getTechnicianById(existingAppointment.technicianId, existingAppointment.salonId);
-        if (technician) {
-          // Get services for the appointment
-          const appointmentServices = await db
-            .select({ name: serviceSchema.name })
-            .from(appointmentServicesSchema)
-            .innerJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
-            .where(eq(appointmentServicesSchema.appointmentId, appointmentId));
-
-          await sendCancellationNotificationToTech(existingAppointment.salonId, {
-            technicianName: technician.name,
-            // Note: technicianPhone not currently stored in schema, will log instead of SMS
-            technicianPhone: undefined,
-            clientName: existingAppointment.clientName || 'Guest',
-            startTime: existingAppointment.startTime.toISOString(),
-            services: appointmentServices.map(s => s.name),
-            cancelReason: 'cancelled',
-          });
-        }
-      }
-    }
-
-    // 7. If status changed to 'cancelled', handle refunds
+    // 6. If status changed to 'cancelled', handle refunds
     if (data.status === 'cancelled') {
-      // 7a. Unlink any rewards that were pending use with this appointment
+      // 6a. Unlink any rewards that were pending use with this appointment
       const linkedReward = await db
         .select()
         .from(rewardSchema)
@@ -203,7 +170,7 @@ export async function PATCH(
         }
       }
 
-      // 7b. Refund any points that were redeemed on this appointment
+      // 6b. Refund any points that were redeemed on this appointment
       const notesText = existingAppointment.notes || '';
       const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
 
@@ -234,6 +201,52 @@ export async function PATCH(
               ),
             );
         }
+      }
+    }
+
+    // 7. If status changed to 'cancelled', send cancellation notifications after data updates succeed
+    if (data.status === 'cancelled' && data.cancelReason !== 'rescheduled') {
+      const [salon, technician, serviceNames] = await Promise.all([
+        getSalonById(existingAppointment.salonId),
+        existingAppointment.technicianId
+          ? getTechnicianById(existingAppointment.technicianId, existingAppointment.salonId)
+          : Promise.resolve(null),
+        getAppointmentServiceNames(appointmentId),
+      ]);
+
+      await sendCancellationConfirmation(existingAppointment.salonId, {
+        phone: existingAppointment.clientPhone,
+        clientName: existingAppointment.clientName || undefined,
+        appointmentId,
+        salonName: salon?.name || 'the salon',
+      });
+
+      if (salon) {
+        await sendBookingNotificationsForAppointmentCancelled({
+          salon: {
+            id: salon.id,
+            name: salon.name,
+            ownerName: salon.ownerName,
+            ownerPhone: salon.ownerPhone,
+            ownerEmail: salon.ownerEmail,
+            features: (salon.features as SalonFeatures | null | undefined) ?? null,
+            settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+          },
+          technician: technician
+            ? {
+                id: technician.id,
+                name: technician.name,
+                phone: technician.phone,
+                email: technician.email,
+              }
+            : null,
+          appointmentId,
+          clientName: existingAppointment.clientName || 'Guest',
+          clientPhone: existingAppointment.clientPhone,
+          services: serviceNames,
+          startTime: existingAppointment.startTime.toISOString(),
+          cancelReason: data.cancelReason ?? 'cancelled',
+        });
       }
     }
 

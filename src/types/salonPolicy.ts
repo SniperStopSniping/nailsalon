@@ -206,6 +206,12 @@ export type SalonSettings = {
       technicianChannel?: 'sms' | 'email' | 'both';
       ownerChannel?: 'sms' | 'email' | 'both';
     };
+    appointmentCancelled?: {
+      technicianEnabled?: boolean;
+      ownerEnabled?: boolean;
+      technicianChannel?: 'sms' | 'email' | 'both';
+      ownerChannel?: 'sms' | 'email' | 'both';
+    };
   };
 
   // ==========================================================================

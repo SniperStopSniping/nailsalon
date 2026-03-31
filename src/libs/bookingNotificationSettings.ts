@@ -15,19 +15,34 @@ export const DEFAULT_BOOKING_NOTIFICATION_SETTINGS = {
     technicianChannel: 'sms',
     ownerChannel: 'both',
   },
+  appointmentCancelled: {
+    technicianEnabled: true,
+    ownerEnabled: false,
+    technicianChannel: 'sms',
+    ownerChannel: 'both',
+  },
 } as const;
 
+const bookingNotificationEventSettingsSchema = z.object({
+  technicianEnabled: z.boolean().default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.technicianEnabled),
+  ownerEnabled: z.boolean().default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.ownerEnabled),
+  technicianChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.technicianChannel),
+  ownerChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.ownerChannel),
+});
+
 export const bookingNotificationSettingsSchema = z.object({
-  newBooking: z.object({
-    technicianEnabled: z.boolean().default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.technicianEnabled),
-    ownerEnabled: z.boolean().default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.ownerEnabled),
-    technicianChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.technicianChannel),
-    ownerChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking.ownerChannel),
-  }).default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking),
+  newBooking: bookingNotificationEventSettingsSchema.default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.newBooking),
+  appointmentCancelled: bookingNotificationEventSettingsSchema.default(DEFAULT_BOOKING_NOTIFICATION_SETTINGS.appointmentCancelled),
 });
 
 export const bookingNotificationSettingsUpdateSchema = z.object({
   newBooking: z.object({
+    technicianEnabled: z.boolean().optional(),
+    ownerEnabled: z.boolean().optional(),
+    technicianChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).optional(),
+    ownerChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).optional(),
+  }).optional(),
+  appointmentCancelled: z.object({
     technicianEnabled: z.boolean().optional(),
     ownerEnabled: z.boolean().optional(),
     technicianChannel: z.enum(BOOKING_NOTIFICATION_CHANNELS).optional(),
@@ -71,6 +86,10 @@ export function mergeBookingNotificationSettings(
     newBooking: {
       ...current.newBooking,
       ...(updates.newBooking ?? {}),
+    },
+    appointmentCancelled: {
+      ...current.appointmentCancelled,
+      ...(updates.appointmentCancelled ?? {}),
     },
   });
 }

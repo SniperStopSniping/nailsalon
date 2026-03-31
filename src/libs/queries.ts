@@ -6,6 +6,7 @@ import {
   addOnSchema,
   type AddOn,
   type Appointment,
+  appointmentServicesSchema,
   appointmentSchema,
   type CancelReason,
   type Client,
@@ -504,6 +505,16 @@ export async function getAppointmentById(
     .limit(1);
 
   return results[0] ?? null;
+}
+
+export async function getAppointmentServiceNames(appointmentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ name: serviceSchema.name })
+    .from(appointmentServicesSchema)
+    .innerJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
+    .where(eq(appointmentServicesSchema.appointmentId, appointmentId));
+
+  return rows.map(row => row.name);
 }
 
 /**

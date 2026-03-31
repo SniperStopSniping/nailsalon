@@ -34,6 +34,9 @@ describe('bookingNotificationSettings', () => {
         ownerEnabled: true,
         ownerChannel: 'email',
       },
+      appointmentCancelled: {
+        ownerEnabled: true,
+      },
     });
 
     expect(merged).toEqual({
@@ -42,6 +45,12 @@ describe('bookingNotificationSettings', () => {
         ownerEnabled: true,
         technicianChannel: 'sms',
         ownerChannel: 'email',
+      },
+      appointmentCancelled: {
+        technicianEnabled: true,
+        ownerEnabled: true,
+        technicianChannel: 'sms',
+        ownerChannel: 'both',
       },
     });
   });
