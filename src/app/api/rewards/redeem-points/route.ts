@@ -13,6 +13,7 @@ import {
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
 
@@ -57,8 +58,8 @@ type ErrorResponse = {
 
 // =============================================================================
 // Points to discount conversion
-// Based on: 25,000 pts = $50 (free gel manicure value)
-// So: 500 pts = $1, or 5 pts = 1 cent
+// Catalog rewards still redeem at the existing 25,000 pts = $50 rate.
+// So: 500 pts = $1, or 5 pts = 1 cent.
 // =============================================================================
 
 function pointsToDiscountCents(points: number): number {
@@ -104,6 +105,23 @@ export async function POST(request: Request): Promise<Response> {
       return salonGuard.response;
     }
     const { salon } = salonGuard;
+
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
 
     // 3. Get the client's current points balance
     const phoneVariants = [

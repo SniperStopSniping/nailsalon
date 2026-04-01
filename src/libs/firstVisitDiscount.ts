@@ -6,6 +6,7 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getSalonClientByPhone } from '@/libs/queries';
 import { normalizePhone } from '@/libs/phone';
+import { calculateRewardDiscountCents } from '@/libs/rewardRules';
 import { appointmentSchema, rewardSchema, type Service } from '@/models/Schema';
 
 export const FIRST_VISIT_DISCOUNT_TYPE = 'first_visit_25';
@@ -58,10 +59,6 @@ export type AutomaticBookingDiscountResult =
       reward: null;
       firstVisit: FirstVisitDiscountSnapshot;
     };
-
-function pointsToDiscountCents(points: number): number {
-  return Math.floor(points / 5);
-}
 
 function buildClientPhoneVariants(phone: string | null | undefined): string[] {
   const normalized = normalizePhone(phone ?? '');
@@ -268,15 +265,11 @@ export async function resolveAutomaticBookingDiscount(args: {
         continue;
       }
 
-      const eligibleServiceName = reward.eligibleServiceName?.toLowerCase() || 'gel manicure';
-      const matchingService = args.services.find(
-        service => service.name.toLowerCase().includes(eligibleServiceName)
-          || eligibleServiceName.includes(service.name.toLowerCase()),
-      );
-
-      const discountAmountCents = matchingService
-        ? matchingService.price
-        : Math.min(pointsToDiscountCents(reward.points), args.subtotalBeforeDiscountCents);
+      const { discountAmountCents, discountedServiceId } = calculateRewardDiscountCents({
+        reward,
+        subtotalBeforeDiscountCents: args.subtotalBeforeDiscountCents,
+        services: args.services,
+      });
 
       if (discountAmountCents <= 0) {
         continue;
@@ -290,7 +283,7 @@ export async function resolveAutomaticBookingDiscount(args: {
         reward: {
           id: reward.id,
           discountAmountCents,
-          discountedServiceId: matchingService?.id ?? null,
+          discountedServiceId,
         },
         firstVisit: null,
       };

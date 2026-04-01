@@ -7,6 +7,8 @@ import {
   getEffectiveModuleEnabled,
   getEffectiveStaffVisibility,
   guardModuleOr403,
+  isReferralsProgramEnabled,
+  isRewardsProgramEnabled,
   resolveEntitlement,
 } from '@/libs/featureGating';
 import { salonSchema, type SalonStatus } from '@/models/Schema';
@@ -213,7 +215,7 @@ export async function guardSalonApiRoute(salonId: string): Promise<Response | nu
 // Feature Toggle Checks
 // =============================================================================
 
-export type FeatureToggle = 'onlineBooking' | 'smsReminders' | 'rewards' | 'profilePage';
+export type FeatureToggle = 'onlineBooking' | 'smsReminders' | 'rewards' | 'referrals' | 'profilePage';
 
 export type FeatureCheck = {
   enabled: boolean;
@@ -266,6 +268,7 @@ export async function checkFeatureEnabled(
     onlineBooking: '/booking-disabled',
     smsReminders: '', // SMS doesn't redirect, just silently skips
     rewards: '/rewards-disabled',
+    referrals: '/rewards-disabled',
     profilePage: '/profile-disabled',
   };
 
@@ -314,6 +317,7 @@ export function createFeatureDisabledResponse(feature: FeatureToggle): Response 
     onlineBooking: 'Online booking is not available for this salon',
     smsReminders: 'SMS reminders are not enabled for this salon',
     rewards: 'Rewards program is not available for this salon',
+    referrals: 'Referrals are not available for this salon',
     profilePage: 'Public profile is not available for this salon',
   };
 
@@ -419,6 +423,7 @@ export async function checkFeatureEntitlement(
   const [salon] = await db
     .select({
       features: salonSchema.features,
+      settings: salonSchema.settings,
       // Legacy columns - only used as fallback when features[key] is undefined
       onlineBookingEnabled: salonSchema.onlineBookingEnabled,
       smsRemindersEnabled: salonSchema.smsRemindersEnabled,
@@ -434,6 +439,35 @@ export async function checkFeatureEntitlement(
   }
 
   const featuresJson = salon.features as SalonFeatures | null;
+  const settingsJson = salon.settings as SalonSettings | null;
+
+  if (feature === 'rewards') {
+    return {
+      enabled: isRewardsProgramEnabled({
+        features: featuresJson,
+        settings: settingsJson,
+        rewardsEnabled: salon.rewardsEnabled,
+      }),
+    };
+  }
+
+  if (feature === 'referrals') {
+    return {
+      enabled: isReferralsProgramEnabled({
+        features: featuresJson,
+        settings: settingsJson,
+        rewardsEnabled: salon.rewardsEnabled,
+      }),
+    };
+  }
+
+  if (feature === 'smsReminders') {
+    return { enabled: resolveEntitlement(featuresJson, 'marketing', 'smsReminders') };
+  }
+
+  if (feature === 'onlineBooking') {
+    return { enabled: resolveEntitlement(featuresJson, 'booking', 'onlineBooking') };
+  }
 
   // 1. Check features JSONB - this is the SOURCE OF TRUTH
   if (featuresJson) {

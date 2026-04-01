@@ -6,6 +6,7 @@ import {
   requireClientSalonFromQuery,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { type Referral, referralSchema, type ReferralStatus, rewardSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -97,6 +98,28 @@ export async function GET(request: Request): Promise<Response> {
       return salonGuard.response;
     }
     const { salon } = salonGuard;
+
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
+
+    const referralsGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (referralsGuard) {
+      return referralsGuard;
+    }
 
     // 4. Fetch referrals for this phone number and salon
     const referrals = await db

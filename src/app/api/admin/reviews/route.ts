@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { reviewSchema, salonClientSchema, technicianSchema } from '@/models/Schema';
+import { reviewSchema, rewardSchema, salonClientSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +96,30 @@ export async function GET(request: Request): Promise<Response> {
       .limit(limit)
       .offset(offset);
 
+    const rewardPhoneSet = new Set(
+      (
+        reviews
+          .map(review => review.clientPhone?.replace(/\D/g, '').slice(-10))
+          .filter((phone): phone is string => Boolean(phone))
+      ),
+    );
+
+    const grantedRewards = rewardPhoneSet.size > 0
+      ? await db
+        .select({ clientPhone: rewardSchema.clientPhone })
+        .from(rewardSchema)
+        .where(
+          and(
+            eq(rewardSchema.salonId, salon.id),
+            eq(rewardSchema.type, 'google_review'),
+          ),
+        )
+      : [];
+
+    const grantedPhoneSet = new Set(
+      grantedRewards.map(reward => reward.clientPhone?.replace(/\D/g, '').slice(-10)).filter(Boolean),
+    );
+
     // 5. Calculate stats for this salon
     const allReviews = await db
       .select({ rating: reviewSchema.rating })
@@ -117,7 +141,13 @@ export async function GET(request: Request): Promise<Response> {
 
     return Response.json({
       data: {
-        reviews,
+        reviews: reviews.map(review => ({
+          ...review,
+          googleReviewRewardGranted: Boolean(
+            review.clientPhone
+            && grantedPhoneSet.has(review.clientPhone.replace(/\D/g, '').slice(-10)),
+          ),
+        })),
         stats: {
           totalReviews,
           averageRating: Math.round(averageRating * 10) / 10,

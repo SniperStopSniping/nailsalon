@@ -33,14 +33,14 @@ export const PLAN_ID = {
 export const LOYALTY_POINTS = {
   /** Welcome bonus is retired; new clients start at zero points */
   WELCOME_BONUS: 0,
-  /** Bonus for completing profile (name + email) */
-  PROFILE_COMPLETION: 2_500,
+  /** Profile completion bonus is retired */
+  PROFILE_COMPLETION: 0,
   /** Points earned per dollar spent */
   PER_DOLLAR_SPENT: 20,
-  /** Referee gets this immediately when claiming referral link */
-  REFERRAL_REFEREE_BONUS: 2_500,
-  /** Referrer gets this after referee completes first paid appointment */
-  REFERRAL_REFERRER_BONUS: 25_000,
+  /** Referral rewards are now explicit discounts, not points */
+  REFERRAL_REFEREE_BONUS: 0,
+  /** Referral rewards are now explicit discounts, not points */
+  REFERRAL_REFERRER_BONUS: 0,
 } as const;
 
 // =============================================================================

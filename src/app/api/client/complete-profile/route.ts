@@ -1,14 +1,13 @@
 /**
  * Complete Profile API Route
  *
- * Updates client profile with name and email, granting a one-time points reward
- * for profile completion. Uses atomic conditional update to prevent race conditions.
+ * Updates client profile with name and email.
  *
  * POST /api/client/complete-profile
  * Body: { phone: string, firstName: string, email: string, salonSlug: string }
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -17,9 +16,8 @@ import {
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { upsertSalonClient } from '@/libs/queries';
-import { clientSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
+import { clientSchema } from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -76,9 +74,6 @@ export async function POST(request: Request) {
     }
     const { salon } = salonGuard;
 
-    // Resolve effective loyalty points for this salon
-    const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
-
     // 2. Ensure salonClient exists (starts at 0 loyalty points if new)
     await upsertSalonClient(salon.id, normalizedPhone, firstName, email);
 
@@ -106,73 +101,14 @@ export async function POST(request: Request) {
       throw new Error('Failed to upsert client');
     }
 
-    // 4. ATOMIC: Grant profile completion reward only if not already granted
-    // This uses a conditional UPDATE that only affects rows where the flag is false
-    // If 0 rows affected = already granted, if 1 row affected = just granted
-    let rewardGranted = false;
-
-    const rewardResult = await db.transaction(async (tx) => {
-      // Atomic conditional update: only flip flag if currently false
-      const updateResult = await tx
-        .update(clientSchema)
-        .set({
-          profileCompletionRewardGranted: true,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(clientSchema.id, client.id),
-            eq(clientSchema.profileCompletionRewardGranted, false),
-          ),
-        )
-        .returning();
-
-      // If no rows updated, reward was already granted (race condition or repeat call)
-      if (updateResult.length === 0) {
-        return { granted: false, points: 0 };
-      }
-
-      // Flag was flipped - now grant the reward within same transaction
-      const rewardId = `reward_${crypto.randomUUID()}`;
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 90); // 90-day expiration
-
-      // Insert reward record
-      await tx.insert(rewardSchema).values({
-        id: rewardId,
-        salonId: salon.id,
-        clientPhone: normalizedPhone,
-        clientName: firstName,
-        type: 'profile_completion',
-        points: loyaltyPoints.profileCompletion,
-        eligibleServiceName: 'Any Service',
-        status: 'active',
-        expiresAt,
-      });
-
-      // Increment salonClient loyalty points
-      await tx
-        .update(salonClientSchema)
-        .set({
-          loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${loyaltyPoints.profileCompletion}`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(salonClientSchema.salonId, salon.id),
-            eq(salonClientSchema.phone, normalizedPhone),
-          ),
-        );
-
-      return { granted: true, points: loyaltyPoints.profileCompletion };
-    });
-
-    rewardGranted = rewardResult.granted;
-
-    if (rewardGranted) {
-      // eslint-disable-next-line no-console
-      console.warn(`[Profile] Granted ${rewardResult.points} point profile completion reward to ${phoneForDb}`);
-    }
+    // Profile completion no longer grants any reward; keep the legacy flag false.
+    await db
+      .update(clientSchema)
+      .set({
+        profileCompletionRewardGranted: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(clientSchema.id, client.id));
 
     // eslint-disable-next-line no-console
     console.warn(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
@@ -186,8 +122,8 @@ export async function POST(request: Request) {
           firstName,
           email,
         },
-        rewardGranted,
-        rewardPoints: rewardResult.points,
+        rewardGranted: false,
+        rewardPoints: 0,
       },
     });
   } catch (error) {

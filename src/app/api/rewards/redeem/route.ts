@@ -13,7 +13,9 @@ import {
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { calculateRewardDiscountCents, getRewardDisplayContent } from '@/libs/rewardRules';
 import { appointmentSchema, appointmentServicesSchema, rewardSchema, serviceSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -90,6 +92,23 @@ export async function POST(request: Request): Promise<Response> {
       return salonGuard.response;
     }
     const { salon } = salonGuard;
+
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
 
     // 3. Verify the reward exists, belongs to this client, and is active
     const rewards = await db
@@ -234,7 +253,6 @@ export async function POST(request: Request): Promise<Response> {
 
     // 5. Calculate the discount based on the reward type and appointment services
     let discountApplied = 0;
-    const eligibleServiceName = reward.eligibleServiceName?.toLowerCase() || 'gel manicure';
 
     // Get services for this appointment
     const appointmentServices = await db
@@ -252,23 +270,15 @@ export async function POST(request: Request): Promise<Response> {
         .from(serviceSchema)
         .where(inArray(serviceSchema.id, serviceIds));
 
-      // Find a matching service to discount
-      const matchingService = services.find(
-        s => s.name.toLowerCase().includes(eligibleServiceName)
-          || eligibleServiceName.includes(s.name.toLowerCase()),
-      );
-
-      if (matchingService) {
-        // Apply the full service price as discount (prices are in cents)
-        const bookedService = appointmentServices.find(as => as.serviceId === matchingService.id);
-        discountApplied = bookedService?.priceAtBooking ?? matchingService.price;
-      } else {
-        // If no matching service, apply points as dollar discount
-        // 25000 points = $50 (one free manicure worth), so 500 points = $1
-        // Convert to cents: (points / 500) * 100 = points / 5
-        const pointsDiscountCents = Math.floor(reward.points / 5);
-        discountApplied = Math.min(pointsDiscountCents, appointment.totalPrice);
-      }
+      discountApplied = calculateRewardDiscountCents({
+        reward,
+        subtotalBeforeDiscountCents: appointment.totalPrice,
+        services: services.map(service => ({
+          id: service.id,
+          name: service.name,
+          price: appointmentServices.find(item => item.serviceId === service.id)?.priceAtBooking ?? service.price,
+        })),
+      }).discountAmountCents;
     }
 
     // 6. Apply the discount - update appointment and reward
@@ -277,6 +287,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // Format for display (convert cents to dollars)
     const discountDollars = (discountApplied / 100).toFixed(2);
+    const rewardDisplay = getRewardDisplayContent(reward);
 
     await db.transaction(async (tx) => {
       // Update the appointment price
@@ -285,8 +296,8 @@ export async function POST(request: Request): Promise<Response> {
         .set({
           totalPrice: newTotalPrice,
           notes: appointment.notes
-            ? `${appointment.notes}\n[Reward applied: ${reward.eligibleServiceName || 'Discount'} - $${discountDollars} off]`
-            : `[Reward applied: ${reward.eligibleServiceName || 'Discount'} - $${discountDollars} off]`,
+            ? `${appointment.notes}\n[Reward applied: ${rewardDisplay.title} - $${discountDollars} off]`
+            : `[Reward applied: ${rewardDisplay.title} - $${discountDollars} off]`,
         })
         .where(
           and(
@@ -316,7 +327,7 @@ export async function POST(request: Request): Promise<Response> {
         appointmentId,
         discountApplied: discountAppliedDollars,
         newTotalPrice: newTotalPriceDollars,
-        message: `Reward applied! You saved $${discountAppliedDollars.toFixed(2)} on your appointment.`,
+        message: `Reward applied! ${rewardDisplay.title} saved you $${discountAppliedDollars.toFixed(2)} on your appointment.`,
       },
       meta: {
         timestamp: new Date().toISOString(),

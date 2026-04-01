@@ -5,10 +5,12 @@ vi.mock('server-only', () => ({}));
 const {
   requireClientApiSession,
   requireClientSalonFromBody,
+  guardModuleOr403,
   db,
 } = vi.hoisted(() => ({
   requireClientApiSession: vi.fn(),
   requireClientSalonFromBody: vi.fn(),
+  guardModuleOr403: vi.fn(),
   db: {
     select: vi.fn(),
     update: vi.fn(),
@@ -18,6 +20,10 @@ const {
 vi.mock('@/libs/clientApiGuards', () => ({
   requireClientApiSession,
   requireClientSalonFromBody,
+}));
+
+vi.mock('@/libs/featureGating', () => ({
+  guardModuleOr403,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -39,6 +45,7 @@ function makeLimitSelect(result: unknown[]) {
 describe('POST /api/rewards/redeem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    guardModuleOr403.mockResolvedValue(null);
   });
 
   it('rejects reward redemption when the appointment already has a first-visit discount', async () => {
@@ -54,6 +61,7 @@ describe('POST /api/rewards/redeem', () => {
       salon: {
         id: 'salon_1',
         slug: 'salon-a',
+        rewardsEnabled: true,
       },
     });
 

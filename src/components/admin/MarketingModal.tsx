@@ -66,7 +66,7 @@ const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     description: 'Encourage clients to refer friends',
     icon: Users,
     iconColor: 'from-[#43e97b] to-[#38f9d7]',
-    message: 'Love our services? Refer a friend and you BOTH get a free gel manicure! 💖 Share your referral link today.',
+    message: 'Love our services? Refer a friend and they get 25% off their first appointment while you earn $25 off after they book. 💖 Share your referral link today.',
   },
   {
     id: 'winback',

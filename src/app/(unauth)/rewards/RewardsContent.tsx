@@ -110,6 +110,9 @@ type ApiReward = {
   points: number;
   status: 'active' | 'used' | 'expired';
   type: string;
+  discountType: 'fixed_amount' | 'percentage' | 'service' | null;
+  discountAmountCents: number | null;
+  discountPercent: number | null;
   eligibleServiceName: string | null;
   expiresAt: string | null;
   usedInAppointmentId: string | null;
@@ -117,6 +120,10 @@ type ApiReward = {
   createdAt: string;
   isExpired: boolean;
   daysUntilExpiry: number | null;
+  displayTitle: string;
+  displaySubtitle: string;
+  kindLabel: string;
+  valueLabel: string | null;
 };
 
 // Upcoming appointment type
@@ -268,8 +275,8 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
     }
   };
 
-  const rewardTitle = reward?.eligibleServiceName || 'Reward';
-  const pointsCost = reward?.points || 0;
+  const rewardTitle = reward?.displayTitle || 'Reward';
+  const rewardValueLabel = reward?.valueLabel ?? null;
 
   return (
     <AnimatePresence>
@@ -298,7 +305,7 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
             style={{ borderRadius: 'var(--n5-radius-sheet) var(--n5-radius-sheet) 0 0' }}
           >
             <div aria-live="polite" className="sr-only">
-              {isConfirmed ? `Success! Reward ${rewardTitle} redeemed for ${pointsCost} points.` : ''}
+              {isConfirmed ? `Success! ${rewardTitle} was applied to your appointment.` : ''}
             </div>
 
             <div className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-[var(--n5-border-muted)]" />
@@ -397,9 +404,7 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
                   This will use your
                   {' '}
                   <span className="font-semibold">
-                    {pointsCost.toLocaleString()}
-                    {' '}
-                    pts
+                    {rewardValueLabel ?? rewardTitle}
                   </span>
                   {' '}
                   reward
@@ -1466,10 +1471,10 @@ export default function RewardsContent() {
                           </div>
                           <div>
                             <p className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">
-                              {reward.eligibleServiceName || 'Free Service'}
+                              {reward.displayTitle}
                             </p>
                             <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-                              {reward.type === 'referral_referee' ? 'Referral Bonus' : reward.type === 'referral_referrer' ? 'Referral Reward' : 'Reward'}
+                              {reward.displaySubtitle}
                               {reward.daysUntilExpiry !== null && (
                                 <span className="ml-1 text-[var(--n5-warning)]">
                                   · Expires in

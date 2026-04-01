@@ -3,13 +3,13 @@ import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
-import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import {
   getAppointmentServiceNames,
   getSalonById,
   getTechnicianById,
   updateAppointmentStatus,
 } from '@/libs/queries';
+import { REFERRAL_REFERRER_AMOUNT_CENTS, REFERRAL_REFERRER_EXPIRY_DAYS } from '@/libs/rewardRules';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
@@ -299,9 +299,6 @@ export async function PATCH(
 
             // Skip referrer bonus if salon no longer exists (FK allows orphaned referrals)
             if (referralSalon) {
-              // Resolve effective loyalty points for this salon
-              const loyaltyPoints = resolveSalonLoyaltyPoints(referralSalon);
-
               // Create a reward for the referrer (uses salon-resolved points)
               await db.insert(rewardSchema).values({
                 id: `reward_${crypto.randomUUID()}`,
@@ -310,11 +307,13 @@ export async function PATCH(
                 clientName: referral.referrerName,
                 referralId: referral.id,
                 type: 'referral_referrer',
-                points: loyaltyPoints.referralReferrer,
-                eligibleServiceName: 'Gel Manicure',
+                points: 0,
+                discountType: 'fixed_amount',
+                discountAmountCents: REFERRAL_REFERRER_AMOUNT_CENTS,
+                eligibleServiceName: null,
                 status: 'active',
                 // Referrer reward expires in 1 year
-                expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                expiresAt: new Date(Date.now() + REFERRAL_REFERRER_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
               });
             }
           }

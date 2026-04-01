@@ -101,8 +101,10 @@ describe('resolveAutomaticBookingDiscount', () => {
     queryResults.push([{
       id: 'reward_1',
       status: 'active',
-      points: 25000,
-      eligibleServiceName: 'gel manicure',
+      points: 0,
+      discountType: 'percentage',
+      discountPercent: 25,
+      eligibleServiceName: null,
       expiresAt: null,
     }]);
 
@@ -115,8 +117,8 @@ describe('resolveAutomaticBookingDiscount', () => {
     });
 
     expect(result.kind).toBe('reward');
-    expect(result.discountAmountCents).toBe(4000);
-    expect(result.finalTotalCents).toBe(0);
+    expect(result.discountAmountCents).toBe(1000);
+    expect(result.finalTotalCents).toBe(3000);
   });
 
   it('blocks the first-visit discount when a completed paid visit already exists', async () => {

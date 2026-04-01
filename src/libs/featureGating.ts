@@ -498,6 +498,40 @@ export function guardModuleOr403Sync(args: {
 }
 
 // =============================================================================
+// PROGRAM AVAILABILITY HELPERS
+// =============================================================================
+
+export function isRewardsProgramEnabled(args: {
+  features: SalonFeatures | null | undefined;
+  settings: SalonSettings | null | undefined;
+  rewardsEnabled: boolean | null | undefined;
+}): boolean {
+  return (
+    getEffectiveModuleEnabled({
+      features: args.features,
+      settings: args.settings,
+      module: 'rewards',
+    })
+    && args.rewardsEnabled !== false
+  );
+}
+
+export function isReferralsProgramEnabled(args: {
+  features: SalonFeatures | null | undefined;
+  settings: SalonSettings | null | undefined;
+  rewardsEnabled: boolean | null | undefined;
+}): boolean {
+  return (
+    isRewardsProgramEnabled(args)
+    && getEffectiveModuleEnabled({
+      features: args.features,
+      settings: args.settings,
+      module: 'referrals',
+    })
+  );
+}
+
+// =============================================================================
 // BILLING MODE HELPERS (Step 20 - Stripe Optional Per Salon)
 // =============================================================================
 

@@ -14,6 +14,7 @@
 import twilio from 'twilio';
 
 import { Env } from '@/libs/Env';
+import { REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
 
 // =============================================================================
@@ -74,6 +75,10 @@ export type ReminderParams = {
   salonName: string;
   startTime: string;
   hoursUntil: number;
+  kind?: 'generic' | 'day_before' | 'same_day';
+  services?: string[];
+  technicianName?: string | null;
+  timeZone?: string;
 };
 
 export type ReferralInviteParams = {
@@ -331,33 +336,68 @@ export async function sendInternalCancellationNotificationSms(
 export async function sendAppointmentReminder(
   salonId: string,
   params: ReminderParams,
-): Promise<void> {
+): Promise<boolean> {
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
-    return;
+    return false;
   }
 
-  const { phone, clientName, salonName, startTime, hoursUntil } = params;
+  const {
+    phone,
+    clientName,
+    salonName,
+    startTime,
+    hoursUntil,
+    kind = 'generic',
+    services = [],
+    technicianName = null,
+    timeZone,
+  } = params;
 
   const date = new Date(startTime);
   const formattedTime = date.toLocaleTimeString('en-US', {
+    ...(timeZone ? { timeZone } : {}),
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+  });
+  const formattedDate = date.toLocaleDateString('en-US', {
+    ...(timeZone ? { timeZone } : {}),
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
   });
 
   const timeUntilText = hoursUntil >= 24
     ? 'tomorrow'
     : `in ${hoursUntil} hours`;
 
-  const message = `👋 Hi ${clientName || 'there'}!
+  const message = kind === 'day_before'
+    ? [
+        `Hi ${clientName || 'there'}!`,
+        '',
+        `Reminder: Your appointment at ${salonName} is tomorrow at ${formattedTime}.`,
+        ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
+        ...(technicianName ? [`Artist: ${technicianName}`] : []),
+        'Need to reschedule? Reply or call us.',
+      ].join('\n')
+    : kind === 'same_day'
+      ? [
+          `Hi ${clientName || 'there'}!`,
+          '',
+          `Your appointment at ${salonName} is today at ${formattedTime}.`,
+          ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
+          ...(technicianName ? [`Artist: ${technicianName}`] : []),
+          `See you soon on ${formattedDate}.`,
+        ].join('\n')
+      : `👋 Hi ${clientName || 'there'}!
 
 Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTime}.
 
 Need to reschedule? Reply or call us!`;
 
-  await sendSMS(phone, message);
+  return sendSMS(phone, message);
 }
 
 /**
@@ -537,12 +577,12 @@ export async function sendReferralInvite(
     || 'http://localhost:3000';
   const claimUrl = `${baseUrl}/referral/${referralId}`;
 
-  const message = `🎉 ${referrerName} sent you a FREE manicure at ${salonName}!
+  const message = `🎉 ${referrerName} sent you ${REFERRAL_REFEREE_PERCENT}% off your first appointment at ${salonName}!
 
 Claim your gift here:
 ${claimUrl}
 
-Book within 14 days to get your free manicure! 💅✨`;
+Book within 14 days to use your ${REFERRAL_REFEREE_PERCENT}% off reward. 💅✨`;
 
   return sendSMS(refereePhone, message);
 }

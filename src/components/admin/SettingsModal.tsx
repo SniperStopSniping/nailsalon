@@ -810,7 +810,7 @@ export function SettingsModal({
   const [programsSaving, setProgramsSaving] = useState(false);
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [rewardsEnabledProgram, setRewardsEnabledProgram] = useState(true);
-  const [effectivePoints, setEffectivePoints] = useState<ResolvedLoyaltyPoints | null>(null);
+  const [_effectivePoints, setEffectivePoints] = useState<ResolvedLoyaltyPoints | null>(null);
   const [_defaultPoints, setDefaultPoints] = useState<ResolvedLoyaltyPoints | null>(null);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
@@ -1746,7 +1746,7 @@ export function SettingsModal({
         {/* Section 3.55: Programs (Step 21E) */}
         <Section
           title="Programs"
-          footer="Control reviews and rewards programs. Points values and billing mode are set by the platform administrator."
+          footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
         >
           {programsLoading
             ? (
@@ -1778,45 +1778,32 @@ export function SettingsModal({
                       setRewardsEnabledProgram(value);
                       saveProgramToggle('rewardsEnabled', value);
                     }}
-                    isLast={!effectivePoints}
+                    isLast
                   />
 
-                  {/* Effective Points Display (Read-only) */}
-                  {effectivePoints && (
-                    <>
-                      <div className="border-t border-gray-100 px-4 py-3">
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Loyalty Points (Read-only)
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Profile Completion</span>
-                            <span className="font-medium text-gray-900">
-                              {effectivePoints.profileCompletion.toLocaleString()}
-                              {' '}
-                              pts
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Referral (Referee)</span>
-                            <span className="font-medium text-gray-900">
-                              {effectivePoints.referralReferee.toLocaleString()}
-                              {' '}
-                              pts
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Referral (Referrer)</span>
-                            <span className="font-medium text-gray-900">
-                              {effectivePoints.referralReferrer.toLocaleString()}
-                              {' '}
-                              pts
-                            </span>
-                          </div>
-                        </div>
+                  <div className="border-t border-gray-100 px-4 py-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Active Offers
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Referral reward</span>
+                        <span className="font-medium text-gray-900">$25 for the referrer</span>
                       </div>
-                    </>
-                  )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Friend offer</span>
+                        <span className="font-medium text-gray-900">25% off first appointment</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Google review reward</span>
+                        <span className="font-medium text-gray-900">$15 off (manual grant)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Visit earning</span>
+                        <span className="font-medium text-gray-900">20 points per $1 spent</span>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Billing Status Display (Read-only) */}
                   <div className="border-t border-gray-100 px-4 py-3">

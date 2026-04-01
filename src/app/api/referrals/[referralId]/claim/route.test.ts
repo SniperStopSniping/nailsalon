@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   requireClientApiSession,
-  resolveSalonLoyaltyPoints,
   upsertClient,
   selectResults,
   updateSet,
@@ -36,7 +35,6 @@ const {
 
   return {
     requireClientApiSession: vi.fn(),
-    resolveSalonLoyaltyPoints: vi.fn(),
     upsertClient: vi.fn(),
     selectResults,
     updateSet,
@@ -53,8 +51,8 @@ vi.mock('@/libs/clientApiGuards', () => ({
   requireClientApiSession,
 }));
 
-vi.mock('@/libs/loyalty', () => ({
-  resolveSalonLoyaltyPoints,
+vi.mock('@/libs/featureGating', () => ({
+  guardModuleOr403: vi.fn(async () => null),
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -71,10 +69,6 @@ describe('POST /api/referrals/[referralId]/claim', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectResults.length = 0;
-    resolveSalonLoyaltyPoints.mockReturnValue({
-      referralReferee: 2500,
-      referralReferrer: 3500,
-    });
   });
 
   it('rejects unauthenticated referral claims', async () => {
@@ -140,6 +134,9 @@ describe('POST /api/referrals/[referralId]/claim', () => {
       [{
         id: 'salon_1',
         name: 'Salon A',
+        features: { marketing: { rewards: true, referrals: true } },
+        settings: { modules: { rewards: true, referrals: true } },
+        rewardsEnabled: true,
       }],
       [],
       [],
@@ -168,6 +165,9 @@ describe('POST /api/referrals/[referralId]/claim', () => {
       clientName: 'Bea',
       referralId: 'ref_1',
       type: 'referral_referee',
+      discountType: 'percentage',
+      discountPercent: 25,
+      points: 0,
     }));
     expect(body.data.referralId).toBe('ref_1');
   });

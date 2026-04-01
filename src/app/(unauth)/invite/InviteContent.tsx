@@ -19,6 +19,11 @@ import { useCallback, useRef, useState } from 'react';
 import { ConfettiPopup } from '@/components/ConfettiPopup';
 import { useClientSession } from '@/hooks/useClientSession';
 import { appendSalonSlug } from '@/libs/bookingParams';
+import {
+  GOOGLE_REVIEW_REWARD_AMOUNT_CENTS,
+  REFERRAL_REFEREE_PERCENT,
+  REFERRAL_REFERRER_AMOUNT_CENTS,
+} from '@/libs/rewardRules';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { cn } from '@/utils/Helpers';
@@ -111,7 +116,10 @@ const HeroCard = () => (
         >
           <Sparkles className="size-4 text-[var(--n5-accent)]" />
           <span className="font-body text-xs font-bold text-[var(--n5-ink-main)]">
-            You get $35 OFF
+            You get $
+            {REFERRAL_REFERRER_AMOUNT_CENTS / 100}
+            {' '}
+            OFF
           </span>
         </div>
         <div
@@ -123,7 +131,10 @@ const HeroCard = () => (
         >
           <Gift className="size-4 text-[var(--n5-success)]" />
           <span className="font-body text-xs font-bold text-[var(--n5-ink-main)]">
-            They get FREE mani
+            They get
+            {' '}
+            {REFERRAL_REFEREE_PERCENT}
+            % off
           </span>
         </div>
       </div>
@@ -531,7 +542,7 @@ export default function InviteContent() {
             <SettingsItem
               label="Leave a Google Review"
               icon={Star}
-              badge="$25 OFF"
+              badge={`$${GOOGLE_REVIEW_REWARD_AMOUNT_CENTS / 100} OFF`}
               onClick={() => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank')}
             />
             <div style={{ height: 1, backgroundColor: 'var(--n5-border-muted)' }} />
@@ -565,8 +576,8 @@ export default function InviteContent() {
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
-        title="You just gifted your friend a FREE manicure!"
-        message="They'll receive a text with your referral. When they book, you both win!"
+        title={`You just gifted your friend ${REFERRAL_REFEREE_PERCENT}% off!`}
+        message={`They'll receive a text with your referral. When they book, you'll earn $${REFERRAL_REFERRER_AMOUNT_CENTS / 100} off.`}
         emoji="🎊"
         autoDismissMs={4000}
       />

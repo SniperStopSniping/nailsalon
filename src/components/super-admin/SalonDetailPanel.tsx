@@ -31,7 +31,7 @@ import {
   PRO_FEATURES,
   STARTER_FEATURES,
 } from '@/libs/featureTiers';
-import { getDefaultLoyaltyPoints } from '@/libs/loyalty';
+import { resolveEntitlement } from '@/libs/featureGating';
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
@@ -40,21 +40,6 @@ import { DeleteSalonModal } from './DeleteSalonModal';
 import { LocationForm } from './LocationForm';
 import { ResetDataModal } from './ResetDataModal';
 import { UserSearchModal } from './UserSearchModal';
-
-/**
- * Safely parse a string input to a number or null.
- * Empty string or whitespace = null (use default)
- * Valid number string = number
- * Invalid input = null (server will use default)
- */
-function parsePointsOverride(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') {
-    return null;
-  }
-  const num = Number.parseInt(trimmed, 10);
-  return Number.isFinite(num) ? num : null;
-}
 
 type SalonDetail = {
   id: string;
@@ -352,9 +337,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Billing & Programs state (Step 21E)
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
-  const [profileCompletionOverride, setProfileCompletionOverride] = useState<string>('');
-  const [referralRefereeOverride, setReferralRefereeOverride] = useState<string>('');
-  const [referralReferrerOverride, setReferralReferrerOverride] = useState<string>('');
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Save button states
@@ -380,6 +362,17 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [showResetModal, setShowResetModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showLocationForm, setShowLocationForm] = useState(false);
+
+  const setMarketingFeature = useCallback((key: 'smsReminders' | 'rewards' | 'referrals', value: boolean) => {
+    setFeatures(current => ({
+      ...current,
+      marketing: {
+        ...(current.marketing ?? {}),
+        [key]: value,
+      },
+      [key]: value,
+    }));
+  }, []);
 
   // Fetch salon details
   const fetchSalon = useCallback(async () => {
@@ -445,9 +438,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setReviewsEnabled(data.settings.reviewsEnabled ?? true);
       setRewardsEnabled(data.settings.rewardsEnabled ?? true);
       setBillingMode((data.settings.billingMode as 'NONE' | 'STRIPE') ?? 'NONE');
-      setProfileCompletionOverride(data.settings.profileCompletionPointsOverride?.toString() ?? '');
-      setReferralRefereeOverride(data.settings.referralRefereePointsOverride?.toString() ?? '');
-      setReferralReferrerOverride(data.settings.referralReferrerPointsOverride?.toString() ?? '');
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
@@ -532,6 +522,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setIsDirty(true);
     setJustSaved(false);
   };
+
+  const smsRemindersEntitled = resolveEntitlement(features, 'marketing', 'smsReminders');
+  const rewardsEntitled = resolveEntitlement(features, 'marketing', 'rewards');
+  const referralsEntitled = resolveEntitlement(features, 'marketing', 'referrals');
 
   // Handle owner change (legacy Clerk)
   const handleOwnerChange = async (user: { id: string; email: string | null }) => {
@@ -979,20 +973,20 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={features.smsReminders ? 'true' : 'false'}
+                      aria-checked={smsRemindersEntitled ? 'true' : 'false'}
                       onClick={() => {
-                        setFeatures(f => ({ ...f, smsReminders: !f.smsReminders }));
-                        setSmsRemindersEnabled(!features.smsReminders);
+                        setMarketingFeature('smsReminders', !smsRemindersEntitled);
+                        setSmsRemindersEnabled(!smsRemindersEntitled);
                         markDirty();
                       }}
                       aria-label="Toggle SMS reminders"
                       className={`relative h-6 w-11 rounded-full transition-colors ${
-                        features.smsReminders ? 'bg-indigo-600' : 'bg-gray-200'
+                        smsRemindersEntitled ? 'bg-indigo-600' : 'bg-gray-200'
                       }`}
                     >
                       <div
                         className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                          features.smsReminders ? 'translate-x-5' : ''
+                          smsRemindersEntitled ? 'translate-x-5' : ''
                         }`}
                       />
                     </button>
@@ -1007,20 +1001,47 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={features.rewards ? 'true' : 'false'}
+                      aria-checked={rewardsEntitled ? 'true' : 'false'}
                       onClick={() => {
-                        setFeatures(f => ({ ...f, rewards: !f.rewards }));
-                        setRewardsEnabled(!features.rewards);
+                        setMarketingFeature('rewards', !rewardsEntitled);
+                        setRewardsEnabled(!rewardsEntitled);
                         markDirty();
                       }}
                       aria-label="Toggle rewards program"
                       className={`relative h-6 w-11 rounded-full transition-colors ${
-                        features.rewards ? 'bg-indigo-600' : 'bg-gray-200'
+                        rewardsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
                       }`}
                     >
                       <div
                         className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                          features.rewards ? 'translate-x-5' : ''
+                          rewardsEntitled ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Referrals Program Toggle */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">Referrals Program</div>
+                      <div className="text-xs text-gray-500">Allow clients to send referral offers to friends</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={referralsEntitled ? 'true' : 'false'}
+                      onClick={() => {
+                        setMarketingFeature('referrals', !referralsEntitled);
+                        markDirty();
+                      }}
+                      aria-label="Toggle referrals program"
+                      className={`relative h-6 w-11 rounded-full transition-colors ${
+                        referralsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <div
+                        className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                          referralsEntitled ? 'translate-x-5' : ''
                         }`}
                       />
                     </button>
@@ -1387,94 +1408,30 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                     </div>
                   </div>
 
-                  {/* Loyalty Points Overrides */}
+                  {/* Rewards Program Summary */}
                   <div className="border-t border-gray-200 pt-4">
                     <div className="mb-3 flex items-center gap-2">
                       <Gift className="size-4 text-purple-500" />
                       <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        Loyalty Points Overrides
+                        Reward Offers
                       </span>
                     </div>
                     <p className="mb-4 text-xs text-gray-500">
-                      Leave empty to use system defaults. Set a value to override for this salon only.
+                      Referral and review rewards are fixed platform offers. Visit-earned points remain active at 20 points per dollar spent.
                     </p>
-
-                    {/* Profile Completion */}
-                    <div className="mb-3">
-                      <label htmlFor="profileCompletion" className="mb-1 block text-sm font-medium text-gray-700">
-                        Profile Completion
-                        <span className="ml-2 text-xs font-normal text-gray-400">
-                          (Default:
-                          {' '}
-                          {getDefaultLoyaltyPoints().profileCompletion.toLocaleString()}
-                          )
-                        </span>
-                      </label>
-                      <input
-                        type="number"
-                        id="profileCompletion"
-                        value={profileCompletionOverride}
-                        onChange={(e) => {
-                          setProfileCompletionOverride(e.target.value);
-                          markDirty();
-                        }}
-                        placeholder="Use default"
-                        min={0}
-                        max={250000}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    {/* Referral Referee */}
-                    <div className="mb-3">
-                      <label htmlFor="referralReferee" className="mb-1 block text-sm font-medium text-gray-700">
-                        Referral Referee Bonus
-                        <span className="ml-2 text-xs font-normal text-gray-400">
-                          (Default:
-                          {' '}
-                          {getDefaultLoyaltyPoints().referralReferee.toLocaleString()}
-                          )
-                        </span>
-                      </label>
-                      <input
-                        type="number"
-                        id="referralReferee"
-                        value={referralRefereeOverride}
-                        onChange={(e) => {
-                          setReferralRefereeOverride(e.target.value);
-                          markDirty();
-                        }}
-                        placeholder="Use default"
-                        min={0}
-                        max={250000}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    {/* Referral Referrer */}
-                    <div className="mb-3">
-                      <label htmlFor="referralReferrer" className="mb-1 block text-sm font-medium text-gray-700">
-                        Referral Referrer Bonus
-                        <span className="ml-2 text-xs font-normal text-gray-400">
-                          (Default:
-                          {' '}
-                          {getDefaultLoyaltyPoints().referralReferrer.toLocaleString()}
-                          )
-                        </span>
-                      </label>
-                      <input
-                        type="number"
-                        id="referralReferrer"
-                        value={referralReferrerOverride}
-                        onChange={(e) => {
-                          setReferralReferrerOverride(e.target.value);
-                          markDirty();
-                        }}
-                        placeholder="Use default"
-                        min={0}
-                        max={250000}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
+                    <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      <div className="flex justify-between">
+                        <span>Friend referral reward</span>
+                        <span className="font-medium">25% off first appointment</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Referrer reward</span>
+                        <span className="font-medium">$25 off any appointment</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Google review reward</span>
+                        <span className="font-medium">$15 off (manual grant)</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1492,9 +1449,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                               reviewsEnabled,
                               rewardsEnabled,
                               billingMode,
-                              profileCompletionPointsOverride: parsePointsOverride(profileCompletionOverride),
-                              referralRefereePointsOverride: parsePointsOverride(referralRefereeOverride),
-                              referralReferrerPointsOverride: parsePointsOverride(referralReferrerOverride),
                             }),
                           });
                           if (!response.ok) {

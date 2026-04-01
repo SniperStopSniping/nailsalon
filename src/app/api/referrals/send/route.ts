@@ -106,11 +106,27 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { salon } = salonGuard;
 
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
+
     // 3.5. Check if referrals module is enabled (Step 16.3)
-    // Uses effective gating: entitled AND adminEnabled
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
-    if (moduleGuard) {
-      return moduleGuard;
+    const referralsGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (referralsGuard) {
+      return referralsGuard;
     }
 
     // 4. Check if this referral already exists

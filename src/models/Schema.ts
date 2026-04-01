@@ -513,6 +513,12 @@ export const appointmentSchema = pgTable(
     // Additional
     notes: text('notes'),
 
+    // Client reminder tracking (idempotent cron delivery)
+    dayBeforeReminderSentAt: timestamp('day_before_reminder_sent_at', { mode: 'date', withTimezone: true }),
+    dayBeforeReminderChannel: text('day_before_reminder_channel'),
+    sameDayReminderSentAt: timestamp('same_day_reminder_sent_at', { mode: 'date', withTimezone: true }),
+    sameDayReminderChannel: text('same_day_reminder_channel'),
+
     // Lifecycle timestamps (for staff workflow)
     startedAt: timestamp('started_at', { mode: 'date' }), // When tech starts the appointment
     completedAt: timestamp('completed_at', { mode: 'date' }), // When appointment is finished
@@ -869,10 +875,15 @@ export const rewardSchema = pgTable(
     //       'referral_referrer' (person who sent referral)
     type: text('type').notNull(),
 
-    // Points value (2500 points = 1 free manicure)
+    // Legacy points value for catalog / historical rewards.
     points: integer('points').notNull().default(0),
 
-    // Eligible service - for now just "Gel Manicure"
+    // Explicit discount shape for issued rewards (referrals, review rewards).
+    discountType: text('discount_type').$type<'fixed_amount' | 'percentage' | 'service'>(),
+    discountAmountCents: integer('discount_amount_cents'),
+    discountPercent: integer('discount_percent'),
+
+    // Eligible service for legacy service-specific rewards.
     eligibleServiceName: text('eligible_service_name').default('Gel Manicure'),
 
     // Status: 'active' | 'used' | 'expired'

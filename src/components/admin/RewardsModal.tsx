@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { useSalon } from '@/providers/SalonProvider';
+
 import { BackButton, ModalHeader } from './AppModal';
 
 type RewardsModalProps = {
@@ -31,10 +33,12 @@ type RewardData = {
   id: string;
   clientPhone: string;
   clientName: string | null;
-  type: 'referral_referee' | 'referral_referrer';
+  type: 'referral_referee' | 'referral_referrer' | 'google_review' | string;
   points: number;
   status: 'active' | 'used' | 'expired';
-  eligibleServiceName: string | null;
+  displayTitle: string;
+  displaySubtitle: string;
+  valueLabel: string | null;
   expiresAt: string | null;
   createdAt: string;
 };
@@ -165,7 +169,13 @@ function RewardRow({
     day: 'numeric',
   });
 
-  const typeLabel = reward.type === 'referral_referrer' ? 'Referrer Reward' : 'New Client Reward';
+  const typeLabel = reward.type === 'referral_referrer'
+    ? 'Referral Reward'
+    : reward.type === 'referral_referee'
+      ? 'Friend Reward'
+      : reward.type === 'google_review'
+        ? 'Google Review Reward'
+        : 'Reward';
 
   return (
     <div className={`flex items-center px-4 py-3 ${!isLast ? 'border-b border-gray-100' : ''}`}>
@@ -182,15 +192,18 @@ function RewardRow({
           <span>•</span>
           <span>{formattedDate}</span>
         </div>
+        <div className="mt-1 text-[12px] text-[#636366]">
+          {reward.displayTitle}
+        </div>
       </div>
 
       <div className="text-right">
         <div className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${statusColors.bg} ${statusColors.text} capitalize`}>
           {reward.status}
         </div>
-        {reward.eligibleServiceName && (
+        {reward.valueLabel && (
           <div className="mt-1 text-[11px] text-[#8E8E93]">
-            {reward.eligibleServiceName}
+            {reward.valueLabel}
           </div>
         )}
       </div>
@@ -295,35 +308,49 @@ function LoadingSkeleton() {
 }
 
 export function RewardsModal({ onClose }: RewardsModalProps) {
+  const { salonSlug } = useSalon();
   const [activeTab, setActiveTab] = useState<'rewards' | 'referrals'>('rewards');
   const [rewards, setRewards] = useState<RewardData[]>([]);
   const [referrals, setReferrals] = useState<ReferralData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch data
   const fetchData = useCallback(async () => {
+    if (!salonSlug) {
+      setLoading(false);
+      setError('Salon context is missing');
+      return;
+    }
+
     try {
       setLoading(true);
+      setError(null);
 
       const [rewardsRes, referralsRes] = await Promise.all([
-        fetch('/api/rewards'),
-        fetch('/api/referrals'),
+        fetch(`/api/admin/rewards?salonSlug=${encodeURIComponent(salonSlug)}`),
+        fetch(`/api/admin/referrals?salonSlug=${encodeURIComponent(salonSlug)}`),
       ]);
-      if (rewardsRes.ok) {
-        const rewardsData = await rewardsRes.json();
-        setRewards(rewardsData.data?.rewards || []);
+      const rewardsData = await rewardsRes.json().catch(() => ({}));
+      const referralsData = await referralsRes.json().catch(() => ({}));
+
+      if (!rewardsRes.ok) {
+        throw new Error(rewardsData.error?.message || 'Failed to load rewards');
       }
 
-      if (referralsRes.ok) {
-        const referralsData = await referralsRes.json();
-        setReferrals(referralsData.data?.referrals || []);
+      if (!referralsRes.ok) {
+        throw new Error(referralsData.error?.message || 'Failed to load referrals');
       }
+
+      setRewards(rewardsData.data?.rewards || []);
+      setReferrals(referralsData.data?.referrals || []);
     } catch (error) {
       console.error('Failed to fetch rewards data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load rewards data');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [salonSlug]);
 
   useEffect(() => {
     fetchData();
@@ -341,13 +368,19 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
           title="Rewards"
-          subtitle="Loyalty Program"
+          subtitle="Salon rewards and referrals"
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-10">
+        {error && (
+          <div className="mb-4 rounded-[16px] bg-red-50 px-4 py-3 text-[14px] text-red-600">
+            {error}
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="mb-6 grid grid-cols-2 gap-4">
           <StatsCard

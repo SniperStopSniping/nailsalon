@@ -17,8 +17,9 @@ import { z } from 'zod';
 
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { resolveSalonLoyaltyPoints } from '@/libs/loyalty';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { upsertClient } from '@/libs/queries';
+import { REFERRAL_REFEREE_EXPIRY_DAYS, REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
 import { appointmentSchema, referralSchema, rewardSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -149,7 +150,7 @@ export async function POST(
       );
     }
 
-    // 2b. Fetch salon to resolve loyalty points
+    // 2b. Fetch salon to resolve reward availability
     const [salon] = await db
       .select()
       .from(salonSchema)
@@ -168,8 +169,27 @@ export async function POST(
       );
     }
 
-    // Resolve effective loyalty points for this salon
-    const loyaltyPoints = resolveSalonLoyaltyPoints(salon);
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
+
+    const referralsGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (referralsGuard) {
+      return referralsGuard;
+    }
 
     // 3. Check if referral is still claimable
     if (referral.status !== 'sent') {
@@ -273,7 +293,7 @@ export async function POST(
     // 7. Calculate expiration (14 days from now)
     const now = new Date();
     const expiresAt = new Date(now);
-    expiresAt.setDate(expiresAt.getDate() + 14);
+    expiresAt.setDate(expiresAt.getDate() + REFERRAL_REFEREE_EXPIRY_DAYS);
 
     // 8. Update the referral with referee info
     await db
@@ -299,8 +319,10 @@ export async function POST(
       clientName: refereeName,
       referralId,
       type: 'referral_referee',
-      points: loyaltyPoints.referralReferee,
-      eligibleServiceName: 'Gel Manicure',
+      points: 0,
+      discountType: 'percentage',
+      discountPercent: REFERRAL_REFEREE_PERCENT,
+      eligibleServiceName: null,
       status: 'active',
       expiresAt,
     });
@@ -311,7 +333,7 @@ export async function POST(
         referralId,
         rewardId,
         expiresAt: expiresAt.toISOString(),
-        message: 'You\'ve claimed your free manicure! Your reward is now linked to your profile.',
+        message: `You've claimed ${REFERRAL_REFEREE_PERCENT}% off your first appointment! Your reward is now linked to your profile.`,
       },
       meta: {
         timestamp: now.toISOString(),

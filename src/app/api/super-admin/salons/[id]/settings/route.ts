@@ -6,7 +6,6 @@
  * Allows super admins to update:
  * - reviewsEnabled, rewardsEnabled (boolean toggles)
  * - billingMode ('NONE' | 'STRIPE')
- * - Per-salon loyalty points overrides (welcomeBonus, profileCompletion, referralReferee, referralReferrer)
  *
  * All changes are logged to the audit log with before/after diff.
  */
@@ -16,7 +15,6 @@ import { z } from 'zod';
 
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
-import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
 
@@ -30,10 +28,6 @@ const updateSettingsSchema = z.object({
   reviewsEnabled: z.boolean().optional(),
   rewardsEnabled: z.boolean().optional(),
   billingMode: z.enum(['NONE', 'STRIPE']).optional(),
-  welcomeBonusPointsOverride: z.number().int().min(0).max(250000).nullable().optional(),
-  profileCompletionPointsOverride: z.number().int().min(0).max(250000).nullable().optional(),
-  referralRefereePointsOverride: z.number().int().min(0).max(250000).nullable().optional(),
-  referralReferrerPointsOverride: z.number().int().min(0).max(250000).nullable().optional(),
 });
 
 // =============================================================================
@@ -102,47 +96,14 @@ export async function PATCH(
       dbUpdates.billingMode = updates.billingMode;
     }
 
-    if (updates.welcomeBonusPointsOverride !== undefined && updates.welcomeBonusPointsOverride !== existingSalon.welcomeBonusPointsOverride) {
-      before.welcomeBonusPointsOverride = existingSalon.welcomeBonusPointsOverride;
-      after.welcomeBonusPointsOverride = updates.welcomeBonusPointsOverride;
-      dbUpdates.welcomeBonusPointsOverride = updates.welcomeBonusPointsOverride;
-    }
-
-    if (updates.profileCompletionPointsOverride !== undefined && updates.profileCompletionPointsOverride !== existingSalon.profileCompletionPointsOverride) {
-      before.profileCompletionPointsOverride = existingSalon.profileCompletionPointsOverride;
-      after.profileCompletionPointsOverride = updates.profileCompletionPointsOverride;
-      dbUpdates.profileCompletionPointsOverride = updates.profileCompletionPointsOverride;
-    }
-
-    if (updates.referralRefereePointsOverride !== undefined && updates.referralRefereePointsOverride !== existingSalon.referralRefereePointsOverride) {
-      before.referralRefereePointsOverride = existingSalon.referralRefereePointsOverride;
-      after.referralRefereePointsOverride = updates.referralRefereePointsOverride;
-      dbUpdates.referralRefereePointsOverride = updates.referralRefereePointsOverride;
-    }
-
-    if (updates.referralReferrerPointsOverride !== undefined && updates.referralReferrerPointsOverride !== existingSalon.referralReferrerPointsOverride) {
-      before.referralReferrerPointsOverride = existingSalon.referralReferrerPointsOverride;
-      after.referralReferrerPointsOverride = updates.referralReferrerPointsOverride;
-      dbUpdates.referralReferrerPointsOverride = updates.referralReferrerPointsOverride;
-    }
-
     // 4. If no changes, return current state
     if (Object.keys(dbUpdates).length === 0) {
-      const effectivePoints = resolveSalonLoyaltyPoints(existingSalon);
-      const defaults = getDefaultLoyaltyPoints();
-
       return Response.json({
         settings: {
           reviewsEnabled: existingSalon.reviewsEnabled ?? true,
           rewardsEnabled: existingSalon.rewardsEnabled ?? true,
           billingMode: existingSalon.billingMode ?? 'NONE',
-          welcomeBonusPointsOverride: existingSalon.welcomeBonusPointsOverride,
-          profileCompletionPointsOverride: existingSalon.profileCompletionPointsOverride,
-          referralRefereePointsOverride: existingSalon.referralRefereePointsOverride,
-          referralReferrerPointsOverride: existingSalon.referralReferrerPointsOverride,
         },
-        effectivePoints,
-        defaults,
         subscriptionStatus: existingSalon.billingMode === 'STRIPE' ? existingSalon.stripeSubscriptionStatus : null,
       });
     }
@@ -173,21 +134,12 @@ export async function PATCH(
     });
 
     // 7. Return updated settings
-    const effectivePoints = resolveSalonLoyaltyPoints(updatedSalon);
-    const defaults = getDefaultLoyaltyPoints();
-
     return Response.json({
       settings: {
         reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
         rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
         billingMode: updatedSalon.billingMode ?? 'NONE',
-        welcomeBonusPointsOverride: updatedSalon.welcomeBonusPointsOverride,
-        profileCompletionPointsOverride: updatedSalon.profileCompletionPointsOverride,
-        referralRefereePointsOverride: updatedSalon.referralRefereePointsOverride,
-        referralReferrerPointsOverride: updatedSalon.referralReferrerPointsOverride,
       },
-      effectivePoints,
-      defaults,
       subscriptionStatus: updatedSalon.billingMode === 'STRIPE' ? updatedSalon.stripeSubscriptionStatus : null,
     });
   } catch (error) {
@@ -229,21 +181,12 @@ export async function GET(
       );
     }
 
-    const effectivePoints = resolveSalonLoyaltyPoints(salon);
-    const defaults = getDefaultLoyaltyPoints();
-
     return Response.json({
       settings: {
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         billingMode: salon.billingMode ?? 'NONE',
-        welcomeBonusPointsOverride: salon.welcomeBonusPointsOverride,
-        profileCompletionPointsOverride: salon.profileCompletionPointsOverride,
-        referralRefereePointsOverride: salon.referralRefereePointsOverride,
-        referralReferrerPointsOverride: salon.referralReferrerPointsOverride,
       },
-      effectivePoints,
-      defaults,
       subscriptionStatus: salon.billingMode === 'STRIPE' ? salon.stripeSubscriptionStatus : null,
     });
   } catch (error) {

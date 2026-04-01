@@ -14,7 +14,9 @@ import {
   requireClientSalonFromQuery,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { guardModuleOr403 } from '@/libs/featureGating';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { getRewardDisplayContent } from '@/libs/rewardRules';
 import { appointmentSchema, type Reward, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -35,6 +37,10 @@ const getRewardsSchema = z.object({
 type RewardWithExpiry = {
   isExpired: boolean;
   daysUntilExpiry: number | null;
+  displayTitle: string;
+  displaySubtitle: string;
+  kindLabel: string;
+  valueLabel: string | null;
 } & Reward;
 
 type SuccessResponse = {
@@ -105,6 +111,23 @@ export async function GET(request: Request): Promise<Response> {
       return salonGuard.response;
     }
     const { salon } = salonGuard;
+
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
 
     // 4. Fetch the client's loyalty points balance from salonClient
     // Try multiple phone formats
@@ -188,6 +211,10 @@ export async function GET(request: Request): Promise<Response> {
         status: isExpired && reward.status === 'active' ? 'expired' : reward.status,
         isExpired,
         daysUntilExpiry,
+        displayTitle: getRewardDisplayContent(reward).title,
+        displaySubtitle: getRewardDisplayContent(reward).subtitle,
+        kindLabel: getRewardDisplayContent(reward).kindLabel,
+        valueLabel: getRewardDisplayContent(reward).valueLabel,
       });
     }
 

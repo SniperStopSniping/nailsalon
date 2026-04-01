@@ -112,9 +112,26 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { salon } = salonGuard;
 
-    const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
-    if (moduleGuard) {
-      return moduleGuard;
+    const rewardsGuard = await guardModuleOr403({ salonId: salon.id, module: 'rewards' });
+    if (rewardsGuard) {
+      return rewardsGuard;
+    }
+
+    if (salon.rewardsEnabled === false) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Rewards program is not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
+
+    const referralsGuard = await guardModuleOr403({ salonId: salon.id, module: 'referrals' });
+    if (referralsGuard) {
+      return referralsGuard;
     }
 
     // 3. Generate a unique referral code

@@ -1,4 +1,7 @@
+import { redirect } from 'next/navigation';
+
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { buildTenantRedirectPath, checkFeatureEnabled } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
 
 import InviteContent from './InviteContent';
@@ -17,6 +20,17 @@ export default async function InvitePage({
   params?: { locale?: string; slug?: string };
 }) {
   const context = await getPublicPageContext('invite', searchParams, params);
+  const tenantRoute = {
+    salonSlug: context.salon.slug,
+    routeSalonSlug: params?.slug,
+    locale: params?.locale,
+  };
+  const featureCheck = await checkFeatureEnabled(context.salon.id, 'referrals');
+  const featureRedirectPath = buildTenantRedirectPath(featureCheck.redirectPath, tenantRoute);
+
+  if (featureRedirectPath) {
+    redirect(featureRedirectPath);
+  }
 
   return (
     <PublicSalonPageShell

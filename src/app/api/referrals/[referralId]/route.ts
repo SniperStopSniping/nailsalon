@@ -9,6 +9,7 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { isReferralsProgramEnabled } from '@/libs/featureGating';
 import { referralSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -99,6 +100,22 @@ export async function GET(
     }
 
     const { referral, salon } = referralResults[0]!;
+
+    if (!isReferralsProgramEnabled({
+      features: salon.features,
+      settings: salon.settings,
+      rewardsEnabled: salon.rewardsEnabled,
+    })) {
+      return Response.json(
+        {
+          error: {
+            code: 'FEATURE_DISABLED',
+            message: 'Referrals are not available for this salon',
+          },
+        } satisfies ErrorResponse,
+        { status: 403 },
+      );
+    }
 
     // 2. Check if referral is still claimable
     // Claimable if status is 'sent' (not yet claimed)

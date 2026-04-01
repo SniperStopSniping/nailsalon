@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   requireClientApiSession,
   requireClientSalonFromQuery,
+  guardModuleOr403,
   db,
 } = vi.hoisted(() => ({
   requireClientApiSession: vi.fn(),
   requireClientSalonFromQuery: vi.fn(),
+  guardModuleOr403: vi.fn(),
   db: {
     select: vi.fn(),
     update: vi.fn(),
@@ -16,6 +18,10 @@ const {
 vi.mock('@/libs/clientApiGuards', () => ({
   requireClientApiSession,
   requireClientSalonFromQuery,
+}));
+
+vi.mock('@/libs/featureGating', () => ({
+  guardModuleOr403,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -55,6 +61,7 @@ function makeWhereSelect(result: unknown[]) {
 describe('GET /api/rewards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    guardModuleOr403.mockResolvedValue(null);
   });
 
   it('returns active and pending points separately', async () => {
@@ -70,6 +77,7 @@ describe('GET /api/rewards', () => {
       salon: {
         id: 'salon_1',
         slug: 'salon-a',
+        rewardsEnabled: true,
       },
     });
 

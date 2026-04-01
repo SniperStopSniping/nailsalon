@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useClientSession } from '@/hooks/useClientSession';
 import { appendSalonSlug } from '@/libs/bookingParams';
+import { REFERRAL_REFERRER_AMOUNT_CENTS } from '@/libs/rewardRules';
 
 type ReferralData = {
   id: string;
@@ -192,7 +193,7 @@ export default function MyReferralsContent({
               <div className="text-center">
                 <div className="text-2xl font-bold" style={{ color: '#22c55e' }}>
                   $
-                  {referrals.filter(r => r.status === 'reward_earned').length * 45}
+                  {(referrals.filter(r => r.status === 'reward_earned').length * REFERRAL_REFERRER_AMOUNT_CENTS) / 100}
                 </div>
                 <div className="text-sm text-neutral-500">Earned</div>
               </div>
@@ -219,7 +220,7 @@ export default function MyReferralsContent({
               <div className="mb-2 text-3xl">💌</div>
               <p className="mb-1 font-medium text-neutral-900">No referrals yet</p>
               <p className="text-sm text-neutral-600">
-                Start sharing and earn free manicures!
+                Start sharing and earn $25 off when your friend completes their first visit.
               </p>
               <button
                 type="button"
@@ -288,7 +289,7 @@ export default function MyReferralsContent({
                         )}
                         {referral.hasReferrerReward && referral.status === 'reward_earned' && (
                           <div className="mt-1 text-xs text-green-600">
-                            🎁 You earned a free manicure!
+                            🎁 You earned $25 off your next appointment.
                           </div>
                         )}
                       </div>
