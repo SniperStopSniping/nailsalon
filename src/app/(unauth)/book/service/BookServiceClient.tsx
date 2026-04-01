@@ -100,7 +100,7 @@ type BookServiceClientProps = {
   locations: LocationData[];
   technicians?: TechnicianPreviewData[];
   currency?: string;
-  showFirstVisitOffer?: boolean;
+  showNewClientPromo?: boolean;
 };
 
 const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = {
@@ -210,7 +210,7 @@ export function BookServiceClient({
   locations,
   technicians = [],
   currency = 'CAD',
-  showFirstVisitOffer = false,
+  showNewClientPromo = false,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -737,6 +737,21 @@ export function BookServiceClient({
         <BookingStepHeader
           salonName={salonName}
           mounted={mounted}
+          salonNameVariant="editorial"
+          announcement={showNewClientPromo
+            ? (
+                <div
+                  className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                  style={{
+                    borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
+                    backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
+                    color: `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                  }}
+                >
+                  ✨ 25% off for new clients — until April 30
+                </div>
+              )
+            : undefined}
           title="Choose Your Service"
           description="Pick your main service, then add optional extras."
           bookingFlow={effectiveBookingFlow}
@@ -780,26 +795,6 @@ export function BookServiceClient({
             )}
           </Card>
         </div>
-
-        {showFirstVisitOffer && (
-          <div
-            className="mb-4 rounded-2xl border px-4 py-3"
-            style={{
-              borderColor: `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
-              backgroundColor: 'color-mix(in srgb, white 82%, var(--theme-accent) 18%)',
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 115ms, transform 300ms ease-out 115ms',
-            }}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              First-visit offer
-            </p>
-            <p className="mt-1 text-sm font-medium text-neutral-800">
-              New clients may be eligible for 25% off their first appointment
-            </p>
-          </div>
-        )}
 
         {showLocationFallbackToast && (
           <div

@@ -17,6 +17,25 @@ import { BookServiceClient } from './BookServiceClient';
 
 export const dynamic = 'force-dynamic';
 
+const NEW_CLIENT_PROMO_END_DATE = '2026-04-30';
+
+function getDateKeyInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const lookup = Object.fromEntries(
+    parts
+      .filter(part => part.type !== 'literal')
+      .map(part => [part.type, part.value]),
+  ) as Record<string, string>;
+
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
 /**
  * Service Selection Page (Server Component)
  *
@@ -158,6 +177,8 @@ export default async function BookServicePage({
       salonId: salon.id,
       clientPhone: clientSession.phone,
     }));
+  const showNewClientPromo = showFirstVisitOffer
+    && getDateKeyInTimeZone(new Date(), bookingConfig.timezone) <= NEW_CLIENT_PROMO_END_DATE;
 
   return (
     <PublicSalonPageShell
@@ -174,7 +195,7 @@ export default async function BookServicePage({
           locations={locations}
           technicians={technicians}
           currency={bookingConfig.currency}
-          showFirstVisitOffer={showFirstVisitOffer}
+          showNewClientPromo={showNewClientPromo}
         />
       </Suspense>
     </PublicSalonPageShell>

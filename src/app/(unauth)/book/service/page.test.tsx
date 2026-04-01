@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   buildTenantRedirectPath,
@@ -14,6 +14,7 @@ const {
   getPublicPageContext,
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
+  getTechniciansBySalonId,
   isClientEligibleForFirstVisitDiscount,
   bookServiceClientSpy,
 } = vi.hoisted(() => ({
@@ -27,6 +28,7 @@ const {
   getPublicPageContext: vi.fn(),
   getServiceAddOnRulesBySalonId: vi.fn(),
   getServicesBySalonId: vi.fn(),
+  getTechniciansBySalonId: vi.fn(),
   isClientEligibleForFirstVisitDiscount: vi.fn(),
   bookServiceClientSpy: vi.fn(),
 }));
@@ -61,6 +63,7 @@ vi.mock('@/libs/queries', () => ({
   getActiveLocationsBySalonId,
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
+  getTechniciansBySalonId,
 }));
 
 vi.mock('@/libs/salonStatus', () => ({
@@ -85,6 +88,8 @@ import BookServicePage from './page';
 describe('BookServicePage first-visit offer visibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T16:00:00.000Z'));
     getPublicPageContext.mockResolvedValue({
       appearance: null,
       salon: {
@@ -106,7 +111,12 @@ describe('BookServicePage first-visit offer visibility', () => {
     getServicesBySalonId.mockResolvedValue([]);
     getActiveAddOnsBySalonId.mockResolvedValue([]);
     getServiceAddOnRulesBySalonId.mockResolvedValue([]);
+    getTechniciansBySalonId.mockResolvedValue([]);
     getActiveLocationsBySalonId.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('shows the offer for unknown visitors when the salon offer is enabled', async () => {
@@ -121,7 +131,7 @@ describe('BookServicePage first-visit offer visibility', () => {
 
     expect(screen.getByText('Book service client')).toBeInTheDocument();
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
-      showFirstVisitOffer: true,
+      showNewClientPromo: true,
     }));
     expect(isClientEligibleForFirstVisitDiscount).not.toHaveBeenCalled();
   });
@@ -138,7 +148,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     render(element);
 
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
-      showFirstVisitOffer: true,
+      showNewClientPromo: true,
     }));
     expect(isClientEligibleForFirstVisitDiscount).toHaveBeenCalledWith({
       salonId: 'salon_1',
@@ -158,7 +168,23 @@ describe('BookServicePage first-visit offer visibility', () => {
     render(element);
 
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
-      showFirstVisitOffer: false,
+      showNewClientPromo: false,
+    }));
+  });
+
+  it('hides the promo after May 1, 2026 in the booking timezone even when the first-visit offer remains enabled', async () => {
+    vi.setSystemTime(new Date('2026-05-01T04:30:00.000Z'));
+    getClientSession.mockResolvedValue(null);
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+
+    render(element);
+
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      showNewClientPromo: false,
     }));
   });
 

@@ -1,3 +1,4 @@
+import { Playfair_Display } from 'next/font/google';
 import { type ReactNode } from 'react';
 
 import type { BookingStep } from '@/libs/bookingFlow';
@@ -9,30 +10,41 @@ type BookingStepHeaderProps = {
   mounted: boolean;
   title: string;
   description?: ReactNode;
+  announcement?: ReactNode;
   bookingFlow: BookingStep[];
   currentStep: BookingStep;
   isFirstStep: boolean;
   onBack?: () => void;
   className?: string;
+  salonNameVariant?: 'default' | 'editorial';
 };
+
+const playfairDisplay = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  display: 'swap',
+});
 
 export function BookingStepHeader({
   salonName,
   mounted,
   title,
   description,
+  announcement,
   bookingFlow,
   currentStep,
   isFirstStep,
   onBack,
   className,
+  salonNameVariant = 'default',
 }: BookingStepHeaderProps) {
   const currentIdx = getStepIndex(currentStep, bookingFlow);
+  const isEditorialSalonName = salonNameVariant === 'editorial';
 
   return (
     <div className={className} data-testid="booking-step-header">
       <div
-        className="relative flex items-center pb-3 pt-4"
+        className="relative flex items-center pb-1 pt-4"
         style={{
           opacity: mounted ? 1 : 0,
           transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
@@ -53,12 +65,30 @@ export function BookingStepHeader({
         )}
 
         <div
-          className={`text-base font-semibold tracking-tight sm:text-lg ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'}`}
+          data-testid="booking-salon-name"
+          className={`${
+            isEditorialSalonName
+              ? `${playfairDisplay.className} text-[1.36rem] font-normal tracking-[0.05em] sm:text-[1.58rem]`
+              : 'text-base font-semibold tracking-tight sm:text-lg'
+          } ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'} leading-none`}
           style={{ color: themeVars.accent }}
         >
           {salonName}
         </div>
       </div>
+
+      {announcement && (
+        <div
+          data-testid="booking-step-announcement"
+          className="mb-2 flex justify-center"
+          style={{
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 300ms ease-out 35ms',
+          }}
+        >
+          {announcement}
+        </div>
+      )}
 
       <div
         className="mb-3 flex items-center justify-center gap-1.5"

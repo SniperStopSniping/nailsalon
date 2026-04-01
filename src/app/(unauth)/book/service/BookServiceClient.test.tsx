@@ -70,9 +70,19 @@ vi.mock('@/components/BlockingLoginModal', () => ({
 vi.mock('@/components/booking/BookingStepHeader', () => ({
   BookingStepHeader: ({
     bookingFlow,
+    salonNameVariant,
+    announcement,
   }: {
     bookingFlow: string[];
-  }) => <div data-testid="booking-step-header">{bookingFlow.join(' > ')}</div>,
+    salonNameVariant?: string;
+    announcement?: React.ReactNode;
+  }) => (
+    <div>
+      <div data-testid="booking-step-header">{bookingFlow.join(' > ')}</div>
+      {salonNameVariant && <div data-testid="booking-step-header-salon-variant">{salonNameVariant}</div>}
+      {announcement && <div data-testid="booking-step-header-announcement">{announcement}</div>}
+    </div>
+  ),
 }));
 
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
@@ -304,18 +314,20 @@ describe('BookServiceClient', () => {
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
   });
 
-  it('shows the subtle first-visit offer note when enabled for the salon', () => {
+  it('renders the new-client promo in the branded header slot instead of the old generic offer card', () => {
     render(
       <BookServiceClient
         services={[services[0]!]}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
         locations={[]}
-        showFirstVisitOffer
+        showNewClientPromo
       />,
     );
 
-    expect(screen.getByText('First-visit offer')).toBeInTheDocument();
-    expect(screen.getByText('New clients may be eligible for 25% off their first appointment')).toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header-salon-variant')).toHaveTextContent('editorial');
+    expect(screen.getByTestId('booking-step-header-announcement')).toHaveTextContent('25% off for new clients — until April 30');
+    expect(screen.queryByText('First-visit offer')).not.toBeInTheDocument();
+    expect(screen.queryByText('New clients may be eligible for 25% off their first appointment')).not.toBeInTheDocument();
   });
 
   it('renders category chips inside a horizontal mobile scroll track in canonical order, including combo', () => {
