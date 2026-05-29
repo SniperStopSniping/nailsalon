@@ -31,7 +31,7 @@ import {
   PRO_FEATURES,
   STARTER_FEATURES,
 } from '@/libs/featureTiers';
-import { resolveEntitlement } from '@/libs/featureGating';
+import { resolveEntitlement } from '@/libs/featureEntitlements';
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
 import type { SalonFeatures } from '@/types/salonPolicy';
 

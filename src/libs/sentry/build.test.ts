@@ -53,12 +53,29 @@ describe('sentry build helpers', () => {
     })).toEqual(['SENTRY_PROJECT', 'SENTRY_AUTH_TOKEN']);
   });
 
-  it('throws an explicit production build error when required vars are missing', () => {
+  it('warns and continues when required vars are missing', () => {
+    const originalWarn = console.warn;
+    const warnings: unknown[] = [];
+    console.warn = (...args: unknown[]) => warnings.push(args);
+
     expect(() => assertProductionSentryBuildEnv({
       NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123',
       SENTRY_ORG: 'isla-org',
+    })).not.toThrow();
+    expect(warnings[0]).toEqual([
+      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy.',
+    ]);
+
+    console.warn = originalWarn;
+  });
+
+  it('throws when strict Sentry builds are enabled and required vars are missing', () => {
+    expect(() => assertProductionSentryBuildEnv({
+      NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123',
+      SENTRY_ORG: 'isla-org',
+      SENTRY_STRICT_BUILD: 'true',
     })).toThrowError(
-      '[Sentry] Production build blocked. Missing required Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. These variables are required to initialize runtime Sentry, create releases, and upload source maps safely in production.',
+      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy. Set SENTRY_STRICT_BUILD=false or configure Sentry to continue.',
     );
   });
 

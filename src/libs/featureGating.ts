@@ -22,6 +22,7 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { FEATURE_DEFAULTS, resolveEntitlement } from '@/libs/featureEntitlements';
 import { salonSchema } from '@/models/Schema';
 import type {
   ModuleKey,
@@ -48,48 +49,7 @@ export const MODULE_TO_ENTITLEMENT: Record<ModuleKey, [string, string]> = {
   utilization: ['analytics', 'utilization'],
 } as const;
 
-// =============================================================================
-// FEATURE DEFAULTS (Nested Structure)
-// =============================================================================
-
-export const FEATURE_DEFAULTS: {
-  booking: { onlineBooking: boolean; staffDashboard: boolean };
-  staff: { scheduleOverrides: boolean; timeOff: boolean };
-  clients: { clientProfiles: boolean; clientHistory: boolean };
-  social: { photoUploads: boolean };
-  marketing: { smsReminders: boolean; referrals: boolean; rewards: boolean };
-  money: { staffEarnings: boolean };
-  analytics: { dashboard: boolean; utilization: boolean };
-  controls: { clientBlocking: boolean; clientFlags: boolean };
-  visibility: {
-    allowHideClientPhone: boolean;
-    allowHideClientEmail: boolean;
-    allowHideAppointmentPrice: boolean;
-    allowHideClientHistory: boolean;
-    allowHideClientFullName: boolean;
-    allowHideClientNotes: boolean;
-  };
-} = {
-  // Core - ON by default
-  booking: { onlineBooking: true, staffDashboard: true },
-  staff: { scheduleOverrides: true, timeOff: true },
-  clients: { clientProfiles: true, clientHistory: true },
-  social: { photoUploads: true }, // TRUE - Step 14/15 needs this
-  // Paid - OFF by default
-  marketing: { smsReminders: false, referrals: false, rewards: false },
-  money: { staffEarnings: false },
-  analytics: { dashboard: false, utilization: false },
-  controls: { clientBlocking: false, clientFlags: false },
-  // Visibility entitlements - ON by default (admin CAN hide)
-  visibility: {
-    allowHideClientPhone: true,
-    allowHideClientEmail: true,
-    allowHideAppointmentPrice: true,
-    allowHideClientHistory: true,
-    allowHideClientFullName: true,
-    allowHideClientNotes: true,
-  },
-};
+export { FEATURE_DEFAULTS, resolveEntitlement };
 
 // =============================================================================
 // STAFF VISIBILITY DEFAULTS
@@ -121,51 +81,6 @@ export const MODULE_DEFAULTS: ResolvedModules = {
   analyticsDashboard: true,
   utilization: true,
 };
-
-// =============================================================================
-// RESOLVE ENTITLEMENT (Apply FEATURE_DEFAULTS)
-// =============================================================================
-
-/**
- * Resolve entitlement from nested features path.
- * Applies FEATURE_DEFAULTS when value is undefined.
- *
- * @param features - salon.features JSONB
- * @param group - top-level group (e.g., 'marketing')
- * @param key - nested key (e.g., 'smsReminders')
- * @returns boolean - whether the feature is entitled
- */
-export function resolveEntitlement(
-  features: SalonFeatures | null | undefined,
-  group: string,
-  key: string,
-): boolean {
-  // Walk nested path: features[group][key]
-  const groupObj = features?.[group as keyof SalonFeatures];
-  if (groupObj && typeof groupObj === 'object' && key in groupObj) {
-    const value = (groupObj as Record<string, unknown>)[key];
-    if (typeof value === 'boolean') {
-      return value;
-    }
-  }
-
-  // Check legacy flat key (for backward compat)
-  const legacyKey = key as keyof SalonFeatures;
-  if (features && legacyKey in features) {
-    const legacyValue = features[legacyKey];
-    if (typeof legacyValue === 'boolean') {
-      return legacyValue;
-    }
-  }
-
-  // Use FEATURE_DEFAULTS
-  const defaultGroup = FEATURE_DEFAULTS[group as keyof typeof FEATURE_DEFAULTS];
-  if (defaultGroup && typeof defaultGroup === 'object' && key in defaultGroup) {
-    return (defaultGroup as Record<string, boolean>)[key] ?? false;
-  }
-
-  return false;
-}
 
 // =============================================================================
 // GET EFFECTIVE MODULE ENABLED
@@ -227,9 +142,9 @@ export function getEntitledModules(
     utilization: false,
   };
 
-  for (const module of Object.keys(MODULE_TO_ENTITLEMENT) as ModuleKey[]) {
-    const [group, key] = MODULE_TO_ENTITLEMENT[module];
-    result[module] = resolveEntitlement(features, group, key);
+  for (const moduleKey of Object.keys(MODULE_TO_ENTITLEMENT) as ModuleKey[]) {
+    const [group, key] = MODULE_TO_ENTITLEMENT[moduleKey];
+    result[moduleKey] = resolveEntitlement(features, group, key);
   }
 
   return result;
