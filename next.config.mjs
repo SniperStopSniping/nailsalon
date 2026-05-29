@@ -14,6 +14,7 @@ const {
   getPublicSentryRuntimeEnv,
   resolveSentryEnvironment,
   resolveSentryRelease,
+  shouldEnforceProductionSentryBuildEnv,
   shouldEnableSentryWebpackPlugin,
 } = jiti('./src/libs/sentry/build.ts');
 
@@ -27,9 +28,8 @@ const sentryRelease = resolveSentryRelease(process.env, packageJson.version);
 const sentryEnvironment = resolveSentryEnvironment(process.env);
 const sentryPublicRuntimeEnv = getPublicSentryRuntimeEnv(process.env, packageJson.version);
 const shouldEnableSentryPlugin = shouldEnableSentryWebpackPlugin(process.env);
-const isProductionBuild = process.env.NODE_ENV === 'production';
 
-if (isProductionBuild) {
+if (shouldEnforceProductionSentryBuildEnv(process.env)) {
   assertProductionSentryBuildEnv(process.env);
 }
 

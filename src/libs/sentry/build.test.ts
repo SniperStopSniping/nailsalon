@@ -7,6 +7,7 @@ import {
   resolveSentryEnvironment,
   resolveSentryRelease,
   shouldEnableSentryWebpackPlugin,
+  shouldEnforceProductionSentryBuildEnv,
 } from './build';
 
 describe('sentry build helpers', () => {
@@ -53,29 +54,12 @@ describe('sentry build helpers', () => {
     })).toEqual(['SENTRY_PROJECT', 'SENTRY_AUTH_TOKEN']);
   });
 
-  it('warns and continues when required vars are missing', () => {
-    const originalWarn = console.warn;
-    const warnings: unknown[] = [];
-    console.warn = (...args: unknown[]) => warnings.push(args);
-
+  it('throws an explicit production build error when required vars are missing', () => {
     expect(() => assertProductionSentryBuildEnv({
       NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123',
       SENTRY_ORG: 'isla-org',
-    })).not.toThrow();
-    expect(warnings[0]).toEqual([
-      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy.',
-    ]);
-
-    console.warn = originalWarn;
-  });
-
-  it('throws when strict Sentry builds are enabled and required vars are missing', () => {
-    expect(() => assertProductionSentryBuildEnv({
-      NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123',
-      SENTRY_ORG: 'isla-org',
-      SENTRY_STRICT_BUILD: 'true',
     })).toThrowError(
-      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy. Set SENTRY_STRICT_BUILD=false or configure Sentry to continue.',
+      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy. Configure Sentry env vars or set SENTRY_STRICT_BUILD=false for non-production CI builds.',
     );
   });
 
@@ -95,6 +79,29 @@ describe('sentry build helpers', () => {
       SENTRY_ORG: 'isla-org',
       SENTRY_PROJECT: 'nail-salon',
       SENTRY_AUTH_TOKEN: 'token',
+    })).toBe(true);
+  });
+
+  it('only enforces Sentry env vars for actual production deploy builds', () => {
+    expect(shouldEnforceProductionSentryBuildEnv({
+      NODE_ENV: 'production',
+      GITHUB_ACTIONS: 'true',
+      CI: 'true',
+    })).toBe(false);
+
+    expect(shouldEnforceProductionSentryBuildEnv({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'preview',
+    })).toBe(false);
+
+    expect(shouldEnforceProductionSentryBuildEnv({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'production',
+    })).toBe(true);
+
+    expect(shouldEnforceProductionSentryBuildEnv({
+      GITHUB_ACTIONS: 'true',
+      SENTRY_STRICT_BUILD: 'true',
     })).toBe(true);
   });
 

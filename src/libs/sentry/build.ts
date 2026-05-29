@@ -9,6 +9,8 @@ export type SentryBuildEnv = {
   GITHUB_SHA?: string;
   VERCEL_ENV?: string;
   NODE_ENV?: string;
+  CI?: string;
+  GITHUB_ACTIONS?: string;
   SENTRY_STRICT_BUILD?: string;
 };
 
@@ -43,6 +45,18 @@ export function getMissingProductionSentryEnv(env: SentryBuildEnv): RequiredProd
   return REQUIRED_PRODUCTION_SENTRY_ENV.filter(key => !clean(env[key]));
 }
 
+export function shouldEnforceProductionSentryBuildEnv(env: SentryBuildEnv): boolean {
+  if (clean(env.SENTRY_STRICT_BUILD) === 'true') {
+    return true;
+  }
+
+  if (clean(env.GITHUB_ACTIONS) === 'true') {
+    return false;
+  }
+
+  return clean(env.VERCEL_ENV) === 'production';
+}
+
 export function assertProductionSentryBuildEnv(env: SentryBuildEnv): void {
   const missing = getMissingProductionSentryEnv(env);
 
@@ -53,11 +67,7 @@ export function assertProductionSentryBuildEnv(env: SentryBuildEnv): void {
   const message = `[Sentry] Production build missing Sentry env vars: ${missing.join(', ')}. `
     + 'Runtime Sentry and source-map upload will be disabled for this deploy.';
 
-  if (clean(env.SENTRY_STRICT_BUILD) === 'true') {
-    throw new Error(`${message} Set SENTRY_STRICT_BUILD=false or configure Sentry to continue.`);
-  }
-
-  console.warn(message);
+  throw new Error(`${message} Configure Sentry env vars or set SENTRY_STRICT_BUILD=false for non-production CI builds.`);
 }
 
 export function shouldEnableSentryWebpackPlugin(env: SentryBuildEnv): boolean {
