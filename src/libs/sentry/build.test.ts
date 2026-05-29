@@ -54,12 +54,12 @@ describe('sentry build helpers', () => {
     })).toEqual(['SENTRY_PROJECT', 'SENTRY_AUTH_TOKEN']);
   });
 
-  it('throws an explicit production build error when required vars are missing', () => {
+  it('throws an explicit production build error when strict builds are enabled and required vars are missing', () => {
     expect(() => assertProductionSentryBuildEnv({
       NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123',
       SENTRY_ORG: 'isla-org',
     })).toThrowError(
-      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy. Configure Sentry env vars or set SENTRY_STRICT_BUILD=false for non-production CI builds.',
+      '[Sentry] Production build missing Sentry env vars: SENTRY_PROJECT, SENTRY_AUTH_TOKEN. Runtime Sentry and source-map upload will be disabled for this deploy. Configure Sentry env vars or unset SENTRY_STRICT_BUILD to continue.',
     );
   });
 
@@ -82,7 +82,7 @@ describe('sentry build helpers', () => {
     })).toBe(true);
   });
 
-  it('only enforces Sentry env vars for actual production deploy builds', () => {
+  it('only enforces Sentry env vars when strict builds are enabled', () => {
     expect(shouldEnforceProductionSentryBuildEnv({
       NODE_ENV: 'production',
       GITHUB_ACTIONS: 'true',
@@ -97,7 +97,7 @@ describe('sentry build helpers', () => {
     expect(shouldEnforceProductionSentryBuildEnv({
       NODE_ENV: 'production',
       VERCEL_ENV: 'production',
-    })).toBe(true);
+    })).toBe(false);
 
     expect(shouldEnforceProductionSentryBuildEnv({
       GITHUB_ACTIONS: 'true',
