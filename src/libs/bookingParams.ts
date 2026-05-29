@@ -5,8 +5,9 @@
  * Provides repair functions for deep-links that may be missing required params.
  */
 
+import { AllLocales, AppConfig } from '@/utils/AppConfig';
+
 import { normalizeSalonSlug } from './tenantSlug';
-import { AppConfig, AllLocales } from '@/utils/AppConfig';
 
 export type SelectedAddOnParam = {
   addOnId: string;
@@ -183,6 +184,7 @@ export function buildBookingUrl(
     originalAppointmentId?: string | null;
     date?: string | null;
     time?: string | null;
+    startTime?: string | null;
   },
   tenantRoute?: TenantRouteOptions,
 ): string {
@@ -237,6 +239,9 @@ export function buildBookingUrl(
   if (params.time) {
     searchParams.set('time', params.time);
   }
+  if (params.startTime) {
+    searchParams.set('startTime', params.startTime);
+  }
 
   const queryString = searchParams.toString();
   const path = queryString ? `${basePath}?${queryString}` : basePath;
@@ -259,6 +264,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   originalAppointmentId: string | null;
   date: string | null;
   time: string | null;
+  startTime: string | null;
 } {
   const serviceIdsRaw = searchParams.get('serviceIds');
   const serviceIds = serviceIdsRaw ? serviceIdsRaw.split(',').filter(Boolean) : [];
@@ -274,6 +280,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
     originalAppointmentId: searchParams.get('originalAppointmentId') || null,
     date: searchParams.get('date') || null,
     time: searchParams.get('time') || null,
+    startTime: searchParams.get('startTime') || null,
   };
 }
 
@@ -410,5 +417,6 @@ export function buildChangeAppointmentUrl(params: {
     originalAppointmentId: params.originalAppointmentId,
     date,
     time,
+    startTime: params.startTime,
   }, params.tenantRoute);
 }

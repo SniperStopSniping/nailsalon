@@ -90,6 +90,20 @@ export function getDateKeyInTimeZone(value: Date, timeZone?: string | null): str
   return `${year}-${month}-${day}`;
 }
 
+export function getTimeKeyInTimeZone(value: Date, timeZone?: string | null): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timeZone ?? DEFAULT_BOOKING_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+
+  const hour = parts.find(part => part.type === 'hour')?.value;
+  const minute = parts.find(part => part.type === 'minute')?.value;
+
+  return `${hour === '24' ? '00' : hour}:${minute}`;
+}
+
 export function formatDateInTimeZone(
   value: string | Date,
   options: Intl.DateTimeFormatOptions,

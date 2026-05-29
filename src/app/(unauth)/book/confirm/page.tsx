@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
@@ -10,6 +11,7 @@ import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechn
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
+import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -32,6 +34,7 @@ export default async function BookConfirmPage({
     techId?: string;
     date?: string;
     time?: string;
+    startTime?: string;
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
@@ -50,6 +53,14 @@ export default async function BookConfirmPage({
   const originalAppointmentId = searchParams.originalAppointmentId || null;
 
   const { salon } = context;
+  const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const parsedStartTime = searchParams.startTime ? new Date(searchParams.startTime) : null;
+  const canonicalStartTime = parsedStartTime
+    && !Number.isNaN(parsedStartTime.getTime())
+    && getDateKeyInTimeZone(parsedStartTime, bookingConfig.timezone) === dateStr
+    && getTimeKeyInTimeZone(parsedStartTime, bookingConfig.timezone) === timeStr.padStart(5, '0')
+    ? parsedStartTime.toISOString()
+    : null;
   const tenantRoute = {
     salonSlug: salon.slug,
     routeSalonSlug: params?.slug,
@@ -120,6 +131,7 @@ export default async function BookConfirmPage({
         techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
         date: dateStr,
         time: timeStr,
+        startTime: canonicalStartTime,
         locationId: locationId || primaryLocation?.id || null,
         originalAppointmentId,
       }, {
@@ -242,6 +254,7 @@ export default async function BookConfirmPage({
           salonSlug={salon.slug}
           dateStr={dateStr}
           timeStr={timeStr}
+          canonicalStartTime={canonicalStartTime}
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
           location={locationSummary}

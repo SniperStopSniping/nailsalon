@@ -51,7 +51,13 @@ const EMPTY_ADD_ONS: AddOnSummary[] = [];
 
 type DisplayTimeSlot = {
   time: string;
+  startTime: string | null;
   period: 'morning' | 'afternoon';
+};
+
+type AvailabilitySlot = {
+  time: string;
+  startTime?: string | null;
 };
 
 type CalendarCell = {
@@ -59,11 +65,13 @@ type CalendarCell = {
   date: Date | null;
 };
 
-function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
-  return slotTimes.map((time) => {
+function toDisplaySlots(slots: AvailabilitySlot[]): DisplayTimeSlot[] {
+  return slots.map((slot) => {
+    const time = slot.time;
     const [hour = '0'] = time.split(':');
     return {
       time,
+      startTime: slot.startTime ?? null,
       period: Number.parseInt(hour, 10) < 12 ? 'morning' : 'afternoon',
     };
   });
@@ -220,7 +228,7 @@ export function BookTimeClient({
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(today);
-  const [visibleSlotTimes, setVisibleSlotTimes] = useState<string[]>([]);
+  const [visibleSlots, setVisibleSlots] = useState<AvailabilitySlot[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
@@ -321,7 +329,19 @@ export function BookTimeClient({
           return;
         }
         setAvailabilityError(null);
-        setVisibleSlotTimes(data.visibleSlots || []);
+        const nextVisibleSlots: AvailabilitySlot[] = Array.isArray(data.slots)
+          ? data.slots
+            .filter((slot: unknown): slot is AvailabilitySlot =>
+              typeof slot === 'object'
+              && slot !== null
+              && typeof (slot as AvailabilitySlot).time === 'string',
+            )
+            .map((slot: AvailabilitySlot) => ({
+              time: slot.time,
+              startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
+            }))
+          : (data.visibleSlots || []).map((time: string) => ({ time, startTime: null }));
+        setVisibleSlots(nextVisibleSlots);
         setBookedSlots(data.bookedSlots || []);
       } else {
         if (availabilityRequestIdRef.current !== requestId) {
@@ -329,7 +349,7 @@ export function BookTimeClient({
         }
         const data = await response.json().catch(() => null);
         setAvailabilityError(data?.error?.message ?? 'Unable to load live availability for this technician.');
-        setVisibleSlotTimes([]);
+        setVisibleSlots([]);
         setBookedSlots([]);
       }
     } catch (error) {
@@ -338,7 +358,7 @@ export function BookTimeClient({
       }
       console.error('Failed to fetch availability:', error);
       setAvailabilityError('Unable to load live availability right now. Please try another date or refresh.');
-      setVisibleSlotTimes([]);
+      setVisibleSlots([]);
       setBookedSlots([]);
     } finally {
       if (availabilityRequestIdRef.current === requestId) {
@@ -398,7 +418,7 @@ export function BookTimeClient({
       return;
     }
 
-    if (filterPastTimeSlots(visibleSlotTimes, selectedDate).length > 0) {
+    if (filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate).length > 0) {
       return;
     }
 
@@ -408,7 +428,7 @@ export function BookTimeClient({
     setSelectedDate(tomorrow);
     setCurrentMonth(tomorrow.getMonth());
     setCurrentYear(tomorrow.getFullYear());
-  }, [availabilityError, loadingSlots, mounted, selectedDate, visibleSlotTimes]);
+  }, [availabilityError, loadingSlots, mounted, selectedDate, visibleSlots]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -473,7 +493,8 @@ export function BookTimeClient({
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
-  const availableTimeSlots = toDisplaySlots(filterPastTimeSlots(visibleSlotTimes, selectedDate));
+  const availableTimeSet = new Set(filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate));
+  const availableTimeSlots = toDisplaySlots(visibleSlots.filter(slot => availableTimeSet.has(slot.time)));
   const morningSlots = availableTimeSlots.filter(s => s.period === 'morning');
   const afternoonSlots = availableTimeSlots.filter(s => s.period === 'afternoon');
 
@@ -555,8 +576,8 @@ export function BookTimeClient({
     setSelectedDate(dateAtMidnight);
   };
 
-  const handleTimeSelect = (time: string) => {
-    if (!selectedDate || isSlotBooked(time)) {
+  const handleTimeSelect = (slot: DisplayTimeSlot) => {
+    if (!selectedDate || isSlotBooked(slot.time)) {
       return;
     }
 
@@ -581,7 +602,8 @@ export function BookTimeClient({
       selectedAddOns,
       techId: effectiveTechId,
       date: dateStr,
-      time,
+      time: slot.time,
+      startTime: slot.startTime,
       locationId,
       originalAppointmentId,
     }, {
@@ -829,7 +851,7 @@ export function BookTimeClient({
                         key={slot.time}
                         type="button"
                         data-testid={`time-slot-${slot.time}`}
-                        onClick={() => handleTimeSelect(slot.time)}
+                        onClick={() => handleTimeSelect(slot)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
                           booked
@@ -895,7 +917,7 @@ export function BookTimeClient({
                         key={slot.time}
                         type="button"
                         data-testid={`time-slot-${slot.time}`}
-                        onClick={() => handleTimeSelect(slot.time)}
+                        onClick={() => handleTimeSelect(slot)}
                         disabled={booked}
                         className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
                           booked

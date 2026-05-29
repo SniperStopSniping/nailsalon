@@ -86,6 +86,7 @@ type BookConfirmClientProps = {
   salonSlug: string;
   dateStr: string;
   timeStr: string;
+  canonicalStartTime?: string | null;
   bookingFlow: BookingStep[];
   location: LocationSummary;
 };
@@ -1047,6 +1048,7 @@ export function BookConfirmClient({
   salonSlug,
   dateStr,
   timeStr,
+  canonicalStartTime = null,
   // bookingFlow is passed for consistency but not used in confirm step
   bookingFlow: _bookingFlow,
   location,
@@ -1115,7 +1117,10 @@ export function BookConfirmClient({
         throw new Error('Please sign in again before confirming this appointment.');
       }
 
-      const startTime = zonedTimeToUtc({ date: dateStr, time: timeStr });
+      const parsedCanonicalStartTime = canonicalStartTime ? new Date(canonicalStartTime) : null;
+      const startTime = parsedCanonicalStartTime && !Number.isNaN(parsedCanonicalStartTime.getTime())
+        ? parsedCanonicalStartTime
+        : zonedTimeToUtc({ date: dateStr, time: timeStr });
 
       const requestBody = {
         salonSlug,
@@ -1185,7 +1190,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [baseServiceId, dateStr, isLoggedIn, location, originalAppointmentId, salonSlug, selectedAddOns, services, techId, timeStr]);
+  }, [baseServiceId, canonicalStartTime, dateStr, isLoggedIn, location, originalAppointmentId, salonSlug, selectedAddOns, services, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
@@ -1241,7 +1246,7 @@ export function BookConfirmClient({
       techId: technician?.id || 'any',
       locationId: location?.id ?? null,
       originalAppointmentId: appointmentId,
-      startTime: zonedTimeToUtc({ date: dateStr, time: timeStr }).toISOString(),
+      startTime: canonicalStartTime ?? zonedTimeToUtc({ date: dateStr, time: timeStr }).toISOString(),
       tenantRoute: {
         routeSalonSlug,
         locale,

@@ -224,6 +224,7 @@ export async function GET(request: Request): Promise<Response> {
     });
 
     const visibleSlots: string[] = [];
+    const slots: Array<{ time: string; startTime: string }> = [];
     const blockedSlots = new Set<string>();
 
     for (const slot of allSlots) {
@@ -258,6 +259,10 @@ export async function GET(request: Request): Promise<Response> {
       }
 
       visibleSlots.push(slot);
+      slots.push({
+        time: slot,
+        startTime: startTime.toISOString(),
+      });
 
       const anyTechAvailable = technicians.some((tech) => {
         const decision = canTechnicianTakeAppointment({
@@ -297,6 +302,7 @@ export async function GET(request: Request): Promise<Response> {
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
       visibleSlots,
+      slots,
       bookedSlots,
       appointmentCount: bookedSlots.length,
     });
