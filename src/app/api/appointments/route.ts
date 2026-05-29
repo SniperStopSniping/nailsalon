@@ -50,7 +50,7 @@ import {
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
 import { requireStaffSession } from '@/libs/staffAuth';
-import { getZonedDayBounds } from '@/libs/timeZone';
+import { getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
@@ -119,6 +119,8 @@ const createAppointmentSchema = z.object({
   clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits').optional(),
   clientName: z.string().optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
+  appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'appointmentDate must be YYYY-MM-DD').optional(),
+  appointmentTime: z.string().regex(/^\d{1,2}:\d{2}$/, 'appointmentTime must be HH:mm').optional(),
   // Optional: Location for multi-location salons
   locationId: z.string().optional(),
   // Optional: If provided, this is a reschedule - bypass duplicate check and cancel the original
@@ -288,9 +290,11 @@ export async function POST(request: Request): Promise<Response> {
     const normalizedSelectedAddOns = data.selectedAddOns ?? [];
     const normalizedLegacyServiceIds = data.serviceIds ?? [];
 
-    // Validate and canonicalize startTime: must be valid ISO, convert to UTC
-    const parsedStartTime = new Date(data.startTime);
-    if (Number.isNaN(parsedStartTime.getTime())) {
+    // Validate raw startTime early. If appointmentDate/appointmentTime are provided,
+    // the server will recompute the final instant from the salon timezone after
+    // the salon is resolved.
+    const rawParsedStartTime = new Date(data.startTime);
+    if (Number.isNaN(rawParsedStartTime.getTime())) {
       return Response.json(
         {
           error: {
@@ -301,7 +305,6 @@ export async function POST(request: Request): Promise<Response> {
         { status: 400 },
       );
     }
-    const canonicalStartTime = parsedStartTime.toISOString(); // UTC ISO
 
     if (!normalizedBaseServiceId && normalizedLegacyServiceIds.length === 0) {
       return Response.json(
@@ -340,6 +343,18 @@ export async function POST(request: Request): Promise<Response> {
     if (featureGuard) {
       return featureGuard;
     }
+
+    const bookingConfig = await getBookingConfigForSalon(salon.id);
+    const requestedDate = data.appointmentDate?.trim() || null;
+    const requestedTime = data.appointmentTime?.trim() || null;
+    const parsedStartTime = requestedDate && requestedTime
+      ? zonedTimeToUtc({
+        date: requestedDate,
+        time: requestedTime,
+        timeZone: bookingConfig.timezone,
+      })
+      : rawParsedStartTime;
+    const canonicalStartTime = parsedStartTime.toISOString();
 
     let actorRole: 'client' | 'staff' | 'admin' = 'client';
     let clientPhoneInput = data.clientPhone ?? null;
@@ -539,7 +554,6 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 3. Resolve booking selection
-    const bookingConfig = await getBookingConfigForSalon(salon.id);
     let services: Service[] = [];
     let selectedAddOnsForBooking: Array<{
       addOnId: string;

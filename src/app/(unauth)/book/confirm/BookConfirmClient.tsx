@@ -1134,6 +1134,8 @@ export function BookConfirmClient({
             }),
         technicianId: techId === 'any' ? null : techId,
         startTime: startTime.toISOString(),
+        appointmentDate: dateStr,
+        appointmentTime: timeStr,
         ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
       };
