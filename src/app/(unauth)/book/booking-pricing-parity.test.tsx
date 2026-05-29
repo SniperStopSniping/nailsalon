@@ -1,9 +1,13 @@
-import React from 'react';
-
 import { render } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { normalizePhone } from '@/libs/phone';
+
+import BookConfirmPage from './confirm/page';
+import BookTimePage from './time/page';
+
+vi.mock('server-only', () => ({}));
 
 const {
   bookConfirmClientSpy,
@@ -16,6 +20,7 @@ const {
   getPrimaryLocation,
   getPublicPageContext,
   getTechnicianById,
+  resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
 } = vi.hoisted(() => ({
   bookConfirmClientSpy: vi.fn(),
@@ -28,6 +33,7 @@ const {
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
   getTechnicianById: vi.fn(),
+  resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicBookingSelection: vi.fn(),
 }));
 
@@ -45,6 +51,10 @@ vi.mock('@/libs/clientAuth', () => ({
 
 vi.mock('@/libs/publicBookingSelection', () => ({
   resolvePublicBookingSelection,
+}));
+
+vi.mock('@/libs/publicBookingTechnicians', () => ({
+  resolvePublicBookingTechnicianContext,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -76,9 +86,6 @@ vi.mock('./confirm/BookConfirmClient', () => ({
     return <div>Book confirm client</div>;
   },
 }));
-
-import BookConfirmPage from './confirm/page';
-import BookTimePage from './time/page';
 
 function createResolvedSelection(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -112,6 +119,33 @@ function createResolvedSelection(overrides: Partial<Record<string, unknown>> = {
     blockedDurationMinutes: 85,
     bufferMinutes: 10,
     ...overrides,
+  };
+}
+
+async function createResolvedTechnicianContext(args: Record<string, unknown>) {
+  const resolvedSelection = await resolvePublicBookingSelection(args);
+
+  return {
+    activeTechnicians: [{
+      id: 'tech_1',
+      name: 'Daniela',
+      imageUrl: null,
+      avatarUrl: null,
+      bookable: true,
+      unavailableReason: null,
+    }],
+    compatibleTechnicianIds: ['tech_1'],
+    effectiveTechnician: {
+      id: 'tech_1',
+      name: 'Daniela',
+      imageUrl: null,
+      avatarUrl: null,
+    },
+    effectiveTechnicianSelectionSource: 'explicit',
+    hasValidExplicitTechnician: true,
+    resolvedSelection,
+    shouldAutoSkipTech: false,
+    soleCompatibleTechnician: null,
   };
 }
 
@@ -181,6 +215,7 @@ describe('booking pricing parity', () => {
       name: 'Daniela',
       avatarUrl: null,
     });
+    resolvePublicBookingTechnicianContext.mockImplementation(createResolvedTechnicianContext);
   });
 
   it.each([

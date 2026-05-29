@@ -1,12 +1,11 @@
+import { getBookingConfigForSalon } from '@/libs/bookingConfig';
+import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import type { RequestedService } from '@/libs/bookingPolicy';
 import {
-  buildBlockedSlotWindow,
   canTechnicianTakeAppointment,
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
-  type RequestedService,
 } from '@/libs/bookingPolicy';
-import { getBookingConfigForSalon } from '@/libs/bookingConfig';
-import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
   getLocationById,
@@ -16,7 +15,8 @@ import {
   getTechniciansBySalonId,
 } from '@/libs/queries';
 import { guardSalonApiRoute } from '@/libs/salonStatus';
-import { type WeeklySchedule } from '@/models/Schema';
+import { getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import type { WeeklySchedule } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,10 +75,8 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     const bookingConfig = await getBookingConfigForSalon(salon.id);
-    const [year, month, day] = date.split('-').map(Number);
-    const selectedDate = new Date(year!, month! - 1, day!);
-    const startOfDay = new Date(`${date}T00:00:00`);
-    const endOfDay = new Date(`${date}T23:59:59.999`);
+    const { startOfDay, endOfDay } = getZonedDayBounds(date, bookingConfig.timezone);
+    const selectedDate = startOfDay;
     const allSlots = getAllSlots(bookingConfig.slotIntervalMinutes);
 
     const location = locationId
@@ -211,9 +209,9 @@ export async function GET(request: Request): Promise<Response> {
     const capabilityMode = baseServiceId
       ? 'service_assignments'
       : resolveTechnicianCapabilityMode(
-          technicians,
-          requestedServices as RequestedService[],
-        );
+        technicians,
+        requestedServices as RequestedService[],
+      );
 
     const bookingPolicy = await loadBookingPolicy({
       salonId: salon.id,
@@ -229,12 +227,8 @@ export async function GET(request: Request): Promise<Response> {
     const blockedSlots = new Set<string>();
 
     for (const slot of allSlots) {
-      const { startTime, blockedEndTime } = buildBlockedSlotWindow(
-        startOfDay,
-        slot,
-        visibleDurationMinutes,
-        bufferMinutes,
-      );
+      const startTime = zonedTimeToUtc({ date, time: slot, timeZone: bookingConfig.timezone });
+      const blockedEndTime = new Date(startTime.getTime() + (visibleDurationMinutes + bufferMinutes) * 60 * 1000);
 
       const anyTechVisible = technicians.some((tech) => {
         const visibleDecision = canTechnicianTakeAppointment({
@@ -319,10 +313,10 @@ export async function GET(request: Request): Promise<Response> {
       originalAppointmentId,
       error: error instanceof Error
         ? {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        }
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          }
         : error,
     });
     return Response.json(

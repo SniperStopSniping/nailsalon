@@ -91,7 +91,7 @@ export function SystemStatusClient({ data, locale }: Props) {
         <h2 className="mb-4 text-lg font-semibold text-gray-800">
           Environment Configuration
         </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-8">
           <StatusCard
             label="Meta API"
             configured={envStatus.metaConfigured}
@@ -108,11 +108,30 @@ export function SystemStatusClient({ data, locale }: Props) {
             label="Cron Secret"
             configured={envStatus.cronSecretConfigured}
           />
+          <StatusCard
+            label="Twilio"
+            configured={envStatus.twilioConfigured}
+          />
+          <StatusCard
+            label="Resend"
+            configured={envStatus.resendConfigured}
+          />
+          <StatusCard
+            label="Stripe"
+            configured={envStatus.stripeConfigured}
+          />
+          <StatusCard
+            label="Sentry"
+            configured={envStatus.sentryConfigured}
+          />
         </div>
         <p className="mt-2 text-sm text-gray-500">
           Meta Graph Version:
           {' '}
           {envStatus.metaGraphVersion}
+        </p>
+        <p className="mt-1 text-sm text-gray-500">
+          Missing cards do not always block the app, but they do signal degraded SaaS readiness for auth, billing, monitoring, email, or media flows.
         </p>
       </section>
 

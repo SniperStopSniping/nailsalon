@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { StateCard } from '@/components/ui/state-card';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
+import { zonedTimeToUtc } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -44,6 +45,11 @@ type DisplayTimeSlot = {
   period: 'morning' | 'afternoon';
 };
 
+type CalendarCell = {
+  key: string;
+  date: Date | null;
+};
+
 function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
   return slotTimes.map((time) => {
     const [hour = '0'] = time.split(':');
@@ -55,23 +61,28 @@ function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
 }
 
 function getDateKey(date: Date): string {
-  return date.toISOString().split('T')[0] ?? '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
 }
 
-const generateCalendarDays = (year: number, month: number) => {
+const generateCalendarDays = (year: number, month: number): CalendarCell[] => {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const daysInMonth = lastDay.getDate();
   const startingDayOfWeek = firstDay.getDay();
 
-  const days: (Date | null)[] = [];
+  const days: CalendarCell[] = [];
 
   for (let i = 0; i < startingDayOfWeek; i++) {
-    days.push(null);
+    days.push({ key: `empty-${year}-${month}-before-${i}`, date: null });
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
-    days.push(new Date(year, month, day));
+    const date = new Date(year, month, day);
+    days.push({ key: getDateKey(date), date });
   }
 
   return days;
@@ -389,7 +400,15 @@ export function ChangeAppointmentClient({
     'December',
   ];
 
-  const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const dayNames = [
+    { key: 'sunday', label: 'S' },
+    { key: 'monday', label: 'M' },
+    { key: 'tuesday', label: 'T' },
+    { key: 'wednesday', label: 'W' },
+    { key: 'thursday', label: 'T' },
+    { key: 'friday', label: 'F' },
+    { key: 'saturday', label: 'S' },
+  ];
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -444,7 +463,7 @@ export function ChangeAppointmentClient({
       return;
     }
 
-    const newDateStr = selectedDate.toISOString().split('T')[0];
+    const newDateStr = getDateKey(selectedDate);
 
     // Use technician ID or 'any' for the URL (not empty string)
     const techIdForUrl = technician?.id || 'any';
@@ -484,9 +503,7 @@ export function ChangeAppointmentClient({
       return false;
     }
 
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const [hour, minute] = timeStr.split(':').map(Number);
-    const appointmentTime = new Date(year!, month! - 1, day!, hour!, minute!);
+    const appointmentTime = zonedTimeToUtc({ date: dateStr, time: timeStr });
 
     const now = new Date();
     const hoursUntilAppointment = (appointmentTime.getTime() - now.getTime()) / (1000 * 60 * 60);
@@ -643,17 +660,17 @@ export function ChangeAppointmentClient({
           </div>
 
           <div className="grid grid-cols-7 px-4 pt-3">
-            {dayNames.map((day, i) => (
-              <div key={i} className="py-2 text-center text-xs font-bold text-neutral-400">
-                {day}
+            {dayNames.map(day => (
+              <div key={day.key} className="py-2 text-center text-xs font-bold text-neutral-400">
+                {day.label}
               </div>
             ))}
           </div>
 
           <div className="grid grid-cols-7 gap-1 px-4 pb-4">
-            {calendarDays.map((date, index) => {
+            {calendarDays.map(({ key, date }) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="h-11" />;
+                return <div key={key} className="h-11" />;
               }
 
               const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();

@@ -1,4 +1,7 @@
-# Free and Open Source SaaS Boilerplate with Tailwind CSS and Shadcn UI
+# Multi-Tenant Nail Salon SaaS Platform
+
+> This repository has evolved beyond the original boilerplate into a multi-tenant nail salon booking and operations product.
+> For current launch guidance, see [docs/LAUNCH_RUNBOOK.md](/Users/me/Desktop/nail-salon-copy2 copy 2/docs/LAUNCH_RUNBOOK.md) and [docs/SAAS_READINESS.md](/Users/me/Desktop/nail-salon-copy2 copy 2/docs/SAAS_READINESS.md).
 
 <p align="center">
   <a href="https://react-saas.com"><img height="300" src="public/assets/images/nextjs-starter-banner.png?raw=true" alt="Next.js SaaS Template"></a>

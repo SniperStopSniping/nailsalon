@@ -16,6 +16,7 @@ import twilio from 'twilio';
 import { Env } from '@/libs/Env';
 import { REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
+import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 
 // =============================================================================
 // TYPES
@@ -30,6 +31,7 @@ export type BookingConfirmationParams = {
   technicianName: string;
   startTime: string;
   totalPrice: number;
+  timeZone?: string | null;
 };
 
 export type TechNotificationParams = {
@@ -43,6 +45,7 @@ export type TechNotificationParams = {
   startTime: string;
   totalDurationMinutes: number;
   totalPrice?: number;
+  timeZone?: string | null;
 };
 
 export type InternalBookingNotificationSmsParams = {
@@ -55,6 +58,7 @@ export type InternalBookingNotificationSmsParams = {
   totalDurationMinutes: number;
   totalPrice: number;
   technicianName?: string | null;
+  timeZone?: string | null;
 };
 
 export type InternalCancellationNotificationSmsParams = {
@@ -66,6 +70,7 @@ export type InternalCancellationNotificationSmsParams = {
   startTime: string;
   cancelReason: string;
   technicianName?: string | null;
+  timeZone?: string | null;
 };
 
 export type ReminderParams = {
@@ -152,20 +157,14 @@ export async function sendBookingConfirmationToClient(
     return;
   }
 
-  const { phone, clientName, salonName, services, technicianName, startTime, totalPrice } = params;
+  const { phone, clientName, salonName, services, technicianName, startTime, totalPrice, timeZone } = params;
 
-  // Format date for display
-  const date = new Date(startTime);
-  const formattedDate = date.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(startTime, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  });
-  const formattedTime = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
 
   const message = `💅 ${salonName}
 
@@ -216,6 +215,7 @@ export async function sendBookingNotificationToTech(
     totalDurationMinutes,
     totalPrice,
     technicianName,
+    timeZone: params.timeZone,
   });
 }
 
@@ -238,19 +238,15 @@ export async function sendInternalBookingNotificationSms(
     totalDurationMinutes,
     totalPrice,
     technicianName,
+    timeZone,
   } = params;
 
-  const date = new Date(startTime);
-  const formattedDate = date.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(startTime, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-  });
-  const formattedTime = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
 
   const messageLines = [
     `📱 New booking${salonName ? ` at ${salonName}` : ''}`,
@@ -289,19 +285,15 @@ export async function sendInternalCancellationNotificationSms(
     startTime,
     cancelReason,
     technicianName,
+    timeZone,
   } = params;
 
-  const date = new Date(startTime);
-  const formattedDate = date.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(startTime, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-  });
-  const formattedTime = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
 
   const statusLabel = cancelReason === 'no_show'
     ? 'marked as no-show'
@@ -443,6 +435,7 @@ export async function sendRescheduleConfirmation(
     newStartTime: string;
     services: string[];
     technicianName: string;
+    timeZone?: string | null;
   },
 ): Promise<void> {
   // Check if SMS is enabled for this salon
@@ -451,33 +444,21 @@ export async function sendRescheduleConfirmation(
     return;
   }
 
-  const { phone, clientName, salonName, oldStartTime, newStartTime, services, technicianName } = params;
+  const { phone, clientName, salonName, oldStartTime, newStartTime, services, technicianName, timeZone } = params;
 
-  // Format old date/time
-  const oldDate = new Date(oldStartTime);
-  const oldFormattedDate = oldDate.toLocaleDateString('en-US', {
+  const oldFormattedDate = formatDateInTimeZone(oldStartTime, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-  });
-  const oldFormattedTime = oldDate.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const oldFormattedTime = formatTimeInTimeZone(oldStartTime, {}, timeZone);
 
-  // Format new date/time
-  const newDate = new Date(newStartTime);
-  const newFormattedDate = newDate.toLocaleDateString('en-US', {
+  const newFormattedDate = formatDateInTimeZone(newStartTime, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  });
-  const newFormattedTime = newDate.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const newFormattedTime = formatTimeInTimeZone(newStartTime, {}, timeZone);
 
   const message = `💅 ${salonName}
 
@@ -506,6 +487,7 @@ export async function sendCancellationNotificationToTech(
     startTime: string;
     services: string[];
     cancelReason: 'cancelled' | 'rescheduled';
+    timeZone?: string | null;
   },
 ): Promise<void> {
   // Check if SMS is enabled for this salon
@@ -514,20 +496,14 @@ export async function sendCancellationNotificationToTech(
     return;
   }
 
-  const { technicianName, technicianPhone, clientName, startTime, services, cancelReason } = params;
+  const { technicianName, technicianPhone, clientName, startTime, services, cancelReason, timeZone } = params;
 
-  // Format date for display
-  const date = new Date(startTime);
-  const formattedDate = date.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(startTime, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-  });
-  const formattedTime = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, timeZone);
+  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
 
   const actionText = cancelReason === 'rescheduled' ? 'rescheduled' : 'cancelled';
   const emoji = cancelReason === 'rescheduled' ? '📅' : '❌';
@@ -542,6 +518,7 @@ export async function sendCancellationNotificationToTech(
       startTime,
       cancelReason,
       technicianName,
+      timeZone,
     });
   } else {
     const message = `${emoji} Appointment ${actionText}

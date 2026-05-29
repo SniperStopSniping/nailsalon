@@ -40,6 +40,10 @@ type EnvStatus = {
   cloudinaryConfigured: boolean;
   redisConfigured: boolean;
   cronSecretConfigured: boolean;
+  twilioConfigured: boolean;
+  resendConfigured: boolean;
+  stripeConfigured: boolean;
+  sentryConfigured: boolean;
   metaGraphVersion: string;
 };
 
@@ -105,12 +109,33 @@ function getEnvStatus(): EnvStatus {
       && process.env.META_INSTAGRAM_ACCOUNT_ID,
     ),
     cloudinaryConfigured: Boolean(
-      process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+      process.env.CLOUDINARY_CLOUD_NAME
       && process.env.CLOUDINARY_API_KEY
       && process.env.CLOUDINARY_API_SECRET,
     ),
     redisConfigured: Boolean(process.env.REDIS_URL),
     cronSecretConfigured: Boolean(process.env.CRON_SECRET),
+    twilioConfigured: Boolean(
+      process.env.TWILIO_ACCOUNT_SID
+      && process.env.TWILIO_AUTH_TOKEN
+      && process.env.TWILIO_VERIFY_SERVICE_SID
+      && process.env.TWILIO_PHONE_NUMBER,
+    ),
+    resendConfigured: Boolean(
+      process.env.RESEND_API_KEY
+      && process.env.RESEND_FROM_EMAIL,
+    ),
+    stripeConfigured: Boolean(
+      process.env.STRIPE_SECRET_KEY
+      && process.env.STRIPE_WEBHOOK_SECRET
+      && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+    ),
+    sentryConfigured: Boolean(
+      process.env.NEXT_PUBLIC_SENTRY_DSN
+      && process.env.SENTRY_ORG
+      && process.env.SENTRY_PROJECT
+      && process.env.SENTRY_AUTH_TOKEN,
+    ),
     metaGraphVersion: process.env.META_GRAPH_VERSION ?? 'v19.0 (default)',
   };
 }

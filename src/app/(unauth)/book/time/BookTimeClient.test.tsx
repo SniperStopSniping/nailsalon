@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { act, render, screen } from '@testing-library/react';
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { BookTimeClient } from './BookTimeClient';
 
 const {
   fetchMock,
@@ -16,7 +17,9 @@ const {
 }));
 
 vi.mock('next/image', () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={props.alt} />,
+  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', {
+    alt: props.alt,
+  }),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -26,6 +29,14 @@ vi.mock('next/navigation', () => ({
   }),
   useParams: () => ({ locale: 'en' }),
   useSearchParams: () => new URLSearchParams('serviceIds=srv_1&techId=tech_1'),
+}));
+
+vi.mock('@/components/booking/BookingStepHeader', () => ({
+  BookingStepHeader: () => <div data-testid="booking-step-header" />,
+}));
+
+vi.mock('@/components/booking/BookingSummaryCard', () => ({
+  BookingSummaryCard: () => <div data-testid="booking-summary-card" />,
 }));
 
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
@@ -57,8 +68,6 @@ vi.mock('@/providers/SalonProvider', () => ({
     salonSlug: 'salon-a',
   }),
 }));
-
-import { BookTimeClient } from './BookTimeClient';
 
 describe('BookTimeClient', () => {
   beforeEach(() => {
@@ -98,6 +107,7 @@ describe('BookTimeClient', () => {
     await screen.findByRole('button', { name: '9:00 AM' });
 
     const initialCallCount = fetchMock.mock.calls.length;
+
     expect(initialCallCount).toBeGreaterThan(0);
 
     await act(async () => {
@@ -126,7 +136,9 @@ describe('BookTimeClient', () => {
     await screen.findByRole('button', { name: '9:00 AM' });
 
     expect(fetchMock).toHaveBeenCalled();
+
     const [url] = fetchMock.mock.calls[0] ?? [];
+
     expect(String(url)).toContain('technicianId=tech_1');
     expect(String(url)).not.toContain('technicianId=stale_tech');
   });

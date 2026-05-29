@@ -1,58 +1,66 @@
 # Remaining Risks
 
-## Booking / Domain
+## Production / Ops
 
-### Non-transactional reschedule
-- File: [src/app/api/appointments/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/appointments/route.ts)
+### Strict Sentry production env dependency
+- Files:
+  - [next.config.mjs](/Users/me/Desktop/nail-salon-copy2 copy 2/next.config.mjs)
+  - [src/libs/sentry/build.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/sentry/build.ts)
 - Current behavior:
-  - create the replacement appointment
-  - cancel the original appointment afterward
+  - production builds hard-fail if the required Sentry env vars are missing
 - Risk:
-  - partial failure can leave duplicate or mismatched state
-  - concurrent writes can still race
+  - deployments fail closed until monitoring env is configured correctly
+- Current stance:
+  - intentional and good for production safety, but still an operational dependency
 
-## Remaining Route Outliers
+### Auto-posting worker not enabled by default
+- Files:
+  - [vercel.json](/Users/me/Desktop/nail-salon-copy2 copy 2/vercel.json)
+  - [src/app/api/autopost/process/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/autopost/process/route.ts)
+- Current behavior:
+  - reminders cron is active
+  - autopost cron is not currently wired in `vercel.json`
+- Risk:
+  - salons can enqueue autopost jobs but nothing processes them until a cron is configured
 
-### Customer
-- [src/app/api/client/reviews/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/client/reviews/route.ts)
-  - still uses direct `getClientSession()` instead of the newer shared client guard layer
+## Browser QA
 
-### Admin
-- [src/app/api/admin/fraud-signals/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/admin/fraud-signals/route.ts)
-- [src/app/api/admin/fraud-signals/[id]/resolve/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/admin/fraud-signals/[id]/resolve/route.ts)
-  - not part of the last active-salon guard cleanup pass
-
-### Staff namespace/path drift
-- [src/app/api/staff/time-off/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/staff/time-off/route.ts)
-- [src/app/api/staff/time-off/[id]/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/staff/time-off/[id]/route.ts)
-  - active but pathing is stale and misleading relative to current authorization patterns
-
-## E2E / Browser Gaps
-
-- Browser specs now exist in [tests/e2e/customer-journeys.e2e.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/tests/e2e/customer-journeys.e2e.ts)
-- Current gap:
-  - browser execution still needs a clean local Next/Playwright run
-- Highest-value paths still needing a confirmed browser pass:
-  - OTP login on customer booking confirmation
-  - time selection -> confirm transition
+- Browser specs exist, but the highest-value production journeys still need repeated clean browser passes:
+  - customer OTP login during booking confirmation
+  - service -> time -> confirm transitions
   - profile -> reschedule -> cancel
-  - admin/staff browser flows beyond unit/component tests
+  - admin and staff operational flows
 
-## Demo / Dev Assumptions Still Present
+## Productization Gaps
 
-### Runtime-adjacent demo assumptions
-- [src/libs/DB.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/DB.ts)
-  - PGlite fallback seeds `nail-salon-no5`
-- [src/libs/devRole.server.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/devRole.server.ts)
-  - dev-role behavior still exists for local dashboards
-- [src/theme/themes.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/theme/themes.ts)
-- [src/models/Schema.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/models/Schema.ts)
-  - theme defaults still assume the `nail-salon-no5` tenant
+### Self-serve onboarding is still operator-driven
+- Current behavior:
+  - the app supports multi-tenant salons, billing primitives, feature gating, and super-admin controls
+  - onboarding a new salon still relies heavily on manual setup and operator knowledge
+- Risk:
+  - acceptable for founder-led / managed launch
+  - not yet ideal for low-touch self-serve SaaS acquisition
 
-### Explicit dev route/API still present
-- [src/app/api/dev/role/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/dev/role/route.ts)
+### Generic boilerplate/documentation residue still exists
+- Files:
+  - [README.md](/Users/me/Desktop/nail-salon-copy2 copy 2/README.md)
+  - various legacy boilerplate references across docs
+- Risk:
+  - weakens buyer confidence and makes the product feel less packaged than it really is
 
-## Local Test Infra Risk
+## Dev / Demo Assumptions
 
-- In this environment, `next build` succeeded but `.next/BUILD_ID` was not present afterward, which prevented `next start`-backed Playwright verification.
-- Prefer local dev-server-backed Playwright runs for now until the production-start issue is understood.
+### Local fallback/demo behavior still exists
+- Files:
+  - [src/libs/DB.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/DB.ts)
+  - [src/libs/devRole.server.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/devRole.server.ts)
+  - [src/app/api/dev/role/route.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/app/api/dev/role/route.ts)
+- Current behavior:
+  - dev-only role overrides and PGlite fallback still exist for local development
+- Risk:
+  - useful for development, but they are still visible signs that the repo originated as an internal/rapid-build platform rather than a fully polished packaged SaaS
+
+## Local Test Infra
+
+- Local Playwright verification still prefers a dev-server-backed run.
+- The environment has had prior `next start` / build-artifact verification inconsistencies, so production-style browser verification is not yet as repeatable as it should be.

@@ -37,6 +37,7 @@
     "db:verify:appointment-discount-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-appointment-discount-schema.ts",
     "db:verify-fraud-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-fraud-schema.ts",
     "db:smoke-test-fraud": "NODE_ENV=development dotenv -c development -- tsx scripts/smoke-test-fraud-system.ts",
+    "ops:verify:launch": "cross-env NODE_ENV=production dotenv -c production -- tsx scripts/verify-env.ts",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
     "storybook:serve": "http-server storybook-static --port 6006 --silent",

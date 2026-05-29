@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import StaffAppointmentsPage from './page';
 
 const { fetchMock, useUserMock, routerPush } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -31,17 +32,9 @@ vi.mock('@/components/staff', () => ({
   ),
 }));
 
-vi.mock('@/components/staff/appointments/StaffAppointmentsList', () => ({
-  StaffAppointmentsList: ({ appointments }: { appointments: Array<{ id: string }> }) => (
-    <div>appointments:{appointments.length}</div>
-  ),
-}));
-
 vi.mock('@/components/staff/appointments/AppointmentWorkflowDialogs', () => ({
   AppointmentWorkflowDialogs: () => <div>workflow dialogs</div>,
 }));
-
-import StaffAppointmentsPage from './page';
 
 describe('StaffAppointmentsPage', () => {
   beforeEach(() => {
@@ -77,7 +70,14 @@ describe('StaffAppointmentsPage', () => {
       data: {
         appointments: [{
           id: 'appt_1',
+          clientName: 'Ava',
+          startTime: '2026-05-28T14:00:00.000Z',
+          endTime: '2026-05-28T15:00:00.000Z',
           status: 'confirmed',
+          technicianId: 'tech_1',
+          services: [{ id: 'srv_1', name: 'Gel Manicure' }],
+          totalPrice: 6500,
+          totalDurationMinutes: 60,
         }],
       },
     }), { status: 200 }));
@@ -85,11 +85,10 @@ describe('StaffAppointmentsPage', () => {
     render(<StaffAppointmentsPage />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments?date=today&status=confirmed,in_progress');
+      expect(fetchMock).toHaveBeenCalledWith('/api/appointments?date=2026-05-28&status=pending,confirmed,in_progress,completed');
     });
 
-    expect(await screen.findByText('appointments:1')).toBeInTheDocument();
-    expect(screen.getByText('Photo Upload')).toBeInTheDocument();
-    expect(screen.getByText("Today’s Appointments (1)")).toBeInTheDocument();
+    expect(await screen.findByText('Day view (1)')).toBeInTheDocument();
+    expect(screen.getByText('My calendar')).toBeInTheDocument();
   });
 });

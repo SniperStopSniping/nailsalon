@@ -1,15 +1,16 @@
 import 'server-only';
 
-import { sendTransactionalEmail } from '@/libs/email';
-import { normalizePhone } from '@/libs/phone';
 import {
   resolveBookingNotificationCapabilities,
   resolveBookingNotificationSettingsFromSettings,
 } from '@/libs/bookingNotificationSettings';
+import { sendTransactionalEmail } from '@/libs/email';
+import { normalizePhone } from '@/libs/phone';
 import {
   sendInternalBookingNotificationSms,
   sendInternalCancellationNotificationSms,
 } from '@/libs/SMS';
+import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 type RecipientLabel = 'owner' | 'technician';
@@ -44,6 +45,7 @@ export type NewBookingNotificationContext = {
   startTime: string;
   totalDurationMinutes: number;
   totalPrice: number;
+  timeZone?: string | null;
 };
 
 export type AppointmentCancelledNotificationContext = {
@@ -55,6 +57,7 @@ export type AppointmentCancelledNotificationContext = {
   services: string[];
   startTime: string;
   cancelReason: string;
+  timeZone?: string | null;
 };
 
 type Recipient = {
@@ -116,6 +119,7 @@ export async function sendBookingNotificationsForNewBooking(
       totalDurationMinutes: context.totalDurationMinutes,
       totalPrice: context.totalPrice,
       technicianName: context.technician?.name ?? null,
+      timeZone: context.timeZone,
     }),
   });
 }
@@ -163,6 +167,7 @@ export async function sendBookingNotificationsForAppointmentCancelled(
       startTime: context.startTime,
       cancelReason: context.cancelReason,
       technicianName: context.technician?.name ?? null,
+      timeZone: context.timeZone,
     }),
   });
 }
@@ -378,32 +383,22 @@ function buildEmailPayload(subject: string, text: string): EmailPayload {
 }
 
 function buildNewBookingSubject(context: NewBookingNotificationContext): string {
-  const start = new Date(context.startTime);
-  const formattedDate = start.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(context.startTime, {
     month: 'short',
     day: 'numeric',
-  });
-  const formattedTime = start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, context.timeZone);
+  const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
 
   return `New booking: ${context.clientName} on ${formattedDate} at ${formattedTime}`;
 }
 
 function buildNewBookingText(context: NewBookingNotificationContext): string {
-  const start = new Date(context.startTime);
-  const formattedDate = start.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(context.startTime, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  });
-  const formattedTime = start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, context.timeZone);
+  const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
 
   return [
     `New booking at ${context.salon.name}`,
@@ -423,16 +418,11 @@ function buildNewBookingText(context: NewBookingNotificationContext): string {
 function buildAppointmentCancelledSubject(
   context: AppointmentCancelledNotificationContext,
 ): string {
-  const start = new Date(context.startTime);
-  const formattedDate = start.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(context.startTime, {
     month: 'short',
     day: 'numeric',
-  });
-  const formattedTime = start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, context.timeZone);
+  const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
 
   if (context.cancelReason === 'no_show') {
     return `No-show: ${context.clientName} on ${formattedDate} at ${formattedTime}`;
@@ -444,17 +434,12 @@ function buildAppointmentCancelledSubject(
 function buildAppointmentCancelledText(
   context: AppointmentCancelledNotificationContext,
 ): string {
-  const start = new Date(context.startTime);
-  const formattedDate = start.toLocaleDateString('en-US', {
+  const formattedDate = formatDateInTimeZone(context.startTime, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  });
-  const formattedTime = start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  }, context.timeZone);
+  const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
   const statusLabel = context.cancelReason === 'no_show'
     ? 'marked as no-show'
     : 'cancelled';

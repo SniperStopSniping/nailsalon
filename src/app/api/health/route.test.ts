@@ -1,0 +1,113 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { executeMock, isRedisAvailableMock } = vi.hoisted(() => ({
+  executeMock: vi.fn(),
+  isRedisAvailableMock: vi.fn(),
+}));
+
+vi.mock('@/libs/DB', () => ({
+  db: {
+    execute: executeMock,
+  },
+}));
+
+vi.mock('@/core/redis/redisClient', () => ({
+  redis: {},
+  isRedisAvailable: isRedisAvailableMock,
+}));
+
+import { GET } from './route';
+
+describe('GET /api/health', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.CLOUDINARY_CLOUD_NAME;
+    delete process.env.CLOUDINARY_API_KEY;
+    delete process.env.CLOUDINARY_API_SECRET;
+    delete process.env.META_SYSTEM_USER_TOKEN;
+    delete process.env.META_FACEBOOK_PAGE_ID;
+    delete process.env.META_INSTAGRAM_ACCOUNT_ID;
+    delete process.env.CRON_SECRET;
+    delete process.env.TWILIO_ACCOUNT_SID;
+    delete process.env.TWILIO_AUTH_TOKEN;
+    delete process.env.TWILIO_VERIFY_SERVICE_SID;
+    delete process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.RESEND_FROM_EMAIL;
+    delete process.env.STRIPE_SECRET_KEY;
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    delete process.env.NEXT_PUBLIC_SENTRY_DSN;
+    delete process.env.SENTRY_ORG;
+    delete process.env.SENTRY_PROJECT;
+    delete process.env.SENTRY_AUTH_TOKEN;
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns expanded env status using the actual Cloudinary variable names', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+
+    process.env.CLOUDINARY_CLOUD_NAME = 'demo-cloud';
+    process.env.CLOUDINARY_API_KEY = 'cloud-key';
+    process.env.CLOUDINARY_API_SECRET = 'cloud-secret';
+    process.env.META_SYSTEM_USER_TOKEN = 'meta-token';
+    process.env.META_FACEBOOK_PAGE_ID = '123456';
+    process.env.META_INSTAGRAM_ACCOUNT_ID = 'ig_123';
+    process.env.CRON_SECRET = 'cron-secret';
+    process.env.TWILIO_ACCOUNT_SID = 'twilio-sid';
+    process.env.TWILIO_AUTH_TOKEN = 'twilio-token';
+    process.env.TWILIO_VERIFY_SERVICE_SID = 'verify-sid';
+    process.env.TWILIO_PHONE_NUMBER = '+15555550000';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.STRIPE_SECRET_KEY = 'stripe-secret';
+    process.env.STRIPE_WEBHOOK_SECRET = 'stripe-webhook';
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'stripe-public';
+    process.env.NEXT_PUBLIC_SENTRY_DSN = 'https://dsn.example/1';
+    process.env.SENTRY_ORG = 'acme';
+    process.env.SENTRY_PROJECT = 'salon';
+    process.env.SENTRY_AUTH_TOKEN = 'token';
+    process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef123456';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 'ok',
+      checks: {
+        db: true,
+        redis: true,
+        cloudinaryEnv: true,
+        metaEnv: true,
+        cronSecretConfigured: true,
+        twilioEnv: true,
+        resendEnv: true,
+        stripeEnv: true,
+        sentryEnv: true,
+      },
+      timestamp: expect.any(String),
+      gitSha: 'abcdef1',
+    });
+  });
+
+  it('returns degraded when the database is unreachable', async () => {
+    executeMock.mockRejectedValue(new Error('db down'));
+    isRedisAvailableMock.mockResolvedValue(false);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.checks.db).toBe(false);
+  });
+});

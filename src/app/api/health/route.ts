@@ -31,6 +31,10 @@ type HealthCheck = {
   cloudinaryEnv: boolean;
   metaEnv: boolean;
   cronSecretConfigured: boolean;
+  twilioEnv: boolean;
+  resendEnv: boolean;
+  stripeEnv: boolean;
+  sentryEnv: boolean;
 };
 
 type HealthResponse = {
@@ -47,6 +51,10 @@ export async function GET(): Promise<Response> {
     cloudinaryEnv: false,
     metaEnv: false,
     cronSecretConfigured: false,
+    twilioEnv: false,
+    resendEnv: false,
+    stripeEnv: false,
+    sentryEnv: false,
   };
 
   // ---------------------------------------------------------------------------
@@ -73,7 +81,7 @@ export async function GET(): Promise<Response> {
   // 3. Cloudinary env check (presence only, no external call)
   // ---------------------------------------------------------------------------
   checks.cloudinaryEnv = Boolean(
-    process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+    process.env.CLOUDINARY_CLOUD_NAME
     && process.env.CLOUDINARY_API_KEY
     && process.env.CLOUDINARY_API_SECRET,
   );
@@ -91,6 +99,43 @@ export async function GET(): Promise<Response> {
   // 5. Cron secret configured
   // ---------------------------------------------------------------------------
   checks.cronSecretConfigured = Boolean(process.env.CRON_SECRET);
+
+  // ---------------------------------------------------------------------------
+  // 6. Twilio env check (presence only, no external call)
+  // ---------------------------------------------------------------------------
+  checks.twilioEnv = Boolean(
+    process.env.TWILIO_ACCOUNT_SID
+    && process.env.TWILIO_AUTH_TOKEN
+    && process.env.TWILIO_VERIFY_SERVICE_SID
+    && process.env.TWILIO_PHONE_NUMBER,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 7. Resend env check (presence only, no external call)
+  // ---------------------------------------------------------------------------
+  checks.resendEnv = Boolean(
+    process.env.RESEND_API_KEY
+    && process.env.RESEND_FROM_EMAIL,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 8. Stripe env check (presence only, no external call)
+  // ---------------------------------------------------------------------------
+  checks.stripeEnv = Boolean(
+    process.env.STRIPE_SECRET_KEY
+    && process.env.STRIPE_WEBHOOK_SECRET
+    && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 9. Sentry env check (matches strict production build guard)
+  // ---------------------------------------------------------------------------
+  checks.sentryEnv = Boolean(
+    process.env.NEXT_PUBLIC_SENTRY_DSN
+    && process.env.SENTRY_ORG
+    && process.env.SENTRY_PROJECT
+    && process.env.SENTRY_AUTH_TOKEN,
+  );
 
   // ---------------------------------------------------------------------------
   // Determine overall status

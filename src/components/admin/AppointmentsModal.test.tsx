@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AppointmentsModal } from './AppointmentsModal';
 
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -16,8 +17,6 @@ vi.mock('framer-motion', () => ({
 vi.mock('./NewAppointmentModal', () => ({
   NewAppointmentModal: () => null,
 }));
-
-import { AppointmentsModal } from './AppointmentsModal';
 
 describe('AppointmentsModal', () => {
   beforeEach(() => {
@@ -37,7 +36,7 @@ describe('AppointmentsModal', () => {
       expect(screen.getByText('No appointments scheduled')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('You are clear for the rest of today.')).toBeInTheDocument();
+    expect(screen.getByText('You are clear for the selected day.')).toBeInTheDocument();
     expect(screen.queryByLabelText(/search appointments/i)).not.toBeInTheDocument();
   });
 });

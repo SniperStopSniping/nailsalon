@@ -1,6 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 
+import { vi } from 'vitest';
 import failOnConsole from 'vitest-fail-on-console';
+
+vi.mock('next/font/google', () => new Proxy({}, {
+  get: () => () => ({
+    className: 'font-mock',
+    style: {},
+    variable: 'font-mock-variable',
+  }),
+}));
 
 failOnConsole({
   shouldFailOnDebug: true,

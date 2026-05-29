@@ -12,23 +12,23 @@ import {
   TTL,
 } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
+import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
+import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
   getTorontoDateString,
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
-import { requireAdminSalon, requireAdmin } from '@/libs/adminAuth';
+import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import {
   FIRST_VISIT_DISCOUNT_TYPE,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import { validatePublicBookingSelection } from '@/libs/bookingQuote';
-import { getPublicTechnicianCompatibility } from '@/libs/bookingQuote';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -43,7 +43,6 @@ import {
   normalizePhone,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
-import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   sendBookingConfirmationToClient,
@@ -51,14 +50,15 @@ import {
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
 import { requireStaffSession } from '@/libs/staffAuth';
+import { getZonedDayBounds } from '@/libs/timeZone';
 import {
   type Appointment,
-  appointmentAddOnSchema,
   APPOINTMENT_STATUSES,
+  appointmentAddOnSchema,
+  appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
-  appointmentPhotoSchema,
   referralSchema,
   rewardSchema,
   salonSchema,
@@ -825,16 +825,12 @@ export async function POST(request: Request): Promise<Response> {
     const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
     const blockedEndTime = new Date(startTime.getTime() + blockedDurationMinutes * 60 * 1000);
 
-    // 6b. Validate that start time is in the future with 30-minute minimum lead time
-    // Use Toronto timezone for the comparison
-    const torontoNowString = new Date().toLocaleString('en-US', { timeZone: 'America/Toronto' });
-    const torontoNow = new Date(torontoNowString);
-
-    // Add 30-minute buffer - appointments must be at least 30 minutes in the future
+    // 6b. Validate that start time is in the future with 30-minute minimum lead time.
     const MIN_LEAD_TIME_MINUTES = 30;
-    const minimumStartTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
+    const now = new Date();
+    const minimumStartTime = new Date(now.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
 
-    if (startTime <= torontoNow) {
+    if (startTime <= now) {
       return Response.json(
         {
           error: {
@@ -859,8 +855,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const bookingDate = getTorontoDateString(startTime);
-    const bookingStartOfDay = new Date(`${bookingDate}T00:00:00`);
-    const bookingEndOfDay = new Date(`${bookingDate}T23:59:59.999`);
+    const { startOfDay: bookingStartOfDay, endOfDay: bookingEndOfDay } = getZonedDayBounds(
+      bookingDate,
+      bookingConfig.timezone,
+    );
 
     let candidateTechnicians = technician
       ? [technician]
@@ -1429,6 +1427,7 @@ export async function POST(request: Request): Promise<Response> {
         newStartTime: startTime.toISOString(),
         services: services.map(s => s.name),
         technicianName: technician?.name ?? 'Any available artist',
+        timeZone: bookingConfig.timezone,
       });
 
       // Notify technician about the reschedule (if original had one assigned)
@@ -1560,6 +1559,7 @@ export async function POST(request: Request): Promise<Response> {
       technicianName: technician?.name ?? 'Any available artist',
       startTime: startTime.toISOString(),
       totalPrice,
+      timeZone: bookingConfig.timezone,
     });
 
     await sendBookingNotificationsForNewBooking({
@@ -1587,6 +1587,7 @@ export async function POST(request: Request): Promise<Response> {
       startTime: startTime.toISOString(),
       totalDurationMinutes,
       totalPrice,
+      timeZone: bookingConfig.timezone,
     });
 
     // 13. Return response (same object that was cached, if caching was enabled)
@@ -1715,7 +1716,7 @@ export async function GET(request: Request): Promise<Response> {
       let limit = 50; // Default
       if (limitParam) {
         const parsed = Number.parseInt(limitParam, 10);
-        if (!isNaN(parsed) && parsed > 0) {
+        if (!Number.isNaN(parsed) && parsed > 0) {
           limit = Math.min(parsed, 100); // Cap at 100 for staff
         }
       }
@@ -1861,7 +1862,7 @@ export async function GET(request: Request): Promise<Response> {
 
     if (limitParam) {
       const limit = Number.parseInt(limitParam, 10);
-      if (!isNaN(limit) && limit > 0) {
+      if (!Number.isNaN(limit) && limit > 0) {
         query = query.limit(limit) as typeof query;
       }
     }

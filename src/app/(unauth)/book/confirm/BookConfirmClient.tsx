@@ -21,13 +21,14 @@ import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
-import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
+import { useClientSession } from '@/hooks/useClientSession';
 import type { BookingStep } from '@/libs/bookingFlow';
-import { triggerHaptic } from '@/libs/haptics';
 import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
+import { triggerHaptic } from '@/libs/haptics';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { zonedTimeToUtc } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 
@@ -88,6 +89,9 @@ type BookConfirmClientProps = {
   bookingFlow: BookingStep[];
   location: LocationSummary;
 };
+
+const EMPTY_ADD_ONS: AddOnSummary[] = [];
+const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
 
 // --- Helpers ---
 
@@ -545,8 +549,11 @@ const ConfirmContent = ({
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-          className="bg-[var(--n5-accent)]/10 mx-auto mb-4 flex size-20 items-center justify-center"
-          style={{ borderRadius: n5.radiusPill }}
+          className="mx-auto mb-4 flex size-20 items-center justify-center"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, transparent)',
+            borderRadius: n5.radiusPill,
+          }}
         >
           <Check className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />
         </motion.div>
@@ -589,15 +596,21 @@ const ConfirmContent = ({
           contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
         >
           {firstVisitDiscountPreview && discountAmount > 0 && (
-            <div className="rounded-xl border px-3 py-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
+            <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
               <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
                 Offer
               </span>
               <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                First visit discount applied: -{firstVisitDiscountPreview.percent}%
+                First visit discount applied: -
+                {firstVisitDiscountPreview.percent}
+                %
               </p>
               <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                Subtotal ${subtotalBeforeDiscount.toFixed(2)} · Savings ${discountAmount.toFixed(2)}
+                Subtotal $
+                {subtotalBeforeDiscount.toFixed(2)}
+                {' '}
+                · Savings $
+                {discountAmount.toFixed(2)}
               </p>
             </div>
           )}
@@ -763,11 +776,11 @@ const SuccessContent = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-        <BookingCard
-          services={services}
-          addOns={addOns}
-          technician={technician}
-          totalPrice={totalPrice}
+          <BookingCard
+            services={services}
+            addOns={addOns}
+            technician={technician}
+            totalPrice={totalPrice}
             totalDuration={totalDuration}
             dateStr={dateStr}
             timeStr={timeStr}
@@ -1021,9 +1034,9 @@ const NameCaptureModal = ({
 
 export function BookConfirmClient({
   services,
-  addOns = [],
+  addOns = EMPTY_ADD_ONS,
   baseServiceId = null,
-  selectedAddOns = [],
+  selectedAddOns = EMPTY_SELECTED_ADD_ONS,
   subtotalBeforeDiscount,
   discountAmount = 0,
   firstVisitDiscountPreview = null,
@@ -1102,9 +1115,7 @@ export function BookConfirmClient({
         throw new Error('Please sign in again before confirming this appointment.');
       }
 
-      const [hours, minutes] = timeStr.split(':').map(Number);
-      const startTime = new Date(`${dateStr}T00:00:00`);
-      startTime.setHours(hours || 9, minutes || 0, 0, 0);
+      const startTime = zonedTimeToUtc({ date: dateStr, time: timeStr });
 
       const requestBody = {
         salonSlug,
@@ -1230,7 +1241,7 @@ export function BookConfirmClient({
       techId: technician?.id || 'any',
       locationId: location?.id ?? null,
       originalAppointmentId: appointmentId,
-      startTime: new Date(`${dateStr}T${timeStr}:00`).toISOString(),
+      startTime: zonedTimeToUtc({ date: dateStr, time: timeStr }).toISOString(),
       tenantRoute: {
         routeSalonSlug,
         locale,
@@ -1248,13 +1259,13 @@ export function BookConfirmClient({
 
   if (!isLoggedIn) {
     return (
-        <SessionRequiredState
-          onLoginSuccess={handleLoginSuccess}
-          onGoBack={() => router.push(appendSalonSlug(`/${locale}/book`, salonSlug, {
-            routeSalonSlug,
-            locale,
-          }))}
-        />
+      <SessionRequiredState
+        onLoginSuccess={handleLoginSuccess}
+        onGoBack={() => router.push(appendSalonSlug(`/${locale}/book`, salonSlug, {
+          routeSalonSlug,
+          locale,
+        }))}
+      />
     );
   }
 

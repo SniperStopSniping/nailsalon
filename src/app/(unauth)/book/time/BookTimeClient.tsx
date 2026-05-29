@@ -3,13 +3,13 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
-import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
+import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { StateCard } from '@/components/ui/state-card';
-import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
+import { useClientSession } from '@/hooks/useClientSession';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
@@ -47,9 +47,16 @@ type BookTimeClientProps = {
   bookingFlow: BookingStep[];
 };
 
+const EMPTY_ADD_ONS: AddOnSummary[] = [];
+
 type DisplayTimeSlot = {
   time: string;
   period: 'morning' | 'afternoon';
+};
+
+type CalendarCell = {
+  key: string;
+  date: Date | null;
 };
 
 function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
@@ -63,23 +70,28 @@ function toDisplaySlots(slotTimes: string[]): DisplayTimeSlot[] {
 }
 
 function getDateKey(date: Date): string {
-  return date.toISOString().split('T')[0] ?? '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
 }
 
-const generateCalendarDays = (year: number, month: number) => {
+const generateCalendarDays = (year: number, month: number): CalendarCell[] => {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const daysInMonth = lastDay.getDate();
   const startingDayOfWeek = firstDay.getDay();
 
-  const days: (Date | null)[] = [];
+  const days: CalendarCell[] = [];
 
   for (let i = 0; i < startingDayOfWeek; i++) {
-    days.push(null);
+    days.push({ key: `empty-${year}-${month}-before-${i}`, date: null });
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
-    days.push(new Date(year, month, day));
+    const date = new Date(year, month, day);
+    days.push({ key: getDateKey(date), date });
   }
 
   return days;
@@ -149,7 +161,7 @@ const filterPastTimeSlots = (
 
 export function BookTimeClient({
   services,
-  addOns = [],
+  addOns = EMPTY_ADD_ONS,
   totalPrice,
   totalDuration,
   locationName = null,
@@ -239,15 +251,20 @@ export function BookTimeClient({
     return new Promise((resolve) => {
       const startY = window.scrollY;
       const difference = targetY - startY;
-      const startTime = performance.now();
+      let startTime: number | null = null;
+      let frameCount = 0;
+      const maxFrames = 120;
 
       const easeInOutCubic = (t: number): number => {
         return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
       };
 
       const step = (currentTime: number) => {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        startTime ??= currentTime;
+        frameCount += 1;
+
+        const elapsed = Math.max(0, currentTime - startTime);
+        const progress = frameCount >= maxFrames ? 1 : Math.min(elapsed / duration, 1);
         const easeProgress = easeInOutCubic(progress);
 
         window.scrollTo(0, startY + difference * easeProgress);
@@ -405,7 +422,7 @@ export function BookTimeClient({
     const thisTargetDate = scrollTargetDateRef.current;
 
     // Verify the scroll is for the currently selected date (prevents stale scroll from previous fetch)
-    const currentDateKey = selectedDate?.toISOString().split('T')[0] ?? null;
+    const currentDateKey = selectedDate ? getDateKey(selectedDate) : null;
     if (thisTargetDate !== currentDateKey) {
       // Stale scroll request - clear and bail
       pendingScrollRef.current = false;
@@ -478,7 +495,15 @@ export function BookTimeClient({
     'December',
   ];
 
-  const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const dayNames = [
+    { key: 'sunday', label: 'S' },
+    { key: 'monday', label: 'M' },
+    { key: 'tuesday', label: 'T' },
+    { key: 'wednesday', label: 'W' },
+    { key: 'thursday', label: 'T' },
+    { key: 'friday', label: 'F' },
+    { key: 'saturday', label: 'S' },
+  ];
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -541,7 +566,7 @@ export function BookTimeClient({
       return;
     }
 
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    const dateStr = getDateKey(selectedDate);
     const nextStep = getNextStep('time', bookingFlow);
     if (!nextStep) {
       return;
@@ -673,18 +698,18 @@ export function BookTimeClient({
 
           {/* Day Names */}
           <div className="grid grid-cols-7 px-4 pt-3">
-            {dayNames.map((day, i) => (
-              <div key={i} className="py-2 text-center text-xs font-bold text-neutral-400">
-                {day}
+            {dayNames.map(day => (
+              <div key={day.key} className="py-2 text-center text-xs font-bold text-neutral-400">
+                {day.label}
               </div>
             ))}
           </div>
 
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1 px-4 pb-4">
-            {calendarDays.map((date, index) => {
+            {calendarDays.map(({ key, date }) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="h-11" />;
+                return <div key={key} className="h-11" />;
               }
 
               const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
@@ -697,10 +722,10 @@ export function BookTimeClient({
                   type="button"
                   data-testid={`calendar-day-${getDateKey(date)}`}
                   onClick={() => handleDateSelect(date)}
-                    disabled={Boolean(isPast || loadingSlots || isSelected)}
-                    className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
-                    style={{
-                      transform: isSelected ? 'scale(1.1)' : undefined,
+                  disabled={Boolean(isPast || loadingSlots || isSelected)}
+                  className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
+                  style={{
+                    transform: isSelected ? 'scale(1.1)' : undefined,
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
                       ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`

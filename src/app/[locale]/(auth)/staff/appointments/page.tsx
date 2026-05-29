@@ -9,10 +9,10 @@ import {
   AppointmentsDayView,
   type CalendarAppointment,
 } from '@/components/appointments/AppointmentsDayView';
-import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { StaffBottomNav, StaffHeader } from '@/components/staff';
 import type { StaffAppointmentData } from '@/components/staff/appointments/types';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
+import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { themeVars } from '@/theme';
 
 type StaffAppointmentsResponse = {
@@ -34,6 +34,14 @@ function formatAttemptedTime(iso: string) {
   });
 }
 
+function getLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 function toCalendarAppointments(appointments: StaffAppointmentData[]): CalendarAppointment[] {
   return appointments.map(appointment => ({
     id: appointment.id,
@@ -43,7 +51,7 @@ function toCalendarAppointments(appointments: StaffAppointmentData[]): CalendarA
     status: appointment.status,
     technicianId: appointment.technicianId,
     technicianName: null,
-    serviceLabel: appointment.services.map(service => service.name).join(', ') || 'Service',
+    serviceLabel: appointment.services?.map(service => service.name).join(', ') || 'Service',
     totalPrice: appointment.totalPrice,
     totalDurationMinutes: appointment.totalDurationMinutes
       ?? Math.max(0, (new Date(appointment.endTime).getTime() - new Date(appointment.startTime).getTime()) / 60000),
@@ -98,7 +106,7 @@ function StaffAppointmentsContent() {
     try {
       setLoading(true);
       setError(null);
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = getLocalDateKey(selectedDate);
       const response = await fetch(`/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`);
       if (!response.ok) {
         throw new Error('Failed to fetch appointments');
@@ -177,7 +185,7 @@ function StaffAppointmentsContent() {
 
   const syncUpdatedCalendarEvent = useCallback((calendarEvent: CalendarAppointment) => {
     setCalendarAppointments(current => patchAppointment(current, calendarEvent));
-    setAppointments(current => current.map((appointment) => (
+    setAppointments(current => current.map(appointment => (
       appointment.id === calendarEvent.id
         ? {
             ...appointment,
@@ -216,7 +224,7 @@ function StaffAppointmentsContent() {
 
     const start = new Date(args.startTime);
     const end = new Date(start.getTime() + (new Date(previous.endTime).getTime() - new Date(previous.startTime).getTime()));
-    setCalendarAppointments(current => current.map((appointment) => (
+    setCalendarAppointments(current => current.map(appointment => (
       appointment.id === args.appointmentId
         ? { ...appointment, startTime: start.toISOString(), endTime: end.toISOString() }
         : appointment
@@ -336,12 +344,12 @@ function StaffAppointmentsContent() {
         throw result.error ?? new Error('Unable to start appointment');
       }
 
-      setAppointments(current => current.map((appointment) => (
+      setAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'in_progress' }
           : appointment
       )));
-      setCalendarAppointments(current => current.map((appointment) => (
+      setCalendarAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'in_progress', isLocked: true }
           : appointment
@@ -376,12 +384,12 @@ function StaffAppointmentsContent() {
         throw result.error ?? new Error('Unable to complete appointment');
       }
 
-      setAppointments(current => current.map((appointment) => (
+      setAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'completed' }
           : appointment
       )));
-      setCalendarAppointments(current => current.map((appointment) => (
+      setCalendarAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'completed', isLocked: true }
           : appointment

@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { POST } from './route';
+
 vi.mock('server-only', () => ({}));
 
 const {
   requireClientApiSession,
   requireClientSalonFromBody,
+  guardModuleOr403,
   db,
 } = vi.hoisted(() => ({
   requireClientApiSession: vi.fn(),
   requireClientSalonFromBody: vi.fn(),
+  guardModuleOr403: vi.fn(),
   db: {
     select: vi.fn(),
     transaction: vi.fn(),
@@ -24,7 +28,9 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-import { POST } from './route';
+vi.mock('@/libs/featureGating', () => ({
+  guardModuleOr403,
+}));
 
 function makeLimitSelect(result: unknown[]) {
   return {
@@ -39,6 +45,7 @@ function makeLimitSelect(result: unknown[]) {
 describe('POST /api/rewards/redeem-points', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    guardModuleOr403.mockResolvedValue(null);
   });
 
   it('rejects points redemption when the appointment already has a first-visit discount', async () => {

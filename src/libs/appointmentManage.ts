@@ -4,30 +4,29 @@ import { and, eq } from 'drizzle-orm';
 
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import {
-  buildBlockedSlotWindow,
   canTechnicianTakeAppointment,
-  getTorontoDateString,
   loadBookingPolicy,
-  resolveTechnicianCapabilityMode,
   type RequestedService,
+  resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import { db } from '@/libs/DB';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { getLocationById, getTechnicianById, getTechniciansBySalonId } from '@/libs/queries';
+import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
-  appointmentAddOnSchema,
-  appointmentSchema,
-  appointmentServicesSchema,
-  salonSchema,
-  salonLocationSchema,
-  serviceAddOnSchema,
-  serviceSchema,
   type AddOnCategory,
   type Appointment,
   type AppointmentAddOn,
+  appointmentAddOnSchema,
+  appointmentSchema,
   type AppointmentService,
+  appointmentServicesSchema,
+  salonLocationSchema,
+  salonSchema,
   type Service,
+  serviceAddOnSchema,
   type ServiceCategory,
+  serviceSchema,
 } from '@/models/Schema';
 
 export type ManageWarning =
@@ -86,6 +85,7 @@ type LoadedManagedAppointment = {
   technicians: Awaited<ReturnType<typeof getTechniciansBySalonId>>;
   slotIntervalMinutes: number;
   bufferMinutes: number;
+  timeZone: string;
 };
 
 export type AppointmentManageDetail = {
@@ -269,14 +269,14 @@ function computePreservedDiscount(args: {
   loaded: LoadedManagedAppointment;
   newSubtotalCents: number;
 }): {
-  totalPrice: number;
-  subtotalBeforeDiscountCents: number;
-  discountAmountCents: number;
-  discountType: string | null;
-  discountLabel: string | null;
-  discountPercent: number | null;
-  discountAppliedAt: Date | null;
-} {
+    totalPrice: number;
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: number;
+    discountType: string | null;
+    discountLabel: string | null;
+    discountPercent: number | null;
+    discountAppliedAt: Date | null;
+  } {
   const { loaded, newSubtotalCents } = args;
 
   if (loaded.appointment.discountType === FIRST_VISIT_DISCOUNT_TYPE) {
@@ -370,14 +370,14 @@ async function loadManagedAppointment(
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
     appointment.locationId
       ? db
-          .select({
-            id: salonLocationSchema.id,
-            name: salonLocationSchema.name,
-          })
-          .from(salonLocationSchema)
-          .where(eq(salonLocationSchema.id, appointment.locationId))
-          .limit(1)
-          .then(rows => rows[0] ?? null)
+        .select({
+          id: salonLocationSchema.id,
+          name: salonLocationSchema.name,
+        })
+        .from(salonLocationSchema)
+        .where(eq(salonLocationSchema.id, appointment.locationId))
+        .limit(1)
+        .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
     db
       .select()
@@ -399,6 +399,7 @@ async function loadManagedAppointment(
     technicians,
     slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
     bufferMinutes: bookingConfig.bufferMinutes,
+    timeZone: bookingConfig.timezone,
   };
 }
 
@@ -470,14 +471,13 @@ async function validateTimeAndTechnician(args: {
     ? await getLocationById(args.loaded.appointment.locationId, args.loaded.appointment.salonId)
     : null;
 
-  const dateKey = getTorontoDateString(args.startTime);
-  const startOfDay = new Date(`${dateKey}T00:00:00`);
-  const endOfDay = new Date(`${dateKey}T23:59:59.999`);
+  const dateKey = getDateKeyInTimeZone(args.startTime, args.loaded.timeZone);
+  const { startOfDay, endOfDay } = getZonedDayBounds(dateKey, args.loaded.timeZone);
   const bookingPolicy = await loadBookingPolicy({
     salonId: args.loaded.appointment.salonId,
     technicianIds: [technician.id],
     date: dateKey,
-    selectedDate: new Date(`${dateKey}T12:00:00`),
+    selectedDate: startOfDay,
     startOfDay,
     endOfDay,
     excludedAppointmentId: args.loaded.appointment.id,
@@ -546,26 +546,21 @@ async function findNextAvailableStart(
   for (let offset = 0; offset < SEARCH_DAYS_AHEAD; offset++) {
     const day = new Date(searchStart);
     day.setDate(searchStart.getDate() + offset);
-    const dateKey = getTorontoDateString(day);
-    const startOfDay = new Date(`${dateKey}T00:00:00`);
-    const endOfDay = new Date(`${dateKey}T23:59:59.999`);
+    const dateKey = getDateKeyInTimeZone(day, loaded.timeZone);
+    const { startOfDay, endOfDay } = getZonedDayBounds(dateKey, loaded.timeZone);
     const bookingPolicy = await loadBookingPolicy({
       salonId: loaded.appointment.salonId,
       technicianIds: [technician.id],
       date: dateKey,
-      selectedDate: new Date(`${dateKey}T12:00:00`),
+      selectedDate: startOfDay,
       startOfDay,
       endOfDay,
       excludedAppointmentId: loaded.appointment.id,
     });
 
     for (const slot of slots) {
-      const { startTime, endTime } = buildBlockedSlotWindow(
-        startOfDay,
-        slot,
-        totalDurationMinutes,
-        bufferMinutes,
-      );
+      const startTime = zonedTimeToUtc({ date: dateKey, time: slot, timeZone: loaded.timeZone });
+      const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
 
       if (startTime <= searchStart) {
         continue;
@@ -951,10 +946,10 @@ export async function runAppointmentManageMutation(args: {
   technicianId?: string | null;
   canReassignTechnician: boolean;
 }): Promise<{
-  detail: AppointmentManageDetail;
-  calendarEvent: AppointmentCalendarEvent;
-  warnings: ManageWarning[];
-}> {
+    detail: AppointmentManageDetail;
+    calendarEvent: AppointmentCalendarEvent;
+    warnings: ManageWarning[];
+  }> {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   let result: MutationResult;
 
