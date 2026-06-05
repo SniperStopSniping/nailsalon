@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.0...v1.4.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* improve staff dashboard schedule and setup checks ([369e32e](https://github.com/SniperStopSniping/nailsalon/commit/369e32e4bafd67ded48c6ed295a40998eddd618b))
+
 # [1.4.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.3.0...v1.4.0) (2026-03-25)
 
 
