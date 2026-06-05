@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+if (process.env.CI && !process.env.CLERK_SECRET_KEY) {
+  process.env.CLERK_SECRET_KEY = 'test_clerk_secret_key';
+}
+
 // Use explicit local host/port defaults for browser tests to avoid collisions
 // with other dev servers and to keep Playwright traffic loopback-only.
 const HOST = process.env.HOST || 'localhost';
