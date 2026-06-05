@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -97,7 +98,7 @@ describe('POST /api/referrals/generate', () => {
     });
     requireClientSalonFromBody.mockResolvedValue({
       ok: true,
-      salon: { id: 'salon_1' },
+      salon: { id: 'salon_1', customDomain: 'islanailsalon.com' },
     });
 
     const response = await POST(
@@ -121,5 +122,7 @@ describe('POST /api/referrals/generate', () => {
       status: 'sent',
     }));
     expect(body.data.referralId).toMatch(/^ref_/);
+    expect(body.data.referralUrl).toMatch(/^https:\/\/islanailsalon\.com\/referral\/ref_/);
+    expect(body.data.referralUrl).not.toContain('localhost');
   });
 });

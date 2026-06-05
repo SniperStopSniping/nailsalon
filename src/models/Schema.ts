@@ -534,6 +534,12 @@ export const appointmentSchema = pgTable(
     // Staff private notes (Step 16A - only visible to assigned tech)
     techNotes: text('tech_notes'),
 
+    // External calendar sync
+    googleCalendarEventId: text('google_calendar_event_id'),
+    googleCalendarSyncStatus: text('google_calendar_sync_status').default('not_synced'),
+    googleCalendarSyncedAt: timestamp('google_calendar_synced_at', { mode: 'date', withTimezone: true }),
+    googleCalendarSyncError: text('google_calendar_sync_error'),
+
     // Payment
     paymentStatus: text('payment_status').default('pending'), // 'pending' | 'paid'
 

@@ -222,6 +222,7 @@ export async function POST(request: Request): Promise<Response> {
       refereePhone,
       referrerName: resolvedReferrerName,
       salonName: salon.name,
+      salonCustomDomain: salon.customDomain,
       referralId,
     });
 

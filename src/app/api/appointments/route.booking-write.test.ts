@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -28,6 +29,9 @@ const {
   requireClientApiSession,
   requireStaffSession,
   sendBookingNotificationsForNewBooking,
+  hasGoogleCalendarConflict,
+  syncGoogleCalendarEventForAppointment,
+  deleteGoogleCalendarEventForAppointment,
   db,
 } = vi.hoisted(() => ({
   canTechnicianTakeAppointment: vi.fn(),
@@ -57,6 +61,9 @@ const {
   requireClientApiSession: vi.fn(),
   requireStaffSession: vi.fn(),
   sendBookingNotificationsForNewBooking: vi.fn(),
+  hasGoogleCalendarConflict: vi.fn(),
+  syncGoogleCalendarEventForAppointment: vi.fn(),
+  deleteGoogleCalendarEventForAppointment: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -133,6 +140,12 @@ vi.mock('@/libs/bookingNotifications', () => ({
   sendBookingNotificationsForNewBooking,
 }));
 
+vi.mock('@/libs/googleCalendar', () => ({
+  hasGoogleCalendarConflict,
+  syncGoogleCalendarEventForAppointment,
+  deleteGoogleCalendarEventForAppointment,
+}));
+
 vi.mock('@/libs/SMS', () => ({
   sendBookingConfirmationToClient: vi.fn(),
   sendCancellationNotificationToTech: vi.fn(),
@@ -181,6 +194,9 @@ describe('POST /api/appointments booking policy', () => {
       },
     });
     sendBookingNotificationsForNewBooking.mockResolvedValue(undefined);
+    hasGoogleCalendarConflict.mockResolvedValue(false);
+    syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     getServicesByIds.mockResolvedValue([{
       id: 'srv_1',
       name: 'BIAB',
@@ -376,6 +392,41 @@ describe('POST /api/appointments booking policy', () => {
       services: ['BIAB'],
       totalPrice: 6500,
     }));
+    expect(syncGoogleCalendarEventForAppointment).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      salonName: 'Salon A',
+      clientPhone: '1111111111',
+      serviceNames: ['BIAB'],
+      technicianName: 'Supported',
+      timeZone: 'America/Toronto',
+    }));
+  });
+
+  it('rejects booking writes when Google Calendar is busy', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    hasGoogleCalendarConflict.mockResolvedValue(true);
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('TIME_CONFLICT');
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('rejects unauthenticated customer booking attempts even if a body phone is supplied', async () => {

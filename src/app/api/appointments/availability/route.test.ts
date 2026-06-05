@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+/* eslint-disable import/first */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   getSalonBySlug,
@@ -8,6 +9,8 @@ const {
   getTechnicianById,
   getTechniciansBySalonId,
   guardSalonApiRoute,
+  getGoogleCalendarBusyWindows,
+  isBusyWindowConflict,
   selectResults,
   db,
 } = vi.hoisted(() => {
@@ -47,6 +50,10 @@ const {
     getTechnicianById: vi.fn(),
     getTechniciansBySalonId: vi.fn(),
     guardSalonApiRoute: vi.fn(),
+    getGoogleCalendarBusyWindows: vi.fn(),
+    isBusyWindowConflict: vi.fn((startTime: Date, endTime: Date, busyWindows: Array<{ startTime: Date; endTime: Date }>) =>
+      busyWindows.some(window => startTime < window.endTime && endTime > window.startTime),
+    ),
     selectResults,
     db: {
       select,
@@ -71,11 +78,17 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+vi.mock('@/libs/googleCalendar', () => ({
+  getGoogleCalendarBusyWindows,
+  isBusyWindowConflict,
+}));
+
 import { GET } from './route';
 
 describe('GET /api/appointments/availability', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-03-12T12:00:00.000Z').getTime());
     selectResults.length = 0;
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a' });
     getSalonById.mockResolvedValue({
@@ -105,6 +118,11 @@ describe('GET /api/appointments/availability', () => {
     });
     getTechniciansBySalonId.mockResolvedValue([]);
     guardSalonApiRoute.mockResolvedValue(null);
+    getGoogleCalendarBusyWindows.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('blocks late-day slots when the requested service duration no longer fits the schedule', async () => {
@@ -178,6 +196,25 @@ describe('GET /api/appointments/availability', () => {
     expect(body.visibleSlots).not.toContain('11:30');
     expect(body.visibleSlots).toContain('11:15');
     expect(body.visibleSlots).toContain('13:00');
+  });
+
+  it('marks Google Calendar busy windows as booked slots', async () => {
+    getGoogleCalendarBusyWindows.mockResolvedValue([{
+      startTime: new Date('2026-03-13T14:00:00.000Z'),
+      endTime: new Date('2026-03-13T15:00:00.000Z'),
+    }]);
+    selectResults.push([], [], [], []);
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=30'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.visibleSlots).toContain('10:00');
+    expect(body.bookedSlots).toContain('10:00');
+    expect(body.bookedSlots).toContain('10:30');
+    expect(body.bookedSlots).not.toContain('11:00');
   });
 
   it('only considers technicians who can actually perform the requested services', async () => {

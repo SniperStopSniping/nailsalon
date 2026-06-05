@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
+import { deleteGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -100,8 +101,7 @@ export async function PATCH(
     }
 
     if (access.actorRole === 'client') {
-      const isClientCancellation =
-        data.status === 'cancelled'
+      const isClientCancellation = data.status === 'cancelled'
         && data.cancelReason === 'client_request';
 
       if (!isClientCancellation) {
@@ -202,6 +202,12 @@ export async function PATCH(
             );
         }
       }
+
+      await deleteGoogleCalendarEventForAppointment({
+        appointmentId,
+        salonId: existingAppointment.salonId,
+        googleCalendarEventId: existingAppointment.googleCalendarEventId,
+      });
     }
 
     // 7. If status changed to 'cancelled', send cancellation notifications after data updates succeed

@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -6,9 +7,9 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
+import { syncGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { salonSchema } from '@/models/Schema';
-import { eq } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,22 @@ async function getSalonSlug(salonId: string) {
     .limit(1);
 
   return salon?.slug ?? '';
+}
+
+async function getSalonSummary(salonId: string) {
+  const [salon] = await db
+    .select({
+      name: salonSchema.name,
+      slug: salonSchema.slug,
+    })
+    .from(salonSchema)
+    .where(eq(salonSchema.id, salonId))
+    .limit(1);
+
+  return {
+    name: salon?.name ?? 'the salon',
+    slug: salon?.slug ?? '',
+  };
 }
 
 function toErrorResponse(error: unknown): Response {
@@ -164,6 +181,25 @@ export async function PATCH(
       baseServiceId: 'baseServiceId' in parsed.data ? parsed.data.baseServiceId : undefined,
       technicianId: 'technicianId' in parsed.data ? parsed.data.technicianId : undefined,
       canReassignTechnician,
+    });
+    const salon = await getSalonSummary(access.appointment.salonId);
+
+    await syncGoogleCalendarEventForAppointment({
+      appointmentId: result.calendarEvent.id,
+      salonId: access.appointment.salonId,
+      salonName: salon.name,
+      clientName: result.calendarEvent.clientName,
+      clientPhone: result.calendarEvent.clientPhone,
+      serviceNames: [result.calendarEvent.serviceLabel],
+      technicianName: result.calendarEvent.technicianName,
+      startTime: new Date(result.calendarEvent.startTime),
+      endTime: new Date(result.calendarEvent.endTime),
+      totalPrice: result.calendarEvent.totalPrice,
+      totalDurationMinutes: result.calendarEvent.totalDurationMinutes,
+      timeZone: result.calendarEvent.timeZone,
+      locationName: result.calendarEvent.locationName,
+      locationAddress: result.calendarEvent.locationAddress,
+      googleCalendarEventId: result.calendarEvent.googleCalendarEventId,
     });
 
     return Response.json({

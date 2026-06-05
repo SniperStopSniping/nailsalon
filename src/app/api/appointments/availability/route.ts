@@ -8,6 +8,10 @@ import {
 } from '@/libs/bookingPolicy';
 import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
+  getGoogleCalendarBusyWindows,
+  isBusyWindowConflict,
+} from '@/libs/googleCalendar';
+import {
   getLocationById,
   getSalonBySlug,
   getServicesByIds,
@@ -223,6 +227,11 @@ export async function GET(request: Request): Promise<Response> {
       endOfDay,
       excludedAppointmentId: originalAppointmentId,
     });
+    const googleBusyWindows = await getGoogleCalendarBusyWindows({
+      startTime: startOfDay,
+      endTime: endOfDay,
+      timeZone: bookingConfig.timezone,
+    });
 
     const visibleSlots: string[] = [];
     const slots: Array<{ time: string; startTime: string }> = [];
@@ -269,6 +278,11 @@ export async function GET(request: Request): Promise<Response> {
         time: slot,
         startTime: startTime.toISOString(),
       });
+
+      if (isBusyWindowConflict(startTime, blockedEndTime, googleBusyWindows)) {
+        blockedSlots.add(slot);
+        continue;
+      }
 
       const anyTechAvailable = technicians.some((tech) => {
         const decision = canTechnicianTakeAppointment({

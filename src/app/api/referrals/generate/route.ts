@@ -16,6 +16,7 @@ import {
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { referralSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -149,9 +150,7 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     // 5. Build the referral URL
-    // In production, this would use the actual domain
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const referralUrl = `${baseUrl}/referral/${referralId}`;
+    const referralUrl = buildSalonPublicUrl(`/referral/${referralId}`, salon);
 
     // 6. Return success response
     const response: SuccessResponse = {

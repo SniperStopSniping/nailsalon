@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -7,6 +8,7 @@ const {
   getAppointmentServiceNames,
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
+  deleteGoogleCalendarEventForAppointment,
   db,
 } = vi.hoisted(() => ({
   requireAppointmentAccess: vi.fn(),
@@ -15,6 +17,7 @@ const {
   getAppointmentServiceNames: vi.fn(),
   getTechnicianById: vi.fn(),
   sendBookingNotificationsForAppointmentCancelled: vi.fn(),
+  deleteGoogleCalendarEventForAppointment: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -50,12 +53,17 @@ vi.mock('@/libs/bookingNotifications', () => ({
   sendBookingNotificationsForAppointmentCancelled,
 }));
 
+vi.mock('@/libs/googleCalendar', () => ({
+  deleteGoogleCalendarEventForAppointment,
+}));
+
 import { GET, PATCH } from './route';
 
 describe('appointment detail route auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
+    deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
   });
 
   it('rejects unauthenticated appointment updates', async () => {

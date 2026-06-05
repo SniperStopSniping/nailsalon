@@ -30,6 +30,11 @@ import {
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
 import {
+  deleteGoogleCalendarEventForAppointment,
+  hasGoogleCalendarConflict,
+  syncGoogleCalendarEventForAppointment,
+} from '@/libs/googleCalendar';
+import {
   getActiveAppointmentsForClient,
   getAppointmentById,
   getClientByPhone,
@@ -97,6 +102,22 @@ function parseStatusParam(statusParam: string | null): string[] | null {
     .filter(s => allowed.has(s));
 
   return statuses;
+}
+
+function formatLocationAddress(location: {
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+} | null): string | null {
+  if (!location) {
+    return null;
+  }
+
+  return [location.address, location.city, location.state, location.zipCode]
+    .map(part => part?.trim())
+    .filter(Boolean)
+    .join(', ') || null;
 }
 
 // =============================================================================
@@ -1165,6 +1186,37 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    try {
+      const googleCalendarConflict = await hasGoogleCalendarConflict({
+        startTime,
+        endTime: blockedEndTime,
+        timeZone: bookingConfig.timezone,
+      });
+
+      if (googleCalendarConflict) {
+        return Response.json(
+          {
+            error: {
+              code: 'TIME_CONFLICT',
+              message: 'This time slot is no longer available. Please select a different time.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+    } catch (error) {
+      console.error('[GoogleCalendar] Availability check failed before booking:', error);
+      return Response.json(
+        {
+          error: {
+            code: 'CALENDAR_UNAVAILABLE',
+            message: 'Unable to confirm calendar availability. Please try again shortly.',
+          },
+        } satisfies ErrorResponse,
+        { status: 503 },
+      );
+    }
+
     // 7b. Resolve salonClientId before the appointment insert
     const salonClient = await getOrCreateSalonClient(
       salon.id,
@@ -1431,6 +1483,12 @@ export async function POST(request: Request): Promise<Response> {
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
     if (originalAppointment && normalizedOriginalApptId) {
+      await deleteGoogleCalendarEventForAppointment({
+        appointmentId: normalizedOriginalApptId,
+        salonId: salon.id,
+        googleCalendarEventId: originalAppointment.googleCalendarEventId,
+      });
+
       // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
       // Use salonClient.phone as source of truth
       await sendRescheduleConfirmation(salon.id, {
@@ -1507,6 +1565,25 @@ export async function POST(request: Request): Promise<Response> {
           .where(eq(referralSchema.id, referral.id));
       }
     }
+
+    await syncGoogleCalendarEventForAppointment({
+      appointmentId: appointment.id,
+      salonId: salon.id,
+      salonName: salon.name,
+      clientName,
+      clientPhone: salonClient.phone,
+      serviceNames: services.map(s => s.name),
+      technicianName: technician?.name ?? null,
+      startTime,
+      endTime,
+      totalPrice,
+      totalDurationMinutes,
+      timeZone: bookingConfig.timezone,
+      locationName: validatedLocation?.name ?? null,
+      locationAddress: formatLocationAddress(validatedLocation),
+      notes: appointment.notes,
+      googleCalendarEventId: appointment.googleCalendarEventId,
+    });
 
     // =========================================================================
     // 10. BUILD RESPONSE (single definition, used for cache AND return)

@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -95,7 +96,7 @@ describe('POST /api/referrals/send', () => {
     });
     requireClientSalonFromBody.mockResolvedValue({
       ok: true,
-      salon: { id: 'salon_1', name: 'Salon A' },
+      salon: { id: 'salon_1', name: 'Salon A', customDomain: 'islanailsalon.com' },
     });
     selectResults.push([], [], []);
 
@@ -125,6 +126,7 @@ describe('POST /api/referrals/send', () => {
       refereePhone: '2223334444',
       referrerName: 'Ava',
       salonName: 'Salon A',
+      salonCustomDomain: 'islanailsalon.com',
       referralId: expect.stringMatching(/^ref_/),
     });
     expect(body.data.smsSent).toBe(true);

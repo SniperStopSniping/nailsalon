@@ -80,6 +80,10 @@ type LoadedManagedAppointment = {
   salonLocation: {
     id: string;
     name: string;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
   } | null;
   activeServices: Service[];
   technicians: Awaited<ReturnType<typeof getTechniciansBySalonId>>;
@@ -156,7 +160,11 @@ export type AppointmentCalendarEvent = {
   serviceLabel: string;
   totalPrice: number;
   totalDurationMinutes: number;
+  clientPhone: string;
+  googleCalendarEventId: string | null;
+  timeZone: string;
   locationName: string | null;
+  locationAddress: string | null;
   isLocked: boolean;
 };
 
@@ -316,6 +324,8 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
   return {
     id: loaded.appointment.id,
     clientName: loaded.appointment.clientName,
+    clientPhone: loaded.appointment.clientPhone,
+    googleCalendarEventId: loaded.appointment.googleCalendarEventId,
     startTime: loaded.appointment.startTime.toISOString(),
     endTime: loaded.appointment.endTime.toISOString(),
     status: loaded.appointment.status,
@@ -324,7 +334,14 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
     serviceLabel: serviceLabel || primaryService?.liveService?.name || 'Service',
     totalPrice: loaded.appointment.totalPrice,
     totalDurationMinutes: loaded.appointment.totalDurationMinutes,
+    timeZone: loaded.timeZone,
     locationName: loaded.salonLocation?.name ?? null,
+    locationAddress: loaded.salonLocation
+      ? [loaded.salonLocation.address, loaded.salonLocation.city, loaded.salonLocation.state, loaded.salonLocation.zipCode]
+          .map(part => part?.trim())
+          .filter(Boolean)
+          .join(', ') || null
+      : null,
     isLocked: Boolean(loaded.appointment.lockedAt) || loaded.appointment.status === 'in_progress',
   };
 }
@@ -373,6 +390,10 @@ async function loadManagedAppointment(
         .select({
           id: salonLocationSchema.id,
           name: salonLocationSchema.name,
+          address: salonLocationSchema.address,
+          city: salonLocationSchema.city,
+          state: salonLocationSchema.state,
+          zipCode: salonLocationSchema.zipCode,
         })
         .from(salonLocationSchema)
         .where(eq(salonLocationSchema.id, appointment.locationId))

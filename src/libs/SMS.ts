@@ -14,6 +14,7 @@
 import twilio from 'twilio';
 
 import { Env } from '@/libs/Env';
+import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
@@ -90,6 +91,7 @@ export type ReferralInviteParams = {
   refereePhone: string;
   referrerName: string;
   salonName: string;
+  salonCustomDomain?: string | null;
   referralId: string;
 };
 
@@ -99,6 +101,28 @@ export type StaffInviteParams = {
   salonName: string;
   salonSlug: string;
 };
+
+function formatAppointmentRange(
+  startTime: string,
+  durationMinutes: number,
+  timeZone?: string | null,
+): string {
+  const startDate = new Date(startTime);
+  const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+  const formattedDate = formatDateInTimeZone(startTime, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }, timeZone);
+  const formattedStartTime = formatTimeInTimeZone(startTime, {}, timeZone);
+  const formattedEndTime = formatTimeInTimeZone(endDate.toISOString(), {}, timeZone);
+
+  return `${formattedDate}, ${formattedStartTime}-${formattedEndTime}`;
+}
+
+function formatPrice(cents: number): string {
+  return `$${(cents / 100).toFixed(0)}`;
+}
 
 // =============================================================================
 // TWILIO CLIENT
@@ -159,24 +183,18 @@ export async function sendBookingConfirmationToClient(
 
   const { phone, clientName, salonName, services, technicianName, startTime, totalPrice, timeZone } = params;
 
-  const formattedDate = formatDateInTimeZone(startTime, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  }, timeZone);
-  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
+  const appointmentRange = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
 
-  const message = `💅 ${salonName}
+  const message = `${salonName}
+Appointment confirmed
 
-Hi ${clientName || 'there'}! Your appointment is confirmed:
+Hi ${clientName || 'there'},
 
-📅 ${formattedDate}
-⏰ ${formattedTime}
-💇 ${services.join(' + ')}
-👩‍🎨 ${technicianName}
-💰 $${(totalPrice / 100).toFixed(0)}
+${services.join(' + ')} with ${technicianName}
+${appointmentRange}
+Total: ${formatPrice(totalPrice)}
 
-We can't wait to see you! ✨`;
+Reply to this text if you need help.`;
 
   await sendSMS(phone, message);
 }
@@ -241,28 +259,20 @@ export async function sendInternalBookingNotificationSms(
     timeZone,
   } = params;
 
-  const formattedDate = formatDateInTimeZone(startTime, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }, timeZone);
-  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
+  const appointmentRange = formatAppointmentRange(startTime, totalDurationMinutes, timeZone);
+  const serviceLabel = services.join(', ');
 
   const messageLines = [
-    `📱 New booking${salonName ? ` at ${salonName}` : ''}`,
+    `New booking${salonName ? ` at ${salonName}` : ''}`,
     '',
-    `👤 ${clientName}`,
-    `📞 ${clientPhone}`,
-    `📅 ${formattedDate} at ${formattedTime}`,
-    `💇 ${services.join(', ')}`,
-    `⏱️ ${totalDurationMinutes} min`,
+    technicianName ? `${serviceLabel} with ${technicianName}` : serviceLabel,
+    appointmentRange,
+    '',
+    `Client: ${clientName}`,
+    `Phone: ${clientPhone}`,
+    `Duration: ${totalDurationMinutes} min`,
+    `Total: ${formatPrice(totalPrice)}`,
   ];
-
-  if (technicianName) {
-    messageLines.push(`👩‍🎨 ${technicianName}`);
-  }
-
-  messageLines.push(`💰 $${(totalPrice / 100).toFixed(0)}`);
 
   return sendSMS(phone, messageLines.join('\n'));
 }
@@ -288,31 +298,27 @@ export async function sendInternalCancellationNotificationSms(
     timeZone,
   } = params;
 
-  const formattedDate = formatDateInTimeZone(startTime, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }, timeZone);
-  const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
+  const appointmentTime = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
 
   const statusLabel = cancelReason === 'no_show'
     ? 'marked as no-show'
     : 'cancelled';
 
   const messageLines = [
-    `📱 Appointment ${statusLabel}${salonName ? ` at ${salonName}` : ''}`,
+    `Appointment ${statusLabel}${salonName ? ` at ${salonName}` : ''}`,
     '',
-    `👤 ${clientName}`,
-    `📅 ${formattedDate} at ${formattedTime}`,
-    `💇 ${services.join(', ')}`,
+    services.join(', '),
+    appointmentTime,
+    '',
+    `Client: ${clientName}`,
   ];
 
   if (clientPhone) {
-    messageLines.splice(3, 0, `📞 ${clientPhone}`);
+    messageLines.push(`Phone: ${clientPhone}`);
   }
 
   if (technicianName) {
-    messageLines.push(`👩‍🎨 ${technicianName}`);
+    messageLines.push(`Artist: ${technicianName}`);
   }
 
   if (cancelReason !== 'client_request') {
@@ -383,11 +389,11 @@ export async function sendAppointmentReminder(
           ...(technicianName ? [`Artist: ${technicianName}`] : []),
           `See you soon on ${formattedDate}.`,
         ].join('\n')
-      : `👋 Hi ${clientName || 'there'}!
+      : `Hi ${clientName || 'there'},
 
 Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTime}.
 
-Need to reschedule? Reply or call us!`;
+Need to reschedule? Reply or call us.`;
 
   return sendSMS(phone, message);
 }
@@ -416,7 +422,7 @@ export async function sendCancellationConfirmation(
 
 Your appointment at ${salonName} has been cancelled.
 
-We hope to see you again soon! 💅
+We hope to see you again soon.
 Book anytime at our website.`;
 
   await sendSMS(phone, message);
@@ -460,17 +466,17 @@ export async function sendRescheduleConfirmation(
   }, timeZone);
   const newFormattedTime = formatTimeInTimeZone(newStartTime, {}, timeZone);
 
-  const message = `💅 ${salonName}
+  const message = `${salonName}
+Appointment rescheduled
 
-Hi ${clientName || 'there'}! Your appointment has been rescheduled:
+Hi ${clientName || 'there'},
 
-❌ Old: ${oldFormattedDate} at ${oldFormattedTime}
-✅ New: ${newFormattedDate} at ${newFormattedTime}
+Old: ${oldFormattedDate} at ${oldFormattedTime}
+New: ${newFormattedDate} at ${newFormattedTime}
 
-💇 ${services.join(' + ')}
-👩‍🎨 ${technicianName}
+${services.join(' + ')} with ${technicianName}
 
-See you soon! ✨`;
+Reply to this text if you need help.`;
 
   await sendSMS(phone, message);
 }
@@ -506,7 +512,6 @@ export async function sendCancellationNotificationToTech(
   const formattedTime = formatTimeInTimeZone(startTime, {}, timeZone);
 
   const actionText = cancelReason === 'rescheduled' ? 'rescheduled' : 'cancelled';
-  const emoji = cancelReason === 'rescheduled' ? '📅' : '❌';
 
   if (technicianPhone) {
     await sendInternalCancellationNotificationSms(salonId, {
@@ -521,13 +526,13 @@ export async function sendCancellationNotificationToTech(
       timeZone,
     });
   } else {
-    const message = `${emoji} Appointment ${actionText}
+    const message = `Appointment ${actionText}
 
 ${technicianName}, an appointment has been ${actionText}:
 
-👤 ${clientName}
-📅 ${formattedDate} at ${formattedTime}
-💇 ${services.join(', ')}`;
+Client: ${clientName}
+Time: ${formattedDate} at ${formattedTime}
+Service: ${services.join(', ')}`;
 
     console.warn('[TECH NOTIFICATION]', message);
   }
@@ -546,20 +551,19 @@ export async function sendReferralInvite(
     return false;
   }
 
-  const { refereePhone, referrerName, salonName, referralId } = params;
+  const { refereePhone, referrerName, salonName, salonCustomDomain, referralId } = params;
 
   // Build the claim URL
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-    || 'http://localhost:3000';
-  const claimUrl = `${baseUrl}/referral/${referralId}`;
+  const claimUrl = buildSalonPublicUrl(`/referral/${referralId}`, {
+    customDomain: salonCustomDomain,
+  });
 
-  const message = `🎉 ${referrerName} sent you ${REFERRAL_REFEREE_PERCENT}% off your first appointment at ${salonName}!
+  const message = `${referrerName} sent you ${REFERRAL_REFEREE_PERCENT}% off your first appointment at ${salonName}.
 
-Claim your gift here:
+Claim your gift:
 ${claimUrl}
 
-Book within 14 days to use your ${REFERRAL_REFEREE_PERCENT}% off reward. 💅✨`;
+Book within 14 days to use your reward.`;
 
   return sendSMS(refereePhone, message);
 }

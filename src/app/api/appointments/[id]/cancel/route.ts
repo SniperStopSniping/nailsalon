@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
+import { deleteGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -192,6 +193,12 @@ export async function PATCH(
         console.error('Failed to update salon client stats:', err);
       });
     }
+
+    await deleteGoogleCalendarEventForAppointment({
+      appointmentId,
+      salonId: appointment.salonId,
+      googleCalendarEventId: appointment.googleCalendarEventId,
+    });
 
     // 6. Send cancellation notifications after data updates succeed
     if (validated.data.cancelReason !== 'rescheduled') {

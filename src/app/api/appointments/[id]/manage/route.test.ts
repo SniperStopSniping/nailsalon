@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -6,11 +7,13 @@ const {
   requireAppointmentManagerAccess,
   getAppointmentManageDetail,
   runAppointmentManageMutation,
+  syncGoogleCalendarEventForAppointment,
   db,
 } = vi.hoisted(() => ({
   requireAppointmentManagerAccess: vi.fn(),
   getAppointmentManageDetail: vi.fn(),
   runAppointmentManageMutation: vi.fn(),
+  syncGoogleCalendarEventForAppointment: vi.fn(),
   db: {
     select: vi.fn(),
   },
@@ -41,13 +44,17 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+vi.mock('@/libs/googleCalendar', () => ({
+  syncGoogleCalendarEventForAppointment,
+}));
+
 import { GET, PATCH } from './route';
 
-function makeSalonSelect(slug: string) {
+function makeSalonSelect(slug: string, name = 'Salon A') {
   return {
     from: vi.fn(() => ({
       where: vi.fn(() => ({
-        limit: vi.fn(async () => [{ slug }]),
+        limit: vi.fn(async () => [{ name, slug }]),
       })),
     })),
   };
@@ -56,6 +63,8 @@ function makeSalonSelect(slug: string) {
 describe('appointment manage route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    db.select.mockReturnValue(makeSalonSelect('salon-a'));
   });
 
   it('returns quick-edit detail for assigned staff', async () => {

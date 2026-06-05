@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -6,6 +7,7 @@ const {
   getSalonById,
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
+  deleteGoogleCalendarEventForAppointment,
   updateWhere,
   updateSet,
   db,
@@ -25,6 +27,7 @@ const {
     getSalonById: vi.fn(),
     getTechnicianById: vi.fn(),
     sendBookingNotificationsForAppointmentCancelled: vi.fn(),
+    deleteGoogleCalendarEventForAppointment: vi.fn(),
     updateWhere,
     updateSet,
     db: {
@@ -58,6 +61,10 @@ vi.mock('@/libs/bookingNotifications', () => ({
   sendBookingNotificationsForAppointmentCancelled,
 }));
 
+vi.mock('@/libs/googleCalendar', () => ({
+  deleteGoogleCalendarEventForAppointment,
+}));
+
 import { PATCH } from './route';
 
 describe('PATCH /api/appointments/[id]/cancel', () => {
@@ -79,6 +86,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       phone: '4169021427',
       email: 'taylor@example.com',
     });
+    deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
   });
 
   it('rejects wrong-role access', async () => {
