@@ -55,7 +55,7 @@ import {
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
 import { requireStaffSession } from '@/libs/staffAuth';
-import { getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
@@ -102,6 +102,28 @@ function parseStatusParam(statusParam: string | null): string[] | null {
     .filter(s => allowed.has(s));
 
   return statuses;
+}
+
+function resolveAppointmentDateRange(args: {
+  dateParam: string | null;
+  startDateParam: string | null;
+  endDateParam: string | null;
+  timeZone?: string | null;
+}): { startOfDay: Date; endOfDay: Date } {
+  const { dateParam, startDateParam, endDateParam, timeZone } = args;
+
+  if (startDateParam && endDateParam) {
+    return {
+      startOfDay: new Date(startDateParam),
+      endOfDay: new Date(endDateParam),
+    };
+  }
+
+  const dateKey = dateParam === 'today' || !dateParam
+    ? getDateKeyInTimeZone(new Date(), timeZone)
+    : dateParam;
+
+  return getZonedDayBounds(dateKey, timeZone);
 }
 
 function formatLocationAddress(location: {
@@ -1761,29 +1783,12 @@ export async function GET(request: Request): Promise<Response> {
       const endDateParam = searchParams.get('endDate');
       const limitParam = searchParams.get('limit');
 
-      // Build date range (safe - no identity information)
-      let startOfDay: Date;
-      let endOfDay: Date;
-
-      if (startDateParam && endDateParam) {
-        startOfDay = new Date(startDateParam);
-        endOfDay = new Date(endDateParam);
-      } else if (dateParam === 'today') {
-        startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
-      } else if (dateParam) {
-        startOfDay = new Date(dateParam);
-        startOfDay.setHours(0, 0, 0, 0);
-        endOfDay = new Date(dateParam);
-        endOfDay.setHours(23, 59, 59, 999);
-      } else {
-        startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
-      }
+      const { startOfDay, endOfDay } = resolveAppointmentDateRange({
+        dateParam,
+        startDateParam,
+        endDateParam,
+        timeZone: bookingConfig.timezone,
+      });
 
       // Parse status filter with validation against allowed values
       const parsedStatuses = parseStatusParam(statusParam);
@@ -1902,29 +1907,11 @@ export async function GET(request: Request): Promise<Response> {
     const salonId = salon.id;
     const technicianId = technicianIdParam;
 
-    // Build date range for query
-    let startOfDay: Date;
-    let endOfDay: Date;
-
-    if (startDateParam && endDateParam) {
-      startOfDay = new Date(startDateParam);
-      endOfDay = new Date(endDateParam);
-    } else if (dateParam === 'today') {
-      startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-    } else if (dateParam) {
-      startOfDay = new Date(dateParam);
-      startOfDay.setHours(0, 0, 0, 0);
-      endOfDay = new Date(dateParam);
-      endOfDay.setHours(23, 59, 59, 999);
-    } else {
-      startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
-    }
+    const { startOfDay, endOfDay } = resolveAppointmentDateRange({
+      dateParam,
+      startDateParam,
+      endDateParam,
+    });
 
     // Use same validation helper for admin path
     const parsedStatuses = parseStatusParam(statusParam);

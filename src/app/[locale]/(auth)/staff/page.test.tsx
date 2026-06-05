@@ -102,7 +102,9 @@ describe('StaffDashboardPage', () => {
     });
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments?date=today&status=confirmed%2Cin_progress');
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(
+        /^\/api\/appointments\?status=pending%2Cconfirmed%2Cin_progress&startDate=.+&endDate=.+$/,
+      ));
     });
 
     expect(await screen.findByText('View schedule')).toBeInTheDocument();

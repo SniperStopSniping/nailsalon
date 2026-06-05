@@ -59,6 +59,7 @@ type ScheduleOverride = {
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DEFAULT_DAY_SCHEDULE = { start: '09:00', end: '21:00' } as const;
 
 const TIME_OPTIONS = [
   '08:00',
@@ -86,7 +87,18 @@ const TIME_OPTIONS = [
   '19:00',
   '19:30',
   '20:00',
+  '20:30',
+  '21:00',
 ];
+
+function formatTimeOption(time: string): string {
+  const [hourPart = '0', minute = '00'] = time.split(':');
+  const hour24 = Number.parseInt(hourPart, 10);
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${minute} ${period}`;
+}
 
 // =============================================================================
 // Day Schedule Editor
@@ -119,21 +131,21 @@ function DayScheduleEditor({
                 <div className="flex items-center gap-1">
                   <select
                     value={schedule?.start || '09:00'}
-                    onChange={e => onChange({ start: e.target.value, end: schedule?.end || '17:00' })}
+                    onChange={e => onChange({ start: e.target.value, end: schedule?.end || DEFAULT_DAY_SCHEDULE.end })}
                     className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
                   >
                     {TIME_OPTIONS.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                      <option key={t} value={t}>{formatTimeOption(t)}</option>
                     ))}
                   </select>
                   <span className="text-neutral-400">–</span>
                   <select
-                    value={schedule?.end || '17:00'}
-                    onChange={e => onChange({ start: schedule?.start || '09:00', end: e.target.value })}
+                    value={schedule?.end || DEFAULT_DAY_SCHEDULE.end}
+                    onChange={e => onChange({ start: schedule?.start || DEFAULT_DAY_SCHEDULE.start, end: e.target.value })}
                     className="rounded-lg border-0 bg-white px-2 py-1 text-sm font-medium shadow-sm"
                   >
                     {TIME_OPTIONS.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                      <option key={t} value={t}>{formatTimeOption(t)}</option>
                     ))}
                   </select>
                 </div>
@@ -141,7 +153,7 @@ function DayScheduleEditor({
         </div>
         <button
           type="button"
-          onClick={() => onChange(isOff ? { start: '09:00', end: '17:00' } : null)}
+          onClick={() => onChange(isOff ? { ...DEFAULT_DAY_SCHEDULE } : null)}
           className="rounded-lg px-2 py-1 text-xs font-medium transition-colors"
           style={{
             backgroundColor: isOff ? themeVars.primary : 'transparent',
@@ -445,8 +457,8 @@ function AddOverrideForm({
   const [startDate, setStartDate] = useState(editingOverride?.date || '');
   const [endDate, setEndDate] = useState(editingOverride?.date || '');
   const [type, setType] = useState<'off' | 'hours'>(editingOverride?.type || 'off');
-  const [startTime, setStartTime] = useState(editingOverride?.startTime || '09:00');
-  const [endTime, setEndTime] = useState(editingOverride?.endTime || '17:00');
+  const [startTime, setStartTime] = useState(editingOverride?.startTime || DEFAULT_DAY_SCHEDULE.start);
+  const [endTime, setEndTime] = useState(editingOverride?.endTime || DEFAULT_DAY_SCHEDULE.end);
   const [note, setNote] = useState(editingOverride?.note || '');
   const [showStartCalendar, setShowStartCalendar] = useState(false);
   const [showEndCalendar, setShowEndCalendar] = useState(false);
@@ -593,7 +605,7 @@ function AddOverrideForm({
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
             >
               {TIME_OPTIONS.map(t => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>{formatTimeOption(t)}</option>
               ))}
             </select>
           </div>
@@ -607,7 +619,7 @@ function AddOverrideForm({
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
             >
               {TIME_OPTIONS.map(t => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>{formatTimeOption(t)}</option>
               ))}
             </select>
           </div>

@@ -17,6 +17,9 @@ import {
   superAdminPoliciesSchema,
 } from '@/models/Schema';
 
+const REDIS_UNAVAILABLE_MESSAGE
+  = 'Photo uploads are not available because upload session storage is not configured. Add REDIS_URL in Vercel, then redeploy.';
+
 // =============================================================================
 // REQUEST VALIDATION
 // =============================================================================
@@ -54,8 +57,8 @@ export async function POST(
       return Response.json(
         {
           error: {
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'Service temporarily unavailable. Please try again later.',
+            code: 'UPLOAD_SESSION_STORAGE_UNAVAILABLE',
+            message: REDIS_UNAVAILABLE_MESSAGE,
           },
         } satisfies ErrorResponse,
         { status: 503 },

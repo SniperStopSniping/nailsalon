@@ -84,8 +84,29 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
   }
 
   // Create technicians
+  const danielaWeeklySchedule = {
+    sunday: { start: '09:00', end: '21:00' },
+    monday: { start: '09:00', end: '21:00' },
+    tuesday: { start: '09:00', end: '21:00' },
+    wednesday: { start: '09:00', end: '21:00' },
+    thursday: { start: '09:00', end: '21:00' },
+    friday: { start: '09:00', end: '21:00' },
+    saturday: { start: '09:00', end: '21:00' },
+  };
+
   const technicians = [
-    { id: 'tech_daniela', name: 'Daniela', avatarUrl: '/assets/images/tech-daniela.jpeg', specialties: ['BIAB', 'Gel-X', 'French'], rating: '4.9', reviewCount: 127 },
+    {
+      id: 'tech_daniela',
+      name: 'Daniela',
+      avatarUrl: '/assets/images/tech-daniela.jpeg',
+      specialties: ['BIAB', 'Gel-X', 'French'],
+      rating: '4.9',
+      reviewCount: 127,
+      weeklySchedule: danielaWeeklySchedule,
+      workDays: [0, 1, 2, 3, 4, 5, 6],
+      startTime: '09:00',
+      endTime: '21:00',
+    },
     { id: 'tech_tiffany', name: 'Tiffany', avatarUrl: '/assets/images/tech-tiffany.jpeg', specialties: ['BIAB', 'Gel Manicure'], rating: '4.8', reviewCount: 98 },
     { id: 'tech_jenny', name: 'Jenny', avatarUrl: '/assets/images/tech-jenny.jpeg', specialties: ['Gel-X', 'Pedicure'], rating: '4.7', reviewCount: 85 },
   ];

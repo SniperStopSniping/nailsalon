@@ -44,6 +44,10 @@ describe('GET /api/health', () => {
     delete process.env.SENTRY_ORG;
     delete process.env.SENTRY_PROJECT;
     delete process.env.SENTRY_AUTH_TOKEN;
+    delete process.env.GOOGLE_CALENDAR_ENABLED;
+    delete process.env.GOOGLE_CALENDAR_ID;
+    delete process.env.GOOGLE_CALENDAR_CLIENT_EMAIL;
+    delete process.env.GOOGLE_CALENDAR_PRIVATE_KEY;
     delete process.env.VERCEL_GIT_COMMIT_SHA;
   });
 
@@ -75,6 +79,10 @@ describe('GET /api/health', () => {
     process.env.SENTRY_ORG = 'acme';
     process.env.SENTRY_PROJECT = 'salon';
     process.env.SENTRY_AUTH_TOKEN = 'token';
+    process.env.GOOGLE_CALENDAR_ENABLED = 'true';
+    process.env.GOOGLE_CALENDAR_ID = 'calendar@example.com';
+    process.env.GOOGLE_CALENDAR_CLIENT_EMAIL = 'calendar-bot@example.iam.gserviceaccount.com';
+    process.env.GOOGLE_CALENDAR_PRIVATE_KEY = 'private-key';
     process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef123456';
 
     const response = await GET();
@@ -93,6 +101,7 @@ describe('GET /api/health', () => {
         resendEnv: true,
         stripeEnv: true,
         sentryEnv: true,
+        googleCalendarEnv: true,
       },
       timestamp: expect.any(String),
       gitSha: 'abcdef1',

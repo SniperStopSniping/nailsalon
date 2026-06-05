@@ -8,6 +8,7 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { SectionCard } from '@/components/ui/section-card';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
+import { DEFAULT_BOOKING_TIME_ZONE, getDateKeyInTimeZone, getZonedDayBounds } from '@/libs/timeZone';
 import { themeVars } from '@/theme';
 
 import { ActionBar } from './components/ActionBar';
@@ -33,6 +34,31 @@ type SalonInfo = {
 };
 
 type TabId = 'today' | 'upcoming' | 'past';
+
+const ACTIVE_TODAY_STATUSES = 'pending,confirmed,in_progress';
+const UPCOMING_STATUSES = 'pending,confirmed';
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const [year = 0, month = 1, day = 1] = dateKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function getTorontoDayBounds(dayOffset: number) {
+  const todayKey = getDateKeyInTimeZone(new Date(), DEFAULT_BOOKING_TIME_ZONE);
+  return getZonedDayBounds(addDaysToDateKey(todayKey, dayOffset), DEFAULT_BOOKING_TIME_ZONE);
+}
+
+function countTodayAppointments(appointments: AppointmentData[]): number {
+  return appointments.filter(appointment =>
+    ['pending', 'confirmed', 'in_progress'].includes(appointment.status),
+  ).length;
+}
 
 // =============================================================================
 // Tab Button Component
@@ -113,6 +139,7 @@ export default function StaffDashboardPage() {
   // UI state
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
+  const [todayCount, setTodayCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
 
@@ -143,25 +170,22 @@ export default function StaffDashboardPage() {
     const baseParams = new URLSearchParams();
 
     if (tab === 'today') {
-      baseParams.set('date', 'today');
-      baseParams.set('status', 'confirmed,in_progress');
+      const { startOfDay, endOfDay } = getTorontoDayBounds(0);
+      baseParams.set('status', ACTIVE_TODAY_STATUSES);
+      baseParams.set('startDate', startOfDay.toISOString());
+      baseParams.set('endDate', endOfDay.toISOString());
     } else if (tab === 'upcoming') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const nextWeek = new Date(today);
-      nextWeek.setDate(nextWeek.getDate() + 7);
-      baseParams.set('status', 'confirmed,pending');
-      baseParams.set('startDate', today.toISOString());
-      baseParams.set('endDate', nextWeek.toISOString());
+      const { startOfDay } = getTorontoDayBounds(1);
+      const { endOfDay } = getTorontoDayBounds(7);
+      baseParams.set('status', UPCOMING_STATUSES);
+      baseParams.set('startDate', startOfDay.toISOString());
+      baseParams.set('endDate', endOfDay.toISOString());
     } else if (tab === 'past') {
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
-      const thirtyDaysAgo = new Date(today);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      thirtyDaysAgo.setHours(0, 0, 0, 0);
+      const { endOfDay } = getTorontoDayBounds(0);
+      const { startOfDay } = getTorontoDayBounds(-30);
       baseParams.set('status', 'completed');
-      baseParams.set('startDate', thirtyDaysAgo.toISOString());
-      baseParams.set('endDate', today.toISOString());
+      baseParams.set('startDate', startOfDay.toISOString());
+      baseParams.set('endDate', endOfDay.toISOString());
       baseParams.set('limit', '20');
     }
 
@@ -180,7 +204,11 @@ export default function StaffDashboardPage() {
       const response = await fetch(`/api/appointments?${buildAppointmentParams(tab)}`);
       if (response.ok) {
         const data = await response.json();
-        setAppointments(data.data?.appointments || []);
+        const nextAppointments = data.data?.appointments || [];
+        setAppointments(nextAppointments);
+        if (tab === 'today') {
+          setTodayCount(countTodayAppointments(nextAppointments));
+        }
       }
     } catch (error) {
       console.error('Failed to fetch appointments:', error);
@@ -213,7 +241,9 @@ export default function StaffDashboardPage() {
 
         if (appointmentsResponse.ok) {
           const data = await appointmentsResponse.json();
-          setAppointments(data.data?.appointments || []);
+          const nextAppointments = data.data?.appointments || [];
+          setAppointments(nextAppointments);
+          setTodayCount(countTodayAppointments(nextAppointments));
           initialAppointmentsLoadedRef.current = true;
           loadedTabRef.current = 'today';
         }
@@ -425,9 +455,11 @@ export default function StaffDashboardPage() {
   // Main Render
   // =============================================================================
 
-  const todayCount = appointments.filter(
-    a => a.status === 'confirmed' || a.status === 'in_progress',
-  ).length;
+  const sectionTitle = activeTab === 'today'
+    ? 'Today\'s appointments'
+    : activeTab === 'upcoming'
+      ? 'Upcoming appointments'
+      : 'Completed appointments';
 
   return (
     <div
@@ -529,6 +561,11 @@ export default function StaffDashboardPage() {
                 )
               : (
                   <div className="space-y-4 pb-32">
+                    <div>
+                      <h2 className="text-base font-bold" style={{ color: themeVars.titleText }}>
+                        {sectionTitle}
+                      </h2>
+                    </div>
                     {appointments.map((appointment, index) => {
                       const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
                       const isTerminal = ['complete', 'cancelled', 'no_show'].includes(canvasState);

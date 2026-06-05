@@ -35,6 +35,7 @@ type HealthCheck = {
   resendEnv: boolean;
   stripeEnv: boolean;
   sentryEnv: boolean;
+  googleCalendarEnv: boolean;
 };
 
 type HealthResponse = {
@@ -57,6 +58,7 @@ export async function GET(): Promise<Response> {
     resendEnv: false,
     stripeEnv: false,
     sentryEnv: false,
+    googleCalendarEnv: false,
   };
 
   // ---------------------------------------------------------------------------
@@ -137,6 +139,16 @@ export async function GET(): Promise<Response> {
     && process.env.SENTRY_ORG
     && process.env.SENTRY_PROJECT
     && process.env.SENTRY_AUTH_TOKEN,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 10. Google Calendar env check (presence only, no external call)
+  // ---------------------------------------------------------------------------
+  checks.googleCalendarEnv = Boolean(
+    (process.env.GOOGLE_CALENDAR_ENABLED === 'true' || process.env.GOOGLE_CALENDAR_ENABLED === '1')
+    && process.env.GOOGLE_CALENDAR_ID
+    && process.env.GOOGLE_CALENDAR_CLIENT_EMAIL
+    && process.env.GOOGLE_CALENDAR_PRIVATE_KEY,
   );
 
   // ---------------------------------------------------------------------------

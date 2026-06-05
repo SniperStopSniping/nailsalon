@@ -197,6 +197,16 @@ const SERVICES: schema.NewService[] = [
   },
 ];
 
+const DANIELA_WEEKLY_SCHEDULE = {
+  sunday: { start: '09:00', end: '21:00' },
+  monday: { start: '09:00', end: '21:00' },
+  tuesday: { start: '09:00', end: '21:00' },
+  wednesday: { start: '09:00', end: '21:00' },
+  thursday: { start: '09:00', end: '21:00' },
+  friday: { start: '09:00', end: '21:00' },
+  saturday: { start: '09:00', end: '21:00' },
+};
+
 // Technicians with weekly schedules
 const TECHNICIANS: schema.NewTechnician[] = [
   {
@@ -208,19 +218,11 @@ const TECHNICIANS: schema.NewTechnician[] = [
     specialties: ['BIAB', 'Gel-X', 'French'],
     rating: '4.8',
     reviewCount: 127,
-    weeklySchedule: {
-      sunday: null, // Day off
-      monday: { start: '09:00', end: '18:00' },
-      tuesday: { start: '09:00', end: '18:00' },
-      wednesday: { start: '09:00', end: '18:00' },
-      thursday: { start: '09:00', end: '18:00' },
-      friday: { start: '09:00', end: '18:00' },
-      saturday: null, // Day off
-    },
+    weeklySchedule: DANIELA_WEEKLY_SCHEDULE,
     // Legacy fields
-    workDays: [1, 2, 3, 4, 5], // Mon-Fri
+    workDays: [0, 1, 2, 3, 4, 5, 6],
     startTime: '09:00',
-    endTime: '18:00',
+    endTime: '21:00',
     isActive: true,
   },
   {

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -62,7 +62,7 @@ describe('StaffSchedulePage', () => {
         return new Response(JSON.stringify({
           data: {
             weeklySchedule: {
-              monday: { start: '09:00', end: '17:00' },
+              monday: { start: '09:00', end: '21:00' },
             },
           },
         }), { status: 200 });
@@ -96,5 +96,7 @@ describe('StaffSchedulePage', () => {
     const requestedUrls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(requestedUrls).not.toContain('/api/staff/availability?technicianId=tech_1&salonSlug=salon-a');
     expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue('9:00 AM')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('9:00 PM')).toBeInTheDocument();
   });
 });

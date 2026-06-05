@@ -17,6 +17,10 @@ import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
 const PRESIGN_EXPIRY_SECONDS = 900; // 15 minutes
+const REDIS_UNAVAILABLE_MESSAGE
+  = 'Photo uploads are not available because upload session storage is not configured. Add REDIS_URL in Vercel, then redeploy.';
+const STORAGE_UNAVAILABLE_MESSAGE
+  = 'Photo uploads are not available because Cloudinary storage is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in Vercel.';
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -61,8 +65,8 @@ export async function POST(
       return Response.json(
         {
           error: {
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'Service temporarily unavailable. Please try again later.',
+            code: 'UPLOAD_SESSION_STORAGE_UNAVAILABLE',
+            message: REDIS_UNAVAILABLE_MESSAGE,
           },
         } satisfies ErrorResponse,
         { status: 503 },
@@ -75,7 +79,7 @@ export async function POST(
         {
           error: {
             code: 'STORAGE_NOT_CONFIGURED',
-            message: 'Photo upload is not available. Storage is not configured.',
+            message: STORAGE_UNAVAILABLE_MESSAGE,
           },
         } satisfies ErrorResponse,
         { status: 503 },
