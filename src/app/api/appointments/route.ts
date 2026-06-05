@@ -839,8 +839,8 @@ export async function POST(request: Request): Promise<Response> {
     const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
     const blockedEndTime = new Date(startTime.getTime() + blockedDurationMinutes * 60 * 1000);
 
-    // 6b. Validate that start time is in the future with 30-minute minimum lead time.
-    const MIN_LEAD_TIME_MINUTES = 30;
+    // 6b. Validate that start time is in the future with 2-hour minimum lead time.
+    const MIN_LEAD_TIME_MINUTES = 120;
     const now = new Date();
     const minimumStartTime = new Date(now.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
 
@@ -861,7 +861,7 @@ export async function POST(request: Request): Promise<Response> {
         {
           error: {
             code: 'TOO_SOON',
-            message: 'Appointments must be booked at least 30 minutes in advance. Please select a later time.',
+            message: 'Appointments must be booked at least 2 hours in advance. Please select a later time.',
           },
         } satisfies ErrorResponse,
         { status: 400 },

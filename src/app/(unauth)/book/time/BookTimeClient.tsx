@@ -131,10 +131,8 @@ const getTorontoToday = () => {
   return torontoNow;
 };
 
-// Minimum lead time in minutes (must book at least this far in advance)
-const MIN_LEAD_TIME_MINUTES = 30;
-
-// Filter out past time slots and slots within the lead time buffer (using Toronto timezone)
+// Filter out past time slots as a client-side fallback. The API is the source of
+// truth for the 2-hour minimum lead time and final bookability.
 const filterPastTimeSlots = (
   slotTimes: string[],
   date: Date | null,
@@ -155,15 +153,11 @@ const filterPastTimeSlots = (
     return slotTimes;
   }
 
-  // Calculate minimum allowed booking time (now + 30 min buffer)
-  const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
-
-  // Filter out times that are past OR within the 30-minute buffer
   return slotTimes.filter((slotTimeValue) => {
     const [hours, minutes] = slotTimeValue.split(':').map(Number);
     const slotTime = new Date(selectedDateMidnight);
     slotTime.setHours(hours || 0, minutes || 0, 0, 0);
-    return slotTime >= minimumBookingTime;
+    return slotTime > torontoNow;
   });
 };
 
@@ -674,6 +668,10 @@ export function BookTimeClient({
           locationName={locationName}
           technician={technician}
         />
+
+        <p className="mb-4 text-center text-xs font-medium text-neutral-500">
+          Same-day bookings need 2 hours notice.
+        </p>
 
         {/* Calendar Card */}
         <div

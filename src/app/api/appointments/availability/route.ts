@@ -21,6 +21,7 @@ import type { WeeklySchedule } from '@/models/Schema';
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_DURATION_MINUTES = 30;
+const MIN_LEAD_TIME_MINUTES = 120;
 
 function getAllSlots(intervalMinutes: number): string[] {
   const slots: string[] = [];
@@ -226,9 +227,14 @@ export async function GET(request: Request): Promise<Response> {
     const visibleSlots: string[] = [];
     const slots: Array<{ time: string; startTime: string }> = [];
     const blockedSlots = new Set<string>();
+    const minimumStartTime = new Date(Date.now() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
 
     for (const slot of allSlots) {
       const startTime = zonedTimeToUtc({ date, time: slot, timeZone: bookingConfig.timezone });
+      if (startTime < minimumStartTime) {
+        continue;
+      }
+
       const blockedEndTime = new Date(startTime.getTime() + (visibleDurationMinutes + bufferMinutes) * 60 * 1000);
 
       const anyTechVisible = technicians.some((tech) => {
