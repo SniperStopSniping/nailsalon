@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.1...v1.4.2) (2026-06-05)
+
+
+### Bug Fixes
+
+* resolve ci lint failures ([dd0758b](https://github.com/SniperStopSniping/nailsalon/commit/dd0758bd5eff3ae5078b1aa07e1b50e8d218c03d))
+
 ## [1.4.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.0...v1.4.1) (2026-06-05)
 
 
