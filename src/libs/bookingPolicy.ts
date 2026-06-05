@@ -325,6 +325,11 @@ export function isWindowWithinSchedule(
   const scheduleEndMinutes = timeStringToMinutes(schedule.end);
   const startMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
   const endMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
+  const sameLocalDay = startInToronto.toDateString() === endInToronto.toDateString();
+
+  if (scheduleEndMinutes > scheduleStartMinutes && !sameLocalDay) {
+    return false;
+  }
 
   return startMinutes >= scheduleStartMinutes && endMinutes <= scheduleEndMinutes;
 }
