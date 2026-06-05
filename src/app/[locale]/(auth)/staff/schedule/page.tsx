@@ -490,6 +490,14 @@ function AddOverrideForm({
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
+  let submitLabel = 'Add Override';
+  if (isEditing) {
+    submitLabel = 'Update';
+  }
+  if (isSubmitting) {
+    submitLabel = 'Saving...';
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2 rounded-xl bg-neutral-100 p-1">
@@ -519,9 +527,9 @@ function AddOverrideForm({
 
       <div className={isEditing ? '' : 'grid grid-cols-2 gap-3'}>
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             {isEditing ? 'Date' : 'Start Date'}
-          </label>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -558,9 +566,9 @@ function AddOverrideForm({
         </div>
         {!isEditing && (
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               End Date
-            </label>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -596,10 +604,11 @@ function AddOverrideForm({
       {type === 'hours' && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <label htmlFor="schedule-override-start-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               Start Time
             </label>
             <select
+              id="schedule-override-start-time"
               value={startTime}
               onChange={e => setStartTime(e.target.value)}
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
@@ -610,10 +619,11 @@ function AddOverrideForm({
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <label htmlFor="schedule-override-end-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
               End Time
             </label>
             <select
+              id="schedule-override-end-time"
               value={endTime}
               onChange={e => setEndTime(e.target.value)}
               className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all focus:border-amber-400 focus:outline-none"
@@ -627,10 +637,11 @@ function AddOverrideForm({
       )}
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        <label htmlFor="schedule-override-note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
           Note (optional)
         </label>
         <input
+          id="schedule-override-note"
           type="text"
           value={note}
           onChange={e => setNote(e.target.value)}
@@ -655,7 +666,7 @@ function AddOverrideForm({
           className="flex-1 rounded-xl py-3 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
           style={{ backgroundColor: themeVars.accent }}
         >
-          {isSubmitting ? 'Saving...' : isEditing ? 'Update' : 'Add Override'}
+          {submitLabel}
         </button>
       </div>
     </div>
@@ -708,9 +719,9 @@ function RequestTimeOffForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             Start Date
-          </label>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -746,9 +757,9 @@ function RequestTimeOffForm({
           )}
         </div>
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
             End Date
-          </label>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -1161,190 +1172,192 @@ export default function StaffSchedulePage() {
           </div>
         )}
 
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div
-              className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-              style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
-            />
-          </div>
-        ) : (
-          <div
-            className="space-y-6"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
-            }}
-          >
-            {/* Weekly Schedule */}
-            <div
-              className="overflow-hidden rounded-2xl bg-white shadow-lg"
-              style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-            >
-              <div className="p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-bold" style={{ color: themeVars.titleText }}>
-                    Weekly Hours
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={handleSaveSchedule}
-                    disabled={saving}
-                    className="rounded-full px-4 py-1.5 text-sm font-bold text-neutral-900 transition-all hover:opacity-90 disabled:opacity-50"
-                    style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {DAYS.map((day, index) => (
-                    <DayScheduleEditor
-                      key={day}
-                      label={DAY_LABELS[index]!}
-                      schedule={weeklySchedule[day] ?? null}
-                      onChange={schedule => handleDayChange(day, schedule)}
-                    />
-                  ))}
-                </div>
-
-                {scheduleError && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                    {scheduleError}
-                  </div>
-                )}
+        {loading
+          ? (
+              <div className="flex items-center justify-center py-12">
+                <div
+                  className="size-8 animate-spin rounded-full border-4 border-t-transparent"
+                  style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                />
               </div>
-            </div>
-
-            {/* Upcoming Changes (Schedule Overrides) - Only show if module enabled */}
-            {capabilitiesLoading
-              ? (
-                  <ModuleSkeleton />
-                )
-              : overridesUpgradeRequired
-                ? (
-                    <UpgradeRequiredState featureName="Schedule Overrides" />
-                  )
-                : scheduleOverridesEnabled
-                  ? (
-                      <div
-                        className="overflow-hidden rounded-2xl bg-white shadow-lg"
-                        style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+            )
+          : (
+              <div
+                className="space-y-6"
+                style={{
+                  opacity: mounted ? 1 : 0,
+                  transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                  transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+                }}
+              >
+                {/* Weekly Schedule */}
+                <div
+                  className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                  style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                >
+                  <div className="p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                        Weekly Hours
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={handleSaveSchedule}
+                        disabled={saving}
+                        className="rounded-full px-4 py-1.5 text-sm font-bold text-neutral-900 transition-all hover:opacity-90 disabled:opacity-50"
+                        style={{ background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})` }}
                       >
-                        <div className="p-4">
-                          <div className="mb-4 flex items-center justify-between">
-                            <div>
-                              <h2 className="font-bold" style={{ color: themeVars.titleText }}>
-                                Upcoming Changes
-                              </h2>
-                              <p className="text-xs text-neutral-500">One-time schedule adjustments</p>
-                            </div>
-                            {!showAddOverride && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingOverride(null);
-                                  setShowAddOverride(true);
-                                }}
-                                className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
-                                style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
-                              >
-                                + Add
-                              </button>
-                            )}
-                          </div>
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
 
-                          {showAddOverride
-                            ? (
-                                <AddOverrideForm
-                                  editingOverride={editingOverride}
-                                  onSave={handleSaveOverride}
-                                  onCancel={() => {
-                                    setShowAddOverride(false);
-                                    setEditingOverride(null);
-                                  }}
-                                  isSubmitting={savingOverride}
-                                />
-                              )
-                            : overrides.length === 0
-                              ? (
-                                  <div className="py-6 text-center text-neutral-500">
-                                    <div className="mb-2 text-2xl">✨</div>
-                                    <p>No upcoming changes</p>
-                                    <p className="mt-1 text-xs">Add a day off or custom hours</p>
-                                  </div>
-                                )
-                              : (
-                                  <div className="space-y-2">
-                                    {overrides.map(override => (
-                                      <OverrideCard
-                                        key={override.id}
-                                        override={override}
-                                        onEdit={handleEditOverride}
-                                        onDelete={handleDeleteOverride}
-                                        isDeleting={deletingOverrideId === override.id}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                        </div>
+                    <div className="space-y-2">
+                      {DAYS.map((day, index) => (
+                        <DayScheduleEditor
+                          key={day}
+                          label={DAY_LABELS[index]!}
+                          schedule={weeklySchedule[day] ?? null}
+                          onChange={schedule => handleDayChange(day, schedule)}
+                        />
+                      ))}
+                    </div>
+
+                    {scheduleError && (
+                      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                        {scheduleError}
                       </div>
-                    )
-                  : null}
-
-            {/* Time Off Requests (EDIT 2: Request-based) */}
-            <div
-              className="overflow-hidden rounded-2xl bg-white shadow-lg"
-              style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-            >
-              <div className="p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="font-bold" style={{ color: themeVars.titleText }}>
-                      Time Off Requests
-                    </h2>
-                    <p className="text-xs text-neutral-500">Requires admin approval</p>
+                    )}
                   </div>
-                  {!showRequestTimeOff && (
-                    <button
-                      type="button"
-                      onClick={() => setShowRequestTimeOff(true)}
-                      className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
-                      style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
-                    >
-                      + Request
-                    </button>
-                  )}
                 </div>
 
-                {showRequestTimeOff
+                {/* Upcoming Changes (Schedule Overrides) - Only show if module enabled */}
+                {capabilitiesLoading
                   ? (
-                      <RequestTimeOffForm
-                        onSubmit={handleSubmitTimeOffRequest}
-                        onCancel={() => setShowRequestTimeOff(false)}
-                        isSubmitting={submittingRequest}
-                      />
+                      <ModuleSkeleton />
                     )
-                  : timeOffRequests.length === 0
+                  : overridesUpgradeRequired
                     ? (
-                        <div className="py-6 text-center text-neutral-500">
-                          <div className="mb-2 text-2xl">📅</div>
-                          <p>No time off requests</p>
-                          <p className="mt-1 text-xs">Submit a request for admin approval</p>
-                        </div>
+                        <UpgradeRequiredState featureName="Schedule Overrides" />
                       )
-                    : (
-                        <div className="space-y-2">
-                          {timeOffRequests.map(request => (
-                            <TimeOffRequestCard key={request.id} request={request} />
-                          ))}
-                        </div>
+                    : scheduleOverridesEnabled
+                      ? (
+                          <div
+                            className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                            style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                          >
+                            <div className="p-4">
+                              <div className="mb-4 flex items-center justify-between">
+                                <div>
+                                  <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                                    Upcoming Changes
+                                  </h2>
+                                  <p className="text-xs text-neutral-500">One-time schedule adjustments</p>
+                                </div>
+                                {!showAddOverride && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingOverride(null);
+                                      setShowAddOverride(true);
+                                    }}
+                                    className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
+                                    style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                                  >
+                                    + Add
+                                  </button>
+                                )}
+                              </div>
+
+                              {showAddOverride
+                                ? (
+                                    <AddOverrideForm
+                                      editingOverride={editingOverride}
+                                      onSave={handleSaveOverride}
+                                      onCancel={() => {
+                                        setShowAddOverride(false);
+                                        setEditingOverride(null);
+                                      }}
+                                      isSubmitting={savingOverride}
+                                    />
+                                  )
+                                : overrides.length === 0
+                                  ? (
+                                      <div className="py-6 text-center text-neutral-500">
+                                        <div className="mb-2 text-2xl">✨</div>
+                                        <p>No upcoming changes</p>
+                                        <p className="mt-1 text-xs">Add a day off or custom hours</p>
+                                      </div>
+                                    )
+                                  : (
+                                      <div className="space-y-2">
+                                        {overrides.map(override => (
+                                          <OverrideCard
+                                            key={override.id}
+                                            override={override}
+                                            onEdit={handleEditOverride}
+                                            onDelete={handleDeleteOverride}
+                                            isDeleting={deletingOverrideId === override.id}
+                                          />
+                                        ))}
+                                      </div>
+                                    )}
+                            </div>
+                          </div>
+                        )
+                      : null}
+
+                {/* Time Off Requests (EDIT 2: Request-based) */}
+                <div
+                  className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                  style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                >
+                  <div className="p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h2 className="font-bold" style={{ color: themeVars.titleText }}>
+                          Time Off Requests
+                        </h2>
+                        <p className="text-xs text-neutral-500">Requires admin approval</p>
+                      </div>
+                      {!showRequestTimeOff && (
+                        <button
+                          type="button"
+                          onClick={() => setShowRequestTimeOff(true)}
+                          className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
+                          style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                        >
+                          + Request
+                        </button>
                       )}
+                    </div>
+
+                    {showRequestTimeOff
+                      ? (
+                          <RequestTimeOffForm
+                            onSubmit={handleSubmitTimeOffRequest}
+                            onCancel={() => setShowRequestTimeOff(false)}
+                            isSubmitting={submittingRequest}
+                          />
+                        )
+                      : timeOffRequests.length === 0
+                        ? (
+                            <div className="py-6 text-center text-neutral-500">
+                              <div className="mb-2 text-2xl">📅</div>
+                              <p>No time off requests</p>
+                              <p className="mt-1 text-xs">Submit a request for admin approval</p>
+                            </div>
+                          )
+                        : (
+                            <div className="space-y-2">
+                              {timeOffRequests.map(request => (
+                                <TimeOffRequestCard key={request.id} request={request} />
+                              ))}
+                            </div>
+                          )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
       </div>
 
       <StaffBottomNav activeItem="schedule" />

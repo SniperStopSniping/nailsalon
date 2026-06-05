@@ -82,7 +82,7 @@ function TabButton({
       type="button"
       data-testid={`staff-dashboard-tab-${id}`}
       onClick={() => onClick(id)}
-      className={`relative flex flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-center text-sm font-semibold transition-all duration-200 ${
+      className={`relative flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-center text-sm font-semibold transition-all duration-200 ${
         isActive
           ? 'shadow-sm'
           : 'bg-white hover:bg-neutral-50'

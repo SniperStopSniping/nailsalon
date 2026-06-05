@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { POST } from './route';
+
 const {
   isRedisAvailableMock,
   isStorageConfiguredMock,
@@ -22,8 +24,6 @@ vi.mock('@/core/storage/storageClient', () => ({
 vi.mock('@/libs/staffApiGuards', () => ({
   requireStaffAppointmentAccess: vi.fn(),
 }));
-
-import { POST } from './route';
 
 describe('POST /api/appointments/[id]/photos/presign setup errors', () => {
   beforeEach(() => {

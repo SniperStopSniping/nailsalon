@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET } from './route';
+
 const { executeMock, isRedisAvailableMock } = vi.hoisted(() => ({
   executeMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
@@ -15,8 +17,6 @@ vi.mock('@/core/redis/redisClient', () => ({
   redis: {},
   isRedisAvailable: isRedisAvailableMock,
 }));
-
-import { GET } from './route';
 
 describe('GET /api/health', () => {
   const originalEnv = { ...process.env };

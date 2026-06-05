@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import StaffDashboardPage from './page';
 
 const {
   fetchMock,
@@ -68,11 +69,12 @@ vi.mock('./components/SwipeableCard', () => ({
 
 vi.mock('./components/StaffAppointmentCard', () => ({
   StaffAppointmentCard: ({ appointment }: { appointment: { id: string } }) => (
-    <div>appointment:{appointment.id}</div>
+    <div>
+      appointment:
+      {appointment.id}
+    </div>
   ),
 }));
-
-import StaffDashboardPage from './page';
 
 describe('StaffDashboardPage', () => {
   beforeEach(() => {

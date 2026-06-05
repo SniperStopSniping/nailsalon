@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import StaffSchedulePage from './page';
 
 const {
   fetchMock,
@@ -41,8 +42,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
 });
-
-import StaffSchedulePage from './page';
 
 describe('StaffSchedulePage', () => {
   it('bootstraps profile, availability, and time-off data without query-param waterfall requests', async () => {
@@ -94,9 +93,11 @@ describe('StaffSchedulePage', () => {
     });
 
     const requestedUrls = fetchMock.mock.calls.map(([url]) => String(url));
+
     expect(requestedUrls).not.toContain('/api/staff/availability?technicianId=tech_1&salonSlug=salon-a');
     expect(routerReplace).not.toHaveBeenCalled();
-    expect(screen.getByDisplayValue('9:00 AM')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('9:00 PM')).toBeInTheDocument();
+
+    await screen.findByDisplayValue('9:00 AM');
+    await screen.findByDisplayValue('9:00 PM');
   });
 });

@@ -37,6 +37,14 @@ vi.mock('@/components/staff/appointments/AppointmentWorkflowDialogs', () => ({
 }));
 
 describe('StaffAppointmentsPage', () => {
+  const getLocalDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', fetchMock);
@@ -84,8 +92,10 @@ describe('StaffAppointmentsPage', () => {
 
     render(<StaffAppointmentsPage />);
 
+    const expectedDate = getLocalDateKey(new Date());
+
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments?date=2026-05-28&status=pending,confirmed,in_progress,completed');
+      expect(fetchMock).toHaveBeenCalledWith(`/api/appointments?date=${expectedDate}&status=pending,confirmed,in_progress,completed`);
     });
 
     expect(await screen.findByText('Day view (1)')).toBeInTheDocument();
