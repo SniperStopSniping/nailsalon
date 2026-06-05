@@ -44,6 +44,8 @@ type HealthResponse = {
   gitSha?: string;
 };
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(): Promise<Response> {
   const checks: HealthCheck = {
     db: false,
