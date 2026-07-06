@@ -214,9 +214,9 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen text-neutral-100"
       style={{
-        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        background: 'linear-gradient(to bottom, #000000, #090909 45%, #000000)',
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
@@ -235,7 +235,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
               type="button"
               onClick={handleBack}
               aria-label="Go back"
-              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+              className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/10 active:scale-95"
             >
               <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
                 <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -267,17 +267,17 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                   <div
                     className="flex size-6 items-center justify-center rounded-full text-xs font-bold"
                     style={{
-                      backgroundColor: isCurrentStep ? themeVars.primary : undefined,
-                      color: isCurrentStep ? '#171717' : '#525252',
+                      backgroundColor: isCurrentStep ? themeVars.primary : '#171717',
+                      color: isCurrentStep ? '#171717' : '#a3a3a3',
                     }}
                   >
                     {i + 1}
                   </div>
-                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                  <span className={`text-xs font-medium ${isCurrentStep ? 'text-white' : 'text-neutral-500'}`}>
                     {getStepLabel(step)}
                   </span>
                 </div>
-                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-300" />}
+                {i < bookingFlow.length - 1 && <div className="h-px w-4 bg-neutral-800" />}
               </div>
             );
           })}
@@ -293,8 +293,8 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           }}
         >
           <div
-            className="flex items-center rounded-2xl bg-white px-4 py-3 shadow-sm"
-            style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: themeVars.cardBorder }}
+            className="flex items-center rounded-2xl bg-[#101010] px-4 py-3 shadow-sm"
+            style={{ borderWidth: '1px', borderStyle: 'solid', borderColor: '#262626' }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
               <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
@@ -305,14 +305,14 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search services..."
-              className="flex-1 bg-transparent text-base text-neutral-800 outline-none placeholder:text-neutral-400"
+              className="flex-1 bg-transparent text-base text-white outline-none placeholder:text-neutral-500"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear search"
-                className="ml-2 flex size-6 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200"
+                className="ml-2 flex size-6 items-center justify-center rounded-full bg-neutral-800 transition-colors hover:bg-neutral-700"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -325,11 +325,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
         {/* Location Fallback Toast - shown when URL had invalid locationId for multi-location salon */}
         {showLocationFallbackToast && (
           <div
-            className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
+            className="mb-4 flex items-center justify-between rounded-xl bg-[#101010] px-4 py-3"
             style={{
               borderWidth: '1px',
               borderStyle: 'solid',
-              borderColor: '#fbbf24',
+              borderColor: '#262626',
               opacity: mounted ? 1 : 0,
               transform: mounted ? 'translateY(0)' : 'translateY(10px)',
               transition: 'opacity 300ms ease-out 110ms, transform 300ms ease-out 110ms',
@@ -337,7 +337,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           >
             <div className="flex items-center gap-2">
               <span className="text-amber-600">⚠️</span>
-              <span className="text-sm text-amber-800">
+              <span className="text-sm text-neutral-200">
                 Location not found, defaulted to
                 {' '}
                 {primaryLocation?.name || 'primary location'}
@@ -347,7 +347,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
             <button
               type="button"
               onClick={() => setShowLocationFallbackToast(false)}
-              className="ml-2 text-amber-600 hover:text-amber-800"
+              className="ml-2 text-neutral-400 hover:text-neutral-200"
               aria-label="Dismiss"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -367,7 +367,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
               transition: 'opacity 300ms ease-out 120ms, transform 300ms ease-out 120ms',
             }}
           >
-            <div className="mb-2 text-center text-sm font-medium text-neutral-600">
+            <div className="mb-2 text-center text-sm font-medium text-neutral-400">
               📍 Choose a location
             </div>
             <div className="flex flex-col gap-2">
@@ -385,28 +385,28 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                     }}
                     className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200"
                     style={{
-                      backgroundColor: isSelected ? `color-mix(in srgb, ${themeVars.primary} 15%, white)` : 'white',
+                      backgroundColor: isSelected ? `color-mix(in srgb, ${themeVars.primary} 16%, #101010)` : '#101010',
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
-                      boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.04)',
+                      borderColor: isSelected ? themeVars.primary : '#262626',
+                      boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.24)' : '0 2px 8px rgba(0,0,0,0.16)',
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-neutral-900">{location.name}</span>
+                          <span className="font-semibold text-white">{location.name}</span>
                           {location.isPrimary && (
                             <span
                               className="rounded-full px-2 py-0.5 text-xs font-medium"
-                              style={{ backgroundColor: `color-mix(in srgb, ${themeVars.accent} 15%, white)`, color: themeVars.accent }}
+                              style={{ backgroundColor: `color-mix(in srgb, ${themeVars.accent} 15%, #101010)`, color: themeVars.accent }}
                             >
                               Primary
                             </span>
                           )}
                         </div>
                         {location.address && (
-                          <div className="mt-0.5 text-sm text-neutral-500">
+                          <div className="mt-0.5 text-sm text-neutral-400">
                             {location.address}
                             {location.city && `, ${location.city}`}
                             {location.state && ` ${location.state}`}
@@ -420,7 +420,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                           backgroundColor: isSelected ? themeVars.primary : 'transparent',
                           borderWidth: isSelected ? 0 : '2px',
                           borderStyle: 'solid',
-                          borderColor: isSelected ? 'transparent' : '#d4d4d4',
+                          borderColor: isSelected ? 'transparent' : '#525252',
                         }}
                       >
                         {isSelected && (
@@ -459,11 +459,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                 }}
                 className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200"
                 style={{
-                  backgroundColor: active ? themeVars.accent : 'white',
-                  color: active ? 'white' : '#525252',
+                  backgroundColor: active ? themeVars.accent : '#101010',
+                  color: active ? 'white' : '#d4d4d4',
                   borderWidth: active ? 0 : '1px',
                   borderStyle: 'solid',
-                  borderColor: active ? 'transparent' : themeVars.cardBorder,
+                  borderColor: active ? 'transparent' : '#262626',
                   boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
                 }}
               >
@@ -488,14 +488,14 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                   transform: mounted ? (isSelected ? 'scale(1.02)' : 'translateY(0)') : 'translateY(15px)',
                   opacity: mounted ? 1 : 0,
                   background: isSelected
-                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 20%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 10%, transparent))`
-                    : 'white',
+                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, #101010), color-mix(in srgb, ${themeVars.primaryDark} 16%, #101010))`
+                    : '#101010',
                   boxShadow: isSelected
-                    ? '0 10px 15px -3px rgb(0 0 0 / 0.1)'
-                    : '0 4px 20px rgba(0,0,0,0.06)',
+                    ? '0 10px 15px -3px rgb(0 0 0 / 0.28)'
+                    : '0 4px 20px rgba(0,0,0,0.24)',
                   borderWidth: isSelected ? 0 : '1px',
                   borderStyle: 'solid',
-                  borderColor: isSelected ? 'transparent' : themeVars.cardBorder,
+                  borderColor: isSelected ? 'transparent' : '#262626',
                   outline: isSelected ? `2px solid ${themeVars.primary}` : undefined,
                   outlineOffset: isSelected ? '0px' : undefined,
                   transition: `opacity 300ms ease-out ${200 + index * 50}ms, transform 300ms ease-out ${200 + index * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
@@ -505,7 +505,7 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
                 <div
                   className="relative h-[120px] overflow-hidden"
                   style={{
-                    background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                    background: `linear-gradient(to bottom right, #111111, #1a1a1a)`,
                   }}
                 >
                   <Image
@@ -531,11 +531,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
 
                 {/* Info */}
                 <div className="p-3">
-                  <div className="text-base font-bold leading-tight text-neutral-900">
+                  <div className="text-base font-bold leading-tight text-white">
                     {service.name}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-sm text-neutral-500">
+                    <span className="text-sm text-neutral-400">
                       {service.duration}
                       {' '}
                       min
@@ -581,11 +581,11 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
       {/* Fixed Bottom Selection Bar */}
       {selectedCount > 0 && (
         <div
-          className="fixed inset-x-0 bottom-0 z-50 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.1)]"
+          className="fixed inset-x-0 bottom-0 z-50 bg-[#050505] shadow-[0_-4px_20px_rgba(0,0,0,0.5)]"
           style={{
             borderTopWidth: '1px',
             borderTopStyle: 'solid',
-            borderTopColor: themeVars.cardBorder,
+            borderTopColor: '#262626',
             animation: 'slideUp 0.3s ease-out',
           }}
         >
@@ -603,10 +603,10 @@ export function BookServiceClient({ services, bookingFlow, locations }: BookServ
           </style>
           <div className="mx-auto flex max-w-[430px] items-center justify-between p-4">
             <div>
-              <div className="text-sm text-neutral-500">
+              <div className="text-sm text-neutral-400">
                 {selectedCount === 1 ? '1 service' : `${selectedCount} services`}
               </div>
-              <div className="text-xl font-bold text-neutral-900">
+              <div className="text-xl font-bold text-white">
                 $
                 {totalPrice}
               </div>

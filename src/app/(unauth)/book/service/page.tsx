@@ -98,7 +98,7 @@ export default async function BookServicePage({
 
   return (
     <PageThemeWrapper mode={mode} themeKey={themeKey} pageName="book-service">
-      <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-black text-white"><div className="size-8 animate-spin rounded-full border-2 border-neutral-700 border-t-white" /></div>}>
         <BookServiceClient services={services} bookingFlow={bookingFlow} locations={locations} />
       </Suspense>
     </PageThemeWrapper>

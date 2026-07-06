@@ -124,10 +124,10 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
   }
 
   return (
-    <MainCard className="mt-4">
+    <MainCard className="mt-4 !border-neutral-800 !bg-[#101010] !text-white shadow-[0_4px_20px_rgba(0,0,0,0.35)]">
       {authState === 'loggedOut' && (
         <div className="space-y-3">
-          <p className="text-lg font-bold text-neutral-800">
+          <p className="text-lg font-bold text-white">
             <span
               className="bg-clip-text text-transparent"
               style={{
@@ -137,11 +137,11 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
               New here? Get a free manicure! 💅
             </span>
           </p>
-          <p className="-mt-1 text-sm text-neutral-500">
+          <p className="-mt-1 text-sm text-neutral-400">
             Enter your number to sign up or log in
           </p>
           <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
+            <div className="flex items-center rounded-full bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-300">
               +1
             </div>
             <FormInput
@@ -153,7 +153,7 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
                 setError(null);
               }}
               placeholder="Phone number"
-              className="!px-4 !py-2.5 !text-base"
+              className="!border-neutral-700 !bg-neutral-900 !px-4 !py-2.5 !text-base !text-white placeholder:!text-neutral-500"
             />
             <PrimaryButton
               onClick={handleSendCode}
@@ -167,7 +167,7 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
           {error && (
             <p className="text-xs text-red-500">{error}</p>
           )}
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-neutral-500">
             *New clients only. Conditions apply.
           </p>
         </div>
@@ -175,7 +175,7 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
 
       {authState === 'verify' && (
         <div className="space-y-3">
-          <p className="text-sm font-semibold text-neutral-700">
+          <p className="text-sm font-semibold text-neutral-200">
             Enter the 6-digit code we sent to +1
             {' '}
             {phone}
@@ -191,7 +191,7 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
                 setError(null);
               }}
               placeholder="• • • • • •"
-              className="!w-full !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em]"
+              className="!w-full !border-neutral-700 !bg-neutral-900 !px-4 !py-2.5 !text-center !text-lg !tracking-[0.3em] !text-white placeholder:!text-neutral-500"
             />
             <PrimaryButton
               onClick={handleVerifyCode}
