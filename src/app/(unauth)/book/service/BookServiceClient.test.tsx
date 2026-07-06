@@ -457,7 +457,7 @@ describe('BookServiceClient', () => {
     const featuredCard = screen.getByTestId('featured-service-card-svc-combo');
     fireEvent.click(featuredCard);
 
-    expect(featuredCard.getAttribute('style')).toContain('0 14px 28px rgba(0,0,0,0.14)');
+    expect(featuredCard.getAttribute('style')).toContain('0 14px 28px rgba(0,0,0,0.28)');
     expect(featuredCard.getAttribute('style')).toContain('border-width: 1px');
     expect(featuredCard.getAttribute('style')).not.toContain('outline');
     expect(screen.getByTestId('featured-service-card-image-svc-combo')).not.toHaveClass('scale-105');
@@ -592,7 +592,16 @@ describe('BookServiceClient', () => {
     const selectedCard = screen.getByTestId('service-card-svc-1');
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(panel).toBeInTheDocument();
-    expect(panel).toHaveClass('w-full', 'rounded-[24px]', 'px-3.5', 'py-3', 'shadow-[0_8px_22px_rgba(0,0,0,0.04)]');
+    expect(panel).toHaveClass(
+      'w-full',
+      'rounded-[24px]',
+      'bg-[#101010]',
+      'px-3.5',
+      'py-3',
+      'shadow-[0_8px_22px_rgba(0,0,0,0.24)]',
+      'sm:px-4',
+      'sm:py-3.5',
+    );
     expect(panel).not.toHaveClass('col-span-2');
     expect(within(panel).getByText('Customize your service')).toBeInTheDocument();
     expect(within(panel).getByText(/Optional add-ons for Colour Change/i)).toBeInTheDocument();
@@ -600,15 +609,14 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-addon-row-addon-2')).toHaveClass('px-3', 'py-2', 'rounded-[18px]');
     expect(stickyBar).toHaveClass(
       'fixed',
+      'inset-x-0',
       'bottom-0',
-      'left-0',
-      'right-0',
       'z-[60]',
-      'bg-white/85',
-      'supports-[backdrop-filter]:bg-white/82',
+      'border-t',
+      'border-neutral-800',
+      'bg-[#050505]/95',
+      'shadow-[0_-8px_30px_rgba(0,0,0,0.45)]',
       'backdrop-blur-lg',
-      'border-white/40',
-      'shadow-[0_-8px_30px_rgba(0,0,0,0.08)]',
     );
     expect(screen.getByTestId('service-sticky-spacer')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
