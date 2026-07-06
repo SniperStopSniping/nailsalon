@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.2...v1.5.0) (2026-07-06)
+
+
+### Features
+
+* darken booking service page ([cc8846d](https://github.com/SniperStopSniping/nailsalon/commit/cc8846d8c2d7d6fed0c98a06f6faf186b1169b80))
+
 ## [1.4.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.1...v1.4.2) (2026-06-05)
 
 
