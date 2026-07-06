@@ -730,7 +730,7 @@ export function BookServiceClient({
     <div
       className="min-h-screen"
       style={{
-        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        background: '#000',
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
