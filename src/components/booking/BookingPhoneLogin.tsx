@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { themeVars } from '@/theme';
 import { getApiErrorMessage } from '@/utils/apiError';
 
@@ -165,122 +165,122 @@ export function BookingPhoneLogin({ initialPhone, onLoginSuccess }: BookingPhone
   }
 
   return (
-    <Card className="mt-4">
+    <Card className="mt-4 border-neutral-800 bg-[#101010] text-white shadow-[0_4px_20px_rgba(0,0,0,0.35)]">
       <CardContent className="space-y-3">
-      {authState === 'loggedOut' && (
-        <div className="space-y-3">
-          <p className="text-lg font-bold text-neutral-800">
-            <span
-              className="bg-clip-text text-transparent"
-              style={{
-                backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
-              }}
-            >
-              Continue with your phone
-            </span>
-          </p>
-          <p className="-mt-1 text-sm text-neutral-500">
-            Enter your number to sign up or log in securely
-          </p>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-full bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-600">
-              +1
+        {authState === 'loggedOut' && (
+          <div className="space-y-3">
+            <p className="text-lg font-bold text-white">
+              <span
+                className="bg-clip-text text-transparent"
+                style={{
+                  backgroundImage: `linear-gradient(to right, ${themeVars.accent}, ${themeVars.primary})`,
+                }}
+              >
+                Continue with your phone
+              </span>
+            </p>
+            <p className="-mt-1 text-sm text-neutral-400">
+              Enter your number to sign up or log in securely
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-full bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-300">
+                +1
+              </div>
+              <Input
+                aria-label="Customer phone number"
+                data-testid="booking-login-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '');
+                  setPhone(digits.slice(0, 10));
+                  setError(null);
+                }}
+                placeholder="Phone number"
+                className="h-10 rounded-full border-neutral-700 bg-neutral-900 px-4 text-base text-white shadow-none placeholder:text-neutral-500 focus-visible:ring-[var(--theme-primary-dark)]"
+              />
+              <Button
+                data-testid="booking-login-send"
+                onClick={handleSendCode}
+                disabled={!phone.trim() || phone.length < 10 || isLoading}
+                variant="brand"
+                size="pillSm"
+                className="min-w-12 px-4"
+              >
+                {isLoading ? '...' : '→'}
+              </Button>
             </div>
-            <Input
-              aria-label="Customer phone number"
-              data-testid="booking-login-phone"
-              type="tel"
-              value={phone}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, '');
-                setPhone(digits.slice(0, 10));
-                setError(null);
-              }}
-              placeholder="Phone number"
-              className="h-10 rounded-full border-neutral-200 bg-neutral-50 px-4 text-base shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
-            />
-            <Button
-              data-testid="booking-login-send"
-              onClick={handleSendCode}
-              disabled={!phone.trim() || phone.length < 10 || isLoading}
-              variant="brand"
-              size="pillSm"
-              className="min-w-12 px-4"
-            >
-              {isLoading ? '...' : '→'}
-            </Button>
+            {error && (
+              <p className="text-xs text-red-500">{error}</p>
+            )}
           </div>
-          {error && (
-            <p className="text-xs text-red-500">{error}</p>
-          )}
-        </div>
-      )}
+        )}
 
-      {authState === 'verify' && (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-neutral-700">
-            Enter the 6-digit code we sent to +1
-            {' '}
-            {phone}
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              ref={codeInputRef}
-              aria-label="Customer verification code"
-              data-testid="booking-login-code"
-              type="tel"
-              inputMode="numeric"
-              value={code}
-              onChange={(e) => {
-                const nextCode = e.target.value.replace(/\D/g, '').slice(0, 6);
-                if (nextCode.length < 6) {
-                  lastSubmittedCodeRef.current = null;
-                }
-                setCode(nextCode);
-                setError(null);
+        {authState === 'verify' && (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-neutral-200">
+              Enter the 6-digit code we sent to +1
+              {' '}
+              {phone}
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                ref={codeInputRef}
+                aria-label="Customer verification code"
+                data-testid="booking-login-code"
+                type="tel"
+                inputMode="numeric"
+                value={code}
+                onChange={(e) => {
+                  const nextCode = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  if (nextCode.length < 6) {
+                    lastSubmittedCodeRef.current = null;
+                  }
+                  setCode(nextCode);
+                  setError(null);
+                  verifySucceededRef.current = false;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleVerifyCode();
+                  }
+                }}
+                placeholder="• • • • • •"
+                className="h-10 rounded-full border-neutral-700 bg-neutral-900 px-4 text-center text-lg tracking-[0.3em] text-white shadow-none placeholder:text-neutral-500 focus-visible:ring-[var(--theme-primary-dark)]"
+              />
+              <Button
+                data-testid="booking-login-verify"
+                onClick={() => void handleVerifyCode()}
+                disabled={code.trim().length < 6 || isLoading}
+                variant="brand"
+                size="pillSm"
+                className="min-w-24 px-4"
+              >
+                {isLoading ? '...' : 'Verify'}
+              </Button>
+            </div>
+            {error && (
+              <p className="text-xs text-red-500">{error}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                clearVerifyTimer();
                 verifySucceededRef.current = false;
+                lastSubmittedCodeRef.current = null;
+                setAuthState('loggedOut');
+                setPhone('');
+                setCode('');
+                setError(null);
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleVerifyCode();
-                }
-              }}
-              placeholder="• • • • • •"
-              className="h-10 rounded-full border-neutral-200 bg-neutral-50 px-4 text-center text-lg tracking-[0.3em] shadow-none placeholder:text-neutral-400 focus-visible:ring-[var(--theme-primary-dark)]"
-            />
-            <Button
-              data-testid="booking-login-verify"
-              onClick={() => void handleVerifyCode()}
-              disabled={code.trim().length < 6 || isLoading}
-              variant="brand"
-              size="pillSm"
-              className="min-w-24 px-4"
+              className="text-sm font-medium hover:underline"
+              style={{ color: themeVars.accent }}
             >
-              {isLoading ? '...' : 'Verify'}
-            </Button>
+              ← Change phone number
+            </button>
           </div>
-          {error && (
-            <p className="text-xs text-red-500">{error}</p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              clearVerifyTimer();
-              verifySucceededRef.current = false;
-              lastSubmittedCodeRef.current = null;
-              setAuthState('loggedOut');
-              setPhone('');
-              setCode('');
-              setError(null);
-            }}
-            className="text-sm font-medium hover:underline"
-            style={{ color: themeVars.accent }}
-          >
-            ← Change phone number
-          </button>
-        </div>
-      )}
+        )}
       </CardContent>
     </Card>
   );

@@ -36,13 +36,13 @@ export function BookingFloatingDock() {
     <div
       role="navigation"
       aria-label="Bottom Navigation"
-      className="bg-[var(--n5-bg-card)]/90 fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-white/50 px-8 shadow-[var(--n5-shadow-dock)] backdrop-blur-xl"
+      className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-neutral-800 bg-[#101010]/95 px-8 shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
     >
       <button
         type="button"
         onClick={() => navigate('/invite')}
         aria-label="Go to Invite"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
+        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
       >
         <Handshake strokeWidth={2} className="size-6" />
       </button>
@@ -50,7 +50,7 @@ export function BookingFloatingDock() {
         type="button"
         onClick={() => navigate('/rewards')}
         aria-label="Go to Rewards"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
+        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
       >
         <Gift strokeWidth={2} className="size-6" />
       </button>
@@ -58,7 +58,7 @@ export function BookingFloatingDock() {
         type="button"
         onClick={() => navigate('/profile')}
         aria-label="Go to Profile"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-[var(--n5-accent-hover)]"
+        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
       >
         <User strokeWidth={2} className="size-6" />
       </button>
