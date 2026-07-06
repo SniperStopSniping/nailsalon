@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { BookServiceClient } from './BookServiceClient';
 
 const {
   bookingStateMock,
@@ -43,7 +44,7 @@ vi.mock('next/image', () => ({
     className,
     onError,
     'data-testid': dataTestId,
-  }: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string; 'data-testid'?: string }) => (
+  }: React.ImgHTMLAttributes<HTMLImageElement> & { 'src'?: string; 'data-testid'?: string }) => (
     <img
       alt={alt}
       src={src}
@@ -128,8 +129,6 @@ vi.mock('@/providers/SalonProvider', () => ({
     salonSlug: 'salon-a',
   }),
 }));
-
-import { BookServiceClient } from './BookServiceClient';
 
 const services = [
   {
@@ -407,10 +406,12 @@ describe('BookServiceClient', () => {
       'md:flex-wrap',
       'md:justify-center',
     );
+
     const track = screen.getByTestId('service-category-track');
     const chipNames = within(track)
       .getAllByRole('button')
       .map(button => button.textContent?.trim());
+
     expect(chipNames).toEqual([
       '💅Manicure',
       '✨Builder Gel',
@@ -427,7 +428,9 @@ describe('BookServiceClient', () => {
     );
     expect(screen.getByText('Featured services')).toBeInTheDocument();
     expect(screen.getByText('Popular premium sets and combo appointments')).toBeInTheDocument();
+
     fireEvent.click(within(track).getByRole('button', { name: /combo/i }));
+
     expect(screen.getByTestId('service-card-svc-6')).toHaveClass('col-span-full');
   });
 
@@ -457,9 +460,9 @@ describe('BookServiceClient', () => {
     const featuredCard = screen.getByTestId('featured-service-card-svc-combo');
     fireEvent.click(featuredCard);
 
-    expect(featuredCard.getAttribute('style')).toContain('0 14px 28px rgba(0,0,0,0.28)');
-    expect(featuredCard.getAttribute('style')).toContain('border-width: 1px');
-    expect(featuredCard.getAttribute('style')).not.toContain('outline');
+    expect(featuredCard).toHaveStyle('box-shadow: 0 14px 28px rgba(0,0,0,0.28)');
+    expect(featuredCard).toHaveStyle('border-width: 1px');
+    expect(featuredCard).not.toHaveAttribute('style', expect.stringContaining('outline'));
     expect(screen.getByTestId('featured-service-card-image-svc-combo')).not.toHaveClass('scale-105');
   });
 
@@ -552,6 +555,7 @@ describe('BookServiceClient', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
     });
+
     expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
   });
 
@@ -590,6 +594,7 @@ describe('BookServiceClient', () => {
     const panel = screen.getByTestId('service-inline-addons-panel');
     const stickyBar = screen.getByTestId('service-sticky-bar');
     const selectedCard = screen.getByTestId('service-card-svc-1');
+
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(panel).toBeInTheDocument();
     expect(panel).toHaveClass(
@@ -653,6 +658,7 @@ describe('BookServiceClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
     });
+
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
@@ -752,6 +758,7 @@ describe('BookServiceClient', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
     });
+
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-addon-note')).not.toBeInTheDocument();
 
@@ -761,6 +768,7 @@ describe('BookServiceClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('service-card-addon-cue-svc-2')).toBeInTheDocument();
     });
+
     expect(screen.getByText(/Optional add-ons for Gel X/i)).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
   });
@@ -806,6 +814,7 @@ describe('BookServiceClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
     });
+
     expect(screen.getByText(/Optional add-ons for Gel X/i)).toBeInTheDocument();
     expect(screen.getByTestId('service-card-addon-cue-svc-2')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
@@ -934,6 +943,7 @@ describe('BookServiceClient', () => {
     });
 
     expect(replaceStateSpy).toHaveBeenCalled();
+
     replaceStateSpy.mockRestore();
   });
 });
