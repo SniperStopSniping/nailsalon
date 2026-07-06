@@ -732,9 +732,9 @@ export function BookServiceClient({
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen bg-black"
       style={{
-        background: '#000',
+        backgroundColor: '#000',
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
