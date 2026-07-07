@@ -1,83 +1,19 @@
-import { AlertTriangle, Mail, Phone } from 'lucide-react';
-import Link from 'next/link';
+import { AlertTriangle } from 'lucide-react';
 
-import { appendSalonSlug } from '@/libs/bookingParams';
+import { SalonStatusPage } from '@/components/SalonStatusPage';
 
 export const metadata = {
   title: 'Account Suspended',
   description: 'This salon account has been temporarily suspended.',
 };
 
-export default function SuspendedPage({
-  searchParams,
-  params,
-}: {
-  searchParams: { salonSlug?: string };
-  params?: { locale?: string; slug?: string };
-}) {
-  const resolvedSalonSlug = params?.slug ?? searchParams.salonSlug;
-
+export default function SuspendedPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-lg">
-        {/* Icon */}
-        <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full bg-amber-100">
-          <AlertTriangle className="size-8 text-amber-600" />
-        </div>
-
-        {/* Title */}
-        <h1 className="mb-2 text-2xl font-bold text-gray-900">
-          Account Temporarily Suspended
-        </h1>
-
-        {/* Description */}
-        <p className="mb-6 text-gray-600">
-          This salon&apos;s booking system is currently unavailable. This may be due to
-          maintenance or an account issue. We apologize for any inconvenience.
-        </p>
-
-        {/* Contact Info */}
-        <div className="mb-6 rounded-xl bg-gray-50 p-4">
-          <p className="mb-3 text-sm font-medium text-gray-700">
-            Need to reach the salon?
-          </p>
-          <div className="space-y-2">
-            <a
-              href="tel:"
-              className="flex items-center justify-center gap-2 text-sm text-indigo-600 hover:text-indigo-700"
-            >
-              <Phone className="size-4" />
-              Contact by phone
-            </a>
-            <a
-              href="mailto:"
-              className="flex items-center justify-center gap-2 text-sm text-indigo-600 hover:text-indigo-700"
-            >
-              <Mail className="size-4" />
-              Contact by email
-            </a>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="space-y-3">
-          <Link
-            href={appendSalonSlug('/', resolvedSalonSlug, {
-              routeSalonSlug: params?.slug,
-              locale: params?.locale,
-            })}
-            className="block w-full rounded-lg bg-gray-100 px-4 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-200"
-          >
-            Go Back Home
-          </Link>
-        </div>
-
-        {/* Footer */}
-        <p className="mt-6 text-xs text-gray-400">
-          If you are the salon owner and believe this is an error,
-          please contact support.
-        </p>
-      </div>
-    </div>
+    <SalonStatusPage
+      icon={AlertTriangle}
+      title="Account Temporarily Suspended"
+      description="This salon's booking system is currently unavailable. This may be due to maintenance or an account issue. We apologize for any inconvenience — please contact the salon directly to book."
+      footer="If you are the salon owner, please contact support to restore access."
+    />
   );
 }

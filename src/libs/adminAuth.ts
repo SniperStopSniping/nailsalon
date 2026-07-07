@@ -8,15 +8,17 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
+import { type AdminImpersonationSession, getAdminImpersonationSession } from '@/libs/adminImpersonation';
 import { db } from '@/libs/DB';
-// =============================================================================
-// BACKWARD COMPATIBILITY (for existing API routes)
-// =============================================================================
-import { getAdminImpersonationSession, type AdminImpersonationSession } from '@/libs/adminImpersonation';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
 import { adminInviteSchema, adminSalonMembershipSchema, adminSessionSchema, adminUserSchema, salonSchema } from '@/models/Schema';
+
 import { ACTIVE_SALON_COOKIE } from './tenantSlug';
+
+// =============================================================================
+// BACKWARD COMPATIBILITY (for existing API routes)
+// =============================================================================
 
 // =============================================================================
 // CONSTANTS
@@ -24,11 +26,13 @@ import { ACTIVE_SALON_COOKIE } from './tenantSlug';
 
 export const ADMIN_SESSION_COOKIE = 'n5_admin_session';
 export const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 365; // 1 year
+const shouldUseSecureCookies = process.env.NODE_ENV === 'production'
+  && !(process.env.CI === 'true' && process.env.E2E_INSECURE_COOKIES === 'true');
 
 // Cookie options - must be identical for set and clear
 export const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: shouldUseSecureCookies,
   sameSite: 'lax' as const,
   path: '/',
 };

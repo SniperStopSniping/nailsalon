@@ -172,7 +172,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         )}
 
         {/* Badge */}
-        {app.badge && app.badge > 0 && (
+        {typeof app.badge === 'number' && app.badge > 0 && (
           <div className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
             <span className="text-[11px] font-bold text-white">
               {app.badge > 99 ? '99+' : app.badge}
@@ -209,7 +209,9 @@ type AppGridProps = {
   onAppTap?: (appId: string) => void;
 };
 
-export function AppGrid({ theme = 'apple', badges = {}, onAppTap }: AppGridProps) {
+const EMPTY_BADGES: Record<string, number> = {};
+
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap }: AppGridProps) {
   // Merge badges into apps
   const appsWithBadges = APPS.map(app => ({
     ...app,

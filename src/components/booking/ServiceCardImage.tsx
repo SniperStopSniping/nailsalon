@@ -1,10 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import { ImageIcon } from 'lucide-react';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
-import { PUBLIC_SERVICE_IMAGE_FALLBACK, normalizePublicServiceImageUrl } from '@/libs/serviceImage';
+import { normalizePublicServiceImageUrl, PUBLIC_SERVICE_IMAGE_FALLBACK } from '@/libs/serviceImage';
 import { cn } from '@/utils/Helpers';
 
 type ServiceCardImageProps = {
@@ -20,7 +20,9 @@ export function ServiceCardImage({
   src,
   alt,
   className,
-  sizes,
+  // Cards render at ≤430px wide; a default keeps next/image from requesting
+  // full-viewport variants (and silences the missing-sizes warning).
+  sizes = '(max-width: 640px) 90vw, 430px',
   imageTestId,
   placeholderTestId,
 }: ServiceCardImageProps) {
@@ -37,7 +39,7 @@ export function ServiceCardImage({
     return (
       <div
         data-testid={placeholderTestId}
-        className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#f5e7cd] via-[#f7f2e8] to-white"
+        className="flex size-full items-center justify-center bg-gradient-to-br from-[#f5e7cd] via-[#f7f2e8] to-white"
       >
         <div className="flex items-center gap-1.5 rounded-full border border-white/60 bg-white/70 px-2.5 py-1 text-[#9b7a35] shadow-sm backdrop-blur-sm">
           <ImageIcon className="size-3.5" strokeWidth={1.75} />

@@ -18,6 +18,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'invite',
   'membership',
   'my-referrals',
+  'not-found',
   'onboarding',
   'payment-methods',
   'preferences',
@@ -36,7 +37,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
 
 export function normalizeSalonSlug(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
-  return normalized ? normalized : null;
+  return normalized || null;
 }
 
 export function getSalonSlugFromRouteParams(

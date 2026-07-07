@@ -22,7 +22,7 @@ export function WorkspacePageHeader({
   subtitleClassName,
 }: WorkspacePageHeaderProps) {
   return (
-    <div className={cn('flex items-center justify-between gap-4', className)}>
+    <div className={cn('flex flex-wrap items-center justify-between gap-x-4 gap-y-2', className)}>
       <div className="flex min-w-0 items-center gap-3">
         {leading}
         <div className="min-w-0">

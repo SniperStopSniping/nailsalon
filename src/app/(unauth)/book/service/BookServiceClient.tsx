@@ -4,29 +4,30 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
-import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
-import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
+import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
-import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
+import { useClientSession } from '@/hooks/useClientSession';
+import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
-import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { triggerHaptic } from '@/libs/haptics';
 import {
   getPublicTechnicianCompatibility,
-  technicianSupportsPublicLocation,
   type PublicTechnicianPreview,
+  technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { PUBLIC_SERVICE_CATEGORIES } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
+import { formatDuration } from '@/utils/Helpers';
 
 type ServiceCategory =
   | 'manicure'
@@ -122,16 +123,6 @@ function formatMoney(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
-function formatDuration(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remaining = minutes % 60;
-  return remaining > 0 ? `${hours}h ${remaining}m` : `${hours}h`;
-}
-
 function buildServiceRows(services: ServiceData[]): ServiceData[][] {
   const rows: ServiceData[][] = [];
   let currentRow: ServiceData[] = [];
@@ -202,13 +193,17 @@ function buildDefaultSelectedAddOns(
   return normalized;
 }
 
+const EMPTY_ADD_ONS: AddOnData[] = [];
+const EMPTY_ADD_ON_RULES: ServiceAddOnRule[] = [];
+const EMPTY_TECHNICIANS: TechnicianPreviewData[] = [];
+
 export function BookServiceClient({
   services,
-  addOns = [],
-  serviceAddOnRules = [],
+  addOns = EMPTY_ADD_ONS,
+  serviceAddOnRules = EMPTY_ADD_ON_RULES,
   bookingFlow,
   locations,
-  technicians = [],
+  technicians = EMPTY_TECHNICIANS,
   currency = 'CAD',
   showNewClientPromo = false,
 }: BookServiceClientProps) {
@@ -465,14 +460,14 @@ export function BookServiceClient({
     })
     .filter(Boolean);
   const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
-  const locationCompatiblePreviewTechnicians = technicians.filter((technician) =>
+  const locationCompatiblePreviewTechnicians = technicians.filter(technician =>
     technicianSupportsPublicLocation({
       technician,
       locationId: selectedLocationId,
     }),
   );
   const compatiblePreviewTechnicians = selectedService
-    ? locationCompatiblePreviewTechnicians.filter((technician) =>
+    ? locationCompatiblePreviewTechnicians.filter(technician =>
       getPublicTechnicianCompatibility({
         selectionMode: 'base-service',
         technician,
@@ -779,7 +774,7 @@ export function BookServiceClient({
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search services..."
-              className="h-auto flex-1 border-0 bg-transparent px-0 py-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
+              className="h-auto flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
             />
             {searchQuery && (
               <button
@@ -974,7 +969,7 @@ export function BookServiceClient({
           : (
               <>
                 <div
-                  className="-mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                  className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                   style={{
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
@@ -991,9 +986,9 @@ export function BookServiceClient({
                           Popular premium sets and combo appointments
                         </div>
                       </div>
-                      <div className="-mx-4 overflow-x-auto overflow-y-hidden px-4 scrollbar-hide sm:mx-0 sm:px-0">
+                      <div className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0">
                         <div className="flex min-w-max gap-2">
-                          {featuredServices.map((service) => {
+                          {featuredServices.map((service, featuredIndex) => {
                             const isSelected = selectedBaseServiceId === service.id;
                             return (
                               <button
@@ -1025,7 +1020,10 @@ export function BookServiceClient({
                                   />
                                   <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
                                   <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
-                                    {service.category === 'combo' ? 'Best value' : CATEGORY_META[service.category].label}
+                                    {/* "Best value" only on the lead card — a badge on every card means nothing */}
+                                    {featuredIndex === 0 && service.category === 'combo'
+                                      ? 'Best value'
+                                      : CATEGORY_META[service.category].label}
                                   </div>
                                 </div>
                                 <div className="p-2">
@@ -1054,7 +1052,7 @@ export function BookServiceClient({
                 </div>
 
                 <div
-                  className="-mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 scrollbar-hide md:mx-0 md:w-full md:overflow-visible md:px-0"
+                  className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
                   style={{
                     opacity: mounted ? 1 : 0,
                     transition: 'opacity 300ms ease-out 150ms',
@@ -1185,7 +1183,7 @@ export function BookServiceClient({
                                     </span>
                                     <span
                                       data-testid={`service-card-price-${service.id}`}
-                                      className="shrink-0 text-lg font-bold leading-none text-right"
+                                      className="shrink-0 text-right text-lg font-bold leading-none"
                                       style={{ color: themeVars.accent }}
                                     >
                                       {service.priceDisplayText || formatMoney(service.priceCents, currency)}
@@ -1286,7 +1284,7 @@ export function BookServiceClient({
                                               >
                                                 -
                                               </button>
-                                              <div className="min-w-[1.5rem] text-center text-sm font-semibold text-neutral-900">
+                                              <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
                                                 {quantity}
                                               </div>
                                               <button
@@ -1351,7 +1349,7 @@ export function BookServiceClient({
       {selectedService && (
         <div
           data-testid="service-sticky-bar"
-          className="fixed bottom-0 left-0 right-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg supports-[backdrop-filter]:bg-white/82"
+          className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
           style={{
             animation: 'slideUp 0.3s ease-out',
             paddingBottom: 'env(safe-area-inset-bottom)',

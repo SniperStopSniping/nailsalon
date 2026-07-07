@@ -7,10 +7,12 @@ import { clientSessionSchema } from '@/models/Schema';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
 export const CLIENT_SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const shouldUseSecureCookies = process.env.NODE_ENV === 'production'
+  && !(process.env.CI === 'true' && process.env.E2E_INSECURE_COOKIES === 'true');
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: shouldUseSecureCookies,
   sameSite: 'lax' as const,
   path: '/',
 };
@@ -129,7 +131,7 @@ export async function setClientSessionCookies(args: {
   for (const legacyCookie of ['client_phone', 'client_name', 'client_email']) {
     cookieStore.set(legacyCookie, '', {
       httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
+      secure: shouldUseSecureCookies,
       sameSite: 'lax',
       maxAge: 0,
       path: '/',
@@ -147,7 +149,7 @@ export async function clearClientSessionCookies(): Promise<void> {
 
   cookieStore.set('client_phone', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',
@@ -155,7 +157,7 @@ export async function clearClientSessionCookies(): Promise<void> {
 
   cookieStore.set('client_name', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',
@@ -163,7 +165,7 @@ export async function clearClientSessionCookies(): Promise<void> {
 
   cookieStore.set('client_email', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',

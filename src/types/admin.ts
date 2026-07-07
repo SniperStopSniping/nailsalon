@@ -19,6 +19,7 @@ export type AnalyticsResponse = {
     total: number; // cents
     trend: number; // percentage change from previous period
     completed: number; // count of completed appointments
+    series: number[]; // revenue in cents bucketed evenly across the period
   };
   appointments: {
     total: number;

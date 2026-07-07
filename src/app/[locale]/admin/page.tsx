@@ -14,14 +14,14 @@ import { Bell, LogOut } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
+import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
 import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
 import { AppGrid, type AppId } from '@/components/admin/AppGrid';
-import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
-import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
+import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
 import { StateCard } from '@/components/ui/state-card';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
@@ -50,6 +50,7 @@ function getEmptyAnalytics(): PartialAnalytics {
       total: 0,
       trend: 0,
       completed: 0,
+      series: [],
     },
     appointments: {
       total: 0,
@@ -889,18 +890,19 @@ function AdminDashboardContent() {
             {/* Page 1: Analytics Widgets */}
             {analyticsUnavailableState
               ? (
-              <div className="px-5 py-4" data-testid="analytics-unavailable-state">
-                <StateCard
-                  title={analyticsUnavailableState.title}
-                  description={analyticsUnavailableState.description}
-                  tone={analyticsUnavailableState.tone}
-                />
-              </div>
+                  <div className="px-5 py-4" data-testid="analytics-unavailable-state">
+                    <StateCard
+                      title={analyticsUnavailableState.title}
+                      description={analyticsUnavailableState.description}
+                      tone={analyticsUnavailableState.tone}
+                    />
+                  </div>
                 )
               : (
                   <AnalyticsWidgets
                     revenue={data.revenue.today ?? 0}
                     revenueTrend={data.revenue.trend ?? 0}
+                    revenueSeries={analyticsData?.revenue?.series ?? []}
                     staffData={staffData}
                     utilization={utilization}
                     services={services}

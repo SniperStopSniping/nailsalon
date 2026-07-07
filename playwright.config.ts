@@ -10,6 +10,18 @@ const HOST = process.env.HOST || 'localhost';
 const PORT = process.env.PORT || 3000;
 const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 const usingExternalBaseUrl = Boolean(EXTERNAL_BASE_URL);
+
+process.env.HOST ||= HOST;
+process.env.PORT ||= String(PORT);
+
+if (process.env.CI && process.env.E2E_USE_REAL_TWILIO !== 'true') {
+  process.env.E2E_INSECURE_COOKIES = 'true';
+  process.env.TWILIO_ACCOUNT_SID = '';
+  process.env.TWILIO_AUTH_TOKEN = '';
+  process.env.TWILIO_VERIFY_SERVICE_SID = '';
+  process.env.TWILIO_PHONE_NUMBER = '';
+}
+
 const chromiumUse = {
   ...devices['Desktop Chrome'],
   channel: 'chromium' as const,
@@ -20,6 +32,7 @@ const chromiumUse = {
 
 // Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port
 const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
+const webServerReadyURL = `${baseURL}/api/health`;
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -47,10 +60,8 @@ export default defineConfig({
   webServer: EXTERNAL_BASE_URL
     ? undefined
     : {
-        command: process.env.CI
-          ? `npm run start -- --hostname ${HOST} --port ${PORT}`
-          : `npm run dev:next -- --hostname ${HOST} --port ${PORT}`,
-        url: baseURL,
+        command: `npm run start -- --hostname ${HOST} --port ${PORT}`,
+        url: webServerReadyURL,
         timeout: 5 * 60 * 1000,
         reuseExistingServer: !process.env.CI,
       },

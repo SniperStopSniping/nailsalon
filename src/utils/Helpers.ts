@@ -35,3 +35,17 @@ export const getI18nPath = (url: string, locale: string) => {
 
   return `/${locale}${url}`;
 };
+
+/**
+ * Format a duration in minutes for display: 45 → "45 min", 75 → "1h 15m", 120 → "2h".
+ * Single source of truth so durations read the same on every surface.
+ */
+export function formatDuration(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining > 0 ? `${hours}h ${remaining}m` : `${hours}h`;
+}

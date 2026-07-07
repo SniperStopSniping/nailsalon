@@ -104,6 +104,40 @@ function getDateRange(period: string, anchor?: string): { start: Date; end: Date
   return { start, end, previousStart, previousEnd };
 }
 
+/**
+ * Bucket completed-appointment revenue into an evenly spaced series over
+ * [start, end) so the dashboard chart reflects real sales, not a placeholder.
+ */
+function buildRevenueSeries(
+  rows: Array<{ startTime: Date; totalPrice: number | null }>,
+  start: Date,
+  end: Date,
+  period: string,
+): number[] {
+  const bucketCount = period === 'yearly'
+    ? 12
+    : period === 'monthly'
+      ? Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+      : 7;
+
+  const series = Array.from({ length: bucketCount }, () => 0);
+  const rangeMs = end.getTime() - start.getTime();
+  if (rangeMs <= 0) {
+    return series;
+  }
+
+  for (const row of rows) {
+    const t = new Date(row.startTime).getTime();
+    const index = Math.min(
+      bucketCount - 1,
+      Math.max(0, Math.floor(((t - start.getTime()) / rangeMs) * bucketCount)),
+    );
+    series[index] = (series[index] ?? 0) + (row.totalPrice ?? 0);
+  }
+
+  return series;
+}
+
 // Re-export the response type for consumers
 export type { AnalyticsResponse };
 
@@ -153,6 +187,7 @@ export async function GET(request: Request): Promise<Response> {
       appointmentStats,
       staffPerformance,
       serviceMix,
+      revenueRows,
     ] = await Promise.all([
       db
         .select({
@@ -245,7 +280,23 @@ export async function GET(request: Request): Promise<Response> {
         .groupBy(serviceSchema.id)
         .orderBy(sql`count(*) DESC`)
         .limit(4),
+      db
+        .select({
+          startTime: appointmentSchema.startTime,
+          totalPrice: appointmentSchema.totalPrice,
+        })
+        .from(appointmentSchema)
+        .where(
+          and(
+            eq(appointmentSchema.salonId, salon.id),
+            eq(appointmentSchema.status, 'completed'),
+            gte(appointmentSchema.startTime, start),
+            lt(appointmentSchema.startTime, end),
+          ),
+        ),
     ]);
+
+    const revenueSeries = buildRevenueSeries(revenueRows, start, end, period);
 
     const currentRevenue = currentRevenueResult[0]?.total ?? 0;
     const previousRevenue = previousRevenueResult[0]?.total ?? 0;
@@ -296,6 +347,7 @@ export async function GET(request: Request): Promise<Response> {
           total: currentRevenue,
           trend: revenueTrend,
           completed: currentRevenueResult[0]?.count ?? 0,
+          series: revenueSeries,
         },
         appointments: {
           total: appointmentStats[0]?.total ?? 0,

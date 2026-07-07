@@ -615,8 +615,7 @@ describe('BookServiceClient', () => {
     expect(stickyBar).toHaveClass(
       'fixed',
       'bottom-0',
-      'left-0',
-      'right-0',
+      'inset-x-0',
       'z-[60]',
       'border-t',
       'border-white/40',

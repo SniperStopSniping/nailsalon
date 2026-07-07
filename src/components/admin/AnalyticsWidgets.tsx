@@ -62,6 +62,8 @@ type AnalyticsWidgetsProps = {
   revenue?: number;
   /** Revenue trend percentage */
   revenueTrend?: number;
+  /** Revenue per bucket across the period (cents) — drives the sparkline */
+  revenueSeries?: number[];
   /** Staff performance data */
   staffData?: StaffMember[];
   /** Utilization percentages for each staff member */
@@ -235,10 +237,12 @@ function formatCurrency(cents: number): string {
 const EMPTY_STAFF: StaffMember[] = [];
 const EMPTY_UTILIZATION: Array<{ name: string; percent: number; color: string }> = [];
 const EMPTY_SERVICES: Array<{ label: string; percent: number; color: string }> = [];
+const EMPTY_SERIES: number[] = [];
 
 export function AnalyticsWidgets({
   revenue = 0,
   revenueTrend = 0,
+  revenueSeries = EMPTY_SERIES,
   staffData = EMPTY_STAFF,
   utilization = EMPTY_UTILIZATION,
   services = EMPTY_SERVICES,
@@ -440,7 +444,7 @@ export function AnalyticsWidgets({
               </motion.div>
             </AnimatePresence>
           </div>
-          <RevenueChart />
+          <RevenueChart data={revenueSeries} />
           <ChartLabels labels={chartLabels} />
         </motion.div>
 

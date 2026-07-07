@@ -32,7 +32,9 @@ export type PageThemeWrapperProps = {
 };
 
 /**
- * Dev-only debug banner showing current theme state
+ * Dev-only debug banner showing current theme state.
+ * Opt-in: set NEXT_PUBLIC_THEME_DEBUG=true — it overlays the page header,
+ * so it should not render on every dev pageview by default.
  */
 function ThemeDebugBanner({
   pageName,
@@ -43,7 +45,7 @@ function ThemeDebugBanner({
   mode: 'custom' | 'theme';
   themeKey: string | null;
 }) {
-  if (process.env.NODE_ENV !== 'development') {
+  if (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_THEME_DEBUG !== 'true') {
     return null;
   }
 

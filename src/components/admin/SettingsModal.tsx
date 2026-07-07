@@ -26,11 +26,9 @@ import {
   MapPin,
   MessageSquare,
   Save,
-  Search,
   Shield,
   User,
   Users,
-  Wifi,
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -112,6 +110,16 @@ function Row({
     <div
       className="flex min-h-[48px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
       onClick={type === 'link' ? onClick : undefined}
+      onKeyDown={type === 'link' && onClick
+        ? (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onClick();
+            }
+          }
+        : undefined}
+      role={type === 'link' && onClick ? 'button' : undefined}
+      tabIndex={type === 'link' && onClick ? 0 : undefined}
     >
       {/* Icon */}
       {Icon && (
@@ -252,15 +260,16 @@ type ProfileCardProps = {
 
 function ProfileCard({
   name,
-  subtitle = 'Apple Account, iCloud, and more',
+  subtitle = 'Salon admin account',
   initials,
   onClick,
 }: ProfileCardProps) {
   const displayInitials = initials || name.split(' ').map(n => n[0]).join('').toUpperCase();
 
   return (
-    <div
-      className="mb-8 flex cursor-pointer items-center gap-3 px-4 transition-opacity active:opacity-70"
+    <button
+      type="button"
+      className="mb-8 flex w-full cursor-pointer items-center gap-3 px-4 text-left transition-opacity active:opacity-70"
       onClick={onClick}
     >
       <div className="size-[60px] overflow-hidden rounded-full border border-white/50 shadow-sm">
@@ -273,21 +282,7 @@ function ProfileCard({
         <div className="text-[13px] text-gray-500">{subtitle}</div>
       </div>
       <ChevronRight className="size-5 text-[#C7C7CC]" />
-    </div>
-  );
-}
-
-/**
- * Search Bar
- */
-function SearchBar() {
-  return (
-    <div className="px-4 pb-4">
-      <div className="bg-[#767680]/12 flex h-9 items-center rounded-[10px] px-2 text-[#8E8E93]">
-        <Search className="mr-2 size-4" />
-        <span className="text-[16px]">Search</span>
-      </div>
-    </div>
+    </button>
   );
 }
 
@@ -430,7 +425,7 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
             </div>
           )
         : (
-            <div className="space-y-4 px-4 py-4">
+            <div className="space-y-4 p-4">
               {isPrimaryFallback && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
                   No primary location was set. Saving here will promote the current default location for customer directions.
@@ -1262,8 +1257,6 @@ export function SettingsModal({
         <div className="px-4 pb-2">
           <h1 className="text-[34px] font-bold text-[#1C1C1E]">Settings</h1>
         </div>
-
-        <SearchBar />
       </div>
 
       {/* Scrollable Content */}
@@ -1286,7 +1279,7 @@ export function SettingsModal({
                 </div>
               )
             : (
-                <div className="space-y-4 px-4 py-4">
+                <div className="space-y-4 p-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="flex flex-col gap-1">
                       <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Buffer minutes</span>
@@ -1368,7 +1361,7 @@ export function SettingsModal({
                       />
                     </label>
 
-                    <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 px-3 py-3 sm:col-span-2">
+                    <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
                       <div className="space-y-1">
                         <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">First-visit offer</span>
                         <p className="text-sm text-gray-700">
@@ -1411,12 +1404,6 @@ export function SettingsModal({
               )}
         </Section>
 
-        {/* Section 1: Connectivity */}
-        <Section>
-          <Row icon={Wifi} iconColor="bg-[#007AFF]" label="Wi-Fi" value="Salon_Guest" />
-          <Row icon={Shield} iconColor="bg-green-500" label="Security" isLast />
-        </Section>
-
         {/* Section 2: Notifications */}
         <Section
           title="Notifications"
@@ -1429,7 +1416,7 @@ export function SettingsModal({
                 </div>
               )
             : (
-                <div className="space-y-4 px-4 py-4">
+                <div className="space-y-4 p-4">
                   {([
                     {
                       key: 'newBooking',
@@ -1443,7 +1430,7 @@ export function SettingsModal({
                       subtitle: 'Notify your team when an appointment is cancelled or marked as no-show.',
                       technicianDescription: 'Send a cancellation alert to the artist assigned to the appointment.',
                     },
-                  ] as const).map(notificationEvent => {
+                  ] as const).map((notificationEvent) => {
                     const eventForm = bookingNotificationsForm[notificationEvent.key];
 
                     return (
@@ -1486,7 +1473,7 @@ export function SettingsModal({
                               className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                               aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                             >
-                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
                                 const smsUnavailable = (option.value === 'sms' || option.value === 'both')
                                   ? !bookingNotificationCapabilities.smsChannelAvailable
                                   : false;
@@ -1543,7 +1530,7 @@ export function SettingsModal({
                               className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                               aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                             >
-                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(option => {
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
                                 const smsUnavailable = (option.value === 'sms' || option.value === 'both')
                                   ? (!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.ownerPhonePresent)
                                   : false;
@@ -1610,13 +1597,6 @@ export function SettingsModal({
                   )}
                 </div>
               )}
-        </Section>
-
-        {/* Section 3: General */}
-        <Section>
-          <Row icon={User} iconColor="bg-[#8E8E93]" label="Staff Permissions" />
-          <Row label="Keyboard Shortcuts" type="toggle" />
-          <Row label="Display Zoom" value="Standard" isLast />
         </Section>
 
         {/* Section 3.5: Modules (Step 16.3) */}
@@ -1973,4 +1953,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { DirectionsLocationSection, ProfileCard, Row, SearchBar, Section };
+export { DirectionsLocationSection, ProfileCard, Row, Section };

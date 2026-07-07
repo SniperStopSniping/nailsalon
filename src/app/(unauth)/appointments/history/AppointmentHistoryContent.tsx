@@ -136,7 +136,8 @@ export default function AppointmentHistoryContent({
     switch (status) {
       case 'completed': return 'Completed';
       case 'confirmed': return 'Confirmed';
-      case 'pending': return 'Pending';
+      // A client just booked this — "Booked" reads better than internal "Pending"
+      case 'pending': return 'Booked';
       case 'cancelled': return 'Cancelled';
       case 'no_show': return 'No Show';
       default: return status;

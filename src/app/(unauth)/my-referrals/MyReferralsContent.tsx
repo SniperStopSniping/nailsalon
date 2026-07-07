@@ -307,8 +307,8 @@ export default function MyReferralsContent({
           )}
         </div>
 
-        {/* Invite More Button - show after lookup or if phone stored */}
-        {!loading && (hasFetched || isLoggedIn) && (
+        {/* Invite More Button - only when there are referrals; the empty state has its own CTA */}
+        {!loading && (hasFetched || isLoggedIn) && referrals.length > 0 && (
           <button
             type="button"
             onClick={() => router.push(appendSalonSlug(`/${locale}/invite`, salonSlug, {

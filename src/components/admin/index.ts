@@ -53,7 +53,7 @@ export { QuickActionsWidget } from './QuickActionsWidget';
 export { ReviewsModal } from './ReviewsModal';
 export { RewardsModal } from './RewardsModal';
 export { ServicesModal } from './ServicesModal';
-export { ProfileCard, Row, SearchBar, Section, SettingsModal } from './SettingsModal';
+export { ProfileCard, Row, Section, SettingsModal } from './SettingsModal';
 export { SkeletonWidgets } from './SkeletonWidgets';
 export { StaffModal } from './StaffModal';
 export { StaffOpsModal } from './StaffOpsModal';

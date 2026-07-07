@@ -2,16 +2,16 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
-import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
-import { getPublicPageContext } from '@/libs/tenant';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
+import { getPublicPageContext } from '@/libs/tenant';
 
 import { BookServiceClient } from './BookServiceClient';
 

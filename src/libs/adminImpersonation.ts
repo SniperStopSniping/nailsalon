@@ -9,6 +9,8 @@ import { ACTIVE_SALON_COOKIE } from './tenantSlug';
 
 export const IMPERSONATE_COOKIE = 'sa_impersonate';
 export const IMPERSONATION_MAX_AGE_SECONDS = 60 * 60 * 2;
+const shouldUseSecureCookies = process.env.NODE_ENV === 'production'
+  && !(process.env.CI === 'true' && process.env.E2E_INSECURE_COOKIES === 'true');
 
 const impersonationSchema = z.object({
   salonId: z.string().min(1),
@@ -23,7 +25,7 @@ export type AdminImpersonationSession = z.infer<typeof impersonationSchema>;
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: shouldUseSecureCookies,
   sameSite: 'lax' as const,
   path: '/',
 };

@@ -7,6 +7,7 @@
  * Includes unread notification count badge.
  */
 
+import { Bell } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -160,7 +161,7 @@ function NotificationBell() {
         className="relative flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
       >
-        <span className="text-xl">🔔</span>
+        <Bell className="size-5 text-neutral-600" />
         {unreadCount > 0 && (
           <span
             className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full text-xs font-bold text-white"
@@ -259,24 +260,26 @@ export function StaffHeader({
         title={title}
         subtitle={subtitle}
         titleClassName="text-xl font-bold"
-        leading={showBack && onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
-            aria-label="Go back"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path
-                d="M12.5 15L7.5 10L12.5 5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        ) : undefined}
+        leading={showBack && onBack
+          ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/60"
+                aria-label="Go back"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M12.5 15L7.5 10L12.5 5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )
+          : undefined}
         actions={(
           <>
             {rightContent}

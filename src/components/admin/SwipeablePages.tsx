@@ -48,6 +48,11 @@ export function SwipeablePages({
 }: SwipeablePagesProps) {
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  // Keep in sync when the parent changes the page (e.g. via PageIndicator dots)
+  useEffect(() => {
+    setCurrentPage(initialPage);
+  }, [initialPage]);
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [canPull, setCanPull] = useState(true);

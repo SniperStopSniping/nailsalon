@@ -165,7 +165,7 @@ const MemberCard = ({
   userName,
   userEmail,
   profileImage,
-  userStats,
+  completedVisits,
   activePoints,
   pendingPoints,
   pendingAppointments,
@@ -177,7 +177,7 @@ const MemberCard = ({
   userName: string;
   userEmail: string | null;
   profileImage: string | null;
-  userStats: { totalVisits: number; tier: string; savedAmount: number };
+  completedVisits: number;
   activePoints: number;
   pendingPoints: number;
   pendingAppointments: number;
@@ -191,7 +191,7 @@ const MemberCard = ({
   return (
     <motion.div
       className="mt-1"
-      aria-label="Gold Member Card showing stats and savings"
+      aria-label="Member card showing visits and reward points"
       role="region"
     >
       <SectionCard
@@ -243,9 +243,7 @@ const MemberCard = ({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                  {userStats.tier}
-                  {' '}
-                  member
+                  Member
                 </p>
                 <h2 className="font-heading mt-1 truncate text-2xl font-semibold tracking-tight text-[var(--n5-ink-main)]">
                   {userName}
@@ -273,20 +271,6 @@ const MemberCard = ({
               </button>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span
-                className="font-body px-3 py-1 text-[11px] font-semibold text-[var(--n5-ink-main)]"
-                style={{
-                  borderRadius: n5.radiusPill,
-                  backgroundColor: 'var(--n5-bg-page)',
-                }}
-              >
-                Saved $
-                {userStats.savedAmount}
-                {' '}
-                this year
-              </span>
-            </div>
           </div>
         </div>
 
@@ -294,7 +278,7 @@ const MemberCard = ({
           className="grid grid-cols-3 gap-3 border-t pt-4"
           style={{ borderColor: 'var(--n5-border-muted)' }}
         >
-          <StatItem label="Visits" value={userStats.totalVisits.toString()} />
+          <StatItem label="Visits" value={completedVisits.toString()} />
           <StatItem label="Points" value={activePoints >= 1000 ? `${(activePoints / 1000).toFixed(1)}k` : activePoints.toString()} highlight />
           <StatItem label="Next Reward" value={`${Math.round(progressPercent)}%`} isProgress progressValue={progressPercent} />
         </div>
@@ -353,11 +337,11 @@ const AppointmentTicket = ({
     return (
       <SectionCard className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]">
         <div className="space-y-3">
-          <div className="h-4 w-32 animate-pulse rounded bg-[var(--n5-bg-surface)]/80" />
-          <div className="h-16 animate-pulse rounded-2xl bg-[var(--n5-bg-surface)]/80" />
+          <div className="bg-[var(--n5-bg-surface)]/80 h-4 w-32 animate-pulse rounded" />
+          <div className="bg-[var(--n5-bg-surface)]/80 h-16 animate-pulse rounded-2xl" />
           <div className="grid grid-cols-2 gap-3">
-            <div className="h-11 animate-pulse rounded-xl bg-[var(--n5-bg-surface)]/80" />
-            <div className="h-11 animate-pulse rounded-xl bg-[var(--n5-bg-surface)]/80" />
+            <div className="bg-[var(--n5-bg-surface)]/80 h-11 animate-pulse rounded-xl" />
+            <div className="bg-[var(--n5-bg-surface)]/80 h-11 animate-pulse rounded-xl" />
           </div>
         </div>
       </SectionCard>
@@ -779,7 +763,8 @@ const ProfileEditSheet = ({
             {/* Form */}
             <form
               onSubmit={(e) => {
-                e.preventDefault(); handleSubmit();
+                e.preventDefault();
+                handleSubmit();
               }}
               className="space-y-4"
             >
@@ -960,13 +945,8 @@ export default function ProfileContent() {
   // Invite state
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Stats (some will be from API in production)
-  const userStats = {
-    totalVisits: 12,
-    memberSince: 'March 2024',
-    tier: 'Gold',
-    savedAmount: 340,
-  };
+  // Real visit count, derived from appointment history
+  const [completedVisits, setCompletedVisits] = useState(0);
 
   useEffect(() => {
     if (sessionClientName) {
@@ -1045,6 +1025,28 @@ export default function ProfileContent() {
 
     if (clientPhone && salonSlug) {
       fetchRewards();
+    }
+  }, [clientPhone, salonSlug]);
+
+  // Fetch completed visit count from appointment history
+  useEffect(() => {
+    async function fetchVisitCount() {
+      try {
+        const response = await fetch(`/api/appointments/history?salonSlug=${encodeURIComponent(salonSlug)}`, {
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const appointments: Array<{ status?: string }> = data.data?.appointments ?? [];
+          setCompletedVisits(appointments.filter(a => a.status === 'completed').length);
+        }
+      } catch (error) {
+        console.error('Failed to fetch visit history:', error);
+      }
+    }
+
+    if (clientPhone && salonSlug) {
+      fetchVisitCount();
     }
   }, [clientPhone, salonSlug]);
 
@@ -1217,7 +1219,7 @@ export default function ProfileContent() {
 
       {/* Main Scroll Content */}
       <main
-      className="mx-auto max-w-lg space-y-4 px-5 py-28"
+        className="mx-auto max-w-lg space-y-4 px-5 py-28"
       >
         <AnimatePresence mode="wait">
           {isRefreshing
@@ -1234,7 +1236,7 @@ export default function ProfileContent() {
                     userName={userName}
                     userEmail={clientEmail || null}
                     profileImage={profileImage}
-                    userStats={userStats}
+                    completedVisits={completedVisits}
                     activePoints={activePoints}
                     pendingPoints={pendingPoints}
                     pendingAppointments={pendingAppointments}

@@ -1,6 +1,7 @@
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { themeVars } from '@/theme';
+import { formatDuration } from '@/utils/Helpers';
 
 type BookingSummaryCardProps = {
   mounted?: boolean;
@@ -50,9 +51,7 @@ export function BookingSummaryCard({
             <div data-testid="booking-summary-service" className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
             <div data-testid="booking-summary-duration" className="text-sm font-medium" style={{ color: themeVars.primary }}>
               {technician ? `with ${technician.name} · ` : ''}
-              {totalDuration}
-              {' '}
-              min
+              {formatDuration(totalDuration)}
             </div>
             {locationName && (
               <div data-testid="booking-summary-location" className="mt-0.5 truncate text-xs text-white/75">

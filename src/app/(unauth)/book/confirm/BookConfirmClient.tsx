@@ -31,6 +31,7 @@ import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { zonedTimeToUtc } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
+import { formatDuration } from '@/utils/Helpers';
 
 // --- Types ---
 
@@ -89,6 +90,8 @@ type BookConfirmClientProps = {
   canonicalStartTime?: string | null;
   bookingFlow: BookingStep[];
   location: LocationSummary;
+  /** Whether the salon's rewards program is enabled — hides points messaging when false */
+  rewardsEnabled?: boolean;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -202,6 +205,8 @@ const BookingCard = ({
   timeStr,
   pointsEarned,
   location,
+  rewardsEnabled = true,
+  confirmed = false,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -212,6 +217,8 @@ const BookingCard = ({
   timeStr: string;
   pointsEarned: number;
   location: LocationSummary;
+  rewardsEnabled?: boolean;
+  confirmed?: boolean;
 }) => {
   const serviceNames = [
     ...services.map(s => s.name),
@@ -243,7 +250,9 @@ const BookingCard = ({
     <motion.div className="relative z-10 w-full">
       <SectionCard
         title="Appointment summary"
-        description="Review the details below before you confirm."
+        description={confirmed
+          ? 'You’re all set — here are your appointment details.'
+          : 'Review the details below before you confirm.'}
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         actions={(
           <div className="text-right">
@@ -299,9 +308,7 @@ const BookingCard = ({
               color: 'var(--n5-accent)',
             }}
           >
-            {totalDuration}
-            {' '}
-            min
+            {formatDuration(totalDuration)}
           </div>
         </div>
 
@@ -309,7 +316,9 @@ const BookingCard = ({
           icon={<Star className="size-4" />}
           label="Service"
           value={serviceNames}
-          detail={`Estimated reward after completion: +${pointsEarned.toLocaleString()} points`}
+          detail={rewardsEnabled
+            ? `Estimated reward after completion: +${pointsEarned.toLocaleString()} points`
+            : null}
         />
         <SummaryRow
           icon={<Calendar className="size-4" />}
@@ -499,6 +508,7 @@ const ConfirmContent = ({
   subtotalBeforeDiscount,
   discountAmount,
   firstVisitDiscountPreview,
+  rewardsEnabled,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -515,6 +525,7 @@ const ConfirmContent = ({
   subtotalBeforeDiscount: number;
   discountAmount: number;
   firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
+  rewardsEnabled: boolean;
 }) => (
   <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
     <nav
@@ -581,6 +592,7 @@ const ConfirmContent = ({
           timeStr={timeStr}
           pointsEarned={pointsEarned}
           location={location}
+          rewardsEnabled={rewardsEnabled}
         />
       </motion.div>
 
@@ -620,22 +632,22 @@ const ConfirmContent = ({
               Duration
             </span>
             <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-              {totalDuration}
-              {' '}
-              minutes
+              {formatDuration(totalDuration)}
             </p>
           </div>
-          <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
-            <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-              Rewards
-            </span>
-            <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-              +
-              {pointsEarned}
-              {' '}
-              points after completion
-            </p>
-          </div>
+          {rewardsEnabled && (
+            <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
+              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                Rewards
+              </span>
+              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                +
+                {pointsEarned.toLocaleString()}
+                {' '}
+                points after completion
+              </p>
+            </div>
+          )}
         </SectionCard>
 
         <button
@@ -709,6 +721,7 @@ const SuccessContent = ({
   onGoToProfile,
   onGoHome,
   location,
+  rewardsEnabled,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -726,6 +739,7 @@ const SuccessContent = ({
   onGoToProfile: () => void;
   onGoHome: () => void;
   location: LocationSummary;
+  rewardsEnabled: boolean;
 }) => {
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
@@ -787,6 +801,8 @@ const SuccessContent = ({
             timeStr={timeStr}
             pointsEarned={pointsEarned}
             location={location}
+            rewardsEnabled={rewardsEnabled}
+            confirmed
           />
         </motion.div>
 
@@ -849,21 +865,23 @@ const SuccessContent = ({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('select');
-              onViewRewards();
-            }}
-            className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-            style={{
-              borderRadius: n5.radiusMd,
-              borderColor: 'var(--n5-border)',
-            }}
-          >
-            <Star className="size-4 text-[var(--n5-accent)]" />
-            <span>View rewards &amp; pending points</span>
-          </button>
+          {rewardsEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('select');
+                onViewRewards();
+              }}
+              className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              style={{
+                borderRadius: n5.radiusMd,
+                borderColor: 'var(--n5-border)',
+              }}
+            >
+              <Star className="size-4 text-[var(--n5-accent)]" />
+              <span>View rewards &amp; pending points</span>
+            </button>
+          )}
 
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
@@ -1052,6 +1070,7 @@ export function BookConfirmClient({
   // bookingFlow is passed for consistency but not used in confirm step
   bookingFlow: _bookingFlow,
   location,
+  rewardsEnabled = true,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1336,6 +1355,7 @@ export function BookConfirmClient({
             locale,
           }))}
           location={location}
+          rewardsEnabled={rewardsEnabled}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -1375,6 +1395,7 @@ export function BookConfirmClient({
       onEditSelection={() => router.back()}
       isSubmitting={isBooking}
       location={location}
+      rewardsEnabled={rewardsEnabled}
     />
   );
 }

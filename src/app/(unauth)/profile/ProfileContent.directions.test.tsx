@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import ProfileContent from './ProfileContent';
 
 const { fetchMock, routerBack, routerPush, windowOpen } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -67,8 +68,6 @@ vi.mock('@/components/ConfettiPopup', () => ({
   ConfettiPopup: () => null,
 }));
 
-import ProfileContent from './ProfileContent';
-
 describe('ProfileContent directions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,6 +110,17 @@ describe('ProfileContent directions', () => {
         }), { status: 200 }));
       }
 
+      if (url.includes('/api/appointments/history')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            appointments: [
+              { id: 'appt_0', status: 'completed' },
+              { id: 'appt_1', status: 'confirmed' },
+            ],
+          },
+        }), { status: 200 }));
+      }
+
       if (url.includes('/api/rewards')) {
         return Promise.resolve(new Response(JSON.stringify({
           meta: {
@@ -129,6 +139,7 @@ describe('ProfileContent directions', () => {
     render(<ProfileContent />);
 
     const directionsButton = await screen.findByRole('button', { name: /get directions to salon/i });
+
     expect(directionsButton).toBeInTheDocument();
 
     fireEvent.click(directionsButton);

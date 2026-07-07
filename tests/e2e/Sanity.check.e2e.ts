@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { e2eConfig } from './support/config';
+
 // Checkly is a tool used to monitor deployed environments, such as production or preview environments.
 // It runs end-to-end tests with the `.check.e2e.ts` extension after each deployment to ensure that the environment is up and running.
 // With Checkly, you can monitor your production environment and run `*.check.e2e.ts` tests regularly at a frequency of your choice.
@@ -14,10 +16,12 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Sanity', () => {
   test.describe('Static pages', () => {
-    test('should display the homepage', async ({ page, baseURL }) => {
-      await page.goto(`${baseURL}/`);
+    test('should display the booking service page', async ({ page, baseURL }) => {
+      await page.goto(`${baseURL}/book/service?salonSlug=${e2eConfig.salonSlug}`, {
+        waitUntil: 'domcontentloaded',
+      });
 
-      await expect(page.getByText('The perfect SaaS template to build')).toBeVisible();
+      await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
     });
   });
 });

@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import BookConfirmPage from './page';
 
 const {
   buildTenantRedirectPath,
@@ -11,6 +12,8 @@ const {
   getClientSession,
   getPrimaryLocation,
   getLocationById,
+  getSalonById,
+  isRewardsEnabled,
   resolvePublicBookingTechnicianContext,
   bookConfirmClientSpy,
 } = vi.hoisted(() => ({
@@ -21,6 +24,8 @@ const {
   getClientSession: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getLocationById: vi.fn(),
+  getSalonById: vi.fn(),
+  isRewardsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
 }));
@@ -48,12 +53,14 @@ vi.mock('@/libs/publicBookingTechnicians', () => ({
 vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getLocationById,
+  getSalonById,
 }));
 
 vi.mock('@/libs/salonStatus', () => ({
   buildTenantRedirectPath,
   checkSalonStatus,
   checkFeatureEnabled,
+  isRewardsEnabled,
 }));
 
 vi.mock('@/libs/tenant', () => ({
@@ -66,8 +73,6 @@ vi.mock('./BookConfirmClient', () => ({
     return <div>Book confirm client</div>;
   },
 }));
-
-import BookConfirmPage from './page';
 
 describe('BookConfirmPage directions fallback', () => {
   beforeEach(() => {
@@ -87,6 +92,8 @@ describe('BookConfirmPage directions fallback', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
+    isRewardsEnabled.mockResolvedValue(true);
     getClientSession.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',

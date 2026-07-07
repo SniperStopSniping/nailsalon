@@ -19,7 +19,9 @@ const {
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
+  getSalonById,
   getTechnicianById,
+  isRewardsEnabled,
   resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
 } = vi.hoisted(() => ({
@@ -32,7 +34,9 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
+  getSalonById: vi.fn(),
   getTechnicianById: vi.fn(),
+  isRewardsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicBookingSelection: vi.fn(),
 }));
@@ -60,6 +64,7 @@ vi.mock('@/libs/publicBookingTechnicians', () => ({
 vi.mock('@/libs/queries', () => ({
   getLocationById,
   getPrimaryLocation,
+  getSalonById,
   getTechnicianById,
 }));
 
@@ -67,6 +72,7 @@ vi.mock('@/libs/salonStatus', () => ({
   buildTenantRedirectPath,
   checkFeatureEnabled,
   checkSalonStatus,
+  isRewardsEnabled,
 }));
 
 vi.mock('@/libs/tenant', () => ({
@@ -208,6 +214,8 @@ describe('booking pricing parity', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
+    isRewardsEnabled.mockResolvedValue(true);
     getPrimaryLocation.mockResolvedValue(null);
     getLocationById.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue({

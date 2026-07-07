@@ -17,10 +17,12 @@ import {
 
 export const STAFF_SESSION_COOKIE = 'staff_session';
 export const STAFF_SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const shouldUseSecureCookies = process.env.NODE_ENV === 'production'
+  && !(process.env.CI === 'true' && process.env.E2E_INSECURE_COOKIES === 'true');
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: shouldUseSecureCookies,
   sameSite: 'lax' as const,
   path: '/',
 };
@@ -113,7 +115,7 @@ export async function setStaffSessionCookies(args: {
   for (const legacyCookie of ['staff_phone', 'staff_name', 'staff_salon']) {
     cookieStore.set(legacyCookie, '', {
       httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
+      secure: shouldUseSecureCookies,
       sameSite: 'lax',
       maxAge: 0,
       path: '/',
@@ -131,7 +133,7 @@ export async function clearStaffSessionCookies(): Promise<void> {
 
   cookieStore.set('staff_phone', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',
@@ -139,7 +141,7 @@ export async function clearStaffSessionCookies(): Promise<void> {
 
   cookieStore.set('staff_name', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',
@@ -147,7 +149,7 @@ export async function clearStaffSessionCookies(): Promise<void> {
 
   cookieStore.set('staff_salon', '', {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies,
     sameSite: 'lax',
     maxAge: 0,
     path: '/',

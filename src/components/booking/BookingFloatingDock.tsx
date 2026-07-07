@@ -32,36 +32,30 @@ export function BookingFloatingDock() {
     }));
   };
 
+  const items = [
+    { label: 'Invite', path: '/invite', Icon: Handshake },
+    { label: 'Rewards', path: '/rewards', Icon: Gift },
+    { label: 'Profile', path: '/profile', Icon: User },
+  ];
+
   return (
     <div
       role="navigation"
       aria-label="Bottom Navigation"
-      className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-neutral-800 bg-[#101010]/95 px-8 shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+      className="fixed bottom-6 left-1/2 z-50 flex h-16 w-[90%] max-w-[400px] -translate-x-1/2 items-center justify-between rounded-[2rem] border border-neutral-800 bg-[#101010]/95 px-7 shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
     >
-      <button
-        type="button"
-        onClick={() => navigate('/invite')}
-        aria-label="Go to Invite"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
-      >
-        <Handshake strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        type="button"
-        onClick={() => navigate('/rewards')}
-        aria-label="Go to Rewards"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
-      >
-        <Gift strokeWidth={2} className="size-6" />
-      </button>
-      <button
-        type="button"
-        onClick={() => navigate('/profile')}
-        aria-label="Go to Profile"
-        className="p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
-      >
-        <User strokeWidth={2} className="size-6" />
-      </button>
+      {items.map(({ label, path, Icon }) => (
+        <button
+          key={path}
+          type="button"
+          onClick={() => navigate(path)}
+          aria-label={`Go to ${label}`}
+          className="flex flex-col items-center gap-0.5 p-2 text-[var(--n5-accent)] transition-colors hover:text-white"
+        >
+          <Icon strokeWidth={2} className="size-5" />
+          <span className="text-[10px] font-medium tracking-wide">{label}</span>
+        </button>
+      ))}
     </div>
   );
 }

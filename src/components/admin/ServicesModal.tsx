@@ -28,6 +28,7 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
+import { formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
 
@@ -76,15 +77,6 @@ function formatCurrency(cents: number): string {
 }
 
 // Format duration
-function formatDuration(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-}
-
 // Get category gradient
 function getCategoryGradient(category: string): string {
   switch (category) {
@@ -424,7 +416,7 @@ function AddServiceDialog({
           />
         </label>
 
-        <label className="flex items-center justify-between rounded-xl border border-gray-200 px-3 py-3">
+        <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
           <span className="text-sm font-medium text-[#1C1C1E]">Intro pricing badge</span>
           <input
             type="checkbox"
@@ -686,7 +678,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {loading
           ? (
-              <div className="px-4 py-4">
+              <div className="p-4">
                 <AsyncStatePanel
                   loading
                   title="Loading services"
