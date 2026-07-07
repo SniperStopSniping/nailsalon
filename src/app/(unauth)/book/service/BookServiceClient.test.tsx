@@ -460,7 +460,7 @@ describe('BookServiceClient', () => {
     const featuredCard = screen.getByTestId('featured-service-card-svc-combo');
     fireEvent.click(featuredCard);
 
-    expect(featuredCard).toHaveStyle('box-shadow: 0 14px 28px rgba(0,0,0,0.28)');
+    expect(featuredCard).toHaveStyle('box-shadow: 0 14px 28px rgba(0,0,0,0.14)');
     expect(featuredCard).toHaveStyle('border-width: 1px');
     expect(featuredCard).not.toHaveAttribute('style', expect.stringContaining('outline'));
     expect(screen.getByTestId('featured-service-card-image-svc-combo')).not.toHaveClass('scale-105');
@@ -600,10 +600,10 @@ describe('BookServiceClient', () => {
     expect(panel).toHaveClass(
       'w-full',
       'rounded-[24px]',
-      'bg-[#101010]',
+      'bg-white',
       'px-3.5',
       'py-3',
-      'shadow-[0_8px_22px_rgba(0,0,0,0.24)]',
+      'shadow-[0_8px_22px_rgba(0,0,0,0.04)]',
       'sm:px-4',
       'sm:py-3.5',
     );
@@ -614,14 +614,16 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-addon-row-addon-2')).toHaveClass('px-3', 'py-2', 'rounded-[18px]');
     expect(stickyBar).toHaveClass(
       'fixed',
-      'inset-x-0',
       'bottom-0',
+      'left-0',
+      'right-0',
       'z-[60]',
       'border-t',
-      'border-neutral-800',
-      'bg-[#050505]/95',
-      'shadow-[0_-8px_30px_rgba(0,0,0,0.45)]',
+      'border-white/40',
+      'bg-white/85',
+      'shadow-[0_-8px_30px_rgba(0,0,0,0.08)]',
       'backdrop-blur-lg',
+      'supports-[backdrop-filter]:bg-white/82',
     );
     expect(screen.getByTestId('service-sticky-spacer')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');

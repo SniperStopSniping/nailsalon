@@ -2,16 +2,16 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
-import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
+import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 
 import { BookServiceClient } from './BookServiceClient';
 
@@ -186,7 +186,7 @@ export default async function BookServicePage({
       pageName="book-service"
       salon={context.salon}
     >
-      <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-black text-white"><div className="size-8 animate-spin rounded-full border-2 border-neutral-700 border-t-white" /></div>}>
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookServiceClient
           services={services}
           addOns={addOns}
