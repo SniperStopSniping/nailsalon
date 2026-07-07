@@ -1768,15 +1768,15 @@ export function SettingsModal({
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Referral reward</span>
-                        <span className="font-medium text-gray-900">$25 for the referrer</span>
+                        <span className="font-medium text-gray-900">$10 for the referrer</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Friend offer</span>
-                        <span className="font-medium text-gray-900">25% off first appointment</span>
+                        <span className="font-medium text-gray-900">$10 off first appointment</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Google review reward</span>
-                        <span className="font-medium text-gray-900">$15 off (manual grant)</span>
+                        <span className="font-medium text-gray-900">$10 off (manual grant)</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Visit earning</span>

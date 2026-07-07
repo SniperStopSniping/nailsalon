@@ -20,8 +20,9 @@ import { ConfettiPopup } from '@/components/ConfettiPopup';
 import { useClientSession } from '@/hooks/useClientSession';
 import { appendSalonSlug } from '@/libs/bookingParams';
 import {
+  formatRewardDollars,
   GOOGLE_REVIEW_REWARD_AMOUNT_CENTS,
-  REFERRAL_REFEREE_PERCENT,
+  REFERRAL_REFEREE_AMOUNT_CENTS,
   REFERRAL_REFERRER_AMOUNT_CENTS,
 } from '@/libs/rewardRules';
 import { useSalon } from '@/providers/SalonProvider';
@@ -133,8 +134,9 @@ const HeroCard = () => (
           <span className="font-body text-xs font-bold text-[var(--n5-ink-main)]">
             They get
             {' '}
-            {REFERRAL_REFEREE_PERCENT}
-            % off
+            {formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)}
+            {' '}
+            OFF
           </span>
         </div>
       </div>
@@ -540,7 +542,7 @@ export default function InviteContent() {
             }}
           >
             <SettingsItem
-              label="Leave a Google Review"
+              label="Rate Your Experience on Google"
               icon={Star}
               badge={`$${GOOGLE_REVIEW_REWARD_AMOUNT_CENTS / 100} OFF`}
               onClick={() => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank')}
@@ -576,7 +578,7 @@ export default function InviteContent() {
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={() => setShowConfetti(false)}
-        title={`You just gifted your friend ${REFERRAL_REFEREE_PERCENT}% off!`}
+        title={`You just gifted your friend ${formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)} off!`}
         message={`They'll receive a text with your referral. When they book, you'll earn $${REFERRAL_REFERRER_AMOUNT_CENTS / 100} off.`}
         emoji="🎊"
         autoDismissMs={4000}

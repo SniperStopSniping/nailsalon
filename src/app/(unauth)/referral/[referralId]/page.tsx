@@ -5,7 +5,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConfettiPopup } from '@/components/ConfettiPopup';
 import { appendSalonSlug } from '@/libs/bookingParams';
-import { REFERRAL_REFEREE_EXPIRY_DAYS, REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
+import {
+  formatRewardDollars,
+  REFERRAL_REFEREE_AMOUNT_CENTS,
+  REFERRAL_REFEREE_EXPIRY_DAYS,
+} from '@/libs/rewardRules';
 import { getApiErrorMessage } from '@/utils/apiError';
 
 type ClaimState = 'loading' | 'form' | 'verify' | 'success' | 'error' | 'already_claimed';
@@ -228,6 +232,7 @@ export default function ClaimReferralPage() {
   const referrerDisplay = referralInfo
     ? (referralInfo.referrerName || 'your friend')
     : 'your friend';
+  const referralRewardLabel = formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS);
 
   return (
     <div
@@ -301,7 +306,11 @@ export default function ClaimReferralPage() {
             <div className="pt-8 text-center">
               <div className="mb-4 text-5xl">💅</div>
               <h1 className="text-2xl font-bold text-neutral-900">
-                Claim Your 25% Off
+                Claim Your
+                {' '}
+                {referralRewardLabel}
+                {' '}
+                Off
               </h1>
             </div>
 
@@ -328,7 +337,11 @@ export default function ClaimReferralPage() {
                   <p className="mb-6 text-center text-sm text-neutral-700">
                     They gave you a
                     {' '}
-                    <span className="font-semibold">{REFERRAL_REFEREE_PERCENT}% off first appointment</span>
+                    <span className="font-semibold">
+                      {referralRewardLabel}
+                      {' '}
+                      off first appointment
+                    </span>
                     {' '}
                     at
                     {' '}
@@ -400,7 +413,7 @@ export default function ClaimReferralPage() {
                     className="font-body w-full bg-[var(--n5-button-primary-bg)] py-3.5 text-sm font-semibold text-[var(--n5-button-primary-text)] transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ borderRadius: 'var(--n5-radius-pill)' }}
                   >
-                    {isLoading ? 'Sending code...' : `Claim my ${REFERRAL_REFEREE_PERCENT}% off`}
+                    {isLoading ? 'Sending code...' : `Claim my ${referralRewardLabel} off`}
                   </button>
                 </>
               )}
@@ -478,7 +491,11 @@ export default function ClaimReferralPage() {
 
             {/* Terms */}
             <p className="text-center text-xs text-neutral-500">
-              By claiming, you agree to receive SMS messages. Reward must be used within {REFERRAL_REFEREE_EXPIRY_DAYS} days.
+              By claiming, you agree to receive SMS messages. Reward must be used within
+              {' '}
+              {REFERRAL_REFEREE_EXPIRY_DAYS}
+              {' '}
+              days.
             </p>
           </>
         )}
@@ -498,7 +515,7 @@ export default function ClaimReferralPage() {
       <ConfettiPopup
         isOpen={showConfetti}
         onClose={handleConfettiClose}
-        title={`You've claimed ${REFERRAL_REFEREE_PERCENT}% off!`}
+        title={`You've claimed ${referralRewardLabel} off!`}
         message={`Your reward is now linked to your profile. Book within ${REFERRAL_REFEREE_EXPIRY_DAYS} days to use it!`}
         emoji="🎉"
         autoDismissMs={4000}

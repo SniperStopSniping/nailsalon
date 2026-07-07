@@ -220,7 +220,7 @@ export default function MyReferralsContent({
               <div className="mb-2 text-3xl">💌</div>
               <p className="mb-1 font-medium text-neutral-900">No referrals yet</p>
               <p className="text-sm text-neutral-600">
-                Start sharing and earn $25 off when your friend completes their first visit.
+                Start sharing and earn $10 off when your friend completes their first visit.
               </p>
               <button
                 type="button"

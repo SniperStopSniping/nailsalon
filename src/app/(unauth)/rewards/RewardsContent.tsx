@@ -148,7 +148,6 @@ type UpcomingAppointment = {
 const REWARDS_CATALOG: RewardData[] = [
   // TIER 1: SMALL TREATS (2,500)
   { id: 'cat-1', points: 2500, title: '$5 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },
-  { id: 'cat-2', points: 2500, title: 'Cuticle Oil', subtitle: 'Take-home care', tierColor: 'green', icon: Gift },
 
   // TIER 2: MEDIUM VALUE (4,750)
   { id: 'cat-3', points: 4750, title: '$10 Off', subtitle: 'Any Service', tierColor: 'green', icon: Sparkles },

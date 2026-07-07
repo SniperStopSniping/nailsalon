@@ -1114,8 +1114,8 @@ export default function ProfileContent() {
 
   const experienceItems: SettingsItem[] = [
     { label: 'Beauty Profile', icon: User, onClick: () => handleNavigate('/preferences') },
-    { label: 'Refer a Friend', icon: Share2, badge: '$35 OFF', onClick: () => handleNavigate('/invite') },
-    { label: 'Rate Your Experience', icon: Star, badge: '$25 OFF', onClick: () => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank') },
+    { label: 'Refer a Friend', icon: Share2, badge: '$10 OFF', onClick: () => handleNavigate('/invite') },
+    { label: 'Rate Your Experience', icon: Star, badge: '$10 OFF', onClick: () => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank') },
   ];
 
   const accountItems: SettingsItem[] = [

@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { requireAdminSalon, db } = vi.hoisted(() => {
@@ -39,6 +40,7 @@ describe('GET /api/admin/rewards', () => {
     });
 
     const response = await GET(new Request('http://localhost/api/admin/rewards?salonSlug=salon-a'));
+
     expect(response.status).toBe(401);
   });
 
@@ -61,7 +63,7 @@ describe('GET /api/admin/rewards', () => {
                 type: 'google_review',
                 points: 0,
                 discountType: 'fixed_amount',
-                discountAmountCents: 1500,
+                discountAmountCents: 1000,
                 discountPercent: null,
                 eligibleServiceName: null,
                 status: 'active',
@@ -85,8 +87,8 @@ describe('GET /api/admin/rewards', () => {
     expect(body.data.rewards).toHaveLength(1);
     expect(body.data.rewards[0]).toEqual(expect.objectContaining({
       id: 'reward_1',
-      displayTitle: '$15 Off Any Appointment',
-      valueLabel: '$15 off',
+      displayTitle: '$10 Off Any Appointment',
+      valueLabel: '$10 off',
     }));
   });
 });

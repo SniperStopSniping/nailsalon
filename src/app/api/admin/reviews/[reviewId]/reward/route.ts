@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { GOOGLE_REVIEW_REWARD_AMOUNT_CENTS, getRewardDisplayContent } from '@/libs/rewardRules';
+import { getRewardDisplayContent, GOOGLE_REVIEW_REWARD_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { reviewSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';

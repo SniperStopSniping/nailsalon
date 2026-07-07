@@ -1,6 +1,6 @@
-export const REFERRAL_REFEREE_PERCENT = 25;
-export const REFERRAL_REFERRER_AMOUNT_CENTS = 2_500;
-export const GOOGLE_REVIEW_REWARD_AMOUNT_CENTS = 1_500;
+export const REFERRAL_REFEREE_AMOUNT_CENTS = 1_000;
+export const REFERRAL_REFERRER_AMOUNT_CENTS = 1_000;
+export const GOOGLE_REVIEW_REWARD_AMOUNT_CENTS = 1_000;
 
 export const REFERRAL_REFEREE_EXPIRY_DAYS = 14;
 export const REFERRAL_REFERRER_EXPIRY_DAYS = 365;
@@ -16,6 +16,15 @@ export type RewardWithDiscountShape = {
   discountPercent?: number | null;
 };
 
+type RewardDiscountCalculation = {
+  discountAmountCents: number;
+  discountedServiceId: string | null;
+};
+
+export function formatRewardDollars(cents: number): string {
+  return `$${Math.round(cents / 100)}`;
+}
+
 export function getRewardDisplayContent(reward: RewardWithDiscountShape): {
   title: string;
   subtitle: string;
@@ -25,24 +34,24 @@ export function getRewardDisplayContent(reward: RewardWithDiscountShape): {
   switch (reward.type) {
     case 'referral_referee':
       return {
-        title: `${REFERRAL_REFEREE_PERCENT}% Off Your First Appointment`,
+        title: `${formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)} Off Your First Appointment`,
         subtitle: 'Friend referral reward',
         kindLabel: 'Referral Welcome Reward',
-        valueLabel: `${REFERRAL_REFEREE_PERCENT}% off`,
+        valueLabel: `${formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)} off`,
       };
     case 'referral_referrer':
       return {
-        title: '$25 Off Any Appointment',
+        title: `${formatRewardDollars(REFERRAL_REFERRER_AMOUNT_CENTS)} Off Any Appointment`,
         subtitle: 'Earned after your friend completes their first visit',
         kindLabel: 'Referral Reward',
-        valueLabel: '$25 off',
+        valueLabel: `${formatRewardDollars(REFERRAL_REFERRER_AMOUNT_CENTS)} off`,
       };
     case 'google_review':
       return {
-        title: '$15 Off Any Appointment',
+        title: `${formatRewardDollars(GOOGLE_REVIEW_REWARD_AMOUNT_CENTS)} Off Any Appointment`,
         subtitle: 'Manual Google review reward',
         kindLabel: 'Google Review Reward',
-        valueLabel: '$15 off',
+        valueLabel: `${formatRewardDollars(GOOGLE_REVIEW_REWARD_AMOUNT_CENTS)} off`,
       };
     default: {
       const fallbackTitle = reward.eligibleServiceName || 'Reward';
@@ -68,10 +77,7 @@ export function calculateRewardDiscountCents(args: {
   reward: RewardWithDiscountShape;
   subtotalBeforeDiscountCents: number;
   services?: Array<{ id: string; name: string; price: number }>;
-}): {
-  discountAmountCents: number;
-  discountedServiceId: string | null;
-} {
+}): RewardDiscountCalculation {
   const { reward, subtotalBeforeDiscountCents, services = [] } = args;
 
   if (subtotalBeforeDiscountCents <= 0) {

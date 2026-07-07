@@ -98,8 +98,8 @@ describe('BookConfirmPage directions fallback', () => {
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',
       name: 'Isla Nail Salon',
-      address: '32 Clareville Crescent',
-      city: 'North York',
+      address: '880 Ellesmere Rd Unit 2',
+      city: 'Scarborough',
       state: 'ON',
       zipCode: 'M2J 2C1',
     });
@@ -167,8 +167,8 @@ describe('BookConfirmPage directions fallback', () => {
       location: {
         id: 'loc_primary',
         name: 'Isla Nail Salon',
-        address: '32 Clareville Crescent',
-        city: 'North York',
+        address: '880 Ellesmere Rd Unit 2',
+        city: 'Scarborough',
         state: 'ON',
         zipCode: 'M2J 2C1',
       },

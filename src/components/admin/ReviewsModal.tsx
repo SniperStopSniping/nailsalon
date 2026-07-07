@@ -176,7 +176,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
             <div>
               <h2 className="text-[20px] font-semibold text-[#1C1C1E]">Review rewards</h2>
               <p className="mt-1 text-[14px] leading-relaxed text-[#8E8E93]">
-                After you verify a Google review manually, grant a one-time $15 reward to that client.
+                After you verify a Google review manually, grant a one-time $10 reward to that client.
               </p>
             </div>
             <button
@@ -221,64 +221,70 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
           </div>
         )}
 
-        {loading ? (
-          <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            Loading reviews...
-          </div>
-        ) : reviews.length === 0 ? (
-          <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            No reviews yet for this salon.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {reviews.map(review => (
-              <motion.div
-                key={review.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-[20px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[15px] font-semibold text-[#1C1C1E]">
-                      {review.clientName || 'Guest client'}
-                    </div>
-                    <div className="mt-0.5 text-[13px] text-[#8E8E93]">
-                      {formatPhone(review.clientPhone)}
-                      {review.technicianName ? ` · ${review.technicianName}` : ''}
-                    </div>
-                    <div className="mt-2">
-                      <StarRating rating={review.rating} />
-                    </div>
-                    {review.comment && (
-                      <p className="mt-3 text-[14px] leading-relaxed text-[#3A3A3C]">{review.comment}</p>
-                    )}
-                    <div className="mt-3 text-[12px] text-[#8E8E93]">{formatDate(review.createdAt)}</div>
-                  </div>
-
-                  <div className="shrink-0 text-right">
-                    {review.googleReviewRewardGranted ? (
-                      <div className="rounded-full bg-green-100 px-3 py-1 text-[12px] font-medium text-green-700">
-                        $15 granted
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleGrant(review.id);
-                        }}
-                        disabled={grantingReviewId === review.id}
-                        className="rounded-full bg-[#1C1C1E] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-                      >
-                        {grantingReviewId === review.id ? 'Granting...' : 'Grant $15'}
-                      </button>
-                    )}
-                  </div>
+        {loading
+          ? (
+              <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+                Loading reviews...
+              </div>
+            )
+          : reviews.length === 0
+            ? (
+                <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+                  No reviews yet for this salon.
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
+              )
+            : (
+                <div className="mt-4 space-y-3">
+                  {reviews.map(review => (
+                    <motion.div
+                      key={review.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-[20px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                            {review.clientName || 'Guest client'}
+                          </div>
+                          <div className="mt-0.5 text-[13px] text-[#8E8E93]">
+                            {formatPhone(review.clientPhone)}
+                            {review.technicianName ? ` · ${review.technicianName}` : ''}
+                          </div>
+                          <div className="mt-2">
+                            <StarRating rating={review.rating} />
+                          </div>
+                          {review.comment && (
+                            <p className="mt-3 text-[14px] leading-relaxed text-[#3A3A3C]">{review.comment}</p>
+                          )}
+                          <div className="mt-3 text-[12px] text-[#8E8E93]">{formatDate(review.createdAt)}</div>
+                        </div>
+
+                        <div className="shrink-0 text-right">
+                          {review.googleReviewRewardGranted
+                            ? (
+                                <div className="rounded-full bg-green-100 px-3 py-1 text-[12px] font-medium text-green-700">
+                                  $10 granted
+                                </div>
+                              )
+                            : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void handleGrant(review.id);
+                                  }}
+                                  disabled={grantingReviewId === review.id}
+                                  className="rounded-full bg-[#1C1C1E] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+                                >
+                                  {grantingReviewId === review.id ? 'Granting...' : 'Grant $10'}
+                                </button>
+                              )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
       </div>
     </div>
   );

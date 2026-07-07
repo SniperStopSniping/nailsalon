@@ -19,7 +19,11 @@ import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { upsertClient } from '@/libs/queries';
-import { REFERRAL_REFEREE_EXPIRY_DAYS, REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
+import {
+  formatRewardDollars,
+  REFERRAL_REFEREE_AMOUNT_CENTS,
+  REFERRAL_REFEREE_EXPIRY_DAYS,
+} from '@/libs/rewardRules';
 import { appointmentSchema, referralSchema, rewardSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -310,7 +314,7 @@ export async function POST(
     // 9. Create/update client record for the referee
     await upsertClient(`+1${normalizedPhone}`, refereeName);
 
-    // 10. Create a reward for the referee (uses salon-resolved points)
+    // 10. Create a fixed reward for the referred friend.
     const rewardId = `reward_${crypto.randomUUID()}`;
     await db.insert(rewardSchema).values({
       id: rewardId,
@@ -320,8 +324,8 @@ export async function POST(
       referralId,
       type: 'referral_referee',
       points: 0,
-      discountType: 'percentage',
-      discountPercent: REFERRAL_REFEREE_PERCENT,
+      discountType: 'fixed_amount',
+      discountAmountCents: REFERRAL_REFEREE_AMOUNT_CENTS,
       eligibleServiceName: null,
       status: 'active',
       expiresAt,
@@ -333,7 +337,7 @@ export async function POST(
         referralId,
         rewardId,
         expiresAt: expiresAt.toISOString(),
-        message: `You've claimed ${REFERRAL_REFEREE_PERCENT}% off your first appointment! Your reward is now linked to your profile.`,
+        message: `You've claimed ${formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)} off your first appointment! Your reward is now linked to your profile.`,
       },
       meta: {
         timestamp: now.toISOString(),

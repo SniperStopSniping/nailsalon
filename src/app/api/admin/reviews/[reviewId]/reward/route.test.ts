@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -41,7 +42,7 @@ describe('POST /api/admin/reviews/[reviewId]/reward', () => {
     guardModuleOr403.mockResolvedValue(null);
   });
 
-  it('grants a one-time $15 Google review reward', async () => {
+  it('grants a one-time $10 Google review reward', async () => {
     requireAdminSalon.mockResolvedValue({
       error: null,
       salon: {
@@ -92,10 +93,10 @@ describe('POST /api/admin/reviews/[reviewId]/reward', () => {
       clientPhone: '4165551111',
       type: 'google_review',
       discountType: 'fixed_amount',
-      discountAmountCents: 1500,
+      discountAmountCents: 1000,
       points: 0,
     }));
-    expect(body.data.reward.valueLabel).toBe('$15 off');
+    expect(body.data.reward.valueLabel).toBe('$10 off');
   });
 
   it('rejects duplicate review rewards for the same client and salon', async () => {

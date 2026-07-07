@@ -121,7 +121,7 @@ describe('SMS templates', () => {
       to: '+12223334444',
     }));
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining('Ava sent you 25% off your first appointment at Isla Nail Studio.'),
+      body: expect.stringContaining('Ava sent you $10 off your first appointment at Isla Nail Studio.'),
     }));
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.not.stringContaining('localhost'),

@@ -15,7 +15,7 @@ import twilio from 'twilio';
 
 import { Env } from '@/libs/Env';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
-import { REFERRAL_REFEREE_PERCENT } from '@/libs/rewardRules';
+import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 
@@ -558,7 +558,7 @@ export async function sendReferralInvite(
     customDomain: salonCustomDomain,
   });
 
-  const message = `${referrerName} sent you ${REFERRAL_REFEREE_PERCENT}% off your first appointment at ${salonName}.
+  const message = `${referrerName} sent you ${formatRewardDollars(REFERRAL_REFEREE_AMOUNT_CENTS)} off your first appointment at ${salonName}.
 
 Claim your gift:
 ${claimUrl}

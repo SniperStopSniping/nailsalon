@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -174,8 +175,8 @@ describe('GET /api/client/next-appointment', () => {
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',
       name: 'Isla Nail Salon',
-      address: '32 Clareville Crescent',
-      city: 'North York',
+      address: '880 Ellesmere Rd Unit 2',
+      city: 'Scarborough',
       state: 'ON',
       zipCode: 'M2J 2C1',
     });
@@ -214,8 +215,8 @@ describe('GET /api/client/next-appointment', () => {
     expect(body.data.location).toEqual({
       id: 'loc_primary',
       name: 'Isla Nail Salon',
-      address: '32 Clareville Crescent',
-      city: 'North York',
+      address: '880 Ellesmere Rd Unit 2',
+      city: 'Scarborough',
       state: 'ON',
       zipCode: 'M2J 2C1',
     });

@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -165,8 +166,8 @@ describe('POST /api/referrals/[referralId]/claim', () => {
       clientName: 'Bea',
       referralId: 'ref_1',
       type: 'referral_referee',
-      discountType: 'percentage',
-      discountPercent: 25,
+      discountType: 'fixed_amount',
+      discountAmountCents: 1000,
       points: 0,
     }));
     expect(body.data.referralId).toBe('ref_1');
