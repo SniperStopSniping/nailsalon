@@ -696,6 +696,9 @@ function AdminDashboardContent() {
       case 'today-schedule':
         setShowScheduleCalendar(true);
         break;
+      case 'view-bookings':
+        setActiveModal('bookings');
+        break;
       default:
         break;
     }
@@ -900,6 +903,7 @@ function AdminDashboardContent() {
                 )
               : (
                   <AnalyticsWidgets
+                    appointments={data.appointments}
                     revenue={data.revenue.today ?? 0}
                     revenueTrend={data.revenue.trend ?? 0}
                     revenueSeries={analyticsData?.revenue?.series ?? []}

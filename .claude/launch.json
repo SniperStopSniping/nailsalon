@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nail-salon-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:e2e:local"],
+      "port": 3101
+    }
+  ]
+}

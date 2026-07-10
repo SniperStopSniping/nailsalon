@@ -1119,8 +1119,10 @@ export default function ProfileContent() {
   ];
 
   const accountItems: SettingsItem[] = [
-    { label: 'Membership Benefits', icon: Sparkles, onClick: () => handleNavigate('/membership') },
-    { label: 'Payment Methods', icon: CreditCard, onClick: () => handleNavigate('/payment-methods') },
+    // Membership tiers are hidden until the salon defines a real perks program.
+    // Re-enable by restoring:
+    // { label: 'Membership Benefits', icon: Sparkles, onClick: () => handleNavigate('/membership') },
+    { label: 'Payments', icon: CreditCard, onClick: () => handleNavigate('/payment-methods') },
   ];
 
   // Handle profile save

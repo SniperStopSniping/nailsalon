@@ -14,6 +14,7 @@ const {
   getLocationById,
   getSalonById,
   isRewardsEnabled,
+  isSmsEnabled,
   resolvePublicBookingTechnicianContext,
   bookConfirmClientSpy,
 } = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ const {
   getLocationById: vi.fn(),
   getSalonById: vi.fn(),
   isRewardsEnabled: vi.fn(),
+  isSmsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
 }));
@@ -61,6 +63,7 @@ vi.mock('@/libs/salonStatus', () => ({
   checkSalonStatus,
   checkFeatureEnabled,
   isRewardsEnabled,
+  isSmsEnabled,
 }));
 
 vi.mock('@/libs/tenant', () => ({
@@ -94,6 +97,7 @@ describe('BookConfirmPage directions fallback', () => {
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
+    isSmsEnabled.mockResolvedValue(true);
     getClientSession.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',

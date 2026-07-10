@@ -22,6 +22,7 @@ const {
   getSalonById,
   getTechnicianById,
   isRewardsEnabled,
+  isSmsEnabled,
   resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
 } = vi.hoisted(() => ({
@@ -37,6 +38,7 @@ const {
   getSalonById: vi.fn(),
   getTechnicianById: vi.fn(),
   isRewardsEnabled: vi.fn(),
+  isSmsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicBookingSelection: vi.fn(),
 }));
@@ -73,6 +75,7 @@ vi.mock('@/libs/salonStatus', () => ({
   checkFeatureEnabled,
   checkSalonStatus,
   isRewardsEnabled,
+  isSmsEnabled,
 }));
 
 vi.mock('@/libs/tenant', () => ({
@@ -216,6 +219,7 @@ describe('booking pricing parity', () => {
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
+    isSmsEnabled.mockResolvedValue(true);
     getPrimaryLocation.mockResolvedValue(null);
     getLocationById.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue({

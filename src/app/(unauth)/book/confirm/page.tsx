@@ -9,7 +9,7 @@ import { getClientSession } from '@/libs/clientAuth';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
-import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled } from '@/libs/salonStatus';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
 
@@ -225,6 +225,8 @@ export default async function BookConfirmPage({
   }));
   // Rewards program state — points messaging is hidden when the program is off
   const rewardsEnabled = await isRewardsEnabled(salon.id);
+  // SMS reminder state — "we'll text you" copy is hidden when reminders are off
+  const smsEnabled = await isSmsEnabled(salon.id);
   const effectiveBookingFlow = resolvedTechnicianContext.shouldAutoSkipTech
     ? bookingFlow.filter(step => step !== 'tech')
     : bookingFlow;
@@ -261,6 +263,7 @@ export default async function BookConfirmPage({
           bookingFlow={effectiveBookingFlow}
           location={locationSummary}
           rewardsEnabled={rewardsEnabled}
+          smsEnabled={smsEnabled}
         />
       </Suspense>
     </PublicSalonPageShell>

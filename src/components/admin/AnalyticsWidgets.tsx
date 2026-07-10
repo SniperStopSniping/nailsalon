@@ -57,7 +57,16 @@ type StaffMember = {
   avatarColor: string;
 };
 
+type AppointmentGlance = {
+  total: number;
+  completed: number;
+  noShows: number;
+  upcoming: number;
+};
+
 type AnalyticsWidgetsProps = {
+  /** Today's appointment counts — shown in the "Today" glance strip */
+  appointments?: AppointmentGlance;
   /** Total revenue amount */
   revenue?: number;
   /** Revenue trend percentage */
@@ -240,6 +249,7 @@ const EMPTY_SERVICES: Array<{ label: string; percent: number; color: string }> =
 const EMPTY_SERIES: number[] = [];
 
 export function AnalyticsWidgets({
+  appointments,
   revenue = 0,
   revenueTrend = 0,
   revenueSeries = EMPTY_SERIES,
@@ -303,6 +313,22 @@ export function AnalyticsWidgets({
     }
     setShowDatePicker(false);
   };
+
+  // Appointment glance title follows the selected period so it never mislabels
+  const glanceTitle = (() => {
+    switch (activePeriod) {
+      case 'Daily':
+        return canGoNext ? 'Appointments that day' : 'Today’s appointments';
+      case 'Weekly':
+        return 'Appointments this week';
+      case 'Monthly':
+        return 'Appointments this month';
+      case 'Yearly':
+        return 'Appointments this year';
+      default:
+        return 'Appointments';
+    }
+  })();
 
   return (
     <div className="min-h-full w-full bg-[#F2F2F7] pb-10 font-sans text-black">
@@ -393,6 +419,44 @@ export function AnalyticsWidgets({
             </AnimatePresence>
           </div>
         </motion.div>
+
+        {/* Today at a glance */}
+        {appointments && (
+          <motion.div variants={SPRING_ITEM}>
+            <button
+              type="button"
+              onClick={() => onQuickAction?.('view-bookings')}
+              className="w-full rounded-[22px] bg-white p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-transform active:scale-[0.99]"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+                  {glanceTitle}
+                </span>
+                <ChevronRight className="size-4 text-[#C7C7CC]" />
+              </div>
+              <div className="grid grid-cols-3 divide-x divide-[#F2F2F7]">
+                <div className="pr-3">
+                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[#1C1C1E]">
+                    {appointments.upcoming}
+                  </div>
+                  <div className="text-[12px] font-medium text-[#8E8E93]">Upcoming</div>
+                </div>
+                <div className="px-3">
+                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[#34C759]">
+                    {appointments.completed}
+                  </div>
+                  <div className="text-[12px] font-medium text-[#8E8E93]">Completed</div>
+                </div>
+                <div className="pl-3">
+                  <div className={`text-[26px] font-semibold tabular-nums tracking-tight ${appointments.noShows > 0 ? 'text-[#FF3B30]' : 'text-[#1C1C1E]'}`}>
+                    {appointments.noShows}
+                  </div>
+                  <div className="text-[12px] font-medium text-[#8E8E93]">No-shows</div>
+                </div>
+              </div>
+            </button>
+          </motion.div>
+        )}
 
         {/* Quick Actions */}
         <motion.div variants={SPRING_ITEM}>

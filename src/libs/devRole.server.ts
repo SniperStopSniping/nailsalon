@@ -158,13 +158,17 @@ export function getMockAdminMeResponse(role: 'super_admin' | 'admin') {
 /**
  * Mock response for /api/staff/me
  * Must match the exact shape returned by that endpoint
+ *
+ * Impersonates a REAL technician (Daniela) so the staff dashboard shows
+ * actual appointments/schedule data during dev testing instead of an
+ * empty view tied to a technician id that doesn't exist in the DB.
  */
 export function getMockStaffMeResponse() {
   return {
     data: {
       technician: {
-        id: 'dev-staff',
-        name: 'Dev Technician',
+        id: 'tech_daniela',
+        name: 'Daniela',
         email: null,
         phone: '+15555550003',
         avatarUrl: null,

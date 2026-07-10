@@ -134,6 +134,14 @@ export function StaffAppointmentCard({
               <div className="text-xs text-neutral-500">
                 {appointment.clientPhone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}
               </div>
+              {onViewClient && (
+                <div
+                  className="mt-0.5 text-xs font-semibold"
+                  style={{ color: themeVars.accent }}
+                >
+                  View notes &amp; preferences ›
+                </div>
+              )}
             </button>
 
             {/* Time */}

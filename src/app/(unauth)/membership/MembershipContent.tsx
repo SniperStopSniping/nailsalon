@@ -181,13 +181,11 @@ const TierHeroCard = ({
   tier,
   visits,
   pointsEarned,
-  savedAmount,
   nextTier,
 }: {
   tier: MembershipTier;
   visits: number;
   pointsEarned: number;
-  savedAmount: number;
   nextTier: MembershipTier | null;
 }) => {
   const x = useMotionValue(0);
@@ -326,7 +324,7 @@ const TierHeroCard = ({
           </div>
 
           {/* Middle Row - Stats */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col">
               <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60">
                 Visits
@@ -341,15 +339,6 @@ const TierHeroCard = ({
               </span>
               <span className="font-heading text-2xl font-bold tabular-nums leading-none text-[var(--n5-accent)]">
                 {pointsEarned >= 1000 ? `${(pointsEarned / 1000).toFixed(1)}k` : pointsEarned}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-body text-[9px] uppercase tracking-widest text-[var(--n5-ink-main)] opacity-60">
-                Saved
-              </span>
-              <span className="font-heading text-2xl font-bold tabular-nums leading-none text-[var(--n5-success)]">
-                $
-                {savedAmount}
               </span>
             </div>
           </div>
@@ -655,11 +644,11 @@ export default function MembershipContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // User data (in production, would come from API)
-  const [visits] = useState(12);
-  const [pointsEarned, setPointsEarned] = useState(2400);
-  const [savedAmount] = useState(340);
+  // Real client data, fetched from the rewards API
+  const [visits, setVisits] = useState(0);
+  const [pointsEarned, setPointsEarned] = useState(0);
   const [clientPhone, setClientPhone] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     setClientPhone(sessionPhone);
@@ -683,22 +672,26 @@ export default function MembershipContent() {
           if (data.meta?.activePoints !== undefined) {
             setPointsEarned(data.meta.activePoints);
           }
-          // In a real app, visits and savedAmount would come from the API
+          if (data.meta?.totalVisits !== undefined) {
+            setVisits(data.meta.totalVisits);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch membership data:', error);
       } finally {
         setLoading(false);
+        setIsRefreshing(false);
       }
     }
 
     if (clientPhone && salonSlug) {
       fetchMembershipData();
     } else {
-      // Use demo data after short delay to simulate loading
-      setTimeout(() => setLoading(false), 500);
+      // Not signed in yet - show the tier overview with zeroed stats
+      setLoading(false);
+      setIsRefreshing(false);
     }
-  }, [clientPhone, salonSlug]);
+  }, [clientPhone, salonSlug, refreshKey]);
 
   const currentTier = getTierForVisits(visits);
   const nextTier = getNextTier(currentTier.key);
@@ -706,10 +699,7 @@ export default function MembershipContent() {
   const handleRefresh = useCallback(() => {
     triggerHaptic();
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      triggerHaptic();
-    }, 1500);
+    setRefreshKey(key => key + 1);
   }, []);
 
   const handleBack = useCallback(() => {
@@ -772,7 +762,6 @@ export default function MembershipContent() {
                     tier={currentTier}
                     visits={visits}
                     pointsEarned={pointsEarned}
-                    savedAmount={savedAmount}
                     nextTier={nextTier}
                   />
 

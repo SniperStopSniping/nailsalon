@@ -92,6 +92,8 @@ type BookConfirmClientProps = {
   location: LocationSummary;
   /** Whether the salon's rewards program is enabled — hides points messaging when false */
   rewardsEnabled?: boolean;
+  /** Whether SMS reminders are enabled — hides "we'll text you" copy when false */
+  smsEnabled?: boolean;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -509,6 +511,7 @@ const ConfirmContent = ({
   discountAmount,
   firstVisitDiscountPreview,
   rewardsEnabled,
+  isReschedule,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -526,6 +529,7 @@ const ConfirmContent = ({
   discountAmount: number;
   firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
   rewardsEnabled: boolean;
+  isReschedule: boolean;
 }) => (
   <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
     <nav
@@ -573,7 +577,9 @@ const ConfirmContent = ({
           Review your appointment
         </h1>
         <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
-          Nothing is booked yet. Confirm below to reserve this time.
+          {isReschedule
+            ? 'Your current appointment stays booked until you confirm this new time.'
+            : 'Nothing is booked yet. Confirm below to reserve this time.'}
         </p>
       </motion.div>
 
@@ -722,6 +728,7 @@ const SuccessContent = ({
   onGoHome,
   location,
   rewardsEnabled,
+  smsEnabled,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -740,6 +747,7 @@ const SuccessContent = ({
   onGoHome: () => void;
   location: LocationSummary;
   rewardsEnabled: boolean;
+  smsEnabled: boolean;
 }) => {
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
@@ -861,7 +869,7 @@ const SuccessContent = ({
               }}
             >
               <CreditCard className="size-4 text-[var(--n5-accent)]" />
-              <span>Manage payment methods</span>
+              <span>How to pay</span>
             </button>
           </div>
 
@@ -923,9 +931,11 @@ const SuccessContent = ({
             <span className="font-body text-sm text-[var(--n5-ink-muted)]">We&apos;re looking forward to your visit.</span>
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
           </div>
-          <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-            We&apos;ll text you before your visit
-          </p>
+          {smsEnabled && (
+            <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              We&apos;ll text you before your visit
+            </p>
+          )}
           <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
             You can change or cancel up to 24 hours before
           </p>
@@ -1071,6 +1081,7 @@ export function BookConfirmClient({
   bookingFlow: _bookingFlow,
   location,
   rewardsEnabled = true,
+  smsEnabled = true,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1356,6 +1367,7 @@ export function BookConfirmClient({
           }))}
           location={location}
           rewardsEnabled={rewardsEnabled}
+          smsEnabled={smsEnabled}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -1396,6 +1408,7 @@ export function BookConfirmClient({
       isSubmitting={isBooking}
       location={location}
       rewardsEnabled={rewardsEnabled}
+      isReschedule={Boolean(originalAppointmentId)}
     />
   );
 }

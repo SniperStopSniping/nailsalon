@@ -125,10 +125,10 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /manage payment methods/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /how to pay/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /manage payment methods/i }));
+    fireEvent.click(screen.getByRole('button', { name: /how to pay/i }));
 
     expect(routerPush).toHaveBeenCalledWith('/en/salon-a/payment-methods');
   });

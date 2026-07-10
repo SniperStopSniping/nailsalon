@@ -16,6 +16,7 @@ export default async function ChangeAppointmentPage({
 }: {
   searchParams: {
     serviceIds?: string;
+    baseServiceId?: string;
     techId?: string;
     locationId?: string;
     date?: string;
@@ -27,8 +28,10 @@ export default async function ChangeAppointmentPage({
 }) {
   const context = await getPublicPageContext('book-confirm', searchParams, params);
 
-  // Parse URL params
-  const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
+  // Parse URL params. Some entry points (e.g. the booking success screen)
+  // pass baseServiceId instead of serviceIds — honor both.
+  const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean)
+    || (searchParams.baseServiceId ? [searchParams.baseServiceId] : []);
   const techId = searchParams.techId || '';
   const locationId = searchParams.locationId || '';
   const dateStr = searchParams.date || '';
