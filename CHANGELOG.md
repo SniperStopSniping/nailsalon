@@ -1,3 +1,15 @@
+## [1.5.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.5.0...v1.5.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* production-readiness cleanup for booking, staff, and admin surfaces ([6ef9999](https://github.com/SniperStopSniping/nailsalon/commit/6ef99990708c6ff45eeffea99d4e98c4c5271098))
+
+
+### Reverts
+
+* restore booking service light theme ([8552820](https://github.com/SniperStopSniping/nailsalon/commit/8552820215f8cc2a0a8e29b1f13bd139fb663733))
+
 # [1.5.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.4.2...v1.5.0) (2026-07-06)
 
 
