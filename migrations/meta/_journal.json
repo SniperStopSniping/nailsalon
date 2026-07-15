@@ -316,6 +316,13 @@
       "when": 1784086400000,
       "tag": "0044_luster_free_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784172800000,
+      "tag": "0045_repair_owner_signup",
+      "breakpoints": true
     }
   ]
 }

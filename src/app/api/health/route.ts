@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { db } from '@/libs/DB';
+import { isResendSenderVerified } from '@/libs/resendHealth';
 
 // =============================================================================
 // HEALTH CHECK ENDPOINT
@@ -35,6 +36,7 @@ type HealthCheck = {
   cronSecretConfigured: boolean;
   twilioEnv: boolean;
   resendEnv: boolean;
+  resendVerified: boolean;
   stripeEnv: boolean;
   sentryEnv: boolean;
   googleCalendarEnv: boolean;
@@ -60,6 +62,7 @@ export async function GET(): Promise<Response> {
     cronSecretConfigured: false,
     twilioEnv: false,
     resendEnv: false,
+    resendVerified: false,
     stripeEnv: false,
     sentryEnv: false,
     googleCalendarEnv: false,
@@ -127,12 +130,15 @@ export async function GET(): Promise<Response> {
   checks.twilioEnv = Boolean(process.env.TWILIO_CONNECT_APP_SID);
 
   // ---------------------------------------------------------------------------
-  // 7. Resend env check (presence only, no external call)
+  // 7. Resend configuration and authenticated sender-domain check
   // ---------------------------------------------------------------------------
   checks.resendEnv = Boolean(
     process.env.RESEND_API_KEY
     && process.env.RESEND_FROM_EMAIL,
   );
+  checks.resendVerified = checks.resendEnv
+    ? await isResendSenderVerified()
+    : false;
 
   // ---------------------------------------------------------------------------
   // 8. Stripe env check (presence only, no external call)
@@ -174,7 +180,7 @@ export async function GET(): Promise<Response> {
   const criticalChecksPass = checks.db
     && checks.clerkEnv
     && checks.passwordAuthEnv
-    && checks.resendEnv
+    && checks.resendVerified
     && (!hosted || checks.redis);
   const status: 'ok' | 'degraded' = criticalChecksPass ? 'ok' : 'degraded';
 

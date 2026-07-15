@@ -1433,17 +1433,30 @@ export const salonSignupInviteSchema = pgTable(
     id: text('id').primaryKey(),
     tokenHash: text('token_hash').notNull().unique(),
     invitedEmail: text('invited_email').notNull(),
+    intent: text('intent').$type<'create_salon' | 'claim_existing'>().default('create_salon').notNull(),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'cascade' }),
     campaignSource: text('campaign_source'),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { mode: 'date', withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
     consumedByAdminId: text('consumed_by_admin_id').references(() => adminUserSchema.id),
     createdByAdminId: text('created_by_admin_id').references(() => adminUserSchema.id),
+    emailDeliveryStatus: text('email_delivery_status').$type<'pending' | 'sent' | 'failed'>().default('pending').notNull(),
+    emailSentAt: timestamp('email_sent_at', { mode: 'date', withTimezone: true }),
+    emailDeliveryErrorCode: text('email_delivery_error_code'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
     tokenIdx: uniqueIndex('salon_signup_invite_token_idx').on(table.tokenHash),
     emailIdx: index('salon_signup_invite_email_idx').on(table.invitedEmail),
+    salonIdx: index('salon_signup_invite_salon_idx').on(table.salonId),
     expiresIdx: index('salon_signup_invite_expires_idx').on(table.expiresAt),
+    activeSalonIdx: uniqueIndex('salon_signup_invite_active_salon_idx')
+      .on(table.salonId)
+      .where(sql`${table.salonId} is not null and ${table.consumedAt} is null and ${table.revokedAt} is null`),
+    activeEmailIdx: uniqueIndex('salon_signup_invite_active_email_idx')
+      .on(table.invitedEmail)
+      .where(sql`${table.intent} = 'create_salon' and ${table.consumedAt} is null and ${table.revokedAt} is null`),
   }),
 );
 
@@ -2289,6 +2302,13 @@ export const AUDIT_LOG_ACTIONS = [
   'super_admin_password_login_succeeded',
   'super_admin_password_login_failed',
   'test_invitation_created',
+  'signup_invitation_created',
+  'signup_invitation_resent',
+  'signup_invitation_delivery_attempted',
+  'signup_invitation_failed',
+  'salon_claim_invitation_created',
+  'salon_claim_completed',
+  'salon_claim_failed',
   'test_tool_action',
   'integration_health_checked',
   'impersonation_started',

@@ -19,17 +19,11 @@ function normalizePublicBaseUrl(value: string | null | undefined): string | null
   }
 }
 
-export function getSalonPublicBaseUrl(salon?: SalonPublicUrlInput): string {
-  const salonDomain = normalizePublicBaseUrl(salon?.customDomain);
-  if (salonDomain) {
-    return salonDomain;
-  }
+export function areTenantSubdomainsEnabled(): boolean {
+  return process.env.TENANT_SUBDOMAINS_ENABLED === 'true';
+}
 
-  const rootDomain = process.env.LUSTER_ROOT_DOMAIN?.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-  if (salon?.slug && rootDomain) {
-    return `https://${salon.slug}.${rootDomain}`;
-  }
-
+export function getCanonicalAppOrigin(): string {
   const configuredUrl = normalizePublicBaseUrl(process.env.PUBLIC_APP_URL)
     ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
     ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_BASE_URL)
@@ -44,7 +38,21 @@ export function getSalonPublicBaseUrl(salon?: SalonPublicUrlInput): string {
     return 'http://localhost:3000';
   }
 
-  throw new Error('Unable to build public URL without a salon custom domain or public app URL');
+  throw new Error('Unable to determine the canonical application origin');
+}
+
+export function getSalonPublicBaseUrl(salon?: SalonPublicUrlInput): string {
+  const salonDomain = normalizePublicBaseUrl(salon?.customDomain);
+  if (salonDomain) {
+    return salonDomain;
+  }
+
+  const rootDomain = process.env.LUSTER_ROOT_DOMAIN?.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (salon?.slug && rootDomain && areTenantSubdomainsEnabled()) {
+    return `https://${salon.slug}.${rootDomain}`;
+  }
+
+  return getCanonicalAppOrigin();
 }
 
 export function buildSalonPublicUrl(path: string, salon?: SalonPublicUrlInput): string {
@@ -58,7 +66,10 @@ export function buildSalonTenantPublicUrl(
   locale = 'en',
 ): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const hasDedicatedHost = Boolean(salon.customDomain || process.env.LUSTER_ROOT_DOMAIN);
+  const hasDedicatedHost = Boolean(
+    salon.customDomain
+    || (process.env.LUSTER_ROOT_DOMAIN && areTenantSubdomainsEnabled()),
+  );
   const tenantPath = hasDedicatedHost
     ? normalizedPath
     : `/${locale}/${salon.slug}${normalizedPath === '/' ? '' : normalizedPath}`;

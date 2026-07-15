@@ -7,6 +7,10 @@ const { executeMock, isRedisAvailableMock } = vi.hoisted(() => ({
   isRedisAvailableMock: vi.fn(),
 }));
 
+const { isResendSenderVerifiedMock } = vi.hoisted(() => ({
+  isResendSenderVerifiedMock: vi.fn(),
+}));
+
 vi.mock('@/libs/DB', () => ({
   db: {
     execute: executeMock,
@@ -18,11 +22,16 @@ vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable: isRedisAvailableMock,
 }));
 
+vi.mock('@/libs/resendHealth', () => ({
+  isResendSenderVerified: isResendSenderVerifiedMock,
+}));
+
 describe('GET /api/health', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    isResendSenderVerifiedMock.mockResolvedValue(false);
     process.env = { ...originalEnv };
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
@@ -100,6 +109,7 @@ describe('GET /api/health', () => {
     process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
     process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
     process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    isResendSenderVerifiedMock.mockResolvedValue(true);
 
     const response = await GET();
     const body = await response.json();
@@ -117,6 +127,7 @@ describe('GET /api/health', () => {
         cronSecretConfigured: true,
         twilioEnv: true,
         resendEnv: true,
+        resendVerified: true,
         stripeEnv: true,
         sentryEnv: true,
         googleCalendarEnv: true,

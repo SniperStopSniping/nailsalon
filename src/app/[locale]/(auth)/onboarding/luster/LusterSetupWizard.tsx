@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, ExternalLink, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type DayName = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 type ServiceDraft = { id: string; name: string; price: string; duration: string; category: 'manicure' | 'builder_gel' | 'extensions' | 'pedicure' | 'combo' };
@@ -27,6 +27,44 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ publicUrl: string } | null>(null);
+  const [inviteIntent, setInviteIntent] = useState<'create_salon' | 'claim_existing'>('create_salon');
+  const [loadingInvite, setLoadingInvite] = useState(Boolean(inviteToken));
+
+  useEffect(() => {
+    if (!inviteToken) {
+      setLoadingInvite(false);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/onboarding/invitations/${encodeURIComponent(inviteToken)}`)
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error?.message ?? 'This invitation is no longer available.');
+        }
+        if (cancelled) {
+          return;
+        }
+        setInviteIntent(payload.data.intent);
+        if (payload.data.intent === 'claim_existing') {
+          setSalonName(payload.data.salonName ?? '');
+          setSlug(payload.data.salonSlug ?? '');
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'This invitation is no longer available.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingInvite(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken]);
 
   const suggestedSlug = useMemo(() => salonName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 47), [salonName]);
   const shownSlug = slug || suggestedSlug;
@@ -100,7 +138,9 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
       <div className="mx-auto max-w-4xl">
         <div className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster Free Booking</p>
-          <h1 className="mt-2 text-3xl font-semibold text-stone-900">Set up your salon</h1>
+          <h1 className="mt-2 text-3xl font-semibold text-stone-900">
+            {inviteIntent === 'claim_existing' ? `Finish setting up ${salonName || 'your salon'}` : 'Set up your salon'}
+          </h1>
           <p className="mt-2 text-stone-600">Everything here stays editable except your public link after publishing.</p>
         </div>
         {!inviteToken && <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Open your original invitation link to continue.</div>}
@@ -110,7 +150,7 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="text-sm text-stone-700">
                 Salon name
-                <input className={inputClass} value={salonName} onChange={event => setSalonName(event.target.value)} />
+                <input className={inputClass} value={salonName} readOnly={inviteIntent === 'claim_existing'} onChange={event => setSalonName(event.target.value)} />
               </label>
               <label className="text-sm text-stone-700">
                 Your name
@@ -133,10 +173,11 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
             </div>
             <label className="mt-4 block text-sm text-stone-700">
               Your permanent Luster link
-              <input className={inputClass} value={shownSlug} onChange={event => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} />
+              <input className={inputClass} value={shownSlug} readOnly={inviteIntent === 'claim_existing'} onChange={event => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} />
               <span className="mt-1 block text-xs text-stone-500">
-                {shownSlug || 'your-salon'}
-                .luster.com
+                {inviteIntent === 'claim_existing'
+                  ? 'Your existing salon link will be preserved.'
+                  : 'Your permanent link will be confirmed after publishing.'}
               </span>
             </label>
             <label className="mt-4 block text-sm text-stone-700">
@@ -219,7 +260,7 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
           </section>
         </div>
         {error && <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
-        <div className="mt-8 flex justify-end"><button type="button" disabled={submitting || !inviteToken} onClick={submit} className="rounded-full bg-rose-700 px-7 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50">{submitting ? 'Creating your salon…' : 'Publish my free booking page'}</button></div>
+        <div className="mt-8 flex justify-end"><button type="button" disabled={submitting || loadingInvite || !inviteToken} onClick={submit} className="rounded-full bg-rose-700 px-7 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50">{submitting ? 'Creating your salon…' : inviteIntent === 'claim_existing' ? 'Finish and publish my salon' : 'Publish my free booking page'}</button></div>
       </div>
     </main>
   );

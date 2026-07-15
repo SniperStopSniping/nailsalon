@@ -14,10 +14,12 @@ const {
     from: vi.fn(() => selectQuery),
     where: vi.fn(() => selectQuery),
     limit: vi.fn(async () => selectResults.shift() ?? []),
+    then: (resolve: (value: unknown[]) => unknown) => resolve(selectResults.shift() ?? []),
   };
   const insertValues = vi.fn(async () => undefined);
   const returning = vi.fn(async () => [{}]);
   const tx = {
+    execute: vi.fn(async () => undefined),
     select: vi.fn(() => selectQuery),
     insert: vi.fn(() => ({ values: insertValues })),
     update: vi.fn(() => ({
@@ -41,6 +43,7 @@ const {
 
 vi.mock('@clerk/nextjs/server', () => ({ currentUser }));
 vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/auditLog', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('server-only', () => ({}));
 
 import { POST } from './route';
@@ -87,8 +90,14 @@ describe('POST /api/onboarding/luster', () => {
     currentUser.mockResolvedValue({
       id: 'clerk_owner_1',
       primaryEmailAddressId: 'email_1',
-      emailAddresses: [{ id: 'email_1', emailAddress: 'owner@example.com' }],
+      emailAddresses: [{
+        id: 'email_1',
+        emailAddress: 'owner@example.com',
+        verification: { status: 'verified' },
+      }],
     });
+    process.env.LUSTER_ROOT_DOMAIN = 'luster.com';
+    process.env.TENANT_SUBDOMAINS_ENABLED = 'true';
     transaction.mockImplementation(callback => callback(tx));
   });
 
@@ -114,7 +123,7 @@ describe('POST /api/onboarding/luster', () => {
       slug: 'isla-nails',
       freeSoloEnabled: true,
       publicationStatus: 'published',
-      plan: 'free_solo',
+      plan: 'free',
     }));
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
       clerkUserId: 'clerk_owner_1',
@@ -122,8 +131,65 @@ describe('POST /api/onboarding/luster', () => {
     }));
     expect(body.data).toMatchObject({
       slug: 'isla-nails',
-      publicUrl: 'https://isla-nails.luster.com',
+      publicUrl: 'https://isla-nails.luster.com/',
     });
+  });
+
+  it('claims an unowned salon in place without changing its id or slug', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_1',
+        invitedEmail: 'owner@example.com',
+        campaignSource: 'legacy-salon-recovery',
+        intent: 'claim_existing',
+        salonId: 'salon_best',
+      }],
+      [{
+        id: 'salon_best',
+        name: 'best',
+        slug: 'best',
+        ownerEmail: 'owner@example.com',
+        ownerClerkUserId: null,
+      }],
+      [{ count: 0 }],
+      [{ count: 0 }],
+      [],
+    );
+
+    const response = await POST(request({
+      ...validSetup,
+      salonName: 'Changed name is ignored',
+      slug: 'changed-slug',
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data).toMatchObject({ salonId: 'salon_best', slug: 'best' });
+    expect(insertValues).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'salon_best' }));
+    expect(tx.update).toHaveBeenCalledTimes(4);
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_best',
+      role: 'owner',
+    }));
+  });
+
+  it('requires the primary Clerk email to be verified', async () => {
+    currentUser.mockResolvedValue({
+      id: 'clerk_owner_1',
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{
+        id: 'email_1',
+        emailAddress: 'owner@example.com',
+        verification: { status: 'unverified' },
+      }],
+    });
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('EMAIL_NOT_VERIFIED');
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('rejects an expired, reused, or unknown invitation before creating records', async () => {
@@ -150,7 +216,7 @@ describe('POST /api/onboarding/luster', () => {
     expect(response.status).toBe(403);
     expect(body.error).toMatchObject({
       code: 'INVITE_EMAIL_MISMATCH',
-      message: 'Sign in with the invited email: invited@example.com',
+      message: 'Sign in with the email address that received this invitation.',
     });
     expect(tx.insert).not.toHaveBeenCalled();
   });

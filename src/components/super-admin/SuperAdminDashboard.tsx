@@ -1,14 +1,12 @@
 'use client';
 
-import { Building2, ChevronLeft, ChevronRight, LogOut, Plus, Search, UserPlus } from 'lucide-react';
+import { Building2, ChevronLeft, ChevronRight, LogOut, Search, UserPlus } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
 
 import { CreateLusterTestInvite } from './CreateLusterTestInvite';
-import { CreateSalonModal } from './CreateSalonModal';
-import { InvitesModal } from './InvitesModal';
 import { SalonDetailPanel } from './SalonDetailPanel';
 
 // =============================================================================
@@ -129,8 +127,6 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
   const [total, setTotal] = useState(0);
 
   // Modals
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showInvitesModal, setShowInvitesModal] = useState(false);
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(null);
 
   // Owner management
@@ -236,11 +232,6 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
     isInitialMount.current = false;
   }, [fetchSalons]);
 
-  const handleCreateSuccess = () => {
-    setShowCreateModal(false);
-    fetchSalons();
-  };
-
   const handleDetailClose = () => {
     setSelectedSalonId(null);
     fetchSalons();
@@ -262,22 +253,13 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowInvitesModal(true)}
+              <a
+                href="#luster-invite"
                 className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
               >
                 <UserPlus className="size-4" />
-                Invites
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
-              >
-                <Plus className="size-4" />
-                Create Salon
-              </button>
+                Invite Nail Tech
+              </a>
               <button
                 type="button"
                 onClick={handleLogout}
@@ -291,7 +273,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
         </div>
       </div>
 
-      {testToolsEnabled && <CreateLusterTestInvite />}
+      <CreateLusterTestInvite testTool={testToolsEnabled} />
 
       {/* Filters */}
       <div className="mx-auto max-w-7xl p-4 sm:px-6 lg:px-8">
@@ -566,13 +548,6 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
       </div>
 
       {/* Modals */}
-      {showCreateModal && (
-        <CreateSalonModal
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={handleCreateSuccess}
-        />
-      )}
-
       {selectedSalonId && (
         <SalonDetailPanel
           salonId={selectedSalonId}
@@ -580,9 +555,6 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
         />
       )}
 
-      {showInvitesModal && (
-        <InvitesModal onClose={() => setShowInvitesModal(false)} />
-      )}
     </div>
   );
 }

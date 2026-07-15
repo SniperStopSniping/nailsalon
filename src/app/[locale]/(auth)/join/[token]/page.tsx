@@ -5,17 +5,23 @@ import { redirect } from 'next/navigation';
 
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
-import { salonSignupInviteSchema } from '@/models/Schema';
+import { salonSchema, salonSignupInviteSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
 export default async function JoinLusterPage({ params }: { params: { locale: string; token: string } }) {
   const [invite] = await db
-    .select({ invitedEmail: salonSignupInviteSchema.invitedEmail })
+    .select({
+      invitedEmail: salonSignupInviteSchema.invitedEmail,
+      intent: salonSignupInviteSchema.intent,
+      salonName: salonSchema.name,
+    })
     .from(salonSignupInviteSchema)
+    .leftJoin(salonSchema, eq(salonSignupInviteSchema.salonId, salonSchema.id))
     .where(and(
       eq(salonSignupInviteSchema.tokenHash, hashOpaqueToken(params.token)),
       isNull(salonSignupInviteSchema.consumedAt),
+      isNull(salonSignupInviteSchema.revokedAt),
       gt(salonSignupInviteSchema.expiresAt, new Date()),
     ))
     .limit(1);
@@ -40,7 +46,11 @@ export default async function JoinLusterPage({ params }: { params: { locale: str
       <div className="space-y-5 text-center">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster Free Booking</p>
-          <h1 className="mt-2 text-2xl font-semibold text-stone-900">Create your owner account</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-stone-900">
+            {invite.intent === 'claim_existing' && invite.salonName
+              ? `Finish setting up ${invite.salonName}`
+              : 'Create your owner account'}
+          </h1>
           <p className="mt-2 text-sm text-stone-600">
             This invitation is for
             {invite.invitedEmail}

@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
 import { requireSuperAdmin } from '@/libs/adminAuth';
+import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import { adminInviteSchema, salonSchema } from '@/models/Schema';
 
@@ -36,6 +37,9 @@ export async function POST(
   const guard = await requireSuperAdmin();
   if (!guard.ok) {
     return guard.response;
+  }
+  if (!isLegacyOtpAuthEnabled()) {
+    return NextResponse.json({ error: { code: 'LEGACY_OTP_DISABLED', message: 'Legacy phone invitations are disabled.' } }, { status: 410 });
   }
 
   const { id: inviteId } = await params;

@@ -33,6 +33,23 @@ jobs:
 
     name: Run all tests
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      E2E_SUPER_ADMIN_PHONE: ${{ secrets.E2E_SUPER_ADMIN_PHONE }}
+      E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+      PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
 
     steps:
       - uses: actions/checkout@v3
@@ -74,11 +91,13 @@ jobs:
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
-      - name: Run E2E tests
+      - name: Run E2E tests with Percy
+        if: env.PERCY_TOKEN != ''
         run: npx percy exec -- npm run test:e2e
-        env:
-          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+      - name: Run E2E tests without Percy
+        if: env.PERCY_TOKEN == ''
+        run: npm run test:e2e
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -108,6 +108,14 @@ export async function GET(
         ),
       );
 
+    const [locationCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(salonLocationSchema)
+      .where(and(
+        eq(salonLocationSchema.salonId, id),
+        eq(salonLocationSchema.isActive, true),
+      ));
+
     // Get unique client count (from clientPreferences which tracks registered clients)
     const [clientCount] = await db
       .select({ count: sql<number>`count(distinct ${clientPreferencesSchema.normalizedClientPhone})` })
@@ -234,7 +242,7 @@ export async function GET(
         email: a.email,
       })),
       metrics: {
-        locationsCount: 1, // For now, assume 1 location per salon
+        locationsCount: Number(locationCount?.count ?? 0),
         techsCount: Number(techCount?.count ?? 0),
         clientsCount: Number(clientCount?.count ?? 0),
         appointmentsLast30d: Number(apptLast30d?.count ?? 0),

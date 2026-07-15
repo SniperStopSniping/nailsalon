@@ -1,14 +1,18 @@
 import { currentUser } from '@clerk/nextjs/server';
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
+import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
+  adminInviteSchema,
   adminSalonMembershipSchema,
   adminUserSchema,
+  appointmentSchema,
   salonLocationSchema,
   salonSchema,
   salonSignupInviteSchema,
@@ -83,6 +87,23 @@ function normalizeSetupError(error: unknown): string {
   return error instanceof Error ? error.message : 'SETUP_FAILED';
 }
 
+const freeSoloFeatures = {
+  booking: { onlineBooking: true, staffDashboard: true },
+  staff: { scheduleOverrides: false, timeOff: true },
+  clients: { clientProfiles: true, clientHistory: true },
+  social: { photoUploads: false },
+  marketing: { smsReminders: true, referrals: false, rewards: false },
+  money: { staffEarnings: false },
+  analytics: { dashboard: false, utilization: false },
+  controls: { clientBlocking: false, clientFlags: false },
+  multiLocation: false,
+  advancedAnalytics: false,
+  revenueReports: false,
+  techPerformance: false,
+  customBranding: true,
+  apiAccess: false,
+};
+
 export async function POST(request: Request) {
   const clerkUser = await currentUser();
   if (!clerkUser) {
@@ -106,12 +127,11 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: 'INVALID_TIMEZONE', message: 'Choose a valid timezone.' } }, { status: 400 });
   }
 
-  const primaryEmail = clerkUser.emailAddresses.find(item => item.id === clerkUser.primaryEmailAddressId)?.emailAddress
-    ?? clerkUser.emailAddresses[0]?.emailAddress;
-  if (!primaryEmail) {
-    return Response.json({ error: { code: 'EMAIL_REQUIRED', message: 'A verified owner email is required.' } }, { status: 400 });
+  const primaryEmail = clerkUser.emailAddresses.find(item => item.id === clerkUser.primaryEmailAddressId);
+  if (!primaryEmail || primaryEmail.verification?.status !== 'verified') {
+    return Response.json({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify the invited email before finishing setup.' } }, { status: 403 });
   }
-  const normalizedEmail = primaryEmail.trim().toLowerCase();
+  const normalizedEmail = primaryEmail.emailAddress.trim().toLowerCase();
   let phoneE164: string;
   try {
     phoneE164 = formatPhoneE164(input.ownerPhone);
@@ -119,14 +139,19 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: 'INVALID_PHONE', message: 'Enter a valid Canadian or US phone number.' } }, { status: 400 });
   }
 
+  const inviteTokenHash = hashOpaqueToken(input.inviteToken);
+  let claimAuditSalonId: string | null = null;
+  let claimAuditInviteId: string | null = null;
   try {
     const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${salonSignupInviteSchema} where ${salonSignupInviteSchema.tokenHash} = ${inviteTokenHash} for update`);
       const [invite] = await tx
         .select()
         .from(salonSignupInviteSchema)
         .where(and(
-          eq(salonSignupInviteSchema.tokenHash, hashOpaqueToken(input.inviteToken)),
+          eq(salonSignupInviteSchema.tokenHash, inviteTokenHash),
           isNull(salonSignupInviteSchema.consumedAt),
+          isNull(salonSignupInviteSchema.revokedAt),
           gt(salonSignupInviteSchema.expiresAt, new Date()),
         ))
         .limit(1);
@@ -134,15 +159,62 @@ export async function POST(request: Request) {
         throw new Error('INVITE_INVALID');
       }
       if (invite.invitedEmail.trim().toLowerCase() !== normalizedEmail) {
-        const error = new Error('INVITE_EMAIL_MISMATCH');
-        error.cause = invite.invitedEmail;
-        throw error;
+        throw new Error('INVITE_EMAIL_MISMATCH');
       }
 
-      const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);
-      if (duplicateSalon) {
-        throw new Error('SLUG_TAKEN');
+      let salonId: string;
+      let salonName = input.salonName;
+      let slug = input.slug;
+      let customDomain: string | null = null;
+      const isClaim = invite.intent === 'claim_existing';
+      if (isClaim) {
+        claimAuditSalonId = invite.salonId;
+        claimAuditInviteId = invite.id;
+        if (!invite.salonId) {
+          throw new Error('CLAIM_REQUIRES_REVIEW');
+        }
+        await tx.execute(sql`select id from ${salonSchema} where ${salonSchema.id} = ${invite.salonId} for update`);
+        const [claimSalon] = await tx
+          .select({
+            id: salonSchema.id,
+            name: salonSchema.name,
+            slug: salonSchema.slug,
+            customDomain: salonSchema.customDomain,
+            ownerEmail: salonSchema.ownerEmail,
+            ownerClerkUserId: salonSchema.ownerClerkUserId,
+          })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, invite.salonId))
+          .limit(1);
+        const [membershipCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(adminSalonMembershipSchema)
+          .where(eq(adminSalonMembershipSchema.salonId, invite.salonId));
+        const [appointmentCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(appointmentSchema)
+          .where(eq(appointmentSchema.salonId, invite.salonId));
+        if (
+          !claimSalon
+          || claimSalon.ownerClerkUserId
+          || claimSalon.ownerEmail?.trim().toLowerCase() !== normalizedEmail
+          || Number(membershipCount?.count ?? 0) > 0
+          || Number(appointmentCount?.count ?? 0) > 0
+        ) {
+          throw new Error('CLAIM_REQUIRES_REVIEW');
+        }
+        salonId = claimSalon.id;
+        salonName = claimSalon.name;
+        slug = claimSalon.slug;
+        customDomain = claimSalon.customDomain;
+      } else {
+        const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);
+        if (duplicateSalon) {
+          throw new Error('SLUG_TAKEN');
+        }
+        salonId = crypto.randomUUID();
       }
+
       const [duplicateOwner] = await tx
         .select({ id: adminUserSchema.id })
         .from(adminUserSchema)
@@ -152,16 +224,13 @@ export async function POST(request: Request) {
         throw new Error('OWNER_EXISTS');
       }
 
-      const salonId = crypto.randomUUID();
       const adminId = crypto.randomUUID();
       const technicianId = crypto.randomUUID();
       const locationId = crypto.randomUUID();
       const now = new Date();
-
-      await tx.insert(salonSchema).values({
-        id: salonId,
-        name: input.salonName,
-        slug: input.slug,
+      const salonValues = {
+        name: salonName,
+        slug,
         logoUrl: input.logoUrl || null,
         phone: phoneE164,
         email: normalizedEmail,
@@ -175,31 +244,17 @@ export async function POST(request: Request) {
         ownerPhone: phoneE164,
         ownerClerkUserId: clerkUser.id,
         status: 'active',
+        isActive: true,
         publicationStatus: 'published',
         publishedAt: now,
         slugLockedAt: now,
         onboardingCompletedAt: now,
         freeSoloEnabled: true,
         invitationSource: invite.campaignSource,
-        plan: 'free_solo',
+        plan: 'free',
         maxLocations: 1,
         isMultiLocationEnabled: false,
-        features: {
-          booking: { onlineBooking: true, staffDashboard: true },
-          staff: { scheduleOverrides: false, timeOff: true },
-          clients: { clientProfiles: true, clientHistory: true },
-          social: { photoUploads: false },
-          marketing: { smsReminders: true, referrals: false, rewards: false },
-          money: { staffEarnings: false },
-          analytics: { dashboard: false, utilization: false },
-          controls: { clientBlocking: false, clientFlags: false },
-          multiLocation: false,
-          advancedAnalytics: false,
-          revenueReports: false,
-          techPerformance: false,
-          customBranding: true,
-          apiAccess: false,
-        },
+        features: freeSoloFeatures,
         settings: {
           booking: {
             bufferMinutes: 10,
@@ -225,7 +280,19 @@ export async function POST(request: Request) {
         smsRemindersEnabled: false,
         bookingFlowCustomizationEnabled: false,
         bookingFlow: ['service', 'time', 'confirm'],
-      });
+      };
+
+      if (isClaim) {
+        await tx.update(salonSchema).set(salonValues).where(eq(salonSchema.id, salonId));
+        await tx.update(serviceSchema).set({ isActive: false }).where(eq(serviceSchema.salonId, salonId));
+        await tx.update(adminInviteSchema).set({ usedAt: now }).where(and(
+          eq(adminInviteSchema.salonId, salonId),
+          isNull(adminInviteSchema.usedAt),
+        ));
+      } else {
+        await tx.insert(salonSchema).values({ id: salonId, ...salonValues });
+      }
+
       await tx.insert(adminUserSchema).values({
         id: adminId,
         phoneE164,
@@ -268,11 +335,12 @@ export async function POST(request: Request) {
 
       for (const [index, service] of input.services.entries()) {
         const serviceId = crypto.randomUUID();
+        const baseSlug = service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'service';
         await tx.insert(serviceSchema).values({
           id: serviceId,
           salonId,
           name: service.name,
-          slug: `${service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${index + 1}`,
+          slug: `${baseSlug}-${index + 1}-${serviceId.slice(0, 8)}`,
           price: service.priceCents,
           durationMinutes: service.durationMinutes,
           category: service.category,
@@ -285,30 +353,67 @@ export async function POST(request: Request) {
       const consumed = await tx
         .update(salonSignupInviteSchema)
         .set({ consumedAt: now, consumedByAdminId: adminId })
-        .where(and(eq(salonSignupInviteSchema.id, invite.id), isNull(salonSignupInviteSchema.consumedAt)))
+        .where(and(
+          eq(salonSignupInviteSchema.id, invite.id),
+          isNull(salonSignupInviteSchema.consumedAt),
+          isNull(salonSignupInviteSchema.revokedAt),
+        ))
         .returning();
       if (consumed.length !== 1) {
         throw new Error('INVITE_INVALID');
       }
 
-      return { salonId, slug: input.slug };
+      return { salonId, slug, customDomain, intent: invite.intent };
     });
 
-    return Response.json({ data: { ...result, publicUrl: `https://${result.slug}.${process.env.LUSTER_ROOT_DOMAIN || 'luster.com'}` } }, { status: 201 });
+    if (result.intent === 'claim_existing') {
+      await logAuditEvent({
+        salonId: result.salonId,
+        actorType: 'admin',
+        actorId: clerkUser.id,
+        action: 'salon_claim_completed',
+        entityType: 'salon',
+        entityId: result.salonId,
+      });
+    }
+
+    return Response.json({
+      data: {
+        salonId: result.salonId,
+        slug: result.slug,
+        publicUrl: buildSalonTenantPublicUrl('/', {
+          slug: result.slug,
+          customDomain: result.customDomain,
+        }),
+      },
+    }, { status: 201 });
   } catch (error) {
     const code = normalizeSetupError(error);
-    const invitedEmail = error instanceof Error && error.message === 'INVITE_EMAIL_MISMATCH' && typeof error.cause === 'string'
-      ? error.cause
-      : null;
+    if (claimAuditSalonId) {
+      await logAuditEvent({
+        salonId: claimAuditSalonId,
+        actorType: 'admin',
+        actorId: clerkUser.id,
+        action: 'salon_claim_failed',
+        entityType: 'salon_signup_invite',
+        entityId: claimAuditInviteId,
+        metadata: { failureCode: code },
+      });
+    }
     const messages: Record<string, string> = {
       INVITE_INVALID: 'This invitation is invalid, expired, or already used.',
-      INVITE_EMAIL_MISMATCH: invitedEmail ? `Sign in with the invited email: ${invitedEmail}` : 'Sign in with the email address that received this invitation.',
+      INVITE_EMAIL_MISMATCH: 'Sign in with the email address that received this invitation.',
+      CLAIM_REQUIRES_REVIEW: 'This salon changed after the invitation was issued. Ask Luster support to review it.',
       SLUG_TAKEN: 'That salon link is already taken.',
       OWNER_EXISTS: 'An owner account already exists for this email or phone.',
     };
-    const status = code === 'SLUG_TAKEN' || code === 'OWNER_EXISTS' ? 409 : code.startsWith('INVITE_') ? 403 : 500;
+    const status = code === 'SLUG_TAKEN' || code === 'OWNER_EXISTS' || code === 'CLAIM_REQUIRES_REVIEW'
+      ? 409
+      : code.startsWith('INVITE_')
+        ? 403
+        : 500;
     if (status >= 500) {
-      console.error('[Luster onboarding]', error);
+      console.error('[Luster onboarding] Setup failed');
     }
     return Response.json({ error: { code, message: messages[code] || 'Salon setup could not be completed.' } }, { status });
   }
