@@ -9,11 +9,13 @@
 
 import { NextResponse } from 'next/server';
 
+import { isIsolatedLegacyOtpFixtureEnabled } from '@/libs/authConfig.server';
 import {
   assertClientSessionStorageReady,
   createClientSession,
   setClientSessionCookies,
 } from '@/libs/clientAuth';
+import { rejectDisabledLegacyOtp } from '@/libs/legacyOtp.server';
 import { getClientByPhone } from '@/libs/queries';
 
 // =============================================================================
@@ -111,6 +113,11 @@ async function finalizeClientLogin(formattedPhone: string, clientName?: string |
 // =============================================================================
 
 export async function POST(request: Request) {
+  const disabled = rejectDisabledLegacyOtp();
+  if (disabled) {
+    return disabled;
+  }
+
   try {
     // Parse request body
     const body = (await request.json()) as VerifyOtpRequest;
@@ -143,9 +150,7 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Accept "123456" as valid code
     // ==========================================================================
     if (!isTwilioConfigured) {
-      if (code === '123456') {
-        console.warn(`[DEV MODE] OTP verified for ${formattedPhone}`);
-
+      if (isIsolatedLegacyOtpFixtureEnabled() && code === '123456') {
         try {
           const existingClient = await getClientByPhone(formattedPhone);
           await finalizeClientLogin(formattedPhone, existingClient?.firstName);
@@ -163,7 +168,7 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(
-        { error: 'Invalid code. Use "123456" in dev mode.' },
+        { error: 'Invalid verification code' },
         { status: 401 },
       );
     }
@@ -190,8 +195,8 @@ export async function POST(request: Request) {
 
     // Check if verification was successful
     if (!response.ok || data.status !== 'approved') {
-      const error =
-        data.status === 'canceled'
+      const error
+        = data.status === 'canceled'
           ? 'This verification code has expired or was already used. Please request a new code.'
           : 'This verification code is incorrect or no longer current. Please request a new code and try again.';
 

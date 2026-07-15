@@ -47,6 +47,7 @@ export async function GET(request: Request) {
         name: s.salonName,
         status: s.status ?? null,
         role: s.role,
+        freeSoloEnabled: s.freeSoloEnabled ?? false,
       }));
 
       if (impersonation) {
@@ -56,6 +57,7 @@ export async function GET(request: Request) {
           name: impersonation.salonName,
           status: impersonationSalon?.status ?? null,
           role: 'impersonation',
+          freeSoloEnabled: impersonationSalon?.freeSoloEnabled ?? false,
         }];
       }
 

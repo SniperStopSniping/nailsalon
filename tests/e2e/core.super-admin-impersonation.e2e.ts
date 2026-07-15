@@ -11,15 +11,19 @@ test.use({ storageState: authStatePaths.superAdmin });
 
 test('super admin can impersonate a salon, save a policy, and end impersonation', async ({ page }) => {
   test.slow();
+
   await page.goto(appPath('/super-admin'), {
     waitUntil: 'domcontentloaded',
   });
 
   await expect(page.getByRole('heading', { name: /super admin/i })).toBeVisible();
+
   await page.getByPlaceholder('Search salons, slugs, or owner phones...').fill(e2eConfig.salonName);
+
   await expect(page.getByText(e2eConfig.salonName)).toBeVisible();
 
   await page.getByRole('button', { name: 'View' }).first().click();
+
   await expect(page.getByText('Salon Details')).toBeVisible();
 
   const impersonateStart = await page.evaluate(async ({ salonName, salonSlug }) => {
@@ -70,10 +74,14 @@ test('super admin can impersonate a salon, save a policy, and end impersonation'
   await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible();
 
   await page.goto(appPath('/admin/policies'), { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: /policy settings/i })).toBeVisible();
+
+  await expect(page.getByRole('heading', { level: 1, name: /policy settings/i })).toBeVisible();
+
   await page.getByRole('button', { name: /save changes/i }).click();
+
   await expect(page.getByRole('button', { name: /saved!/i })).toBeVisible();
 
   await page.getByTestId('admin-end-impersonation').click();
+
   await expect(page).toHaveURL(appPathPattern('/super-admin'));
 });

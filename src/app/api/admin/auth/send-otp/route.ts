@@ -17,6 +17,8 @@ import {
   formatPhoneE164,
   isValidPhone,
 } from '@/libs/adminAuth';
+import { isIsolatedLegacyOtpFixtureEnabled } from '@/libs/authConfig.server';
+import { rejectDisabledLegacyOtp } from '@/libs/legacyOtp.server';
 import { checkOtpRateLimit, getClientIp } from '@/libs/rateLimit';
 
 // =============================================================================
@@ -36,6 +38,11 @@ const isTwilioConfigured = Boolean(
 // =============================================================================
 
 export async function POST(request: Request) {
+  const disabled = rejectDisabledLegacyOtp();
+  if (disabled) {
+    return disabled;
+  }
+
   try {
     // Parse request body
     const body = await request.json();
@@ -79,12 +86,16 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Skip Twilio, auto-approve
     // ==========================================================================
     if (!isTwilioConfigured) {
-      console.warn(`[DEV MODE] Admin OTP would be sent to ${phoneE164}`);
-      console.warn('[DEV MODE] Use code "123456" to verify');
+      if (!isIsolatedLegacyOtpFixtureEnabled()) {
+        return NextResponse.json(
+          { error: 'Verification service unavailable' },
+          { status: 503 },
+        );
+      }
 
       return NextResponse.json({
         success: true,
-        message: 'Verification code sent (dev mode)',
+        message: 'Verification code sent (isolated fixture)',
         devMode: true,
       });
     }

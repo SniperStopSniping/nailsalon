@@ -1,51 +1,38 @@
 import { expect, test } from '@playwright/test';
 
-import { cancelAppointmentViaApi, selectBookableSlotFromApi } from './support/booking';
+import { selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
 
-test('customer can log in with OTP, book, and reach the confirmation state', async ({ page }) => {
+test('guest can book without OTP and receive an appointment management link', async ({ page }) => {
   test.slow();
-  const phone = uniqueCustomerPhone();
-  let appointmentId: string | null = null;
 
+  const phone = uniqueCustomerPhone();
   await page.goto(`${appPath('/book/service')}?salonSlug=${e2eConfig.salonSlug}`, {
     waitUntil: 'domcontentloaded',
   });
 
   await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
-  const phoneInput = page.getByTestId('booking-login-phone');
-  await expect(phoneInput).toBeVisible();
-  await phoneInput.fill(phone);
-  await expect(page.getByTestId('booking-login-code')).toBeVisible();
-  await page.getByTestId('booking-login-code').fill(e2eConfig.customerOtpCode);
-
-  const sessionResult = await page.evaluate(async () => {
-    const response = await fetch('/api/auth/validate-session', { cache: 'no-store' });
-    const body = await response.json().catch(() => null);
-    return {
-      ok: response.ok,
-      body,
-    };
-  });
-
-  expect(sessionResult.ok, JSON.stringify(sessionResult.body)).toBeTruthy();
-  await expect(page.getByRole('navigation', { name: /bottom navigation/i })).toBeVisible();
+  await expect(page.getByTestId('booking-login-phone')).toHaveCount(0);
 
   await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
   await page.getByTestId('service-continue-button').click();
+  await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
 
-  await expect(page).toHaveURL(appPathPattern('/book/tech'));
-  await expect(page.getByTestId('booking-summary-service')).toContainText(e2eConfig.serviceName);
+  if (appPathPattern('/book/tech').test(page.url())) {
+    const technicianCard = page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') });
 
-  const technicianCard = page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') });
-  await expect(technicianCard).toBeVisible();
-  await expect(technicianCard).not.toContainText('No reviews yet');
-  await technicianCard.click();
+    await expect(technicianCard).toBeVisible();
+
+    await technicianCard.click();
+  }
 
   await expect(page).toHaveURL(appPathPattern('/book/time'));
   await expect(page.getByTestId('booking-summary-service')).toContainText(e2eConfig.serviceName);
+
   const timeStepPrice = (await page.getByTestId('booking-summary-price').textContent())?.trim();
+
   expect(timeStepPrice).toBeTruthy();
+
   const timeStepUrl = new URL(page.url());
   const technicianId = timeStepUrl.searchParams.get('techId');
   await selectBookableSlotFromApi(page, {
@@ -57,6 +44,11 @@ test('customer can log in with OTP, book, and reach the confirmation state', asy
 
   await expect(page).toHaveURL(appPathPattern('/book/confirm'));
   await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+
+  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
+  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
+  await page.getByLabel('Customer phone').fill(phone);
+
   await expect(page.getByRole('button', { name: /confirm appointment/i })).toContainText(timeStepPrice!);
 
   const bookingResponsePromise = page.waitForResponse(response => (
@@ -69,13 +61,17 @@ test('customer can log in with OTP, book, and reach the confirmation state', asy
 
   const bookingResponse = await bookingResponsePromise;
   const bookingBody = await bookingResponse.json();
-  appointmentId = bookingBody?.data?.appointment?.id ?? null;
+  const manageUrl = bookingBody?.data?.manageUrl as string | undefined;
+
+  expect(manageUrl).toBeTruthy();
 
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /manage this appointment/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /view rewards & pending points/i })).toBeVisible();
 
-  if (appointmentId) {
-    await cancelAppointmentViaApi(appointmentId);
-  }
+  const token = new URL(manageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
+  const cancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(token!)}`, {
+    data: { action: 'cancel', reason: 'client_request' },
+  });
+
+  expect(cancellation.ok(), await cancellation.text()).toBeTruthy();
 });

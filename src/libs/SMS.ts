@@ -11,13 +11,16 @@
  * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
+import { and, desc, eq } from 'drizzle-orm';
 import twilio from 'twilio';
 
+import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
+import { communicationConsentSchema, notificationDeliverySchema, salonSchema, salonTwilioConnectionSchema } from '@/models/Schema';
 
 // =============================================================================
 // TYPES
@@ -33,6 +36,7 @@ export type BookingConfirmationParams = {
   startTime: string;
   totalPrice: number;
   timeZone?: string | null;
+  manageUrl?: string;
 };
 
 export type TechNotificationParams = {
@@ -128,7 +132,7 @@ function formatPrice(cents: number): string {
 // TWILIO CLIENT
 // =============================================================================
 
-function getTwilioClient() {
+function getLegacyTwilioClient() {
   if (!Env.TWILIO_ACCOUNT_SID || !Env.TWILIO_AUTH_TOKEN || !Env.TWILIO_PHONE_NUMBER) {
     return null;
   }
@@ -139,26 +143,96 @@ function getTwilioClient() {
  * Send an SMS message via Twilio
  * Falls back to console logging if Twilio is not configured
  */
-async function sendSMS(to: string, body: string): Promise<boolean> {
-  const client = getTwilioClient();
+async function getSalonTwilioSender(salonId: string) {
+  const [connection] = await db
+    .select()
+    .from(salonTwilioConnectionSchema)
+    .where(and(eq(salonTwilioConnectionSchema.salonId, salonId), eq(salonTwilioConnectionSchema.status, 'active')))
+    .limit(1);
+  if (connection && Env.TWILIO_AUTH_TOKEN && (connection.messagingServiceSid || connection.phoneNumber)) {
+    return {
+      client: twilio(connection.connectAccountSid, Env.TWILIO_AUTH_TOKEN),
+      messagingServiceSid: connection.messagingServiceSid,
+      phoneNumber: connection.phoneNumber,
+    };
+  }
+  const [salon] = await db.select({ freeSoloEnabled: salonSchema.freeSoloEnabled }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+  if (salon?.freeSoloEnabled) {
+    return null;
+  }
+  const legacyClient = getLegacyTwilioClient();
+  return legacyClient ? { client: legacyClient, messagingServiceSid: null, phoneNumber: Env.TWILIO_PHONE_NUMBER ?? null } : null;
+}
 
-  if (!client) {
+async function hasTransactionalSmsConsent(salonId: string, phone: string): Promise<boolean> {
+  const normalized = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  const [consent] = await db
+    .select({ status: communicationConsentSchema.status })
+    .from(communicationConsentSchema)
+    .where(and(
+      eq(communicationConsentSchema.salonId, salonId),
+      eq(communicationConsentSchema.recipient, normalized),
+      eq(communicationConsentSchema.channel, 'sms'),
+      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
+    ))
+    .orderBy(desc(communicationConsentSchema.createdAt))
+    .limit(1);
+  return consent?.status === 'granted';
+}
+
+type SmsDeliveryContext = {
+  appointmentId?: string;
+  purpose?: string;
+};
+
+async function sendSMS(
+  salonId: string,
+  to: string,
+  body: string,
+  context: SmsDeliveryContext = {},
+): Promise<boolean> {
+  const deliveryId = crypto.randomUUID();
+  await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId,
+    appointmentId: context.appointmentId || null,
+    channel: 'sms',
+    purpose: context.purpose || 'transactional',
+    dedupeKey: `sms:${deliveryId}`,
+    status: 'queued',
+  }).catch(() => undefined);
+  const sender = await getSalonTwilioSender(salonId);
+
+  if (!sender) {
     console.warn('[SMS DEV MODE] Would send to:', to);
     console.warn('[SMS DEV MODE] Message:', body);
     console.warn('---');
+    await db.update(notificationDeliverySchema).set({ status: 'failed', errorCode: 'SENDER_UNAVAILABLE', errorMessage: 'No active salon Twilio sender', retryable: true }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     return false;
   }
 
   try {
-    const message = await client.messages.create({
+    const normalizedTo = to.startsWith('+') ? to : `+1${to.replace(/\D/g, '')}`;
+    const statusCallback = Env.NEXT_PUBLIC_APP_URL
+      ? `${Env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`
+      : null;
+    const message = await sender.client.messages.create({
       body,
-      from: Env.TWILIO_PHONE_NUMBER,
-      to: `+1${to}`,
+      ...(sender.messagingServiceSid
+        ? { messagingServiceSid: sender.messagingServiceSid }
+        : { from: sender.phoneNumber! }),
+      ...(statusCallback ? { statusCallback } : {}),
+      to: normalizedTo,
     });
     console.warn('SMS sent successfully:', message.sid);
+    await db.update(notificationDeliverySchema).set({ status: message.status || 'accepted', providerMessageId: message.sid }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     return true;
   } catch (error) {
     console.error('Failed to send SMS:', error);
+    const providerError = error as { code?: number | string; status?: number };
+    const errorCode = providerError.code ? String(providerError.code) : null;
+    const retryable = (providerError.status ?? 0) >= 500 || ['30001', '30008'].includes(errorCode || '');
+    await db.update(notificationDeliverySchema).set({ status: 'failed', errorCode, errorMessage: error instanceof Error ? error.message : String(error), retryable }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     // Don't throw - we don't want SMS failures to break bookings
     return false;
   }
@@ -185,6 +259,11 @@ export async function sendBookingConfirmationToClient(
 
   const appointmentRange = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
 
+  if (!await hasTransactionalSmsConsent(salonId, phone)) {
+    console.warn('[SMS CONSENT MISSING] Booking confirmation skipped:', salonId);
+    return;
+  }
+
   const message = `${salonName}
 Appointment confirmed
 
@@ -194,9 +273,9 @@ ${services.join(' + ')} with ${technicianName}
 ${appointmentRange}
 Total: ${formatPrice(totalPrice)}
 
-Reply to this text if you need help.`;
+${params.manageUrl ? `Manage: ${params.manageUrl}\n` : ''}Reply STOP to opt out. Reply to this text if you need help.`;
 
-  await sendSMS(phone, message);
+  await sendSMS(salonId, phone, message, { appointmentId: params.appointmentId, purpose: 'booking_confirmation' });
 }
 
 /**
@@ -274,7 +353,7 @@ export async function sendInternalBookingNotificationSms(
     `Total: ${formatPrice(totalPrice)}`,
   ];
 
-  return sendSMS(phone, messageLines.join('\n'));
+  return sendSMS(salonId, phone, messageLines.join('\n'));
 }
 
 export async function sendInternalCancellationNotificationSms(
@@ -325,7 +404,7 @@ export async function sendInternalCancellationNotificationSms(
     messageLines.push(`Reason: ${cancelReason.replaceAll('_', ' ')}`);
   }
 
-  return sendSMS(phone, messageLines.join('\n'));
+  return sendSMS(salonId, phone, messageLines.join('\n'));
 }
 
 /**
@@ -338,6 +417,10 @@ export async function sendAppointmentReminder(
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return false;
+  }
+  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+    console.warn('[SMS CONSENT MISSING] Appointment reminder skipped:', salonId);
     return false;
   }
 
@@ -395,7 +478,10 @@ Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTim
 
 Need to reschedule? Reply or call us.`;
 
-  return sendSMS(phone, message);
+  return sendSMS(salonId, phone, message, {
+    appointmentId: params.appointmentId,
+    purpose: kind === 'day_before' ? 'appointment_reminder_24h' : kind === 'same_day' ? 'appointment_reminder_2h' : 'appointment_reminder',
+  });
 }
 
 /**
@@ -415,6 +501,9 @@ export async function sendCancellationConfirmation(
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
+  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+    return;
+  }
 
   const { phone, clientName, salonName } = params;
 
@@ -425,7 +514,7 @@ Your appointment at ${salonName} has been cancelled.
 We hope to see you again soon.
 Book anytime at our website.`;
 
-  await sendSMS(phone, message);
+  await sendSMS(salonId, phone, message, { appointmentId: params.appointmentId, purpose: 'cancellation_confirmation' });
 }
 
 /**
@@ -436,6 +525,7 @@ export async function sendRescheduleConfirmation(
   params: {
     phone: string;
     clientName?: string;
+    appointmentId: string;
     salonName: string;
     oldStartTime: string;
     newStartTime: string;
@@ -447,6 +537,9 @@ export async function sendRescheduleConfirmation(
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return;
+  }
+  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
     return;
   }
 
@@ -478,7 +571,7 @@ ${services.join(' + ')} with ${technicianName}
 
 Reply to this text if you need help.`;
 
-  await sendSMS(phone, message);
+  await sendSMS(salonId, phone, message, { appointmentId: params.appointmentId, purpose: 'reschedule_confirmation' });
 }
 
 /**
@@ -565,7 +658,7 @@ ${claimUrl}
 
 Book within 14 days to use your reward.`;
 
-  return sendSMS(refereePhone, message);
+  return sendSMS(salonId, refereePhone, message);
 }
 
 /**
@@ -603,5 +696,5 @@ ${loginUrl}
 
 💅 See your appointments, clients & more!`;
 
-  return sendSMS(phone, message);
+  return sendSMS(salonId, phone, message);
 }

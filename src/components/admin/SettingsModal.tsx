@@ -747,6 +747,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 type SettingsModalProps = {
   onClose: () => void;
   salonSlug?: string | null;
+  isFreeSolo?: boolean;
   userName?: string;
   userInitials?: string;
 };
@@ -754,6 +755,7 @@ type SettingsModalProps = {
 export function SettingsModal({
   onClose,
   salonSlug: explicitSalonSlug,
+  isFreeSolo = false,
   userName = 'Justin Hodgeman',
   userInitials,
 }: SettingsModalProps) {
@@ -1599,341 +1601,350 @@ export function SettingsModal({
               )}
         </Section>
 
-        {/* Section 3.5: Modules (Step 16.3) */}
-        <Section
-          title="Modules"
-          footer="Enable or disable features for your salon. Disabled modules won't be available to staff."
-        >
-          {modulesLoading
-            ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                </div>
-              )
-            : (
-                <>
-                  {/* Marketing Group */}
-                  <div className="border-b border-gray-100 px-4 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Marketing</span>
-                  </div>
-                  <ModuleRow
-                    icon={MessageSquare}
-                    iconColor="bg-green-500"
-                    label="SMS Reminders"
-                    moduleKey="smsReminders"
-                    enabled={modules.smsReminders}
-                    entitled={entitledModules.smsReminders}
-                    onToggle={handleModuleToggle}
-                  />
-                  <ModuleRow
-                    icon={Users}
-                    iconColor="bg-blue-500"
-                    label="Referrals"
-                    moduleKey="referrals"
-                    enabled={modules.referrals}
-                    entitled={entitledModules.referrals}
-                    onToggle={handleModuleToggle}
-                  />
-                  <ModuleRow
-                    icon={Gift}
-                    iconColor="bg-purple-500"
-                    label="Rewards"
-                    moduleKey="rewards"
-                    enabled={modules.rewards}
-                    entitled={entitledModules.rewards}
-                    onToggle={handleModuleToggle}
-                  />
-
-                  {/* Staff Group */}
-                  <div className="border-b border-gray-100 px-4 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Staff</span>
-                  </div>
-                  <ModuleRow
-                    icon={User}
-                    iconColor="bg-orange-500"
-                    label="Schedule Overrides"
-                    moduleKey="scheduleOverrides"
-                    enabled={modules.scheduleOverrides}
-                    entitled={entitledModules.scheduleOverrides}
-                    onToggle={handleModuleToggle}
-                  />
-                  <ModuleRow
-                    icon={BarChart3}
-                    iconColor="bg-teal-500"
-                    label="Staff Earnings"
-                    moduleKey="staffEarnings"
-                    enabled={modules.staffEarnings}
-                    entitled={entitledModules.staffEarnings}
-                    onToggle={handleModuleToggle}
-                  />
-
-                  {/* Controls Group */}
-                  <div className="border-b border-gray-100 px-4 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Controls</span>
-                  </div>
-                  <ModuleRow
-                    icon={Flag}
-                    iconColor="bg-amber-500"
-                    label="Client Flags"
-                    moduleKey="clientFlags"
-                    enabled={modules.clientFlags}
-                    entitled={entitledModules.clientFlags}
-                    onToggle={handleModuleToggle}
-                  />
-                  <ModuleRow
-                    icon={Shield}
-                    iconColor="bg-red-500"
-                    label="Client Blocking"
-                    moduleKey="clientBlocking"
-                    enabled={modules.clientBlocking}
-                    entitled={entitledModules.clientBlocking}
-                    onToggle={handleModuleToggle}
-                  />
-
-                  {/* Analytics Group */}
-                  <div className="border-b border-gray-100 px-4 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Analytics</span>
-                  </div>
-                  <ModuleRow
-                    icon={BarChart3}
-                    iconColor="bg-indigo-500"
-                    label="Analytics Dashboard"
-                    moduleKey="analyticsDashboard"
-                    enabled={modules.analyticsDashboard}
-                    entitled={entitledModules.analyticsDashboard}
-                    onToggle={handleModuleToggle}
-                  />
-                  <ModuleRow
-                    icon={BarChart3}
-                    iconColor="bg-cyan-500"
-                    label="Utilization Reports"
-                    moduleKey="utilization"
-                    enabled={modules.utilization}
-                    entitled={entitledModules.utilization}
-                    onToggle={handleModuleToggle}
-                    isLast
-                  />
-
-                  {modulesSaving && (
-                    <div className="flex items-center justify-center py-2 text-xs text-gray-500">
-                      Saving...
-                    </div>
-                  )}
-                </>
-              )}
-        </Section>
-
-        {/* Section 3.55: Programs (Step 21E) */}
-        <Section
-          title="Programs"
-          footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
-        >
-          {programsLoading
-            ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                </div>
-              )
-            : (
-                <>
-                  {/* Program Toggles */}
-                  <Row
-                    icon={MessageSquare}
-                    iconColor="bg-purple-500"
-                    label="Reviews"
-                    type="toggle"
-                    defaultOn={reviewsEnabled}
-                    onToggle={(value) => {
-                      setReviewsEnabled(value);
-                      saveProgramToggle('reviewsEnabled', value);
-                    }}
-                  />
-                  <Row
-                    icon={Gift}
-                    iconColor="bg-green-500"
-                    label="Rewards Program"
-                    type="toggle"
-                    defaultOn={rewardsEnabledProgram}
-                    onToggle={(value) => {
-                      setRewardsEnabledProgram(value);
-                      saveProgramToggle('rewardsEnabled', value);
-                    }}
-                    isLast
-                  />
-
-                  <div className="border-t border-gray-100 px-4 py-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                      Active Offers
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Referral reward</span>
-                        <span className="font-medium text-gray-900">$10 for the referrer</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Friend offer</span>
-                        <span className="font-medium text-gray-900">$10 off first appointment</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Google review reward</span>
-                        <span className="font-medium text-gray-900">$10 off (manual grant)</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Visit earning</span>
-                        <span className="font-medium text-gray-900">20 points per $1 spent</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Billing Status Display (Read-only) */}
-                  <div className="border-t border-gray-100 px-4 py-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                      Billing Status
-                    </div>
-                    {billingMode === 'STRIPE'
-                      ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <div className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
-                              <span className="text-sm text-gray-900">
-                                Stripe Billing
-                                {subscriptionStatus ? ` (${subscriptionStatus})` : ''}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      : (
-                          <div className="flex items-center gap-2">
-                            <div className="size-2 rounded-full bg-gray-400" />
-                            <span className="text-sm text-gray-600">Cash / Offline billing enabled</span>
-                          </div>
-                        )}
-                  </div>
-
-                  {programsSaving && (
-                    <div className="flex items-center justify-center py-2 text-xs text-gray-500">
-                      Saving...
-                    </div>
-                  )}
-                </>
-              )}
-        </Section>
-
-        {/* Compare Plans Button (Step 19) */}
-        <div className="mb-6 px-4">
-          <button
-            type="button"
-            onClick={() => setShowComparePlans(true)}
-            className="w-full rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-3 text-center text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-          >
-            Compare Plans
-          </button>
-        </div>
-
-        {/* Section 3.6: Staff Visibility (Step 16.1) */}
-        <Section
-          title="Staff Visibility"
-          footer={visibilityEntitled
-            ? 'Control what information staff can see in their dashboard. Changes take effect immediately.'
-            : undefined}
-        >
-          {visibilityLoading
-            ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                </div>
-              )
-            : !visibilityEntitled
+        {!isFreeSolo && (
+          <>
+            {/* Section 3.5: Modules (Step 16.3) */}
+            <Section
+              title="Modules"
+              footer="Enable or disable features for your salon. Disabled modules won't be available to staff."
+            >
+              {modulesLoading
                 ? (
-                    <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-                      <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-amber-100">
-                        <Shield className="size-6 text-amber-600" />
-                      </div>
-                      <div className="mb-1 text-sm font-medium text-gray-900">
-                        Upgrade Required
-                      </div>
-                      <div className="max-w-[240px] text-xs text-gray-500">
-                        Staff visibility controls are a premium feature. Contact support to upgrade your plan.
-                      </div>
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
                     </div>
                   )
                 : (
                     <>
-                      <Row
-                        icon={Eye}
-                        iconColor="bg-[#007AFF]"
-                        label="Client Phone"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showClientPhone ?? true}
-                        onToggle={value => handleVisibilityToggle('showClientPhone', value)}
+                      {/* Marketing Group */}
+                      <div className="border-b border-gray-100 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Marketing</span>
+                      </div>
+                      <ModuleRow
+                        icon={MessageSquare}
+                        iconColor="bg-green-500"
+                        label="SMS Reminders"
+                        moduleKey="smsReminders"
+                        enabled={modules.smsReminders}
+                        entitled={entitledModules.smsReminders}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Client Full Name"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showClientFullName ?? true}
-                        onToggle={value => handleVisibilityToggle('showClientFullName', value)}
+                      <ModuleRow
+                        icon={Users}
+                        iconColor="bg-blue-500"
+                        label="Referrals"
+                        moduleKey="referrals"
+                        enabled={modules.referrals}
+                        entitled={entitledModules.referrals}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Client Email"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showClientEmail ?? false}
-                        onToggle={value => handleVisibilityToggle('showClientEmail', value)}
+                      <ModuleRow
+                        icon={Gift}
+                        iconColor="bg-purple-500"
+                        label="Rewards"
+                        moduleKey="rewards"
+                        enabled={modules.rewards}
+                        entitled={entitledModules.rewards}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Appointment Price"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showAppointmentPrice ?? true}
-                        onToggle={value => handleVisibilityToggle('showAppointmentPrice', value)}
+
+                      {/* Staff Group */}
+                      <div className="border-b border-gray-100 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Staff</span>
+                      </div>
+                      <ModuleRow
+                        icon={User}
+                        iconColor="bg-orange-500"
+                        label="Schedule Overrides"
+                        moduleKey="scheduleOverrides"
+                        enabled={modules.scheduleOverrides}
+                        entitled={entitledModules.scheduleOverrides}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Client History"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showClientHistory ?? false}
-                        onToggle={value => handleVisibilityToggle('showClientHistory', value)}
+                      <ModuleRow
+                        icon={BarChart3}
+                        iconColor="bg-teal-500"
+                        label="Staff Earnings"
+                        moduleKey="staffEarnings"
+                        enabled={modules.staffEarnings}
+                        entitled={entitledModules.staffEarnings}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Client Notes"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showClientNotes ?? true}
-                        onToggle={value => handleVisibilityToggle('showClientNotes', value)}
+
+                      {/* Controls Group */}
+                      <div className="border-b border-gray-100 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Controls</span>
+                      </div>
+                      <ModuleRow
+                        icon={Flag}
+                        iconColor="bg-amber-500"
+                        label="Client Flags"
+                        moduleKey="clientFlags"
+                        enabled={modules.clientFlags}
+                        entitled={entitledModules.clientFlags}
+                        onToggle={handleModuleToggle}
                       />
-                      <Row
-                        label="Other Tech Appointments"
-                        type="toggle"
-                        defaultOn={visibility.staff?.showOtherTechAppointments ?? false}
-                        onToggle={value => handleVisibilityToggle('showOtherTechAppointments', value)}
+                      <ModuleRow
+                        icon={Shield}
+                        iconColor="bg-red-500"
+                        label="Client Blocking"
+                        moduleKey="clientBlocking"
+                        enabled={modules.clientBlocking}
+                        entitled={entitledModules.clientBlocking}
+                        onToggle={handleModuleToggle}
+                      />
+
+                      {/* Analytics Group */}
+                      <div className="border-b border-gray-100 px-4 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Analytics</span>
+                      </div>
+                      <ModuleRow
+                        icon={BarChart3}
+                        iconColor="bg-indigo-500"
+                        label="Analytics Dashboard"
+                        moduleKey="analyticsDashboard"
+                        enabled={modules.analyticsDashboard}
+                        entitled={entitledModules.analyticsDashboard}
+                        onToggle={handleModuleToggle}
+                      />
+                      <ModuleRow
+                        icon={BarChart3}
+                        iconColor="bg-cyan-500"
+                        label="Utilization Reports"
+                        moduleKey="utilization"
+                        enabled={modules.utilization}
+                        entitled={entitledModules.utilization}
+                        onToggle={handleModuleToggle}
                         isLast
                       />
-                      {visibilitySaving && (
+
+                      {modulesSaving && (
                         <div className="flex items-center justify-center py-2 text-xs text-gray-500">
                           Saving...
                         </div>
                       )}
                     </>
                   )}
-        </Section>
+            </Section>
+
+            {/* Section 3.55: Programs (Step 21E) */}
+            <Section
+              title="Programs"
+              footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
+            >
+              {programsLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                    </div>
+                  )
+                : (
+                    <>
+                      {/* Program Toggles */}
+                      <Row
+                        icon={MessageSquare}
+                        iconColor="bg-purple-500"
+                        label="Reviews"
+                        type="toggle"
+                        defaultOn={reviewsEnabled}
+                        onToggle={(value) => {
+                          setReviewsEnabled(value);
+                          saveProgramToggle('reviewsEnabled', value);
+                        }}
+                      />
+                      <Row
+                        icon={Gift}
+                        iconColor="bg-green-500"
+                        label="Rewards Program"
+                        type="toggle"
+                        defaultOn={rewardsEnabledProgram}
+                        onToggle={(value) => {
+                          setRewardsEnabledProgram(value);
+                          saveProgramToggle('rewardsEnabled', value);
+                        }}
+                        isLast
+                      />
+
+                      <div className="border-t border-gray-100 px-4 py-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Active Offers
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Referral reward</span>
+                            <span className="font-medium text-gray-900">$10 for the referrer</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Friend offer</span>
+                            <span className="font-medium text-gray-900">$10 off first appointment</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Google review reward</span>
+                            <span className="font-medium text-gray-900">$10 off (manual grant)</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Visit earning</span>
+                            <span className="font-medium text-gray-900">20 points per $1 spent</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Billing Status Display (Read-only) */}
+                      <div className="border-t border-gray-100 px-4 py-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Billing Status
+                        </div>
+                        {billingMode === 'STRIPE'
+                          ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <div className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
+                                  <span className="text-sm text-gray-900">
+                                    Stripe Billing
+                                    {subscriptionStatus ? ` (${subscriptionStatus})` : ''}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          : (
+                              <div className="flex items-center gap-2">
+                                <div className="size-2 rounded-full bg-gray-400" />
+                                <span className="text-sm text-gray-600">Cash / Offline billing enabled</span>
+                              </div>
+                            )}
+                      </div>
+
+                      {programsSaving && (
+                        <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                          Saving...
+                        </div>
+                      )}
+                    </>
+                  )}
+            </Section>
+
+            {/* Compare Plans Button (Step 19) */}
+            <div className="mb-6 px-4">
+              <button
+                type="button"
+                onClick={() => setShowComparePlans(true)}
+                className="w-full rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-3 text-center text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+              >
+                Compare Plans
+              </button>
+            </div>
+
+            {/* Section 3.6: Staff Visibility (Step 16.1) */}
+            <Section
+              title="Staff Visibility"
+              footer={visibilityEntitled
+                ? 'Control what information staff can see in their dashboard. Changes take effect immediately.'
+                : undefined}
+            >
+              {visibilityLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                    </div>
+                  )
+                : !visibilityEntitled
+                    ? (
+                        <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                          <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-amber-100">
+                            <Shield className="size-6 text-amber-600" />
+                          </div>
+                          <div className="mb-1 text-sm font-medium text-gray-900">
+                            Upgrade Required
+                          </div>
+                          <div className="max-w-[240px] text-xs text-gray-500">
+                            Staff visibility controls are a premium feature. Contact support to upgrade your plan.
+                          </div>
+                        </div>
+                      )
+                    : (
+                        <>
+                          <Row
+                            icon={Eye}
+                            iconColor="bg-[#007AFF]"
+                            label="Client Phone"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showClientPhone ?? true}
+                            onToggle={value => handleVisibilityToggle('showClientPhone', value)}
+                          />
+                          <Row
+                            label="Client Full Name"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showClientFullName ?? true}
+                            onToggle={value => handleVisibilityToggle('showClientFullName', value)}
+                          />
+                          <Row
+                            label="Client Email"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showClientEmail ?? false}
+                            onToggle={value => handleVisibilityToggle('showClientEmail', value)}
+                          />
+                          <Row
+                            label="Appointment Price"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showAppointmentPrice ?? true}
+                            onToggle={value => handleVisibilityToggle('showAppointmentPrice', value)}
+                          />
+                          <Row
+                            label="Client History"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showClientHistory ?? false}
+                            onToggle={value => handleVisibilityToggle('showClientHistory', value)}
+                          />
+                          <Row
+                            label="Client Notes"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showClientNotes ?? true}
+                            onToggle={value => handleVisibilityToggle('showClientNotes', value)}
+                          />
+                          <Row
+                            label="Other Tech Appointments"
+                            type="toggle"
+                            defaultOn={visibility.staff?.showOtherTechAppointments ?? false}
+                            onToggle={value => handleVisibilityToggle('showOtherTechAppointments', value)}
+                            isLast
+                          />
+                          {visibilitySaving && (
+                            <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                              Saving...
+                            </div>
+                          )}
+                        </>
+                      )}
+            </Section>
+
+          </>
+        )}
 
         {/* Section 4: Page Themes */}
         <Section title="Appearance">
           <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
         </Section>
 
-        {/* Section 5: Booking Flow */}
-        <Section title="Booking Flow" footer="Customize the order of steps in your online booking flow.">
-          {bookingFlowLoading
-            ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                </div>
-              )
-            : (
-                <BookingFlowEditor
-                  bookingFlowCustomizationEnabled={bookingFlowEnabled}
-                  bookingFlow={bookingFlow}
-                  onSave={handleBookingFlowSave}
-                />
-              )}
-        </Section>
+        {!isFreeSolo && (
+          <>
+            {/* Section 5: Booking Flow */}
+            <Section title="Booking Flow" footer="Customize the order of steps in your online booking flow.">
+              {bookingFlowLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                    </div>
+                  )
+                : (
+                    <BookingFlowEditor
+                      bookingFlowCustomizationEnabled={bookingFlowEnabled}
+                      bookingFlow={bookingFlow}
+                      onSave={handleBookingFlowSave}
+                    />
+                  )}
+            </Section>
+          </>
+        )}
 
         {/* Section 6: About */}
         <Section title="About">
@@ -1944,10 +1955,12 @@ export function SettingsModal({
       </div>
 
       {/* Compare Plans Modal (Step 19) */}
-      <ComparePlansModal
-        isOpen={showComparePlans}
-        onClose={() => setShowComparePlans(false)}
-      />
+      {!isFreeSolo && (
+        <ComparePlansModal
+          isOpen={showComparePlans}
+          onClose={() => setShowComparePlans(false)}
+        />
+      )}
     </div>
   );
 }

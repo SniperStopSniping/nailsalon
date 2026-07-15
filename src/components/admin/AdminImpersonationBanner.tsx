@@ -13,7 +13,7 @@ type ImpersonationSession = {
   salonSlug: string;
   salonName: string;
   adminUserId: string;
-  adminPhone: string;
+  adminName?: string | null;
   startedAt: string;
 };
 
@@ -121,7 +121,7 @@ export function AdminImpersonationBanner({
         title={(
           <div className="flex items-center gap-2 text-amber-950">
             <AlertTriangle className="size-4" />
-            <span>Impersonating: {session.salonName}</span>
+            <span>{`Impersonating: ${session.salonName}`}</span>
           </div>
         )}
         description="You are acting as salon admin in this salon. Actions remain tied to your real super-admin account."
@@ -139,8 +139,13 @@ export function AdminImpersonationBanner({
         )}
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-amber-900/80">
-          <span>Salon scope is locked to `{session.salonSlug}`.</span>
-          <span>Started {new Date(session.startedAt).toLocaleString()}.</span>
+          <span>
+            Super admin:
+            {' '}
+            {session.adminName || session.adminUserId}
+          </span>
+          <span>{`Salon scope is locked to \`${session.salonSlug}\`.`}</span>
+          <span>{`Started ${new Date(session.startedAt).toLocaleString()}.`}</span>
         </div>
         {error && (
           <p className="text-sm text-red-700">{error}</p>

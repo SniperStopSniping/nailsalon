@@ -9,6 +9,7 @@ const {
   runAppointmentManageMutation,
   syncGoogleCalendarEventForAppointment,
   db,
+  enqueueGoogleCalendarUpsert,
 } = vi.hoisted(() => ({
   requireAppointmentManagerAccess: vi.fn(),
   getAppointmentManageDetail: vi.fn(),
@@ -17,6 +18,7 @@ const {
   db: {
     select: vi.fn(),
   },
+  enqueueGoogleCalendarUpsert: vi.fn(),
 }));
 
 vi.mock('@/libs/routeAccessGuards', () => ({
@@ -47,6 +49,8 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/googleCalendar', () => ({
   syncGoogleCalendarEventForAppointment,
 }));
+
+vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarUpsert }));
 
 import { GET, PATCH } from './route';
 

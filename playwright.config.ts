@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+import { config as loadEnv } from 'dotenv';
+
+loadEnv({ path: '.env.local' });
 
 if (process.env.CI && !process.env.CLERK_SECRET_KEY) {
   process.env.CLERK_SECRET_KEY = 'test_clerk_secret_key';
@@ -13,6 +16,8 @@ const usingExternalBaseUrl = Boolean(EXTERNAL_BASE_URL);
 
 process.env.HOST ||= HOST;
 process.env.PORT ||= String(PORT);
+process.env.SUPER_ADMIN_TEST_PHONE ||= process.env.E2E_SUPER_ADMIN_PHONE;
+process.env.SUPER_ADMIN_TEST_PASSWORD ||= process.env.E2E_SUPER_ADMIN_PASSWORD;
 
 if (process.env.CI && process.env.E2E_USE_REAL_TWILIO !== 'true') {
   process.env.E2E_INSECURE_COOKIES = 'true';
@@ -32,7 +37,11 @@ const chromiumUse = {
 
 // Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port
 const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
-const webServerReadyURL = `${baseURL}/api/health`;
+// The deployment health endpoint intentionally returns 503 when required hosted
+// integrations are absent. CI only needs to know that Next.js is accepting
+// requests before tests start, so use a static liveness route for this probe.
+const webServerReadyURL = `${baseURL}/robots.txt`;
+process.env.PUBLIC_APP_URL ||= baseURL;
 
 /**
  * See https://playwright.dev/docs/test-configuration.

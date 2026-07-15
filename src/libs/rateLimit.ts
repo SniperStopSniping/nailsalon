@@ -5,6 +5,8 @@
  * This in-memory implementation works for single-instance deployments.
  */
 
+import { setInterval as setNodeInterval } from 'node:timers';
+
 type RateLimitEntry = {
   count: number;
   resetAt: number;
@@ -31,12 +33,15 @@ function cleanupExpired(store: Map<string, RateLimitEntry>) {
 }
 
 // Cleanup every 5 minutes
-setInterval(() => {
-  cleanupExpired(ipLimits);
-  cleanupExpired(phoneLimitsMinute);
-  cleanupExpired(phoneLimitsDay);
-  cleanupExpired(endpointLimits);
-}, 5 * 60 * 1000);
+if (process.env.VITEST !== 'true') {
+  const cleanupTimer = setNodeInterval(() => {
+    cleanupExpired(ipLimits);
+    cleanupExpired(phoneLimitsMinute);
+    cleanupExpired(phoneLimitsDay);
+    cleanupExpired(endpointLimits);
+  }, 5 * 60 * 1000);
+  cleanupTimer.unref();
+}
 
 /**
  * Check and increment rate limit

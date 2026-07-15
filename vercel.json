@@ -3,6 +3,10 @@
     {
       "path": "/api/reminders/process",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/integrations/outbox/process",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET } from './route';
+
 const { getAdminImpersonationForAdmin, getAdminSession } = vi.hoisted(() => ({
   getAdminImpersonationForAdmin: vi.fn(),
   getAdminSession: vi.fn(),
@@ -16,8 +18,6 @@ vi.mock('@/libs/adminAuth', () => ({
 vi.mock('@/libs/queries', () => ({
   getSalonById,
 }));
-
-import { GET } from './route';
 
 describe('GET /api/admin/auth/me', () => {
   beforeEach(() => {
@@ -65,6 +65,7 @@ describe('GET /api/admin/auth/me', () => {
       name: 'Locked Salon',
       status: null,
       role: 'impersonation',
+      freeSoloEnabled: false,
     }]);
   });
 

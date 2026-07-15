@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import { db } from '@/libs/DB';
-import { deleteGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
+import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -194,7 +194,7 @@ export async function PATCH(
       });
     }
 
-    await deleteGoogleCalendarEventForAppointment({
+    await enqueueGoogleCalendarDelete({
       appointmentId,
       salonId: appointment.salonId,
       googleCalendarEventId: appointment.googleCalendarEventId,

@@ -76,10 +76,9 @@ export function hasRealDevSuperAdminId(): boolean {
  * Check if dev mode is enabled (server-side)
  */
 export function isDevModeServer(): boolean {
-  return (
-    process.env.NODE_ENV !== 'production'
-    || process.env.NEXT_PUBLIC_DEV_MODE === 'true'
-  );
+  return process.env.NODE_ENV !== 'production'
+    && process.env.VERCEL_ENV !== 'production'
+    && process.env.APP_ENV !== 'production';
 }
 
 // =============================================================================
@@ -209,6 +208,7 @@ export function getMockAdminSession(
       name: 'Dev Super Admin',
       email: 'dev-super@test.local',
       emailVerifiedAt: null,
+      clerkUserId: null,
       isSuperAdmin: true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -223,6 +223,7 @@ export function getMockAdminSession(
     name: 'Dev Admin',
     email: 'dev-admin@test.local',
     emailVerifiedAt: null,
+    clerkUserId: null,
     isSuperAdmin: false,
     createdAt: new Date(),
     updatedAt: new Date(),

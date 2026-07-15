@@ -1,9 +1,9 @@
 import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
-import { type AppId } from '@/components/admin/AppGrid';
+import type { AppId } from '@/components/admin/AppGrid';
 import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
 import { ClientsModal } from '@/components/admin/ClientsModal';
-import { FraudSignalsModal, type FraudSignal } from '@/components/admin/FraudSignalsModal';
+import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSignalsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
@@ -49,6 +49,7 @@ type AnalyticsWidgetProps = {
 type AdminModalHostProps = {
   activeModal: AppId | null;
   activeSalonSlug: string | null;
+  isFreeSolo: boolean;
   onCloseModal: () => void;
   showNotifications: boolean;
   setShowNotifications: (value: boolean) => void;
@@ -72,6 +73,7 @@ type AdminModalHostProps = {
 export function AdminModalHost({
   activeModal,
   activeSalonSlug,
+  isFreeSolo,
   onCloseModal,
   showNotifications,
   setShowNotifications,
@@ -110,6 +112,7 @@ export function AdminModalHost({
           salonSlug={activeSalonSlug}
           userName={userName}
           userInitials={userInitial}
+          isFreeSolo={isFreeSolo}
         />
       </AppModal>
 

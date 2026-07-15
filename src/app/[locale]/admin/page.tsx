@@ -48,6 +48,7 @@ function getEmptyAnalytics(): PartialAnalytics {
     period: 'weekly',
     revenue: {
       total: 0,
+      tips: 0,
       trend: 0,
       completed: 0,
       series: [],
@@ -124,6 +125,7 @@ type AdminUser = {
     name: string;
     status?: string | null;
     role: string;
+    freeSoloEnabled?: boolean;
   }>;
 };
 
@@ -247,6 +249,7 @@ function AdminDashboardContent() {
   ) ?? adminUser?.salons[0] ?? null;
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
+  const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
 
   // Fraud signals - parent owns state
   const [fraudSignals, setFraudSignals] = useState<import('@/components/admin/FraudSignalsModal').FraudSignal[]>([]);
@@ -674,7 +677,9 @@ function AdminDashboardContent() {
 
   // Handle app tile tap - all tiles now open modals
   const handleAppTap = (appId: AppId) => {
-    if (appId === 'schedule') {
+    if (appId === 'luster') {
+      router.push(`/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`);
+    } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
       setActiveModal(appId);
@@ -905,6 +910,7 @@ function AdminDashboardContent() {
                   <AnalyticsWidgets
                     appointments={data.appointments}
                     revenue={data.revenue.today ?? 0}
+                    tips={analyticsData?.revenue?.tips ?? 0}
                     revenueTrend={data.revenue.trend ?? 0}
                     revenueSeries={analyticsData?.revenue?.series ?? []}
                     staffData={staffData}
@@ -927,6 +933,7 @@ function AdminDashboardContent() {
               theme="apple"
               badges={appBadges}
               onAppTap={handleAppTap}
+              hiddenIds={isFreeSolo ? ['analytics', 'marketing', 'reviews', 'rewards', 'staff', 'staff-ops'] : []}
             />
           </SwipeablePages>
         </div>
@@ -944,6 +951,7 @@ function AdminDashboardContent() {
       <AdminModalHost
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
+        isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+import { CompleteAppointmentSheet } from './CompleteAppointmentSheet';
+import { ReviewFollowupModal } from './ReviewFollowupModal';
 import type { AppointmentData } from './StaffAppointmentCard';
 
 // =============================================================================
@@ -44,6 +46,8 @@ export function ActionBar({
 }: ActionBarProps) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 'actions' = status buttons; 'completing' = complete form; 'review' = review prompt
+  const [view, setView] = useState<'actions' | 'completing' | 'review'>('actions');
 
   // Determine current canvas state
   const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
@@ -119,6 +123,34 @@ export function ActionBar({
   };
 
   const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
+
+  // Completion form overlay (sits above the action bar)
+  if (view === 'completing') {
+    return (
+      <CompleteAppointmentSheet
+        appointment={appointment}
+        onCancel={() => setView('actions')}
+        onCompleted={({ showReviewPrompt }) => {
+          if (showReviewPrompt) {
+            setView('review');
+          } else {
+            onClose();
+          }
+        }}
+      />
+    );
+  }
+
+  // Post-completion review follow-up prompt
+  if (view === 'review') {
+    return (
+      <ReviewFollowupModal
+        appointmentId={appointment.id}
+        clientName={appointment.clientName}
+        onDone={onClose}
+      />
+    );
+  }
 
   return (
     <div
@@ -252,12 +284,12 @@ export function ActionBar({
               <button
                 type="button"
                 data-testid="staff-action-complete"
-                onClick={() => handleTransition('complete')}
+                onClick={() => setView('completing')}
                 disabled={isTransitioning || !canComplete}
                 className="w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ backgroundColor: '#059669' }}
               >
-                {isTransitioning ? 'Completing...' : '✓ Complete & Close'}
+                ✓ Complete Appointment
               </button>
             )}
 

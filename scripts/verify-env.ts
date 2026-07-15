@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+/* eslint-disable no-console */
 /**
  * Production Launch Verification
  *
@@ -74,28 +75,82 @@ const groups: CheckGroup[] = [
         message: 'Must be at least 32 characters for cron authentication.',
       },
       {
-        name: 'TWILIO_ACCOUNT_SID',
+        name: 'LUSTER_ROOT_DOMAIN',
         required: true,
         validate: nonEmpty,
-        message: 'Required for phone-first OTP auth and SMS notifications.',
+        message: 'Required to generate canonical wildcard salon links.',
       },
       {
-        name: 'TWILIO_AUTH_TOKEN',
+        name: 'INTEGRATION_ENCRYPTION_KEY',
         required: true,
-        validate: nonEmpty,
-        message: 'Required for phone-first OTP auth and SMS notifications.',
+        validate: value => !!value && value.length >= 32,
+        message: 'Must be at least 32 characters to encrypt salon refresh tokens.',
       },
       {
-        name: 'TWILIO_VERIFY_SERVICE_SID',
+        name: 'OAUTH_STATE_SECRET',
         required: true,
-        validate: nonEmpty,
-        message: 'Required for customer/staff/admin OTP verification.',
+        validate: value => !!value && value.length >= 32,
+        message: 'Must be at least 32 characters to sign integration callbacks.',
       },
       {
-        name: 'TWILIO_PHONE_NUMBER',
+        name: 'REDIS_URL',
         required: true,
         validate: nonEmpty,
-        message: 'Required for SMS reminders and booking alerts.',
+        message: 'Required for distributed password throttling and account lockout.',
+      },
+      {
+        name: 'CLERK_SECRET_KEY',
+        required: true,
+        validate: nonEmpty,
+        message: 'Required for owner email/password sessions and verified-email linking.',
+      },
+      {
+        name: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
+        required: true,
+        validate: nonEmpty,
+        message: 'Required for Clerk owner signup, login, verification, and password reset.',
+      },
+      {
+        name: 'SUPER_ADMIN_AUTH_MODE',
+        required: true,
+        validate: value => value === 'password',
+        message: 'Must be "password" because Twilio OTP authentication is retired.',
+      },
+      {
+        name: 'SUPER_ADMIN_TEST_LOGIN_ENABLED',
+        required: true,
+        validate: value => value === 'true',
+        message: 'Must explicitly enable the server-only password login.',
+      },
+      {
+        name: 'SUPER_ADMIN_TEST_PHONE',
+        required: true,
+        validate: nonEmpty,
+        message: 'Must identify the existing database super-admin account.',
+      },
+      {
+        name: 'SUPER_ADMIN_TEST_PASSWORD',
+        required: true,
+        validate: nonEmpty,
+        message: 'Must be supplied from the deployment secret store.',
+      },
+      {
+        name: 'LEGACY_OTP_AUTH_ENABLED',
+        required: true,
+        validate: value => value === 'false',
+        message: 'Must be "false" so retired OTP endpoints fail before Twilio.',
+      },
+      {
+        name: 'RESEND_API_KEY',
+        required: true,
+        validate: nonEmpty,
+        message: 'Required for customer confirmations and management links.',
+      },
+      {
+        name: 'RESEND_FROM_EMAIL',
+        required: true,
+        validate: nonEmpty,
+        message: 'Required for customer confirmations and management links.',
       },
       {
         name: 'STRIPE_SECRET_KEY',
@@ -145,10 +200,10 @@ const groups: CheckGroup[] = [
     title: 'Recommended for a polished managed launch',
     checks: [
       {
-        name: 'REDIS_URL',
+        name: 'TWILIO_CONNECT_APP_SID',
         required: false,
         validate: nonEmpty,
-        message: 'Recommended for stronger rate limiting, idempotency, and replay protection.',
+        message: 'Optional: required only for salon-funded transactional messaging.',
       },
       {
         name: 'CLOUDINARY_CLOUD_NAME',
@@ -169,16 +224,28 @@ const groups: CheckGroup[] = [
         message: 'Recommended for durable public photo and avatar storage.',
       },
       {
-        name: 'RESEND_API_KEY',
+        name: 'GOOGLE_OAUTH_CLIENT_ID',
         required: false,
         validate: nonEmpty,
-        message: 'Recommended for owner/technician transactional email notifications.',
+        message: 'Required to offer per-salon Google Calendar connections.',
       },
       {
-        name: 'RESEND_FROM_EMAIL',
+        name: 'GOOGLE_OAUTH_CLIENT_SECRET',
         required: false,
         validate: nonEmpty,
-        message: 'Recommended for owner/technician transactional email notifications.',
+        message: 'Required to offer per-salon Google Calendar connections.',
+      },
+      {
+        name: 'GOOGLE_OAUTH_REDIRECT_URI',
+        required: false,
+        validate: isHttpsUrl,
+        message: 'Required to offer per-salon Google Calendar connections.',
+      },
+      {
+        name: 'TWILIO_CONNECT_REDIRECT_URI',
+        required: false,
+        validate: isHttpsUrl,
+        message: 'Required to offer salon-funded Twilio connections.',
       },
       {
         name: 'META_SYSTEM_USER_TOKEN',

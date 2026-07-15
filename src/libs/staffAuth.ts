@@ -8,6 +8,7 @@
 import { and, eq, gt } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
+import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import {
   salonSchema,
@@ -169,6 +170,36 @@ export async function clearStaffSessionCookies(): Promise<void> {
  * @returns StaffAuthResult - Either { ok: true, session } or { ok: false, response }
  */
 export async function requireStaffSession(): Promise<StaffAuthResult> {
+  if (!isLegacyOtpAuthEnabled()) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          error: {
+            code: 'LEGACY_OTP_DISABLED',
+            message: 'Staff authentication is disabled',
+          },
+        },
+        { status: 410 },
+      ),
+    };
+  }
+
+  if (!isLegacyOtpAuthEnabled()) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          error: {
+            code: 'LEGACY_OTP_DISABLED',
+            message: 'Staff authentication is disabled',
+          },
+        },
+        { status: 410 },
+      ),
+    };
+  }
+
   // DEV ONLY: Check for role override
   if (process.env.NODE_ENV !== 'production') {
     const { isDevModeServer, readDevRoleFromCookies, getMockStaffMeResponse }

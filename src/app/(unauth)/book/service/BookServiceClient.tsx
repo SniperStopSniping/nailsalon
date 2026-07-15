@@ -3,9 +3,6 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-import { BlockingLoginModal } from '@/components/BlockingLoginModal';
-import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
-import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
@@ -13,7 +10,6 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { useClientSession } from '@/hooks/useClientSession';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
@@ -216,13 +212,13 @@ export function BookServiceClient({
 
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const manageToken = searchParams.get('manageToken') || '';
   const urlLocationId = searchParams.get('locationId') || '';
   const urlBaseServiceId = searchParams.get('baseServiceId');
   const urlTechId = searchParams.get('techId');
   const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
   const legacyServiceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
 
-  const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
   const {
     technicianId = null,
     technicianSelectionSource = null,
@@ -267,11 +263,6 @@ export function BookServiceClient({
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [pendingSelection, setPendingSelection] = useState<{
-    baseServiceId: string;
-    selectedAddOns: SelectedAddOnParam[];
-  } | null>(null);
   const [mounted, setMounted] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
@@ -610,6 +601,7 @@ export function BookServiceClient({
       selectedAddOns: selectedAddOnsValue,
       techId: effectiveContinueTechnicianId,
       originalAppointmentId,
+      manageToken,
       locationId: selectedLocationId,
     }, {
       routeSalonSlug,
@@ -625,6 +617,7 @@ export function BookServiceClient({
         baseServiceId: selectedBaseServiceId,
         selectedAddOns: selectedAddOnsState,
         originalAppointmentId,
+        manageToken,
         locationId: selectedLocationId,
       }, {
         routeSalonSlug,
@@ -642,16 +635,7 @@ export function BookServiceClient({
 
     triggerHaptic('confirm');
 
-    if (isLoggedIn) {
-      goToNextStep(selectedBaseServiceId, selectedAddOnsState);
-      return;
-    }
-
-    setPendingSelection({
-      baseServiceId: selectedBaseServiceId,
-      selectedAddOns: selectedAddOnsState,
-    });
-    setIsLoginModalOpen(true);
+    goToNextStep(selectedBaseServiceId, selectedAddOnsState);
   };
 
   const handleAddOnToggle = (addOnId: string, nextQuantity?: number) => {
@@ -701,24 +685,6 @@ export function BookServiceClient({
     setSelectedAddOnsState(normalized);
     setSelectedAddOns(normalized);
     triggerHaptic('select');
-  };
-
-  const handleBottomLoginSuccess = (verifiedPhone: string) => {
-    handleLoginSuccess(verifiedPhone);
-  };
-
-  const handleModalLoginSuccess = (verifiedPhone: string) => {
-    handleLoginSuccess(verifiedPhone);
-    setIsLoginModalOpen(false);
-    if (pendingSelection) {
-      goToNextStep(pendingSelection.baseServiceId, pendingSelection.selectedAddOns);
-      setPendingSelection(null);
-    }
-  };
-
-  const handleCloseLoginModal = () => {
-    setIsLoginModalOpen(false);
-    setPendingSelection(null);
   };
 
   return (
@@ -1331,19 +1297,6 @@ export function BookServiceClient({
             style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
           />
         )}
-        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
-
-        {isFirstStep && !isCheckingSession && !isLoggedIn && (
-          <BookingPhoneLogin onLoginSuccess={handleBottomLoginSuccess} />
-        )}
-
-        {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
-
-        <BlockingLoginModal
-          isOpen={isLoginModalOpen}
-          onClose={handleCloseLoginModal}
-          onLoginSuccess={handleModalLoginSuccess}
-        />
       </div>
 
       {selectedService && (

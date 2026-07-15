@@ -8,6 +8,7 @@ import createMiddleware from 'next-intl/middleware';
 
 import {
   ACTIVE_SALON_COOKIE,
+  getSalonSlugFromHostname,
   getSalonSlugFromPathname,
   normalizeSalonSlug,
 } from './libs/tenantSlug';
@@ -22,32 +23,29 @@ const intlMiddleware = createMiddleware({
 const isProtectedRoute = createRouteMatcher([
   '/onboarding(.*)',
   '/:locale/onboarding(.*)',
-  // super-admin routes are protected, but NOT super-admin-login
-  '/super-admin',
-  '/super-admin/(.*)',
-  '/:locale/super-admin',
-  '/:locale/super-admin/(.*)',
+  // Super-admin pages use the database-backed HttpOnly session and enforce it
+  // in their server components. Clerk protects owner onboarding only.
   // API routes are handled separately - no auth for booking flow
+]);
+
+const isPublicClerkRoute = createRouteMatcher([
+  '/join(.*)',
+  '/:locale/join(.*)',
 ]);
 
 export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
+  const requestedHost = request.headers.get('host') ?? request.nextUrl.hostname;
+  const hostnameSalonSlug = getSalonSlugFromHostname(requestedHost);
   const pathnameSalonSlug = getSalonSlugFromPathname(
     request.nextUrl.pathname,
     AllLocales,
   );
-  const requestedSalonSlug = pathnameSalonSlug ?? normalizeSalonSlug(
+  const requestedSalonSlug = hostnameSalonSlug ?? pathnameSalonSlug ?? normalizeSalonSlug(
     request.nextUrl.searchParams.get('salonSlug'),
   );
-  const requestedHost = request.headers.get('host');
-
-  // Future tenant routing hook:
-  // When custom domains or subdomains are enabled, this is where host-based
-  // tenant resolution and rewrites will occur before page matching.
-  // Example intention: luster.yourapp.com -> /en/luster
-  void requestedHost;
   const finalizeResponse = (response: NextResponse) => {
     if (requestedSalonSlug) {
       const proto = request.headers.get('x-forwarded-proto');
@@ -71,9 +69,30 @@ export default async function middleware(
   // DEV ONLY: Bypass Clerk for super-admin when dev role cookie is set
   // ==========================================================================
   // Check both NODE_ENV and NEXT_PUBLIC_DEV_MODE for dev mode detection
-  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+  const isDevMode = process.env.NODE_ENV !== 'production';
   const devRole = request.cookies.get('__dev_role_override')?.value;
   const p = request.nextUrl.pathname;
+
+  // Wildcard tenant hosts share the same deployment. Public paths are rewritten
+  // to the existing locale/slug route tree; APIs and owner/admin routes keep
+  // their canonical paths.
+  if (hostnameSalonSlug && !p.startsWith('/api')) {
+    const rawSegments = p.split('/').filter(Boolean);
+    const hasLocale = rawSegments[0] && AllLocales.includes(rawSegments[0]);
+    const locale = hasLocale ? rawSegments.shift()! : AppConfig.defaultLocale;
+    const firstPublicSegment = rawSegments[0];
+    const isOwnerPath = firstPublicSegment === 'admin'
+      || firstPublicSegment === 'super-admin'
+      || firstPublicSegment === 'onboarding'
+      || firstPublicSegment === 'owner-sign-in'
+      || firstPublicSegment === 'owner-sign-up';
+
+    if (!isOwnerPath && rawSegments[0] !== hostnameSalonSlug) {
+      const rewriteUrl = request.nextUrl.clone();
+      rewriteUrl.pathname = `/${locale}/${hostnameSalonSlug}${rawSegments.length ? `/${rawSegments.join('/')}` : ''}`;
+      return finalizeResponse(NextResponse.rewrite(rewriteUrl));
+    }
+  }
 
   if (isDevMode && devRole === 'super_admin') {
     // Bypass for super-admin API routes
@@ -103,7 +122,9 @@ export default async function middleware(
   // Admin API routes need Clerk auth - run clerkMiddleware to set up auth context
   // but don't block - the route handlers will check auth themselves
   if (request.nextUrl.pathname.startsWith('/api/admin')
-    || request.nextUrl.pathname.startsWith('/api/salon/services')) {
+    || request.nextUrl.pathname.startsWith('/api/salon/services')
+    || request.nextUrl.pathname.startsWith('/api/onboarding')
+    || request.nextUrl.pathname.startsWith('/api/integrations')) {
     const response = await clerkMiddleware(async () => {
       // Just set up auth context, don't protect - route handlers check ownership
       return NextResponse.next();
@@ -116,14 +137,23 @@ export default async function middleware(
     return finalizeResponse(NextResponse.next());
   }
 
-  // Redirect /sign-in and /sign-up to admin-login (phone OTP system)
+  // Invitation pages are public, but their server component calls Clerk auth()
+  // to continue already-signed-in owners into onboarding.
+  if (isPublicClerkRoute(request)) {
+    const response = await clerkMiddleware(async (_auth, req) => intlMiddleware(req))(
+      request,
+      event,
+    );
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+  }
+
+  // Generic auth routes now lead to Clerk owner email/password authentication.
   if (
-    request.nextUrl.pathname.includes('/sign-in')
-    || request.nextUrl.pathname.includes('/sign-up')
+    /\/(?:sign-in|sign-up)(?:\/|$)/.test(request.nextUrl.pathname)
   ) {
     const locale = request.nextUrl.pathname.match(/^\/([a-z]{2})\//)?.at(1) ?? 'en';
     return finalizeResponse(
-      NextResponse.redirect(new URL(`/${locale}/admin-login`, request.url)),
+      NextResponse.redirect(new URL(`/${locale}/owner-sign-in`, request.url)),
     );
   }
 
@@ -132,13 +162,7 @@ export default async function middleware(
       const locale
         = req.nextUrl.pathname.match(/^\/([a-z]{2})\//)?.at(1) ?? 'en';
 
-      // Determine correct login URL based on route
-      // Super admin routes → super-admin-login, others → admin-login
-      const isSuperAdminRoute
-        = req.nextUrl.pathname.startsWith('/super-admin')
-        || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(req.nextUrl.pathname);
-      const loginPath = isSuperAdminRoute ? 'super-admin-login' : 'admin-login';
-      const loginUrl = new URL(`/${locale}/${loginPath}`, req.url);
+      const loginUrl = new URL(`/${locale}/owner-sign-in`, req.url);
 
       await auth.protect({
         // `unauthenticatedUrl` is needed to avoid error: "Unable to find `next-intl` locale because the middleware didn't run on this request"

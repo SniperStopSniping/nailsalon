@@ -17,7 +17,9 @@ const impersonationSchema = z.object({
   salonSlug: z.string().min(1),
   salonName: z.string().min(1),
   adminUserId: z.string().min(1),
-  adminPhone: z.string().min(1),
+  adminName: z.string().nullable().optional(),
+  // Optional only so signed sessions created before the cutover expire cleanly.
+  adminPhone: z.string().min(1).optional(),
   startedAt: z.string().datetime(),
 });
 

@@ -11,6 +11,7 @@ import {
   appointmentServicesSchema,
   clientPreferencesSchema,
   clientSchema,
+  salonClientSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
@@ -121,6 +122,16 @@ export async function GET(
       .select()
       .from(clientSchema)
       .where(inArray(clientSchema.phone, phoneVariants))
+      .limit(1);
+
+    // Google review flag lives on the per-salon client record
+    const [salonClientRow] = await db
+      .select({ hasGoogleReview: salonClientSchema.hasGoogleReview })
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salon.id),
+        inArray(salonClientSchema.phone, phoneVariants),
+      ))
       .limit(1);
 
     // Get client preferences for this salon
@@ -243,6 +254,7 @@ export async function GET(
         phone: fullClient.phone,
         name: fullClient.name,
         memberSince: fullClient.memberSince,
+        hasGoogleReview: Boolean(salonClientRow?.hasGoogleReview),
       };
       redactedStats = {
         totalVisits: fullClient.totalVisits,
@@ -254,7 +266,8 @@ export async function GET(
       const redacted = redactClientForStaff(fullClient, visibility);
 
       // Build client response (only include allowed fields)
-      redactedClient = { id: fullClient.id };
+      // hasGoogleReview is not sensitive client PII — always include it.
+      redactedClient = { id: fullClient.id, hasGoogleReview: Boolean(salonClientRow?.hasGoogleReview) };
       if ('phone' in redacted) {
         redactedClient.phone = redacted.phone;
       }

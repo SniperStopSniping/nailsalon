@@ -34,6 +34,7 @@ type ReminderCandidate = {
   startTime: Date;
   technicianName: string | null;
   salonClientEmail: string | null;
+  appointmentEmail: string | null;
   dayBeforeReminderSentAt: Date | null;
   sameDayReminderSentAt: Date | null;
 };
@@ -178,6 +179,7 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
       startTime: appointmentSchema.startTime,
       technicianName: technicianSchema.name,
       salonClientEmail: salonClientSchema.email,
+      appointmentEmail: appointmentSchema.clientEmail,
       dayBeforeReminderSentAt: appointmentSchema.dayBeforeReminderSentAt,
       sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
     })
@@ -230,24 +232,19 @@ async function sendDayBeforeReminder(
   },
 ): Promise<ReminderSendResult> {
   const clientEmail = await resolveClientEmail(candidate);
-
-  if (clientEmail) {
-    const emailSent = await sendTransactionalEmail(
+  const emailSent = clientEmail
+    ? await sendTransactionalEmail(
       buildDayBeforeEmailPayload(candidate, {
         to: clientEmail,
         services: context.services,
         timeZone: context.timeZone,
       }),
-    );
-
-    if (emailSent) {
-      return { channel: 'email', attempted: true };
-    }
-  }
+    )
+    : false;
 
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
-    return { channel: null, attempted: Boolean(clientEmail) };
+    return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
   }
 
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
@@ -264,8 +261,8 @@ async function sendDayBeforeReminder(
   });
 
   return {
-    channel: smsSent ? 'sms' : null,
-    attempted: true,
+    channel: emailSent ? 'email' : smsSent ? 'sms' : null,
+    attempted: Boolean(clientEmail) || Boolean(normalizedPhone),
   };
 }
 
@@ -276,9 +273,17 @@ async function sendSameDayReminder(
     timeZone: string;
   },
 ): Promise<ReminderSendResult> {
+  const clientEmail = await resolveClientEmail(candidate);
+  const emailSent = clientEmail
+    ? await sendTransactionalEmail(buildSameDayEmailPayload(candidate, {
+      to: clientEmail,
+      services: context.services,
+      timeZone: context.timeZone,
+    }))
+    : false;
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
-    return { channel: null, attempted: false };
+    return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
   }
 
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
@@ -295,12 +300,16 @@ async function sendSameDayReminder(
   });
 
   return {
-    channel: smsSent ? 'sms' : null,
-    attempted: true,
+    channel: emailSent ? 'email' : smsSent ? 'sms' : null,
+    attempted: Boolean(clientEmail) || Boolean(normalizedPhone),
   };
 }
 
 async function resolveClientEmail(candidate: ReminderCandidate): Promise<string | null> {
+  const appointmentEmail = candidate.appointmentEmail?.trim().toLowerCase() ?? '';
+  if (appointmentEmail) {
+    return appointmentEmail;
+  }
   const salonClientEmail = candidate.salonClientEmail?.trim().toLowerCase() ?? '';
   if (salonClientEmail) {
     return salonClientEmail;
@@ -311,6 +320,30 @@ async function resolveClientEmail(candidate: ReminderCandidate): Promise<string 
   return globalEmail || null;
 }
 
+function buildSameDayEmailPayload(
+  candidate: ReminderCandidate,
+  args: { to: string; services: string[]; timeZone: string },
+) {
+  const formattedTime = formatDateTime(candidate.startTime, args.timeZone, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const text = [
+    `Hi ${candidate.clientName || 'there'},`,
+    '',
+    `Your appointment at ${candidate.salonName} is today at ${formattedTime}.`,
+    ...(args.services.length > 0 ? [`Services: ${args.services.join(', ')}`] : []),
+    ...(candidate.technicianName ? [`Artist: ${candidate.technicianName}`] : []),
+  ].join('\n');
+  return {
+    to: args.to,
+    subject: `Your ${candidate.salonName} appointment is today`,
+    text,
+    html: textToSimpleHtml(text),
+  };
+}
+
 function buildDayBeforeEmailPayload(
   candidate: ReminderCandidate,
   args: {
@@ -319,11 +352,11 @@ function buildDayBeforeEmailPayload(
     timeZone: string;
   },
 ): {
-  to: string;
-  subject: string;
-  text: string;
-  html: string;
-} {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  } {
   const formattedDate = formatDateTime(candidate.startTime, args.timeZone, {
     weekday: 'long',
     month: 'long',

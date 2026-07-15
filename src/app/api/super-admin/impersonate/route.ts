@@ -2,8 +2,10 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { clearAdminImpersonationSession, getAdminImpersonationSession, setAdminImpersonationSession } from '@/libs/adminImpersonation';
+import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
+import { requireSuperAdminTestTools } from '@/libs/superAdminTestTools.server';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +16,7 @@ export const dynamic = 'force-dynamic';
 
 const impersonateSchema = z.object({
   salonId: z.string().min(1, 'Salon ID is required'),
+  testTool: z.boolean().optional(),
 });
 
 // =============================================================================
@@ -21,9 +24,9 @@ const impersonateSchema = z.object({
 // =============================================================================
 
 export async function POST(request: Request): Promise<Response> {
-  const guard = await requireSuperAdmin();
-  if (guard) {
-    return guard;
+  const baseGuard = await requireSuperAdmin();
+  if (baseGuard) {
+    return baseGuard;
   }
 
   try {
@@ -35,6 +38,13 @@ export async function POST(request: Request): Promise<Response> {
         { error: 'Invalid request data', details: validated.error.flatten() },
         { status: 400 },
       );
+    }
+
+    if (validated.data.testTool) {
+      const testTools = await requireSuperAdminTestTools();
+      if (!testTools.ok) {
+        return testTools.response;
+      }
     }
 
     const { salonId } = validated.data;
@@ -66,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
       salonSlug: salon.slug,
       salonName: salon.name,
       adminUserId: adminInfo.userId,
-      adminPhone: adminInfo.phone,
+      adminName: adminInfo.name,
       startedAt: new Date().toISOString(),
     };
 
@@ -74,7 +84,15 @@ export async function POST(request: Request): Promise<Response> {
 
     // Log the action
     await logAuditAction(salonId, 'updated', {
-      details: `Impersonation started by ${adminInfo.phone}`,
+      details: 'Super-admin impersonation started',
+    });
+    await logAuditEvent({
+      salonId,
+      actorType: 'super_admin',
+      actorId: adminInfo.userId,
+      action: 'impersonation_started',
+      entityType: 'salon',
+      entityId: salonId,
     });
 
     return Response.json({
@@ -112,7 +130,15 @@ export async function DELETE(): Promise<Response> {
     if (impersonation?.salonId) {
       const adminInfo = await getSuperAdminInfo();
       await logAuditAction(impersonation.salonId, 'updated', {
-        details: `Impersonation ended by ${adminInfo?.phone}`,
+        details: 'Super-admin impersonation ended',
+      });
+      await logAuditEvent({
+        salonId: impersonation.salonId,
+        actorType: 'super_admin',
+        actorId: adminInfo?.userId ?? impersonation.adminUserId,
+        action: 'impersonation_ended',
+        entityType: 'salon',
+        entityId: impersonation.salonId,
       });
     }
 

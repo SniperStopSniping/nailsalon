@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   Bell,
+  BookOpen,
   Calendar,
   CalendarDays,
   ClipboardList,
@@ -42,6 +43,13 @@ type AppItem = {
 
 // App definitions with gradients
 const APPS: AppItem[] = [
+  {
+    id: 'luster',
+    name: 'Luster',
+    icon: BookOpen,
+    gradient: 'from-[#9f1239] to-[#fb7185]',
+    shadowColor: '#be123c',
+  },
   {
     id: 'schedule',
     name: 'Schedule',
@@ -207,13 +215,15 @@ type AppGridProps = {
   theme?: Theme;
   badges?: Record<string, number>;
   onAppTap?: (appId: string) => void;
+  hiddenIds?: string[];
 };
 
 const EMPTY_BADGES: Record<string, number> = {};
+const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS }: AppGridProps) {
   // Merge badges into apps
-  const appsWithBadges = APPS.map(app => ({
+  const appsWithBadges = APPS.filter(app => !hiddenIds.includes(app.id)).map(app => ({
     ...app,
     badge: badges[app.id] || 0,
   }));

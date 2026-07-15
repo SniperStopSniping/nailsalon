@@ -191,6 +191,10 @@ export type SalonSettings = {
   // Booking behavior
   allowSameDayBooking?: boolean; // default: true
   requireDepositForNew?: boolean; // default: false
+
+  // Public Google review link used by the post-appointment review follow-up.
+  // When empty, the "Send Google review link" option is disabled in the UI.
+  googleReviewUrl?: string | null;
   booking?: {
     bufferMinutes?: number;
     slotIntervalMinutes?: number;

@@ -76,7 +76,7 @@ function getMonthRange(offset: number = 0): { from: Date; to: Date } {
 
 function parseDate(dateStr: string): Date | null {
   const parsed = new Date(dateStr);
-  if (isNaN(parsed.getTime())) {
+  if (Number.isNaN(parsed.getTime())) {
     return null;
   }
   return parsed;
@@ -164,6 +164,7 @@ export async function GET(request: Request): Promise<Response> {
       .select({
         count: sql<number>`count(*)`,
         grossSales: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
       })
       .from(appointmentSchema)
       .where(
@@ -177,6 +178,7 @@ export async function GET(request: Request): Promise<Response> {
       );
 
     const totalGrossSales = Number(totalsResult[0]?.grossSales ?? 0);
+    const totalTips = Number(totalsResult[0]?.tips ?? 0);
     const appointmentCount = Number(totalsResult[0]?.count ?? 0);
 
     // EDIT 1: If no commission model/rate, earnings = 0 (NOT grossSales)
@@ -190,6 +192,7 @@ export async function GET(request: Request): Promise<Response> {
         date: sql<string>`date_trunc('day', ${appointmentSchema.startTime})::date`,
         count: sql<number>`count(*)`,
         grossSales: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
       })
       .from(appointmentSchema)
       .where(
@@ -214,7 +217,7 @@ export async function GET(request: Request): Promise<Response> {
       return {
         date: row.date ?? '',
         grossSales: dayGrossSales,
-        tips: 0, // Tips not tracked yet
+        tips: Number(row.tips),
         earnings: dayEarnings,
         appointmentCount: Number(row.count),
       };
@@ -230,7 +233,7 @@ export async function GET(request: Request): Promise<Response> {
         },
         totals: {
           grossSales: totalGrossSales,
-          tips: 0, // Tips not tracked yet
+          tips: totalTips,
           earnings: totalEarnings,
           appointmentCount,
         },

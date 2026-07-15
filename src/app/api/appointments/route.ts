@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
+import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
@@ -23,17 +24,17 @@ import {
 } from '@/libs/bookingPolicy';
 import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
+import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import {
   FIRST_VISIT_DISCOUNT_TYPE,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import {
-  deleteGoogleCalendarEventForAppointment,
-  hasGoogleCalendarConflict,
-  syncGoogleCalendarEventForAppointment,
-} from '@/libs/googleCalendar';
+import { hasGoogleCalendarConflict } from '@/libs/googleCalendar';
+import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
+import { createOpaqueToken } from '@/libs/lusterSecurity';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -59,11 +60,13 @@ import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
+  appointmentAccessTokenSchema,
   appointmentAddOnSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  communicationConsentSchema,
   referralSchema,
   rewardSchema,
   salonSchema,
@@ -160,7 +163,12 @@ const createAppointmentSchema = z.object({
   })).optional().default([]),
   technicianId: z.string().nullable(), // null = "any artist"
   clientPhone: z.string().regex(/^\d{10}$/, 'Phone must be 10 digits').optional(),
-  clientName: z.string().optional(),
+  clientName: z.string().trim().max(100).optional(),
+  clientEmail: z.string().email().optional(),
+  smsConsent: z.object({
+    granted: z.boolean(),
+    wordingVersion: z.string().min(1).max(50),
+  }).optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
   appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'appointmentDate must be YYYY-MM-DD').optional(),
   appointmentTime: z.string().regex(/^\d{1,2}:\d{2}$/, 'appointmentTime must be HH:mm').optional(),
@@ -168,6 +176,7 @@ const createAppointmentSchema = z.object({
   locationId: z.string().optional(),
   // Optional: If provided, this is a reschedule - bypass duplicate check and cancel the original
   originalAppointmentId: z.string().optional(),
+  manageToken: z.string().min(20).optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -177,6 +186,8 @@ type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
 // =============================================================================
 
 type AppointmentResponse = {
+  appointmentId: string;
+  manageUrl: string;
   appointment: Appointment;
   services: Array<{
     service: Service;
@@ -319,7 +330,7 @@ export async function POST(request: Request): Promise<Response> {
     // Normalize technicianId: treat "any", "", whitespace-only as null
     // This ensures we NEVER store "any" string in the database
     const rawTechId = typeof data.technicianId === 'string' ? data.technicianId.trim() : '';
-    const normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
+    let normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
 
     // Normalize clientName: trim + empty→null
     const normalizedClientName = data.clientName?.trim() || null;
@@ -374,6 +385,9 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
+    if (salon.freeSoloEnabled) {
+      normalizedTechnicianId = null;
+    }
 
     // 2b. Check salon status - block bookings for suspended/cancelled salons
     const statusGuard = await guardSalonApiRoute(salon.id);
@@ -399,7 +413,7 @@ export async function POST(request: Request): Promise<Response> {
       : rawParsedStartTime;
     const canonicalStartTime = parsedStartTime.toISOString();
 
-    let actorRole: 'client' | 'staff' | 'admin' = 'client';
+    let actorRole: 'guest' | 'client' | 'staff' | 'admin' = 'guest';
     let clientPhoneInput = data.clientPhone ?? null;
     let clientAuth:
       | Awaited<ReturnType<typeof requireClientApiSession>>
@@ -414,11 +428,21 @@ export async function POST(request: Request): Promise<Response> {
         actorRole = 'admin';
       } else {
         clientAuth = await requireClientApiSession();
-        if (!clientAuth.ok) {
-          return clientAuth.response;
+        if (clientAuth.ok) {
+          actorRole = 'client';
+          clientPhoneInput = clientAuth.normalizedPhone;
         }
-        clientPhoneInput = clientAuth.normalizedPhone;
       }
+    }
+
+    const normalizedClientEmail = data.clientEmail?.trim().toLowerCase() || null;
+    if (actorRole === 'guest' && (!clientPhoneInput || !normalizedClientName || !normalizedClientEmail)) {
+      return Response.json({
+        error: {
+          code: 'GUEST_CONTACT_REQUIRED',
+          message: 'Name, email, and phone are required to book.',
+        },
+      } satisfies ErrorResponse, { status: 400 });
     }
 
     if ((actorRole === 'staff' || actorRole === 'admin') && !clientPhoneInput) {
@@ -440,7 +464,7 @@ export async function POST(request: Request): Promise<Response> {
         {
           error: {
             code: 'INVALID_PHONE',
-            message: 'Phone number must be a valid 10-digit US number',
+            message: 'Phone number must be a valid 10-digit Canadian or US number',
           },
         } satisfies ErrorResponse,
         { status: 400 },
@@ -481,6 +505,7 @@ export async function POST(request: Request): Promise<Response> {
           technicianId: normalizedTechnicianId, // Already normalized (null or valid ID, NOT lowercased)
           clientPhone: normalizedPhone, // 10-digit normalized (same as DB)
           clientName: normalizedClientName, // Trimmed + empty→null
+          clientEmail: normalizedClientEmail,
           startTime: canonicalStartTime, // UTC ISO (validated above)
           locationId: normalizedLocationId, // Trimmed + empty→null
           originalAppointmentId: normalizedOriginalApptId, // Trimmed + empty→null
@@ -814,7 +839,14 @@ export async function POST(request: Request): Promise<Response> {
           normalizePhone(phoneVariant) === normalizedOriginalPhone,
         );
 
-      if (actorRole === 'client' && !clientOwnsOriginal) {
+      const guestOwnsOriginal = actorRole === 'guest' && data.manageToken
+        ? Boolean(await verifyAppointmentAccessToken(data.manageToken, {
+          appointmentId: originalAppointment.id,
+          salonId: salon.id,
+        }))
+        : false;
+
+      if ((actorRole === 'client' && !clientOwnsOriginal) || (actorRole === 'guest' && !guestOwnsOriginal)) {
         return Response.json(
           {
             error: {
@@ -1210,6 +1242,7 @@ export async function POST(request: Request): Promise<Response> {
 
     try {
       const googleCalendarConflict = await hasGoogleCalendarConflict({
+        salonId: salon.id,
         startTime,
         endTime: blockedEndTime,
         timeZone: bookingConfig.timezone,
@@ -1260,6 +1293,8 @@ export async function POST(request: Request): Promise<Response> {
 
     // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
+    const managementCapability = createOpaqueToken();
+    const capabilityExpiresAt = new Date(endTime.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     let appointment: Appointment | null = null;
     let appointmentServices: AppointmentService[] = [];
@@ -1283,10 +1318,11 @@ export async function POST(request: Request): Promise<Response> {
               locationId: validatedLocationId,
               clientPhone: salonClient.phone,
               clientName,
+              clientEmail: normalizedClientEmail ?? originalAppointment.clientEmail,
               salonClientId: salonClient.id,
               startTime,
               endTime,
-              status: 'pending',
+              status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
               totalPrice,
               totalDurationMinutes,
               basePriceCents,
@@ -1307,6 +1343,21 @@ export async function POST(request: Request): Promise<Response> {
           if (!createdAppointment) {
             throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT');
           }
+
+          await tx.insert(appointmentAccessTokenSchema).values({
+            id: crypto.randomUUID(),
+            salonId: salon.id,
+            appointmentId: createdAppointment.id,
+            tokenHash: managementCapability.tokenHash,
+            expiresAt: capabilityExpiresAt,
+          });
+          await tx.update(appointmentAccessTokenSchema)
+            .set({ revokedAt: new Date() })
+            .where(and(
+              eq(appointmentAccessTokenSchema.salonId, salon.id),
+              eq(appointmentAccessTokenSchema.appointmentId, normalizedOriginalApptId),
+              isNull(appointmentAccessTokenSchema.revokedAt),
+            ));
 
           const insertedServices: AppointmentService[] = [];
           for (const service of services) {
@@ -1417,10 +1468,11 @@ export async function POST(request: Request): Promise<Response> {
             locationId: validatedLocationId,
             clientPhone: salonClient.phone,
             clientName,
+            clientEmail: normalizedClientEmail,
             salonClientId: salonClient.id,
             startTime,
             endTime,
-            status: 'pending',
+            status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
             totalPrice,
             totalDurationMinutes,
             basePriceCents,
@@ -1440,6 +1492,28 @@ export async function POST(request: Request): Promise<Response> {
 
         if (!createdAppointment) {
           throw new Error('Failed to create appointment');
+        }
+
+        await tx.insert(appointmentAccessTokenSchema).values({
+          id: crypto.randomUUID(),
+          salonId: salon.id,
+          appointmentId: createdAppointment.id,
+          tokenHash: managementCapability.tokenHash,
+          expiresAt: capabilityExpiresAt,
+        });
+        if (data.smsConsent?.granted) {
+          await tx.insert(communicationConsentSchema).values({
+            id: crypto.randomUUID(),
+            salonId: salon.id,
+            recipient: salonClient.phone,
+            channel: 'sms',
+            purpose: 'appointment_transactional',
+            status: 'granted',
+            wordingVersion: data.smsConsent.wordingVersion,
+            source: 'public_booking',
+            grantedAt: new Date(),
+            metadata: { appointmentId: createdAppointment.id },
+          });
         }
 
         const insertedServices: AppointmentService[] = [];
@@ -1505,7 +1579,7 @@ export async function POST(request: Request): Promise<Response> {
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
     if (originalAppointment && normalizedOriginalApptId) {
-      await deleteGoogleCalendarEventForAppointment({
+      await enqueueGoogleCalendarDelete({
         appointmentId: normalizedOriginalApptId,
         salonId: salon.id,
         googleCalendarEventId: originalAppointment.googleCalendarEventId,
@@ -1516,6 +1590,7 @@ export async function POST(request: Request): Promise<Response> {
       await sendRescheduleConfirmation(salon.id, {
         phone: salonClient.phone,
         clientName: clientName ?? undefined,
+        appointmentId: appointment.id,
         salonName: salon.name,
         oldStartTime: originalAppointment.startTime.toISOString(),
         newStartTime: startTime.toISOString(),
@@ -1588,7 +1663,7 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    await syncGoogleCalendarEventForAppointment({
+    await enqueueGoogleCalendarUpsert({
       appointmentId: appointment.id,
       salonId: salon.id,
       salonName: salon.name,
@@ -1611,8 +1686,14 @@ export async function POST(request: Request): Promise<Response> {
     // 10. BUILD RESPONSE (single definition, used for cache AND return)
     // =========================================================================
     // Build response ONCE to guarantee cache and return are byte-for-byte identical
+    const manageUrl = buildSalonTenantPublicUrl(`/manage/${managementCapability.token}`, {
+      slug: salon.slug,
+      customDomain: salon.customDomain,
+    });
     const response: SuccessResponse = {
       data: {
+        appointmentId: appointment.id,
+        manageUrl,
         appointment,
         services: services.map((service) => {
           const apptService = appointmentServices.find(as => as.serviceId === service.id);
@@ -1663,17 +1744,33 @@ export async function POST(request: Request): Promise<Response> {
     // 12. SLOW WORK - SMS notifications (OUTSIDE lock window, after cache write)
     // =========================================================================
     // Use salonClient.phone as source of truth for all SMS
-    await sendBookingConfirmationToClient(salon.id, {
-      phone: salonClient.phone,
-      clientName: clientName ?? undefined,
-      appointmentId: appointment.id,
-      salonName: salon.name,
-      services: services.map(s => s.name),
-      technicianName: technician?.name ?? 'Any available artist',
-      startTime: startTime.toISOString(),
-      totalPrice,
-      timeZone: bookingConfig.timezone,
-    });
+    const confirmationEmail = normalizedClientEmail ?? originalAppointment?.clientEmail ?? null;
+    if (confirmationEmail) {
+      await sendCustomerBookingConfirmationEmail({
+        to: confirmationEmail,
+        salonName: salon.name,
+        clientName: clientName ?? 'Guest',
+        serviceNames: services.map(service => service.name),
+        startTime: startTime.toISOString(),
+        timeZone: bookingConfig.timezone,
+        manageUrl,
+      });
+    }
+
+    if (data.smsConsent?.granted) {
+      await sendBookingConfirmationToClient(salon.id, {
+        phone: salonClient.phone,
+        clientName: clientName ?? undefined,
+        appointmentId: appointment.id,
+        salonName: salon.name,
+        services: services.map(s => s.name),
+        technicianName: technician?.name ?? 'Any available artist',
+        startTime: startTime.toISOString(),
+        totalPrice,
+        timeZone: bookingConfig.timezone,
+        manageUrl,
+      });
+    }
 
     await sendBookingNotificationsForNewBooking({
       salon: {

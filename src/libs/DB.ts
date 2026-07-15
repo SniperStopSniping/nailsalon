@@ -150,6 +150,8 @@ if (Env.DATABASE_URL) {
       // Pool configuration for resilience
       max: 10, // Maximum connections in pool
       idleTimeoutMillis: 30000, // Close idle connections after 30s
+      // Do not keep Vitest worker threads alive after their assertions finish.
+      allowExitOnIdle: process.env.NODE_ENV === 'test',
       // Remote Neon cold starts can exceed 5s in local/staging-like environments.
       // Use a slightly longer connect window to reduce false startup/request failures.
       connectionTimeoutMillis: 15000,

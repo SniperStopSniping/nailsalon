@@ -192,6 +192,7 @@ export async function GET(request: Request): Promise<Response> {
       db
         .select({
           total: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}), 0)::int`,
+          tips: sql<number>`COALESCE(sum(${appointmentSchema.tipCents}), 0)::int`,
           count: sql<number>`count(*)::int`,
         })
         .from(appointmentSchema)
@@ -345,6 +346,7 @@ export async function GET(request: Request): Promise<Response> {
       data: {
         revenue: {
           total: currentRevenue,
+          tips: currentRevenueResult[0]?.tips ?? 0,
           trend: revenueTrend,
           completed: currentRevenueResult[0]?.count ?? 0,
           series: revenueSeries,

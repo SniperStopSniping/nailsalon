@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
 
+import { CreateLusterTestInvite } from './CreateLusterTestInvite';
 import { CreateSalonModal } from './CreateSalonModal';
 import { InvitesModal } from './InvitesModal';
 import { SalonDetailPanel } from './SalonDetailPanel';
@@ -108,7 +109,7 @@ async function getErrorMessage(response: Response, fallback: string): Promise<st
 // Component
 // =============================================================================
 
-export function SuperAdminDashboard() {
+export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEnabled?: boolean }) {
   const params = useParams();
   const locale = (params?.locale as string) || 'en';
 
@@ -289,6 +290,8 @@ export function SuperAdminDashboard() {
           </div>
         </div>
       </div>
+
+      {testToolsEnabled && <CreateLusterTestInvite />}
 
       {/* Filters */}
       <div className="mx-auto max-w-7xl p-4 sm:px-6 lg:px-8">

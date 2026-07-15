@@ -5,10 +5,11 @@
  * Uses server-side sessions stored in DB with a single HttpOnly cookie.
  */
 
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
 import { type AdminImpersonationSession, getAdminImpersonationSession } from '@/libs/adminImpersonation';
+import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
@@ -47,6 +48,7 @@ export type SalonMembership = {
   salonName: string;
   status?: string | null;
   role: string;
+  freeSoloEnabled?: boolean;
 };
 
 export type AdminWithSalons = {
@@ -64,6 +66,99 @@ export type AdminActiveSalonContext = {
   admin: AdminWithSalons | null;
   impersonation: AdminImpersonationSession | null;
 };
+
+async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
+  const memberships = await db
+    .select({
+      salonId: adminSalonMembershipSchema.salonId,
+      role: adminSalonMembershipSchema.role,
+      salonSlug: salonSchema.slug,
+      salonName: salonSchema.name,
+      salonStatus: salonSchema.status,
+      freeSoloEnabled: salonSchema.freeSoloEnabled,
+    })
+    .from(adminSalonMembershipSchema)
+    .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
+    .where(eq(adminSalonMembershipSchema.adminId, admin.id));
+
+  return {
+    ...admin,
+    salons: memberships.map(m => ({
+      salonId: m.salonId,
+      salonSlug: m.salonSlug,
+      salonName: m.salonName,
+      status: m.salonStatus,
+      role: m.role,
+      freeSoloEnabled: m.freeSoloEnabled,
+    })),
+  };
+}
+
+async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
+  const [linkedAdmin] = await db
+    .select()
+    .from(adminUserSchema)
+    .where(eq(adminUserSchema.clerkUserId, userId))
+    .limit(1);
+  if (linkedAdmin) {
+    return linkedAdmin;
+  }
+
+  const { currentUser } = await import('@clerk/nextjs/server');
+  const clerkUser = await currentUser();
+  if (!clerkUser || clerkUser.id !== userId) {
+    return null;
+  }
+
+  const verifiedEmails = clerkUser.emailAddresses
+    .filter(address => address.verification?.status === 'verified')
+    .map(address => address.emailAddress.trim().toLowerCase());
+
+  for (const email of verifiedEmails) {
+    const [candidate] = await db
+      .select()
+      .from(adminUserSchema)
+      .where(
+        and(
+          isNull(adminUserSchema.clerkUserId),
+          sql`lower(${adminUserSchema.email}) = ${email}`,
+        ),
+      )
+      .limit(1);
+
+    if (!candidate) {
+      continue;
+    }
+
+    const [linked] = await db
+      .update(adminUserSchema)
+      .set({
+        clerkUserId: userId,
+        emailVerifiedAt: candidate.emailVerifiedAt ?? new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(adminUserSchema.id, candidate.id),
+          isNull(adminUserSchema.clerkUserId),
+        ),
+      )
+      .returning();
+
+    if (linked) {
+      await logAuditEvent({
+        actorType: 'admin',
+        actorId: linked.id,
+        action: 'clerk_owner_linked',
+        entityType: 'admin_user',
+        entityId: linked.id,
+      });
+      return linked;
+    }
+  }
+
+  return null;
+}
 
 // =============================================================================
 // PHONE FORMATTING
@@ -115,7 +210,7 @@ export function isValidPhone(phone: string): boolean {
  */
 export async function getAdminSession(): Promise<AdminWithSalons | null> {
   // DEV ONLY: Check for role override
-  if (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
+  if (process.env.NODE_ENV !== 'production') {
     const { isDevModeServer, readDevRoleFromCookies, getMockAdminSession } = await import('./devRole.server');
     if (isDevModeServer()) {
       const devRole = readDevRoleFromCookies();
@@ -134,7 +229,21 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
     const sessionId = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
 
     if (!sessionId) {
-      return null;
+      // Public guest APIs do not run Clerk middleware. Avoid calling auth()
+      // unless the request actually carries a Clerk session.
+      if (!cookieStore.get('__session')?.value) {
+        return null;
+      }
+
+      // New Luster owners authenticate with Clerk email/password. Legacy phone
+      // sessions remain supported and are checked first above.
+      const { auth } = await import('@clerk/nextjs/server');
+      const { userId } = await auth();
+      if (!userId) {
+        return null;
+      }
+      const clerkAdmin = await resolveClerkAdmin(userId);
+      return clerkAdmin ? loadAdminWithSalons(clerkAdmin) : null;
     }
 
     // Lookup session (check not expired)
@@ -154,8 +263,18 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
     }
 
     // Lookup admin user
+    // Keep legacy password sessions usable while the Clerk owner columns are
+    // rolling out. The new columns are only needed when resolving Clerk users.
     const [admin] = await db
-      .select()
+      .select({
+        id: adminUserSchema.id,
+        phoneE164: adminUserSchema.phoneE164,
+        name: adminUserSchema.name,
+        email: adminUserSchema.email,
+        isSuperAdmin: adminUserSchema.isSuperAdmin,
+        createdAt: adminUserSchema.createdAt,
+        updatedAt: adminUserSchema.updatedAt,
+      })
       .from(adminUserSchema)
       .where(eq(adminUserSchema.id, session.adminId))
       .limit(1);
@@ -164,35 +283,17 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
       return null;
     }
 
-    // Lookup salon memberships
-    const memberships = await db
-      .select({
-        salonId: adminSalonMembershipSchema.salonId,
-        role: adminSalonMembershipSchema.role,
-        salonSlug: salonSchema.slug,
-        salonName: salonSchema.name,
-        salonStatus: salonSchema.status,
-      })
-      .from(adminSalonMembershipSchema)
-      .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
-      .where(eq(adminSalonMembershipSchema.adminId, admin.id));
-
     // Optionally update lastSeenAt (don't await, fire and forget)
     db.update(adminSessionSchema)
       .set({ lastSeenAt: new Date() })
       .where(eq(adminSessionSchema.id, sessionId))
       .catch(() => {}); // Ignore errors
 
-    return {
+    return loadAdminWithSalons({
       ...admin,
-      salons: memberships.map(m => ({
-        salonId: m.salonId,
-        salonSlug: m.salonSlug,
-        salonName: m.salonName,
-        status: m.salonStatus,
-        role: m.role,
-      })),
-    };
+      clerkUserId: null,
+      emailVerifiedAt: null,
+    });
   } catch (error) {
     console.error('Error getting admin session:', error);
     return null;

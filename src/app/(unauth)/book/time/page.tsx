@@ -6,8 +6,8 @@ import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import {
-  resolvePublicBookingTechnicianContext,
   type ResolvedPublicBookingTechnicianContext,
+  resolvePublicBookingTechnicianContext,
 } from '@/libs/publicBookingTechnicians';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
@@ -33,6 +33,7 @@ export default async function BookTimePage({
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
+    manageToken?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -73,6 +74,7 @@ export default async function BookTimePage({
       locationId: searchParams.locationId ?? null,
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -121,7 +123,7 @@ export default async function BookTimePage({
       locationId: resolvedLocationId,
       clientPhone: clientSession?.phone ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
-      allowAutoSkip: techStepEnabled,
+      allowAutoSkip: techStepEnabled || salon.freeSoloEnabled,
     });
   } catch {
     redirect(buildBookingUrl('/book/service', {
@@ -131,6 +133,7 @@ export default async function BookTimePage({
       locationId: searchParams.locationId ?? null,
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -147,6 +150,7 @@ export default async function BookTimePage({
         techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
         locationId: resolvedLocationId,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -166,6 +170,7 @@ export default async function BookTimePage({
         techId: null,
         techError: 'unsupported',
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -181,6 +186,7 @@ export default async function BookTimePage({
         locationId: resolvedLocationId,
         techId: null,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,

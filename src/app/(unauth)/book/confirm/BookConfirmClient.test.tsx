@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { BookConfirmClient } from './BookConfirmClient';
 
 const { routerBack, routerPush, syncFromUrl, fetchMock, windowOpen } = vi.hoisted(() => ({
   routerBack: vi.fn(),
@@ -37,6 +38,8 @@ vi.mock('@/hooks/useClientSession', () => ({
     handleLoginSuccess: vi.fn(),
     validateSession: vi.fn(),
     clientName: 'Ava',
+    clientEmail: 'ava@example.com',
+    phone: '4165550101',
   }),
 }));
 
@@ -63,8 +66,6 @@ vi.mock('framer-motion', () => {
     useTransform: () => 0,
   };
 });
-
-import { BookConfirmClient } from './BookConfirmClient';
 
 describe('BookConfirmClient', () => {
   beforeEach(() => {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import BookTimePage from './page';
+
 const {
   buildTenantRedirectPath,
   checkFeatureEnabled,
@@ -55,7 +57,9 @@ vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));
 
-import BookTimePage from './page';
+vi.mock('./BookTimeClient', () => ({
+  BookTimeClient: () => null,
+}));
 
 describe('BookTimePage', () => {
   beforeEach(() => {

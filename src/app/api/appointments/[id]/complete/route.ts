@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -6,18 +8,42 @@ import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { getAppointmentById, getOrCreateSalonClient, updateSalonClientStats } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
-import { appointmentPhotoSchema, appointmentSchema } from '@/models/Schema';
+import {
+  addOnSchema,
+  appointmentAddOnSchema,
+  appointmentPhotoSchema,
+  appointmentSchema,
+  appointmentServicesSchema,
+  salonClientSchema,
+  serviceSchema,
+} from '@/models/Schema';
 
 // =============================================================================
 // REQUEST VALIDATION
 // =============================================================================
+
+const paymentMethodEnum = z.enum(['cash', 'debit', 'credit', 'e_transfer', 'other']);
 
 const completeAppointmentSchema = z.object({
   // paymentStatus is NOT configurable - always 'paid' on completion
   // This ensures fraud queries (which filter payment_status='paid') stay consistent
   // If you need non-paid completions, use a different endpoint or status
   skipPhotoValidation: z.boolean().optional().default(false),
+
+  // Completion record filled by the tech (all optional for back-compat with
+  // the previous no-body behavior). finalPriceCents defaults to the booked total.
+  finalPriceCents: z.number().int().min(0).max(1_000_000).optional(),
+  tipCents: z.number().int().min(0).max(100_000).optional(),
+  paymentMethod: paymentMethodEnum.optional(),
+  techNotes: z.string().trim().max(2000).optional(),
+
+  // What was actually performed (rewrites the service/add-on snapshot rows).
+  // When omitted, the originally-booked services/add-ons are kept as-is.
+  performedServiceIds: z.array(z.string()).max(20).optional(),
+  performedAddOnIds: z.array(z.string()).max(20).optional(),
 });
+
+type CompletePayload = z.infer<typeof completeAppointmentSchema>;
 
 // =============================================================================
 // RESPONSE TYPES
@@ -38,7 +64,13 @@ type SuccessResponse = {
       status: string;
       paymentStatus: string;
       completedAt: Date;
+      finalPriceCents?: number | null;
+      tipCents?: number | null;
+      paymentMethod?: string | null;
     };
+    // Whether the post-appointment review prompt should be shown to the tech.
+    // False once the client is marked as already reviewed on Google.
+    showReviewPrompt?: boolean;
   };
 };
 
@@ -138,6 +170,12 @@ export async function PATCH(
           canvasStateUpdatedAt: now,
           completedAt: now,
           updatedAt: now,
+          // Completion record — money truth, written atomically with completion.
+          // finalPriceCents defaults to the booked total when the tech leaves it blank.
+          finalPriceCents: validated.data.finalPriceCents ?? existingAppointment.totalPrice,
+          tipCents: validated.data.tipCents ?? 0,
+          ...(validated.data.paymentMethod !== undefined ? { paymentMethod: validated.data.paymentMethod } : {}),
+          ...(validated.data.techNotes !== undefined ? { techNotes: validated.data.techNotes } : {}),
         })
         .where(
           and(
@@ -159,19 +197,10 @@ export async function PATCH(
 
       const completedAppointment = updateResult[0]!;
 
-      // 4b. Award points INSIDE transaction - only if atomic update succeeded
-      // This ensures points are awarded exactly once
-      try {
-        await updateSalonClientStats(
-          completedAppointment.salonId,
-          completedAppointment.clientPhone,
-        );
-      } catch (statsError) {
-        // Log but don't fail the transaction - points can be recalculated
-        // The critical thing is the completion status is set
-        console.error('Failed to update salon client stats (non-fatal):', statsError);
-      }
-
+      // NOTE: client stats (visits/spend/points) are recomputed AFTER this
+      // transaction commits — see handleSuccessfulCompletion. Doing it here
+      // would read the not-yet-committed 'completed' row on a separate
+      // connection and undercount the visit by one.
       return { success: true as const, idempotent: false as const, updatedAppointment: completedAppointment };
     });
 
@@ -259,6 +288,7 @@ export async function PATCH(
       updatedAppointment, // Now guaranteed non-null by explicit check
       appointmentId,
       now,
+      validated.data,
     );
   } catch (error) {
     console.error('Error completing appointment:', error);
@@ -282,10 +312,80 @@ export async function PATCH(
 // This function is ONLY called when result.success === true.
 // =============================================================================
 
+/**
+ * Rewrite the service/add-on snapshot rows to reflect what the tech actually
+ * performed. Non-fatal: if this fails, the appointment is still completed and
+ * the originally-booked rows remain. Builds snapshots from the salon catalog.
+ */
+async function rewritePerformedItems(
+  appointment: NonNullable<typeof appointmentSchema.$inferSelect>,
+  payload: CompletePayload,
+): Promise<void> {
+  const { performedServiceIds, performedAddOnIds } = payload;
+
+  if (performedServiceIds && performedServiceIds.length > 0) {
+    const services = await db
+      .select()
+      .from(serviceSchema)
+      .where(and(
+        eq(serviceSchema.salonId, appointment.salonId),
+        inArray(serviceSchema.id, performedServiceIds),
+      ));
+
+    if (services.length > 0) {
+      await db.delete(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, appointment.id));
+      await db.insert(appointmentServicesSchema).values(services.map(service => ({
+        id: `apptSvc_${crypto.randomUUID()}`,
+        appointmentId: appointment.id,
+        serviceId: service.id,
+        priceAtBooking: service.price,
+        durationAtBooking: service.durationMinutes,
+        nameSnapshot: service.name,
+        categorySnapshot: service.category,
+        priceCentsSnapshot: service.price,
+        durationMinutesSnapshot: service.durationMinutes,
+        priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+        resolvedIntroPriceLabelSnapshot: null,
+      })));
+    }
+  }
+
+  if (performedAddOnIds) {
+    const addOns = performedAddOnIds.length > 0
+      ? await db
+        .select()
+        .from(addOnSchema)
+        .where(and(
+          eq(addOnSchema.salonId, appointment.salonId),
+          inArray(addOnSchema.id, performedAddOnIds),
+        ))
+      : [];
+
+    // Replace the whole add-on set (empty array clears them).
+    await db.delete(appointmentAddOnSchema).where(eq(appointmentAddOnSchema.appointmentId, appointment.id));
+    if (addOns.length > 0) {
+      await db.insert(appointmentAddOnSchema).values(addOns.map(addOn => ({
+        id: `apptAddon_${crypto.randomUUID()}`,
+        appointmentId: appointment.id,
+        addOnId: addOn.id,
+        quantitySnapshot: 1,
+        nameSnapshot: addOn.name,
+        categorySnapshot: addOn.category,
+        pricingTypeSnapshot: addOn.pricingType,
+        unitPriceCentsSnapshot: addOn.priceCents,
+        durationMinutesSnapshot: addOn.durationMinutes,
+        lineTotalCentsSnapshot: addOn.priceCents,
+        lineDurationMinutesSnapshot: addOn.durationMinutes,
+      })));
+    }
+  }
+}
+
 async function handleSuccessfulCompletion(
   completedAppointment: NonNullable<typeof appointmentSchema.$inferSelect>,
   appointmentId: string,
   now: Date,
+  payload: CompletePayload,
 ): Promise<Response> {
   // DEFENSIVE CHECK: completedAt must be set (set by atomic update above)
   // This prevents partial/corrupted records from triggering fraud eval
@@ -384,6 +484,7 @@ async function handleSuccessfulCompletion(
   //
   if (salonClientId) {
     // Observability: log when fraud eval is triggered (helps debugging)
+    // eslint-disable-next-line no-console -- intentional info-level observability log
     console.info('[FraudDetection] fraud_eval_triggered', {
       appointmentId,
       salonClientId,
@@ -402,6 +503,42 @@ async function handleSuccessfulCompletion(
     });
   }
 
+  // 6c. Rewrite performed services/add-ons (non-fatal — money truth already saved)
+  try {
+    await rewritePerformedItems(completedAppointment, payload);
+  } catch (rewriteError) {
+    console.error('Failed to rewrite performed services/add-ons (non-fatal):', rewriteError);
+  }
+
+  // 6c-2. Recompute client stats (visits/spend/points) POST-COMMIT so the just-
+  // completed appointment is counted. Non-fatal — stats are recomputable.
+  try {
+    await updateSalonClientStats(
+      completedAppointment.salonId,
+      completedAppointment.clientPhone,
+    );
+  } catch (statsError) {
+    console.error('Failed to update salon client stats (non-fatal):', statsError);
+  }
+
+  // 6d. Decide whether to show the post-appointment review prompt.
+  // Suppressed once the client is marked as already reviewed on Google.
+  let showReviewPrompt = false;
+  try {
+    if (salonClientId) {
+      const [client] = await db
+        .select({ hasGoogleReview: salonClientSchema.hasGoogleReview })
+        .from(salonClientSchema)
+        .where(eq(salonClientSchema.id, salonClientId))
+        .limit(1);
+      showReviewPrompt = !client?.hasGoogleReview;
+    } else {
+      showReviewPrompt = true;
+    }
+  } catch (reviewLookupError) {
+    console.error('Failed to resolve review prompt state (non-fatal):', reviewLookupError);
+  }
+
   // 7. Return success response
   // paymentStatus is always 'paid' (hard-coded in atomic update)
   return Response.json({
@@ -411,7 +548,11 @@ async function handleSuccessfulCompletion(
         status: 'completed',
         paymentStatus: 'paid',
         completedAt: completedAppointment.completedAt,
+        finalPriceCents: completedAppointment.finalPriceCents,
+        tipCents: completedAppointment.tipCents,
+        paymentMethod: completedAppointment.paymentMethod,
       },
+      showReviewPrompt,
     },
   } satisfies SuccessResponse);
 }

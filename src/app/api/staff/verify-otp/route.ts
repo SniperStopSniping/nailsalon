@@ -10,6 +10,8 @@
 
 import { NextResponse } from 'next/server';
 
+import { isIsolatedLegacyOtpFixtureEnabled } from '@/libs/authConfig.server';
+import { rejectDisabledLegacyOtp } from '@/libs/legacyOtp.server';
 import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
 import { createStaffSession, setStaffSessionCookies } from '@/libs/staffAuth';
 
@@ -70,6 +72,11 @@ function formatPhoneE164(phone: string): string {
 // =============================================================================
 
 export async function POST(request: Request) {
+  const disabled = rejectDisabledLegacyOtp();
+  if (disabled) {
+    return disabled;
+  }
+
   try {
     // Parse request body
     const body = (await request.json()) as VerifyOtpRequest;
@@ -114,9 +121,7 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Accept "123456" as valid code
     // ==========================================================================
     if (!isTwilioConfigured) {
-      if (code === '123456') {
-        console.warn(`[DEV MODE] Staff OTP verified for ${formattedPhone}`);
-
+      if (isIsolatedLegacyOtpFixtureEnabled() && code === '123456') {
         const sessionId = await createStaffSession({
           salonId: salon.id,
           technicianId: technician.id,
@@ -137,7 +142,7 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(
-        { error: 'Invalid code. Use "123456" in dev mode.' },
+        { error: 'Invalid verification code' },
         { status: 401 },
       );
     }

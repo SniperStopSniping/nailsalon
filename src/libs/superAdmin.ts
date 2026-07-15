@@ -48,8 +48,8 @@ export async function requireSuperAdminGuard(): Promise<AdminGuardResult> {
  */
 export async function getSuperAdminInfo(): Promise<{
   userId: string;
-  phone: string;
   name: string | null;
+  email: string | null;
 } | null> {
   const admin = await getAdminSession();
 
@@ -59,8 +59,8 @@ export async function getSuperAdminInfo(): Promise<{
 
   return {
     userId: admin.id,
-    phone: admin.phoneE164,
     name: admin.name,
+    email: admin.email,
   };
 }
 
@@ -87,7 +87,7 @@ export async function logAuditAction(
     salonId,
     action,
     performedBy: adminInfo.userId,
-    performedByEmail: adminInfo.phone, // Using phone instead of email now
+    performedByEmail: adminInfo.email,
     metadata: metadata || null,
   });
 }

@@ -29,6 +29,42 @@ export type AuditLogEntry = {
   userAgent?: string | null;
 };
 
+const REDACTED = '[REDACTED]';
+const SENSITIVE_METADATA_TERMS = [
+  'password',
+  'passcode',
+  'secret',
+  'token',
+  'authorization',
+  'cookie',
+  'credential',
+  'session',
+  'url',
+  'uri',
+  'link',
+] as const;
+
+function isSensitiveMetadataKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return SENSITIVE_METADATA_TERMS.some(term => normalized.includes(term));
+}
+
+export function sanitizeAuditMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeAuditMetadata);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+      key,
+      isSensitiveMetadataKey(key) ? REDACTED : sanitizeAuditMetadata(nested),
+    ]),
+  );
+}
+
 // =============================================================================
 // MAIN FUNCTION
 // =============================================================================
@@ -48,7 +84,9 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       action: entry.action,
       entityType: entry.entityType ?? null,
       entityId: entry.entityId ?? null,
-      metadata: entry.metadata ?? null,
+      metadata: entry.metadata
+        ? sanitizeAuditMetadata(entry.metadata) as Record<string, unknown>
+        : null,
       ip: entry.ip ?? null,
       userAgent: entry.userAgent ?? null,
     });

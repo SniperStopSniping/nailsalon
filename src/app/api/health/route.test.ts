@@ -35,6 +35,7 @@ describe('GET /api/health', () => {
     delete process.env.TWILIO_AUTH_TOKEN;
     delete process.env.TWILIO_VERIFY_SERVICE_SID;
     delete process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.TWILIO_CONNECT_APP_SID;
     delete process.env.RESEND_API_KEY;
     delete process.env.RESEND_FROM_EMAIL;
     delete process.env.STRIPE_SECRET_KEY;
@@ -49,6 +50,13 @@ describe('GET /api/health', () => {
     delete process.env.GOOGLE_CALENDAR_CLIENT_EMAIL;
     delete process.env.GOOGLE_CALENDAR_PRIVATE_KEY;
     delete process.env.VERCEL_GIT_COMMIT_SHA;
+    delete process.env.CLERK_SECRET_KEY;
+    delete process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    delete process.env.SUPER_ADMIN_AUTH_MODE;
+    delete process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED;
+    delete process.env.SUPER_ADMIN_TEST_PHONE;
+    delete process.env.SUPER_ADMIN_TEST_PASSWORD;
+    delete process.env.LEGACY_OTP_AUTH_ENABLED;
   });
 
   afterEach(() => {
@@ -70,6 +78,7 @@ describe('GET /api/health', () => {
     process.env.TWILIO_AUTH_TOKEN = 'twilio-token';
     process.env.TWILIO_VERIFY_SERVICE_SID = 'verify-sid';
     process.env.TWILIO_PHONE_NUMBER = '+15555550000';
+    process.env.TWILIO_CONNECT_APP_SID = 'connect-app-sid';
     process.env.RESEND_API_KEY = 'resend-key';
     process.env.RESEND_FROM_EMAIL = 'hello@example.com';
     process.env.STRIPE_SECRET_KEY = 'stripe-secret';
@@ -84,6 +93,13 @@ describe('GET /api/health', () => {
     process.env.GOOGLE_CALENDAR_CLIENT_EMAIL = 'calendar-bot@example.iam.gserviceaccount.com';
     process.env.GOOGLE_CALENDAR_PRIVATE_KEY = 'private-key';
     process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef123456';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
 
     const response = await GET();
     const body = await response.json();
@@ -94,6 +110,8 @@ describe('GET /api/health', () => {
       checks: {
         db: true,
         redis: true,
+        clerkEnv: true,
+        passwordAuthEnv: true,
         cloudinaryEnv: true,
         metaEnv: true,
         cronSecretConfigured: true,
