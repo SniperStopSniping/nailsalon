@@ -49,6 +49,9 @@ export async function GET(request: Request) {
       status: 'active',
       tokenExpiresAt: new Date(Date.now() + (token.expires_in ?? 3600) * 1000),
       lastError: null,
+      inboundSyncEnabled: true,
+      inboundSyncedAt: new Date(),
+      inboundSyncError: null,
     }).onConflictDoUpdate({
       target: salonGoogleCalendarConnectionSchema.salonId,
       set: {
@@ -60,6 +63,9 @@ export async function GET(request: Request) {
         status: 'active',
         tokenExpiresAt: new Date(Date.now() + (token.expires_in ?? 3600) * 1000),
         lastError: null,
+        inboundSyncEnabled: true,
+        inboundSyncedAt: new Date(),
+        inboundSyncError: null,
         updatedAt: new Date(),
       },
     });

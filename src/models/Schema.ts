@@ -1477,6 +1477,9 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
     tokenExpiresAt: timestamp('token_expires_at', { mode: 'date', withTimezone: true }),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { mode: 'date', withTimezone: true }),
+    inboundSyncEnabled: boolean('inbound_sync_enabled').default(true).notNull(),
+    inboundSyncedAt: timestamp('inbound_synced_at', { mode: 'date', withTimezone: true }),
+    inboundSyncError: text('inbound_sync_error'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()

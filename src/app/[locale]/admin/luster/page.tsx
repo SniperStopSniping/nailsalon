@@ -4,7 +4,7 @@ import { ArrowLeft, BookOpen, CalendarDays, ExternalLink, MessageSquareText, Sho
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-type Health = { google: { status: string; email?: string; lastError?: string }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
+type Health = { google: { status: string; email?: string; lastError?: string; inboundSyncEnabled?: boolean; inboundSyncedAt?: string | null; inboundSyncError?: string | null }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
 type CalendarOption = { id: string; summary: string; primary: boolean; accessRole: string };
 const RESOURCES = [
   { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
@@ -112,7 +112,7 @@ export default function LusterOwnerPage() {
               <div>
                 <CalendarDays className="text-blue-600" />
                 <h2 className="mt-3 text-xl font-semibold">Google Calendar</h2>
-                <p className="mt-1 text-sm text-stone-600">Busy events block availability. Luster creates and updates appointment events.</p>
+                <p className="mt-1 text-sm text-stone-600">Busy events block availability. Luster appointments sync both ways when their Google event is moved, resized, or deleted.</p>
               </div>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-xs capitalize">{health?.google.status || 'loading'}</span>
             </div>
@@ -135,10 +135,31 @@ export default function LusterOwnerPage() {
                       </div>
                     </fieldset>
                     <button type="button" disabled={working === 'calendar' || !busyCalendarIds.length} onClick={saveCalendars} className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white">Save calendars</button>
+                    <div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-900">
+                      <p className="font-semibold">
+                        Two-way appointment sync is
+                        {' '}
+                        {health.google.inboundSyncEnabled === false ? 'off' : 'on'}
+                      </p>
+                      <p className="mt-1 text-xs">Changes made in Google can take up to five minutes to appear in Luster. New personal Google events are treated as busy time, not client appointments.</p>
+                      {health.google.inboundSyncedAt && (
+                        <p className="mt-2 text-xs">
+                          Last checked:
+                          {' '}
+                          {new Date(health.google.inboundSyncedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )
               : <a className="mt-5 inline-flex rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white" href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug)}`}>Connect Google Calendar</a>}
             {health?.google.lastError && <p className="mt-3 text-xs text-red-700">{health.google.lastError}</p>}
+            {health?.google.inboundSyncError && (
+              <p className="mt-3 text-xs text-red-700">
+                Two-way sync:
+                {health.google.inboundSyncError}
+              </p>
+            )}
           </section>
 
           <section className={card}>

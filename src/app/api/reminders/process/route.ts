@@ -7,7 +7,7 @@ type ErrorResponse = {
   };
 };
 
-export async function POST(request: Request): Promise<Response> {
+async function handleProcess(request: Request): Promise<Response> {
   try {
     const expectedSecret = process.env.CRON_SECRET;
 
@@ -51,6 +51,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
+
+export const GET = handleProcess;
+export const POST = handleProcess;
 
 function getCronSecret(request: Request): string | null {
   const headerSecret = request.headers.get('x-cron-secret');

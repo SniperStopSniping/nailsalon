@@ -25,6 +25,7 @@ const patchSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('move'),
     startTime: z.string().datetime(),
+    durationMinutes: z.number().int().min(15).max(480).optional(),
     technicianId: z.string().nullable().optional(),
   }).strict(),
   z.object({
@@ -178,6 +179,7 @@ export async function PATCH(
       startTime: 'startTime' in parsed.data && parsed.data.startTime
         ? new Date(parsed.data.startTime)
         : undefined,
+      durationMinutes: 'durationMinutes' in parsed.data ? parsed.data.durationMinutes : undefined,
       baseServiceId: 'baseServiceId' in parsed.data ? parsed.data.baseServiceId : undefined,
       technicianId: 'technicianId' in parsed.data ? parsed.data.technicianId : undefined,
       canReassignTechnician,

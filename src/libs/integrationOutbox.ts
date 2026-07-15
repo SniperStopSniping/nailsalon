@@ -13,8 +13,11 @@ type SerializedGoogleEvent = Omit<GoogleCalendarAppointmentEventInput, 'startTim
   endTime: string;
 };
 
-export async function enqueueGoogleCalendarUpsert(input: GoogleCalendarAppointmentEventInput) {
-  const dedupeKey = `google:${input.appointmentId}:upsert:${input.startTime.toISOString()}`;
+export async function enqueueGoogleCalendarUpsert(
+  input: GoogleCalendarAppointmentEventInput,
+  options?: { dedupeSuffix?: string },
+) {
+  const dedupeKey = `google:${input.appointmentId}:upsert:${input.startTime.toISOString()}${options?.dedupeSuffix ? `:${options.dedupeSuffix}` : ''}`;
   await db.insert(integrationOutboxSchema).values({
     id: crypto.randomUUID(),
     salonId: input.salonId,
