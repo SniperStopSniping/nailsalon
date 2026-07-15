@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getSalonSlugFromHostname,
   getSalonSlugFromPathname,
   getSalonSlugFromRouteParams,
   getSalonSlugFromSearchParams,
+  isReservedSalonSlug,
+  isValidSalonSlug,
   normalizeSalonSlug,
 } from './tenantSlug';
 
@@ -28,6 +31,25 @@ describe('tenantSlug helpers', () => {
     expect(getSalonSlugFromPathname('/en/luster', ['en', 'fr'])).toBe('luster');
     expect(getSalonSlugFromPathname('/en/luster/book/service', ['en', 'fr'])).toBe('luster');
     expect(getSalonSlugFromPathname('/en/book/service', ['en', 'fr'])).toBeNull();
+    expect(getSalonSlugFromPathname('/en/join/token', ['en', 'fr'])).toBeNull();
+    expect(getSalonSlugFromPathname('/en/owner-sign-in', ['en', 'fr'])).toBeNull();
     expect(getSalonSlugFromPathname('/luster', ['en', 'fr'])).toBeNull();
+  });
+
+  it('resolves wildcard tenant hosts without treating system hosts as salons', () => {
+    expect(getSalonSlugFromHostname('islanailsalon.luster.com', 'luster.com')).toBe('islanailsalon');
+    expect(getSalonSlugFromHostname('ISLANAILSALON.LUSTER.COM:443', 'luster.com')).toBe('islanailsalon');
+    expect(getSalonSlugFromHostname('www.luster.com', 'luster.com')).toBeNull();
+    expect(getSalonSlugFromHostname('api.luster.com', 'luster.com')).toBeNull();
+    expect(getSalonSlugFromHostname('nested.isla.luster.com', 'luster.com')).toBeNull();
+    expect(getSalonSlugFromHostname('unrelated.example.com', 'luster.com')).toBeNull();
+  });
+
+  it('validates permanent salon slugs and reserves Luster system names', () => {
+    expect(isValidSalonSlug('isla-nails')).toBe(true);
+    expect(isValidSalonSlug('www')).toBe(false);
+    expect(isValidSalonSlug('-isla')).toBe(false);
+    expect(isValidSalonSlug('Isla Nails')).toBe(false);
+    expect(isReservedSalonSlug('support')).toBe(true);
   });
 });

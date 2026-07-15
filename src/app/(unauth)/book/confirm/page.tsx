@@ -38,6 +38,7 @@ export default async function BookConfirmPage({
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
+    manageToken?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -118,7 +119,7 @@ export default async function BookConfirmPage({
     locationId: locationId || primaryLocation?.id || null,
     clientPhone: clientSession?.phone ?? null,
     originalAppointmentId,
-    allowAutoSkip: techStepEnabled,
+    allowAutoSkip: techStepEnabled || salon.freeSoloEnabled,
   });
 
   if (techStepEnabled && resolvedTechnicianContext.shouldAutoSkipTech && resolvedTechnicianContext.soleCompatibleTechnician) {
@@ -134,6 +135,7 @@ export default async function BookConfirmPage({
         startTime: canonicalStartTime,
         locationId: locationId || primaryLocation?.id || null,
         originalAppointmentId,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -153,6 +155,7 @@ export default async function BookConfirmPage({
         techId: null,
         techError: 'unsupported',
         originalAppointmentId,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -168,6 +171,7 @@ export default async function BookConfirmPage({
         locationId: locationId || primaryLocation?.id || null,
         techId: null,
         originalAppointmentId,
+        manageToken: searchParams.manageToken ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,

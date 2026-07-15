@@ -1,5 +1,6 @@
 type SalonPublicUrlInput = {
   customDomain?: string | null;
+  slug?: string | null;
 };
 
 function normalizePublicBaseUrl(value: string | null | undefined): string | null {
@@ -24,7 +25,13 @@ export function getSalonPublicBaseUrl(salon?: SalonPublicUrlInput): string {
     return salonDomain;
   }
 
-  const configuredUrl = normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
+  const rootDomain = process.env.LUSTER_ROOT_DOMAIN?.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (salon?.slug && rootDomain) {
+    return `https://${salon.slug}.${rootDomain}`;
+  }
+
+  const configuredUrl = normalizePublicBaseUrl(process.env.PUBLIC_APP_URL)
+    ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
     ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_BASE_URL)
     ?? normalizePublicBaseUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL)
     ?? normalizePublicBaseUrl(process.env.VERCEL_URL);
@@ -43,4 +50,17 @@ export function getSalonPublicBaseUrl(salon?: SalonPublicUrlInput): string {
 export function buildSalonPublicUrl(path: string, salon?: SalonPublicUrlInput): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${getSalonPublicBaseUrl(salon)}${normalizedPath}`;
+}
+
+export function buildSalonTenantPublicUrl(
+  path: string,
+  salon: SalonPublicUrlInput & { slug: string },
+  locale = 'en',
+): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const hasDedicatedHost = Boolean(salon.customDomain || process.env.LUSTER_ROOT_DOMAIN);
+  const tenantPath = hasDedicatedHost
+    ? normalizedPath
+    : `/${locale}/${salon.slug}${normalizedPath === '/' ? '' : normalizedPath}`;
+  return `${getSalonPublicBaseUrl(salon)}${tenantPath}`;
 }

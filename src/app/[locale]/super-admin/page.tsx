@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { SuperAdminDashboard } from '@/components/super-admin/SuperAdminDashboard';
+import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { isSuperAdmin } from '@/libs/superAdmin';
 
 export const dynamic = 'force-dynamic';
@@ -22,5 +23,5 @@ export default async function SuperAdminPage({
     redirect(`/${locale}/super-admin-login`);
   }
 
-  return <SuperAdminDashboard />;
+  return <SuperAdminDashboard testToolsEnabled={areSuperAdminTestToolsEnabled()} />;
 }

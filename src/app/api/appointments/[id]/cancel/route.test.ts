@@ -8,6 +8,7 @@ const {
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
   deleteGoogleCalendarEventForAppointment,
+  enqueueGoogleCalendarDelete,
   updateWhere,
   updateSet,
   db,
@@ -28,6 +29,7 @@ const {
     getTechnicianById: vi.fn(),
     sendBookingNotificationsForAppointmentCancelled: vi.fn(),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
+    enqueueGoogleCalendarDelete: vi.fn(),
     updateWhere,
     updateSet,
     db: {
@@ -65,6 +67,8 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
+vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+
 import { PATCH } from './route';
 
 describe('PATCH /api/appointments/[id]/cancel', () => {
@@ -87,6 +91,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       email: 'taylor@example.com',
     });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
   });
 
   it('rejects wrong-role access', async () => {

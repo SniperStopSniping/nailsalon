@@ -24,7 +24,9 @@ import {
   SESSION_DURATION_MS,
   shouldBootstrap,
 } from '@/libs/adminAuth';
+import { isIsolatedLegacyOtpFixtureEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { rejectDisabledLegacyOtp } from '@/libs/legacyOtp.server';
 import { checkOtpRateLimit, getClientIp } from '@/libs/rateLimit';
 import {
   adminInviteSchema,
@@ -71,6 +73,11 @@ type VerifyResult = {
 // =============================================================================
 
 export async function POST(request: Request) {
+  const disabled = rejectDisabledLegacyOtp();
+  if (disabled) {
+    return disabled;
+  }
+
   try {
     // Parse request body
     const body = await request.json();
@@ -114,11 +121,7 @@ export async function POST(request: Request) {
     let otpValid = false;
 
     if (!isTwilioConfigured) {
-      // Dev mode: accept 123456
-      otpValid = code === '123456';
-      if (otpValid) {
-        console.warn(`[DEV MODE] Admin OTP verified for ${phoneE164}`);
-      }
+      otpValid = isIsolatedLegacyOtpFixtureEnabled() && code === '123456';
     } else {
       // Production: verify via Twilio
       const twilioUrl = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`;

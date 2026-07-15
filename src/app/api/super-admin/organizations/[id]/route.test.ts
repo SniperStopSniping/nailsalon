@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET, PUT } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const {
   requireSuperAdmin,
   logAuditAction,
@@ -75,8 +79,6 @@ vi.mock('@/libs/superAdmin', () => ({
 vi.mock('@/libs/DB', () => ({
   db,
 }));
-
-import { GET, PUT } from './route';
 
 describe('GET/PUT /api/super-admin/organizations/[id]', () => {
   beforeEach(() => {

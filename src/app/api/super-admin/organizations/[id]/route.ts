@@ -1,8 +1,12 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
+import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
   adminInviteSchema,
   adminSalonMembershipSchema,
@@ -174,7 +178,14 @@ export async function GET(
       .innerJoin(adminUserSchema, eq(adminSalonMembershipSchema.adminId, adminUserSchema.id))
       .where(eq(adminSalonMembershipSchema.salonId, id));
 
+    const integrationHealth = await getSalonIntegrationHealth(id);
+    const publicUrl = buildSalonTenantPublicUrl('/', salon);
+    const bookingUrl = buildSalonTenantPublicUrl('/book', salon);
+
     return Response.json({
+      testToolsEnabled: areSuperAdminTestToolsEnabled(),
+      canonicalUrls: { publicUrl, bookingUrl },
+      integrationHealth,
       salon: {
         id: salon.id,
         name: salon.name,
@@ -281,6 +292,12 @@ export async function PUT(
 
     // If slug is being changed, check for duplicates
     if (updates.slug && updates.slug !== existing.slug) {
+      if (existing.slugLockedAt) {
+        return Response.json({ error: 'Published Luster salon links cannot be changed' }, { status: 409 });
+      }
+      if (!isValidSalonSlug(updates.slug)) {
+        return Response.json({ error: 'This slug is invalid or reserved by Luster' }, { status: 400 });
+      }
       const [duplicateSlug] = await db
         .select()
         .from(salonSchema)

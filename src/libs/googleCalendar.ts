@@ -6,7 +6,8 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
-import { appointmentSchema } from '@/models/Schema';
+import { decryptIntegrationSecret } from '@/libs/lusterSecurity';
+import { appointmentSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -17,6 +18,13 @@ type GoogleCalendarConfig = {
   calendarId: string;
   clientEmail: string;
   privateKey: string;
+};
+
+type GoogleCalendarRequestContext = {
+  accessToken: string;
+  calendarId: string;
+  busyCalendarIds: string[];
+  connectionType: 'oauth' | 'legacy';
 };
 
 export type GoogleCalendarBusyWindow = {
@@ -52,6 +60,8 @@ type GoogleCalendarSyncResult =
 type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
+  error?: string;
+  error_description?: string;
 };
 
 type GoogleFreeBusyResponse = {
@@ -161,30 +171,110 @@ async function getGoogleAccessToken(config: GoogleCalendarConfig): Promise<strin
   return data.access_token;
 }
 
-async function googleCalendarFetch<T>(
-  config: GoogleCalendarConfig,
+async function googleCalendarFetchWithContext<T>(
+  context: GoogleCalendarRequestContext,
   path: string,
   init: RequestInit,
 ): Promise<T> {
-  const token = await getGoogleAccessToken(config);
   const response = await fetch(`${GOOGLE_CALENDAR_API_BASE}${path}`, {
     ...init,
     headers: {
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${context.accessToken}`,
       'Content-Type': 'application/json',
       ...init.headers,
     },
   });
-
   if (response.status === 204) {
     return {} as T;
   }
-
   if (!response.ok) {
     throw new GoogleCalendarApiError(response.status, await response.text());
   }
-
   return await response.json() as T;
+}
+
+async function getGoogleCalendarRequestContext(salonId?: string): Promise<GoogleCalendarRequestContext | null> {
+  if (salonId) {
+    const [connection] = await db
+      .select()
+      .from(salonGoogleCalendarConnectionSchema)
+      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+      .limit(1);
+    if (connection) {
+      if (!['active', 'degraded'].includes(connection.status)) {
+        throw new Error('Google Calendar reconnect is required');
+      }
+      if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_CLIENT_SECRET) {
+        throw new Error('Google OAuth environment variables are incomplete');
+      }
+      const response = await fetch(GOOGLE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: Env.GOOGLE_OAUTH_CLIENT_ID,
+          client_secret: Env.GOOGLE_OAUTH_CLIENT_SECRET,
+          refresh_token: decryptIntegrationSecret(connection.encryptedRefreshToken),
+          grant_type: 'refresh_token',
+        }),
+      });
+      const data = await response.json() as GoogleTokenResponse;
+      if (!response.ok || !data.access_token) {
+        const reconnectRequired = data.error === 'invalid_grant';
+        await db.update(salonGoogleCalendarConnectionSchema).set({
+          status: reconnectRequired ? 'reconnect_required' : 'degraded',
+          lastError: data.error_description || data.error || `Token refresh failed (${response.status})`,
+          lastCheckedAt: new Date(),
+        }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
+        throw new Error(reconnectRequired ? 'Google Calendar reconnect is required' : 'Google Calendar token refresh failed');
+      }
+      await db.update(salonGoogleCalendarConnectionSchema).set({
+        status: 'active',
+        lastError: null,
+        lastCheckedAt: new Date(),
+        tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
+      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
+      return {
+        accessToken: data.access_token,
+        calendarId: connection.destinationCalendarId,
+        busyCalendarIds: connection.busyCalendarIds.length ? connection.busyCalendarIds : ['primary'],
+        connectionType: 'oauth',
+      };
+    }
+  }
+
+  const legacy = getGoogleCalendarConfig();
+  if (!legacy) {
+    return null;
+  }
+  return {
+    accessToken: await getGoogleAccessToken(legacy),
+    calendarId: legacy.calendarId,
+    busyCalendarIds: [legacy.calendarId],
+    connectionType: 'legacy',
+  };
+}
+
+export async function listGoogleCalendarsForSalon(salonId: string): Promise<Array<{
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+}>> {
+  const context = await getGoogleCalendarRequestContext(salonId);
+  if (!context) {
+    return [];
+  }
+  const data = await googleCalendarFetchWithContext<{
+    items?: Array<{ id?: string; summary?: string; primary?: boolean; accessRole?: string }>;
+  }>(context, '/users/me/calendarList?minAccessRole=reader', { method: 'GET' });
+  return (data.items ?? []).flatMap(item => item.id
+    ? [{
+        id: item.id,
+        summary: item.summary || item.id,
+        primary: item.primary === true,
+        accessRole: item.accessRole || 'reader',
+      }]
+    : []);
 }
 
 function toErrorMessage(error: unknown): string {
@@ -297,6 +387,14 @@ async function recordCalendarSyncResult(args: {
   }
 }
 
+async function markGoogleConnectionDegraded(salonId: string, message: string) {
+  await db
+    .update(salonGoogleCalendarConnectionSchema)
+    .set({ status: 'degraded', lastError: message, lastCheckedAt: new Date() })
+    .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+    .catch(() => undefined);
+}
+
 export function isBusyWindowConflict(
   startTime: Date,
   endTime: Date,
@@ -308,17 +406,18 @@ export function isBusyWindowConflict(
 }
 
 export async function getGoogleCalendarBusyWindows(args: {
+  salonId?: string;
   startTime: Date;
   endTime: Date;
   timeZone: string;
 }): Promise<GoogleCalendarBusyWindow[]> {
-  const config = getGoogleCalendarConfig();
-  if (!config) {
+  const context = await getGoogleCalendarRequestContext(args.salonId);
+  if (!context) {
     return [];
   }
 
-  const data = await googleCalendarFetch<GoogleFreeBusyResponse>(
-    config,
+  const data = await googleCalendarFetchWithContext<GoogleFreeBusyResponse>(
+    context,
     '/freeBusy',
     {
       method: 'POST',
@@ -326,23 +425,24 @@ export async function getGoogleCalendarBusyWindows(args: {
         timeMin: args.startTime.toISOString(),
         timeMax: args.endTime.toISOString(),
         timeZone: args.timeZone,
-        items: [{ id: config.calendarId }],
+        items: context.busyCalendarIds.map(id => ({ id })),
       }),
     },
   );
-  const calendar = data.calendars?.[config.calendarId] ?? Object.values(data.calendars ?? {})[0];
-
-  if (calendar?.errors?.length) {
-    throw new Error(calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '));
-  }
-
-  return (calendar?.busy ?? []).map(window => ({
-    startTime: new Date(window.start),
-    endTime: new Date(window.end),
-  }));
+  return context.busyCalendarIds.flatMap((calendarId) => {
+    const calendar = data.calendars?.[calendarId];
+    if (calendar?.errors?.length) {
+      throw new Error(calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '));
+    }
+    return (calendar?.busy ?? []).map(window => ({
+      startTime: new Date(window.start),
+      endTime: new Date(window.end),
+    }));
+  });
 }
 
 export async function hasGoogleCalendarConflict(args: {
+  salonId?: string;
   startTime: Date;
   endTime: Date;
   timeZone: string;
@@ -354,8 +454,8 @@ export async function hasGoogleCalendarConflict(args: {
 export async function syncGoogleCalendarEventForAppointment(
   input: GoogleCalendarAppointmentEventInput,
 ): Promise<GoogleCalendarSyncResult> {
-  const config = getGoogleCalendarConfig();
-  if (!config) {
+  const context = await getGoogleCalendarRequestContext(input.salonId);
+  if (!context) {
     return { status: 'disabled' };
   }
 
@@ -365,9 +465,9 @@ export async function syncGoogleCalendarEventForAppointment(
 
     if (input.googleCalendarEventId) {
       try {
-        event = await googleCalendarFetch<GoogleCalendarEventResponse>(
-          config,
-          `/calendars/${encodeURIComponent(config.calendarId)}/events/${encodeURIComponent(input.googleCalendarEventId)}?sendUpdates=none`,
+        event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+          context,
+          `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(input.googleCalendarEventId)}?sendUpdates=none`,
           {
             method: 'PATCH',
             body: JSON.stringify(body),
@@ -378,9 +478,9 @@ export async function syncGoogleCalendarEventForAppointment(
           throw error;
         }
 
-        event = await googleCalendarFetch<GoogleCalendarEventResponse>(
-          config,
-          `/calendars/${encodeURIComponent(config.calendarId)}/events?sendUpdates=none`,
+        event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+          context,
+          `/calendars/${encodeURIComponent(context.calendarId)}/events?sendUpdates=none`,
           {
             method: 'POST',
             body: JSON.stringify(body),
@@ -388,9 +488,9 @@ export async function syncGoogleCalendarEventForAppointment(
         );
       }
     } else {
-      event = await googleCalendarFetch<GoogleCalendarEventResponse>(
-        config,
-        `/calendars/${encodeURIComponent(config.calendarId)}/events?sendUpdates=none`,
+      event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+        context,
+        `/calendars/${encodeURIComponent(context.calendarId)}/events?sendUpdates=none`,
         {
           method: 'POST',
           body: JSON.stringify(body),
@@ -413,6 +513,7 @@ export async function syncGoogleCalendarEventForAppointment(
     return { status: 'synced', eventId: event.id };
   } catch (error) {
     const message = toErrorMessage(error);
+    await markGoogleConnectionDegraded(input.salonId, message);
     await recordCalendarSyncResult({
       appointmentId: input.appointmentId,
       salonId: input.salonId,
@@ -430,16 +531,16 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
   salonId: string;
   googleCalendarEventId?: string | null;
 }): Promise<GoogleCalendarSyncResult> {
-  const config = getGoogleCalendarConfig();
-  if (!config || !args.googleCalendarEventId) {
+  const context = await getGoogleCalendarRequestContext(args.salonId);
+  if (!context || !args.googleCalendarEventId) {
     return { status: 'disabled' };
   }
 
   try {
     try {
-      await googleCalendarFetch<Record<string, never>>(
-        config,
-        `/calendars/${encodeURIComponent(config.calendarId)}/events/${encodeURIComponent(args.googleCalendarEventId)}?sendUpdates=none`,
+      await googleCalendarFetchWithContext<Record<string, never>>(
+        context,
+        `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(args.googleCalendarEventId)}?sendUpdates=none`,
         { method: 'DELETE' },
       );
     } catch (error) {
@@ -459,6 +560,7 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
     return { status: 'deleted' };
   } catch (error) {
     const message = toErrorMessage(error);
+    await markGoogleConnectionDegraded(args.salonId, message);
     await recordCalendarSyncResult({
       appointmentId: args.appointmentId,
       salonId: args.salonId,

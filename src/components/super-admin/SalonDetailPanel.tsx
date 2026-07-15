@@ -6,6 +6,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  Copy,
   CreditCard,
   Download,
   ExternalLink,
@@ -93,6 +94,31 @@ type SalonMetrics = {
   techsCount: number;
   clientsCount: number;
   appointmentsLast30d: number;
+};
+
+type CanonicalUrls = {
+  publicUrl: string;
+  bookingUrl: string;
+};
+
+type IntegrationHealth = {
+  google: {
+    status: string;
+    reconnectRequired: boolean;
+  };
+  twilio: {
+    status: string;
+    deauthorized: boolean;
+  };
+  latestSmsDeliveryError: {
+    errorCode: string | null;
+    errorMessage: string | null;
+    createdAt: string;
+  } | null;
+  calendarOutbox: {
+    pending: number;
+    failed: number;
+  };
 };
 
 type SalonDetailPanelProps = {
@@ -307,6 +333,9 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [owner, setOwner] = useState<OwnerInfo | null>(null);
   const [pendingOwnerInvite, setPendingOwnerInvite] = useState<PendingInvite | null>(null);
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
+  const [canonicalUrls, setCanonicalUrls] = useState<CanonicalUrls | null>(null);
+  const [integrationHealth, setIntegrationHealth] = useState<IntegrationHealth | null>(null);
+  const [testToolsEnabled, setTestToolsEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -391,6 +420,9 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setOwner(data.owner);
       setPendingOwnerInvite(data.pendingOwnerInvite);
       setAdmins(data.admins || []);
+      setCanonicalUrls(data.canonicalUrls ?? null);
+      setIntegrationHealth(data.integrationHealth ?? null);
+      setTestToolsEnabled(data.testToolsEnabled === true);
 
       // Populate form
       setName(data.salon.name);
@@ -656,7 +688,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       const response = await fetch('/api/super-admin/impersonate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId }),
+        body: JSON.stringify({ salonId, testTool: testToolsEnabled }),
       });
 
       if (!response.ok) {
@@ -671,6 +703,46 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       window.location.assign(redirectTarget);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
+    }
+  };
+
+  const auditTestAction = (action: string) => {
+    if (!testToolsEnabled) {
+      return;
+    }
+    void fetch('/api/super-admin/test-tools/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, salonId }),
+    });
+  };
+
+  const copyCanonicalUrl = async (kind: 'public' | 'booking') => {
+    const url = kind === 'public' ? canonicalUrls?.publicUrl : canonicalUrls?.bookingUrl;
+    if (!url) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      auditTestAction(kind === 'public' ? 'copy_public_url' : 'copy_booking_url');
+    } catch {
+      setError('Could not copy the canonical URL.');
+    }
+  };
+
+  const openCanonicalUrl = (kind: 'public' | 'booking') => {
+    const url = kind === 'public' ? canonicalUrls?.publicUrl : canonicalUrls?.bookingUrl;
+    if (!url) {
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+    auditTestAction(kind === 'public' ? 'open_public_page' : 'open_booking_page');
+  };
+
+  const endImpersonation = async () => {
+    const response = await fetch('/api/super-admin/impersonate', { method: 'DELETE' });
+    if (!response.ok) {
+      setError('Failed to end impersonation.');
     }
   };
 
@@ -767,6 +839,67 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
                           {error}
                         </div>
+                      )}
+
+                      {testToolsEnabled && canonicalUrls && integrationHealth && (
+                        <section className="rounded-xl border border-purple-200 bg-purple-50 p-4" data-testid="salon-testing-controls">
+                          <h3 className="font-semibold text-purple-950">Luster staging testing</h3>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <button type="button" onClick={() => openCanonicalUrl('public')} className="rounded-lg border border-purple-200 bg-white px-3 py-2 text-purple-800">Open public salon page</button>
+                            <button type="button" onClick={() => openCanonicalUrl('booking')} className="rounded-lg border border-purple-200 bg-white px-3 py-2 text-purple-800">Open booking page</button>
+                            <button type="button" onClick={() => copyCanonicalUrl('public')} className="inline-flex items-center justify-center gap-1 rounded-lg border border-purple-200 bg-white px-3 py-2 text-purple-800">
+                              <Copy className="size-3.5" />
+                              {' '}
+                              Copy public URL
+                            </button>
+                            <button type="button" onClick={() => copyCanonicalUrl('booking')} className="inline-flex items-center justify-center gap-1 rounded-lg border border-purple-200 bg-white px-3 py-2 text-purple-800">
+                              <Copy className="size-3.5" />
+                              {' '}
+                              Copy booking URL
+                            </button>
+                            <button type="button" onClick={handleImpersonate} className="rounded-lg bg-purple-700 px-3 py-2 font-medium text-white">Impersonate salon owner</button>
+                            <button type="button" onClick={handleImpersonate} className="rounded-lg bg-purple-700 px-3 py-2 font-medium text-white">Open owner dashboard</button>
+                            <button type="button" onClick={endImpersonation} className="col-span-2 rounded-lg border border-purple-300 bg-white px-3 py-2 text-purple-800">End impersonation</button>
+                          </div>
+                          <dl className="mt-4 grid gap-2 rounded-lg bg-white p-3 text-xs text-gray-700">
+                            <div className="flex justify-between gap-3">
+                              <dt>Google Calendar</dt>
+                              <dd className="font-medium">
+                                {integrationHealth.google.status}
+                                {integrationHealth.google.reconnectRequired ? ' — reconnect required' : ''}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt>Twilio</dt>
+                              <dd className="font-medium">
+                                {integrationHealth.twilio.status}
+                                {integrationHealth.twilio.deauthorized ? ' — deauthorized' : ''}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt>Pending Calendar jobs</dt>
+                              <dd className="font-medium">{integrationHealth.calendarOutbox.pending}</dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt>Failed Calendar jobs</dt>
+                              <dd className="font-medium">{integrationHealth.calendarOutbox.failed}</dd>
+                            </div>
+                            <div>
+                              <dt>Latest SMS delivery error</dt>
+                              <dd className="mt-1 break-words font-medium">{integrationHealth.latestSmsDeliveryError?.errorMessage || integrationHealth.latestSmsDeliveryError?.errorCode || 'None'}</dd>
+                            </div>
+                          </dl>
+                          <div className="mt-3 space-y-1 break-all text-[11px] text-purple-900/70">
+                            <p>
+                              Public:
+                              {canonicalUrls.publicUrl}
+                            </p>
+                            <p>
+                              Booking:
+                              {canonicalUrls.bookingUrl}
+                            </p>
+                          </div>
+                        </section>
                       )}
 
                       {/* Deleted Banner */}

@@ -1,12 +1,12 @@
 import {
-  expect,
-  request as playwrightRequest,
   type APIRequestContext,
+  expect,
   type Locator,
   type Page,
+  request as playwrightRequest,
 } from '@playwright/test';
 
-import { serializeSelectedAddOns, type SelectedAddOnParam } from '@/libs/bookingParams';
+import { type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 
 import { authStatePaths, e2eBaseUrl, e2eConfig } from './config';
 
@@ -21,6 +21,13 @@ type AvailabilityResponse = {
 type CreatedAppointment = {
   id: string;
   startTime: string;
+};
+
+type CreatedAppointmentResponse = {
+  data?: {
+    appointment?: CreatedAppointment;
+    manageUrl?: string;
+  };
 };
 
 export type AvailabilitySlot = {
@@ -170,11 +177,11 @@ async function findBookableSlotsInternal(
     const dateCandidates = options?.dateString
       ? [options.dateString]
       : Array.from({ length: daysToScan }, (_, index) => {
-          const date = new Date();
-          date.setDate(date.getDate() + index + 1);
-          date.setHours(0, 0, 0, 0);
-          return isoDate(date);
-        });
+        const date = new Date();
+        date.setDate(date.getDate() + index + 1);
+        date.setHours(0, 0, 0, 0);
+        return isoDate(date);
+      });
 
     for (const candidateDate of dateCandidates) {
       const date = new Date(`${candidateDate}T00:00:00`);
@@ -210,10 +217,10 @@ async function findBookableSlotsInternal(
       const body = availability.body as AvailabilityResponse | null;
       const visibleSlots = body?.visibleSlots ?? [];
       const bookedSlots = new Set(body?.bookedSlots ?? []);
-      const selectableSlots = visibleSlots.filter((slot) => !bookedSlots.has(slot));
+      const selectableSlots = visibleSlots.filter(slot => !bookedSlots.has(slot));
 
       if (selectableSlots.length >= count) {
-        return selectableSlots.slice(0, count).map((time) => ({
+        return selectableSlots.slice(0, count).map(time => ({
           date,
           dateString: candidateDate,
           time,
@@ -254,6 +261,8 @@ export async function getSelectableSlotsForDate(
     serviceIds?: string[];
     selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
+    originalAppointmentId?: string;
+    manageToken?: string;
     selectedAddOnsParam?: string | null;
   },
 ) {
@@ -289,6 +298,7 @@ export async function getSelectableSlotsForDate(
       requestContext,
       `/api/appointments/availability?${params.toString()}`,
     );
+
     expect(availability.ok, JSON.stringify(availability.body)).toBeTruthy();
 
     const body = availability.body as AvailabilityResponse | null;
@@ -296,8 +306,8 @@ export async function getSelectableSlotsForDate(
     const bookedSlots = new Set(body?.bookedSlots ?? []);
 
     return visibleSlots
-      .filter((slot) => !bookedSlots.has(slot))
-      .map((time) => ({
+      .filter(slot => !bookedSlots.has(slot))
+      .map(time => ({
         date: new Date(`${options.dateString}T00:00:00`),
         dateString: options.dateString,
         time,
@@ -313,21 +323,28 @@ export async function createAppointmentViaApi(
     technicianId?: string | null;
     clientName?: string;
     clientPhone?: string;
+    clientEmail?: string;
     startTime?: string;
     serviceIds?: string[];
     baseServiceId?: string | null;
     selectedAddOns?: SelectedAddOnParam[];
     locationId?: string | null;
+    originalAppointmentId?: string;
+    manageToken?: string;
   },
 ) {
   const serviceIds = options?.serviceIds ?? [e2eConfig.serviceId];
   const selectedAddOns = options?.selectedAddOns ?? [];
+  const guestPhone = options?.clientPhone;
+  const guestName = options?.clientName ?? (guestPhone ? `Guest ${guestPhone.slice(-4)}` : undefined);
+  const guestEmail = options?.clientEmail
+    ?? (guestPhone ? `guest+${guestPhone.replace(/\D/g, '')}@example.com` : undefined);
 
   if (options?.startTime) {
     const requestContext = await createAuthenticatedRequestContext(page);
 
     try {
-      const creationResult = await postJson<{ data?: { appointment?: CreatedAppointment } }>(
+      const creationResult = await postJson<CreatedAppointmentResponse>(
         requestContext,
         '/api/appointments',
         {
@@ -336,14 +353,18 @@ export async function createAppointmentViaApi(
           baseServiceId: options.baseServiceId ?? undefined,
           selectedAddOns,
           technicianId: options?.technicianId ?? null,
-          clientName: options?.clientName ?? undefined,
-          clientPhone: options?.clientPhone ?? undefined,
+          clientName: guestName,
+          clientEmail: guestEmail,
+          clientPhone: guestPhone,
           locationId: options?.locationId ?? undefined,
+          originalAppointmentId: options?.originalAppointmentId,
+          manageToken: options?.manageToken,
           startTime: options.startTime,
         },
       );
 
       expect(creationResult.ok, JSON.stringify(creationResult.body)).toBeTruthy();
+
       const appointment = creationResult.body?.data?.appointment;
       if (!appointment?.id) {
         throw new Error(`Appointment creation did not return an id: ${JSON.stringify(creationResult.body)}`);
@@ -355,6 +376,7 @@ export async function createAppointmentViaApi(
         dateString: persistedStart.dateString,
         time: persistedStart.time,
         startTime: appointment.startTime,
+        manageUrl: creationResult.body?.data?.manageUrl ?? null,
       };
     } finally {
       await requestContext.dispose();
@@ -377,6 +399,10 @@ export async function createAppointmentViaApi(
         date: isoDate(date),
         salonSlug: e2eConfig.salonSlug,
       });
+
+      if (options?.originalAppointmentId) {
+        params.set('originalAppointmentId', options.originalAppointmentId);
+      }
 
       if (options?.baseServiceId) {
         params.set('baseServiceId', options.baseServiceId);
@@ -415,7 +441,7 @@ export async function createAppointmentViaApi(
         const startTime = new Date(`${isoDate(date)}T00:00:00`);
         startTime.setHours(hours || 9, minutes || 0, 0, 0);
 
-        const creationResult = await postJson<{ data?: { appointment?: CreatedAppointment } }>(
+        const creationResult = await postJson<CreatedAppointmentResponse>(
           requestContext,
           '/api/appointments',
           {
@@ -424,9 +450,12 @@ export async function createAppointmentViaApi(
             baseServiceId: options?.baseServiceId ?? undefined,
             selectedAddOns,
             technicianId: options?.technicianId ?? null,
-            clientName: options?.clientName ?? undefined,
-            clientPhone: options?.clientPhone ?? undefined,
+            clientName: guestName,
+            clientEmail: guestEmail,
+            clientPhone: guestPhone,
             locationId: options?.locationId ?? undefined,
+            originalAppointmentId: options?.originalAppointmentId,
+            manageToken: options?.manageToken,
             startTime: startTime.toISOString(),
           },
         );
@@ -443,6 +472,7 @@ export async function createAppointmentViaApi(
             dateString: persistedStart.dateString,
             time: persistedStart.time,
             startTime: appointment.startTime,
+            manageUrl: creationResult.body?.data?.manageUrl ?? null,
           };
         }
 
@@ -494,7 +524,9 @@ export async function cancelAppointmentViaApi(appointmentId: string) {
 
 export async function pickFirstVisibleTimeSlot(page: Page) {
   const slotButtons = page.locator('[data-testid^="time-slot-"]:not([disabled])');
+
   await expect(slotButtons.first()).toBeVisible();
+
   await slotButtons.first().click();
 }
 
@@ -560,16 +592,20 @@ export async function selectBookableSlotFromApi(
         await dayButton.click();
 
         const availabilityResponse = await availabilityResponsePromise;
+
         expect(availabilityResponse.ok(), `Availability request failed for ${slot.dateString}`).toBeTruthy();
       }
 
       const loadingCard = page.getByText('Checking live availability');
       await loadingCard.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+
       await expect(dayButton).toBeDisabled({ timeout: 20_000 });
 
       const slotButton = page.getByTestId(`time-slot-${slot.time}`);
+
       await expect(slotButton).toBeVisible({ timeout: 20_000 });
       await expect(slotButton).toBeEnabled({ timeout: 20_000 });
+
       await Promise.all([
         page.waitForURL(confirmUrlPattern, { timeout: 20_000 }),
         slotButton.click(),

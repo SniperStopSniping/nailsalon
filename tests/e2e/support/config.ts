@@ -8,17 +8,18 @@ const PORT = process.env.PORT || '3000';
 const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 
 export const e2eConfig = {
+  freeSolo: process.env.E2E_FREE_SOLO !== 'false',
   locale: DEFAULT_LOCALE,
   salonSlug: DEFAULT_SALON_SLUG,
   salonName: process.env.E2E_SALON_NAME || 'Nail Salon No.5',
   serviceId: process.env.E2E_SERVICE_ID || 'svc_biab-short',
   serviceName: process.env.E2E_SERVICE_NAME || 'BIAB Short',
   serviceDurationMinutes: Number.parseInt(process.env.E2E_SERVICE_DURATION_MINUTES || '75', 10),
-  customerOtpCode: process.env.E2E_CUSTOMER_OTP_CODE || process.env.E2E_OTP_CODE || '123456',
+  customerOtpCode: process.env.E2E_CUSTOMER_OTP_CODE || '',
   staffPhone: process.env.E2E_STAFF_PHONE || '4165550201',
-  staffOtpCode: process.env.E2E_STAFF_OTP_CODE || process.env.E2E_OTP_CODE || '123456',
-  superAdminPhone: process.env.E2E_SUPER_ADMIN_PHONE || '4165550101',
-  superAdminOtpCode: process.env.E2E_SUPER_ADMIN_OTP_CODE || process.env.E2E_ADMIN_OTP_CODE || process.env.E2E_OTP_CODE || '123456',
+  staffOtpCode: process.env.E2E_STAFF_OTP_CODE || '',
+  superAdminPhone: process.env.E2E_SUPER_ADMIN_PHONE || '',
+  superAdminPassword: process.env.E2E_SUPER_ADMIN_PASSWORD || '',
   staffTechnicianName: process.env.E2E_STAFF_TECH_NAME || 'Daniela',
 };
 

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DELETE, GET, POST } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const {
   clearAdminImpersonationSession,
   db,
@@ -42,6 +46,10 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+vi.mock('@/libs/auditLog', () => ({
+  logAuditEvent: vi.fn(),
+}));
+
 vi.mock('@/libs/adminImpersonation', () => ({
   clearAdminImpersonationSession,
   getAdminImpersonationSession,
@@ -53,8 +61,6 @@ vi.mock('@/libs/superAdmin', () => ({
   logAuditAction,
   requireSuperAdmin,
 }));
-
-import { DELETE, GET, POST } from './route';
 
 describe('/api/super-admin/impersonate', () => {
   beforeEach(() => {
@@ -102,10 +108,10 @@ describe('/api/super-admin/impersonate', () => {
       salonSlug: 'locked-salon',
       salonName: 'Locked Salon',
       adminUserId: 'admin_1',
-      adminPhone: '+15551234567',
+      adminName: 'Sam Super',
     }));
     expect(logAuditAction).toHaveBeenCalledWith('salon_1', 'updated', {
-      details: 'Impersonation started by +15551234567',
+      details: 'Super-admin impersonation started',
     });
     expect(body.salon).toEqual({
       id: 'salon_1',
@@ -120,7 +126,7 @@ describe('/api/super-admin/impersonate', () => {
       salonSlug: 'locked-salon',
       salonName: 'Locked Salon',
       adminUserId: 'admin_1',
-      adminPhone: '+15551234567',
+      adminName: 'Sam Super',
       startedAt: '2026-03-14T15:00:00.000Z',
     });
 
@@ -138,7 +144,7 @@ describe('/api/super-admin/impersonate', () => {
       salonSlug: 'locked-salon',
       salonName: 'Locked Salon',
       adminUserId: 'admin_1',
-      adminPhone: '+15551234567',
+      adminName: 'Sam Super',
       startedAt: '2026-03-14T15:00:00.000Z',
     });
     getSuperAdminInfo.mockResolvedValue({
@@ -153,7 +159,7 @@ describe('/api/super-admin/impersonate', () => {
     expect(response.status).toBe(200);
     expect(clearAdminImpersonationSession).toHaveBeenCalledTimes(1);
     expect(logAuditAction).toHaveBeenCalledWith('salon_1', 'updated', {
-      details: 'Impersonation ended by +15551234567',
+      details: 'Super-admin impersonation ended',
     });
     expect(body.redirectUrl).toBe('/super-admin');
   });

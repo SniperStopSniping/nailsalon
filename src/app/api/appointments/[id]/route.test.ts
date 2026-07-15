@@ -9,6 +9,7 @@ const {
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
   deleteGoogleCalendarEventForAppointment,
+  enqueueGoogleCalendarDelete,
   db,
 } = vi.hoisted(() => ({
   requireAppointmentAccess: vi.fn(),
@@ -18,6 +19,7 @@ const {
   getTechnicianById: vi.fn(),
   sendBookingNotificationsForAppointmentCancelled: vi.fn(),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
+  enqueueGoogleCalendarDelete: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -57,6 +59,8 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
+vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+
 import { GET, PATCH } from './route';
 
 describe('appointment detail route auth', () => {
@@ -64,6 +68,7 @@ describe('appointment detail route auth', () => {
     vi.clearAllMocks();
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
   });
 
   it('rejects unauthenticated appointment updates', async () => {

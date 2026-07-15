@@ -17,7 +17,6 @@ import {
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
@@ -458,39 +457,6 @@ const ErrorState = ({
   </div>
 );
 
-const SessionRequiredState = ({
-  onLoginSuccess,
-  onGoBack,
-}: {
-  onLoginSuccess: (phone: string) => void;
-  onGoBack: () => void;
-}) => (
-  <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
-    <div className="w-full max-w-md space-y-4">
-      <StateCard
-        icon={<User className="mx-auto size-10 text-[var(--n5-accent)]" />}
-        title="Sign in to finish booking"
-        description="Confirming an appointment requires your verified client session."
-        contentClassName="py-7"
-      />
-
-      <BookingPhoneLogin onLoginSuccess={onLoginSuccess} />
-
-      <button
-        type="button"
-        onClick={onGoBack}
-        className="font-body mt-4 w-full border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-        style={{
-          borderRadius: n5.radiusMd,
-          borderColor: 'var(--n5-accent)',
-        }}
-      >
-        Return to booking
-      </button>
-    </div>
-  </div>
-);
-
 /**
  * Review State - explicit submit before writing booking
  */
@@ -512,6 +478,15 @@ const ConfirmContent = ({
   firstVisitDiscountPreview,
   rewardsEnabled,
   isReschedule,
+  guestName,
+  guestEmail,
+  guestPhone,
+  smsConsent,
+  smsEnabled,
+  onGuestNameChange,
+  onGuestEmailChange,
+  onGuestPhoneChange,
+  onSmsConsentChange,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -530,6 +505,15 @@ const ConfirmContent = ({
   firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
   rewardsEnabled: boolean;
   isReschedule: boolean;
+  guestName: string;
+  guestEmail: string;
+  guestPhone: string;
+  smsConsent: boolean;
+  smsEnabled: boolean;
+  onGuestNameChange: (value: string) => void;
+  onGuestEmailChange: (value: string) => void;
+  onGuestPhoneChange: (value: string) => void;
+  onSmsConsentChange: (value: boolean) => void;
 }) => (
   <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
     <nav
@@ -609,6 +593,32 @@ const ConfirmContent = ({
         className="space-y-3"
       >
         <SectionCard
+          title="Your contact details"
+          description="No account or phone verification is required. We use your email for the confirmation and secure management link."
+          className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+          contentClassName="space-y-3 pt-0"
+        >
+          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            Name
+            <input aria-label="Customer name" autoComplete="name" value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+          </label>
+          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            Email
+            <input aria-label="Customer email" type="email" autoComplete="email" value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+          </label>
+          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            Mobile phone
+            <input aria-label="Customer phone" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+          </label>
+          {smsEnabled && (
+            <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
+              <input aria-label="SMS consent" type="checkbox" checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1" />
+              <span>I agree to receive transactional appointment confirmations and reminders by text. Consent is optional, message/data rates may apply, and I can reply STOP at any time.</span>
+            </label>
+          )}
+        </SectionCard>
+
+        <SectionCard
           title="Before you confirm"
           description="This will reserve the time above and block duplicate bookings on the same account."
           className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
@@ -662,7 +672,7 @@ const ConfirmContent = ({
             triggerHaptic('confirm');
             onConfirm();
           }}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !guestName.trim() || !guestEmail.includes('@') || guestPhone.replace(/\D/g, '').length < 10}
           className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             borderRadius: n5.radiusMd,
@@ -729,6 +739,8 @@ const SuccessContent = ({
   location,
   rewardsEnabled,
   smsEnabled,
+  smsConsentGranted,
+  showClientAccountActions,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -748,6 +760,8 @@ const SuccessContent = ({
   location: LocationSummary;
   rewardsEnabled: boolean;
   smsEnabled: boolean;
+  smsConsentGranted: boolean;
+  showClientAccountActions: boolean;
 }) => {
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
@@ -837,7 +851,7 @@ const SuccessContent = ({
             <span>Manage this appointment</span>
           </button>
 
-          <div className={`grid gap-3 ${directionsUrl ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+          <div className={`grid gap-3 ${directionsUrl && showClientAccountActions ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
             {directionsUrl && (
               <button
                 type="button"
@@ -856,24 +870,26 @@ const SuccessContent = ({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('confirm');
-                onManagePayment();
-              }}
-              className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-              style={{
-                borderRadius: n5.radiusMd,
-                borderColor: 'var(--n5-border)',
-              }}
-            >
-              <CreditCard className="size-4 text-[var(--n5-accent)]" />
-              <span>How to pay</span>
-            </button>
+            {showClientAccountActions && (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('confirm');
+                  onManagePayment();
+                }}
+                className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+                style={{
+                  borderRadius: n5.radiusMd,
+                  borderColor: 'var(--n5-border)',
+                }}
+              >
+                <CreditCard className="size-4 text-[var(--n5-accent)]" />
+                <span>How to pay</span>
+              </button>
+            )}
           </div>
 
-          {rewardsEnabled && (
+          {showClientAccountActions && rewardsEnabled && (
             <button
               type="button"
               onClick={() => {
@@ -891,7 +907,7 @@ const SuccessContent = ({
             </button>
           )}
 
-          <div className="grid grid-cols-2 gap-3 pt-1">
+          <div className={`grid gap-3 pt-1 ${showClientAccountActions ? 'grid-cols-2' : 'grid-cols-1'}`}>
             <button
               type="button"
               onClick={() => {
@@ -904,18 +920,20 @@ const SuccessContent = ({
               <Home className="size-4" />
               <span>Back to booking</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('select');
-                onGoToProfile();
-              }}
-              className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-              style={{ borderColor: 'var(--n5-accent)' }}
-            >
-              <User className="size-4" />
-              <span>Profile</span>
-            </button>
+            {showClientAccountActions && (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('select');
+                  onGoToProfile();
+                }}
+                className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+                style={{ borderColor: 'var(--n5-accent)' }}
+              >
+                <User className="size-4" />
+                <span>Profile</span>
+              </button>
+            )}
           </div>
         </motion.div>
 
@@ -931,7 +949,7 @@ const SuccessContent = ({
             <span className="font-body text-sm text-[var(--n5-ink-muted)]">We&apos;re looking forward to your visit.</span>
             <Sparkles className="size-4 text-[var(--n5-accent)]" />
           </div>
-          {smsEnabled && (
+          {smsEnabled && smsConsentGranted && (
             <p className="font-body text-xs text-[var(--n5-ink-muted)]">
               We&apos;ll text you before your visit
             </p>
@@ -1091,12 +1109,14 @@ export function BookConfirmClient({
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const techId = searchParams.get('techId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const manageToken = searchParams.get('manageToken') || '';
   const {
     isLoggedIn,
     isCheckingSession,
-    handleLoginSuccess,
+    phone: sessionPhone,
     validateSession,
     clientName,
+    clientEmail,
   } = useClientSession();
 
   // Sync booking state from URL on mount (for consistency)
@@ -1116,7 +1136,20 @@ export function BookConfirmClient({
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
+  const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [smsConsent, setSmsConsent] = useState(false);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      setGuestName(current => current || clientName || '');
+      setGuestEmail(current => current || clientEmail || '');
+      setGuestPhone(current => current || sessionPhone || '');
+    }
+  }, [clientEmail, clientName, isLoggedIn, sessionPhone]);
 
   const bookingInitiatedRef = useRef(false);
   // Stable idempotency key for this booking session - prevents double-submit
@@ -1143,10 +1176,6 @@ export function BookConfirmClient({
     setBookingError(null);
 
     try {
-      if (!isLoggedIn) {
-        throw new Error('Please sign in again before confirming this appointment.');
-      }
-
       const parsedCanonicalStartTime = canonicalStartTime ? new Date(canonicalStartTime) : null;
       const startTime = parsedCanonicalStartTime && !Number.isNaN(parsedCanonicalStartTime.getTime())
         ? parsedCanonicalStartTime
@@ -1163,11 +1192,16 @@ export function BookConfirmClient({
               serviceIds: services.map(s => s.id),
             }),
         technicianId: techId === 'any' ? null : techId,
+        clientName: guestName.trim(),
+        clientEmail: guestEmail.trim().toLowerCase(),
+        clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
+        ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v1' } }),
         startTime: startTime.toISOString(),
         appointmentDate: dateStr,
         appointmentTime: timeStr,
         ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
+        ...(manageToken && { manageToken }),
       };
 
       const response = await fetch('/api/appointments', {
@@ -1207,7 +1241,8 @@ export function BookConfirmClient({
       }
 
       const data = await response.json();
-      setAppointmentId(data.data.appointment.id);
+      setAppointmentId(data.data.appointmentId || data.data.appointment.id);
+      setManageUrl(data.data.manageUrl || null);
       setBookingComplete(true);
 
       // Trigger confetti
@@ -1222,19 +1257,19 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [baseServiceId, canonicalStartTime, dateStr, isLoggedIn, location, originalAppointmentId, salonSlug, selectedAddOns, services, techId, timeStr]);
+  }, [baseServiceId, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smsConsent, smsEnabled, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
       nameCheckInitiatedRef.current = true;
 
-      if (!clientName?.trim()) {
+      if (isLoggedIn && !clientName?.trim()) {
         const timer = setTimeout(() => setShowNameModal(true), 1500);
         return () => clearTimeout(timer);
       }
     }
     return undefined;
-  }, [bookingComplete, clientName]);
+  }, [bookingComplete, clientName, isLoggedIn]);
 
   const handleSaveName = async () => {
     if (!firstName.trim() || isSavingName) {
@@ -1265,6 +1300,10 @@ export function BookConfirmClient({
   };
 
   const handleViewAppointment = () => {
+    if (manageUrl) {
+      window.location.assign(manageUrl);
+      return;
+    }
     if (!appointmentId) {
       return;
     }
@@ -1292,18 +1331,6 @@ export function BookConfirmClient({
 
   if (isCheckingSession) {
     return <LoadingState />;
-  }
-
-  if (!isLoggedIn) {
-    return (
-      <SessionRequiredState
-        onLoginSuccess={handleLoginSuccess}
-        onGoBack={() => router.push(appendSalonSlug(`/${locale}/book`, salonSlug, {
-          routeSalonSlug,
-          locale,
-        }))}
-      />
-    );
   }
 
   // Loading state
@@ -1368,6 +1395,8 @@ export function BookConfirmClient({
           location={location}
           rewardsEnabled={rewardsEnabled}
           smsEnabled={smsEnabled}
+          smsConsentGranted={smsConsent}
+          showClientAccountActions={isLoggedIn}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -1409,6 +1438,15 @@ export function BookConfirmClient({
       location={location}
       rewardsEnabled={rewardsEnabled}
       isReschedule={Boolean(originalAppointmentId)}
+      guestName={guestName}
+      guestEmail={guestEmail}
+      guestPhone={guestPhone}
+      smsConsent={smsConsent}
+      smsEnabled={smsEnabled}
+      onGuestNameChange={setGuestName}
+      onGuestEmailChange={setGuestEmail}
+      onGuestPhoneChange={setGuestPhone}
+      onSmsConsentChange={setSmsConsent}
     />
   );
 }

@@ -32,6 +32,9 @@ const {
   hasGoogleCalendarConflict,
   syncGoogleCalendarEventForAppointment,
   deleteGoogleCalendarEventForAppointment,
+  enqueueGoogleCalendarUpsert,
+  enqueueGoogleCalendarDelete,
+  sendCustomerBookingConfirmationEmail,
   db,
 } = vi.hoisted(() => ({
   canTechnicianTakeAppointment: vi.fn(),
@@ -64,6 +67,9 @@ const {
   hasGoogleCalendarConflict: vi.fn(),
   syncGoogleCalendarEventForAppointment: vi.fn(),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
+  enqueueGoogleCalendarUpsert: vi.fn(),
+  enqueueGoogleCalendarDelete: vi.fn(),
+  sendCustomerBookingConfirmationEmail: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -146,6 +152,15 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
+vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueGoogleCalendarUpsert,
+  enqueueGoogleCalendarDelete,
+}));
+
+vi.mock('@/libs/customerBookingEmail', () => ({
+  sendCustomerBookingConfirmationEmail,
+}));
+
 vi.mock('@/libs/SMS', () => ({
   sendBookingConfirmationToClient: vi.fn(),
   sendCancellationNotificationToTech: vi.fn(),
@@ -197,6 +212,9 @@ describe('POST /api/appointments booking policy', () => {
     hasGoogleCalendarConflict.mockResolvedValue(false);
     syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
+    enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
+    sendCustomerBookingConfirmationEmail.mockResolvedValue(true);
     getServicesByIds.mockResolvedValue([{
       id: 'srv_1',
       name: 'BIAB',
@@ -281,6 +299,11 @@ describe('POST /api/appointments booking policy', () => {
   });
 
   it('passes requested services and location constraints into any-tech assignment', async () => {
+    requireClientApiSession.mockResolvedValue({
+      ok: false,
+      response: new Response(null, { status: 401 }),
+    });
+    getOrCreateSalonClient.mockResolvedValue({ id: 'client_1', phone: '9999999999' });
     getTechnicianById.mockResolvedValue(null);
     getLocationById.mockResolvedValue({
       id: 'loc_1',
@@ -363,6 +386,7 @@ describe('POST /api/appointments booking policy', () => {
     }]);
     db.insert
       .mockImplementationOnce(() => ({ values: vi.fn(() => ({ returning: appointmentReturning })) }))
+      .mockImplementationOnce(() => ({ values: vi.fn(async () => undefined) }))
       .mockImplementationOnce(() => ({ values: vi.fn(() => ({ returning: appointmentServicesReturning })) }));
 
     const response = await POST(
@@ -374,6 +398,8 @@ describe('POST /api/appointments booking policy', () => {
           serviceIds: ['srv_1'],
           technicianId: 'any',
           locationId: 'loc_1',
+          clientName: 'Ava Guest',
+          clientEmail: 'ava@example.com',
           clientPhone: '9999999999',
           startTime: '2099-03-13T15:00:00.000Z',
         }),
@@ -387,16 +413,16 @@ describe('POST /api/appointments booking policy', () => {
     }));
     expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(expect.objectContaining({
       appointmentId: 'appt_1',
-      clientName: 'Guest',
-      clientPhone: '1111111111',
+      clientName: 'Ava Guest',
+      clientPhone: '9999999999',
       services: ['BIAB'],
       totalPrice: 6500,
     }));
-    expect(syncGoogleCalendarEventForAppointment).toHaveBeenCalledWith(expect.objectContaining({
+    expect(enqueueGoogleCalendarUpsert).toHaveBeenCalledWith(expect.objectContaining({
       appointmentId: 'appt_1',
       salonId: 'salon_1',
       salonName: 'Salon A',
-      clientPhone: '1111111111',
+      clientPhone: '9999999999',
       serviceNames: ['BIAB'],
       technicianName: 'Supported',
       timeZone: 'America/Toronto',
@@ -429,7 +455,7 @@ describe('POST /api/appointments booking policy', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
-  it('rejects unauthenticated customer booking attempts even if a body phone is supplied', async () => {
+  it('rejects an incomplete guest booking when name and email are missing', async () => {
     requireClientApiSession.mockResolvedValue({
       ok: false,
       response: new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED' } }), {
@@ -452,7 +478,13 @@ describe('POST /api/appointments booking policy', () => {
       }),
     );
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'GUEST_CONTACT_REQUIRED',
+        message: 'Name, email, and phone are required to book.',
+      },
+    });
     expect(getActiveAppointmentsForClient).not.toHaveBeenCalled();
     expect(getOrCreateSalonClient).not.toHaveBeenCalled();
   });
@@ -486,6 +518,7 @@ describe('POST /api/appointments booking policy', () => {
     }]);
     db.insert
       .mockImplementationOnce(() => ({ values: vi.fn(() => ({ returning: appointmentReturning })) }))
+      .mockImplementationOnce(() => ({ values: vi.fn(async () => undefined) }))
       .mockImplementationOnce(() => ({ values: vi.fn(() => ({ returning: appointmentServicesReturning })) }));
 
     const response = await POST(
@@ -558,6 +591,9 @@ describe('POST /api/appointments booking policy', () => {
             })),
           }))
           .mockImplementationOnce(() => ({
+            values: vi.fn(async () => undefined),
+          }))
+          .mockImplementationOnce(() => ({
             values: vi.fn(() => ({
               returning: vi.fn(async () => [{
                 id: 'apptSvc_rescheduled',
@@ -568,20 +604,24 @@ describe('POST /api/appointments booking policy', () => {
               }]),
             })),
           })),
-        update: vi.fn(() => ({
-          set: vi.fn(() => ({
-            where: vi.fn(() => ({
-              returning: vi.fn(async () => {
-                staged.cancelledAppointmentId = 'appt_original';
-                return [{
-                  id: 'appt_original',
-                  status: 'cancelled',
-                  cancelReason: 'rescheduled',
-                }];
-              }),
+        update: vi.fn()
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+          }))
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => {
+                  staged.cancelledAppointmentId = 'appt_original';
+                  return [{
+                    id: 'appt_original',
+                    status: 'cancelled',
+                    cancelReason: 'rescheduled',
+                  }];
+                }),
+              })),
             })),
           })),
-        })),
       };
 
       const result = await callback(tx as never);
@@ -663,6 +703,9 @@ describe('POST /api/appointments booking policy', () => {
             })),
           }))
           .mockImplementationOnce(() => ({
+            values: vi.fn(async () => undefined),
+          }))
+          .mockImplementationOnce(() => ({
             values: vi.fn(() => ({
               returning: vi.fn(async () => [{
                 id: 'apptSvc_rescheduled',
@@ -673,13 +716,17 @@ describe('POST /api/appointments booking policy', () => {
               }]),
             })),
           })),
-        update: vi.fn(() => ({
-          set: vi.fn(() => ({
-            where: vi.fn(() => ({
-              returning: vi.fn(async () => []),
+        update: vi.fn()
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+          }))
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => []),
+              })),
             })),
           })),
-        })),
       };
 
       const result = await callback(tx as never);
@@ -762,6 +809,9 @@ describe('POST /api/appointments booking policy', () => {
                 }];
               }),
             })),
+          }))
+          .mockImplementationOnce(() => ({
+            values: vi.fn(async () => undefined),
           }))
           .mockImplementationOnce(() => ({
             values: vi.fn(() => ({

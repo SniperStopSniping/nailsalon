@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('server-only', () => ({}));
+
 const { cookieGet, selectQueue, db, select, update, set } = vi.hoisted(() => {
   const cookieGet = vi.fn();
   const selectQueue: unknown[][] = [];
@@ -41,6 +43,7 @@ describe('requireStaffSession', () => {
     vi.clearAllMocks();
     selectQueue.length = 0;
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('LEGACY_OTP_AUTH_ENABLED', 'true');
   });
 
   afterEach(() => {
@@ -93,6 +96,7 @@ describe('requireStaffSession', () => {
     const result = await requireStaffSession();
 
     expect(result.ok).toBe(false);
+
     if (result.ok) {
       throw new Error('Expected an unauthorized response');
     }

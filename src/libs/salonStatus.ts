@@ -36,6 +36,7 @@ export type SalonStatusCheck = {
   isActive: boolean;
   status: SalonStatus | null;
   isDeleted: boolean;
+  isPublished?: boolean;
   redirectPath: string | null;
 };
 
@@ -52,6 +53,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
     .select({
       status: salonSchema.status,
       deletedAt: salonSchema.deletedAt,
+      publicationStatus: salonSchema.publicationStatus,
     })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
@@ -63,12 +65,25 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
       isActive: false,
       status: null,
       isDeleted: false,
+      isPublished: false,
       redirectPath: '/not-found',
     };
   }
 
   const status = (salon.status || 'active') as SalonStatus;
   const isDeleted = !!salon.deletedAt;
+  const isPublished = salon.publicationStatus === 'published';
+
+  if (!isPublished) {
+    return {
+      exists: true,
+      isActive: false,
+      status,
+      isDeleted,
+      isPublished: false,
+      redirectPath: '/not-found',
+    };
+  }
 
   // Check for deleted salon
   if (isDeleted) {
@@ -77,6 +92,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
       isActive: false,
       status,
       isDeleted: true,
+      isPublished,
       redirectPath: '/cancelled',
     };
   }
@@ -88,6 +104,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
       isActive: false,
       status,
       isDeleted: false,
+      isPublished,
       redirectPath: '/suspended',
     };
   }
@@ -99,6 +116,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
       isActive: false,
       status,
       isDeleted: false,
+      isPublished,
       redirectPath: '/cancelled',
     };
   }
@@ -109,6 +127,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
     isActive: true,
     status,
     isDeleted: false,
+    isPublished,
     redirectPath: null,
   };
 }
@@ -122,6 +141,7 @@ export async function checkSalonStatusBySlug(slug: string): Promise<SalonStatusC
       id: salonSchema.id,
       status: salonSchema.status,
       deletedAt: salonSchema.deletedAt,
+      publicationStatus: salonSchema.publicationStatus,
     })
     .from(salonSchema)
     .where(eq(salonSchema.slug, slug))
@@ -133,6 +153,7 @@ export async function checkSalonStatusBySlug(slug: string): Promise<SalonStatusC
       isActive: false,
       status: null,
       isDeleted: false,
+      isPublished: false,
       redirectPath: '/not-found',
     };
   }

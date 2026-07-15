@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET } from './route';
+
 const { requireStaffOrAdminSalonAccess, db, selectQueue } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const limit = vi.fn(async () => selectQueue.shift() ?? []);
@@ -31,10 +33,8 @@ vi.mock('@/libs/visibilityPolicy', () => ({
 
 vi.mock('@/libs/redact', () => ({
   isFullAccess: vi.fn(() => true),
-  redactClientForStaff: vi.fn((client) => client),
+  redactClientForStaff: vi.fn(client => client),
 }));
-
-import { GET } from './route';
 
 describe('GET /api/staff/client/[phone]', () => {
   beforeEach(() => {
@@ -95,6 +95,7 @@ describe('GET /api/staff/client/[phone]', () => {
     selectQueue.push(
       [{ visibility: null }],
       [{ firstName: 'Ava', createdAt: new Date('2026-01-01T00:00:00Z') }],
+      [{ hasGoogleReview: false }],
       [],
       [],
       [],
@@ -113,6 +114,7 @@ describe('GET /api/staff/client/[phone]', () => {
           phone: '5551234567',
           name: 'Ava',
           memberSince: '2026-01-01T00:00:00.000Z',
+          hasGoogleReview: false,
         },
         stats: {
           totalVisits: 0,

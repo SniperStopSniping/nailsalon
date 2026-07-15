@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { POST } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const {
   assertClientSessionStorageReady,
   createClientSession,
@@ -18,6 +22,8 @@ vi.hoisted(() => {
   process.env.TWILIO_ACCOUNT_SID = 'acct';
   process.env.TWILIO_AUTH_TOKEN = 'token';
   process.env.TWILIO_VERIFY_SERVICE_SID = 'service';
+  process.env.LEGACY_OTP_AUTH_ENABLED = 'true';
+  process.env.LEGACY_OTP_TEST_FIXTURE_ENABLED = 'false';
 });
 
 vi.mock('@/libs/clientAuth', () => ({
@@ -29,8 +35,6 @@ vi.mock('@/libs/clientAuth', () => ({
 vi.mock('@/libs/queries', () => ({
   getClientByPhone,
 }));
-
-import { POST } from './route';
 
 describe('POST /api/auth/verify-otp', () => {
   const originalEnv = { ...process.env };

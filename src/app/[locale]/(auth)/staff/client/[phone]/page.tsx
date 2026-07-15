@@ -16,6 +16,7 @@ type ClientProfile = {
     phone: string;
     name: string | null;
     memberSince: string | null;
+    hasGoogleReview?: boolean;
   };
   // Stats may be redacted (empty) when the salon hides client history from staff
   stats: {
@@ -307,6 +308,11 @@ export default function StaffClientProfilePage() {
                               Member since
                               {' '}
                               {formatDate(profile.client.memberSince)}
+                            </div>
+                          )}
+                          {profile.client.hasGoogleReview && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                              ⭐ Reviewed on Google
                             </div>
                           )}
                         </div>

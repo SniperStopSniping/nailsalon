@@ -17,6 +17,7 @@ export type AnalyticsResponse = {
   period: 'daily' | 'weekly' | 'monthly' | 'yearly';
   revenue: {
     total: number; // cents
+    tips: number; // cents — total tips for completed appointments in the period
     trend: number; // percentage change from previous period
     completed: number; // count of completed appointments
     series: number[]; // revenue in cents bucketed evenly across the period

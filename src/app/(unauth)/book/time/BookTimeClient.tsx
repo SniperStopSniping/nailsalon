@@ -3,13 +3,10 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
-import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { useClientSession } from '@/hooks/useClientSession';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
@@ -188,12 +185,10 @@ export function BookTimeClient({
   const techId = searchParams.get('techId') || '';
   const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
+  const manageToken = searchParams.get('manageToken') || '';
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
-
-  // Use shared auth hook
-  const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state - this is the single source of truth
   const { technicianId: stateTechId = null, syncFromUrl = () => {} } = useBookingState();
@@ -575,12 +570,6 @@ export function BookTimeClient({
       return;
     }
 
-    // Gate on login when this is the first step
-    if (isFirstStep && !isLoggedIn) {
-      // Don't proceed - user needs to log in first via the bottom bar
-      return;
-    }
-
     const dateStr = getDateKey(selectedDate);
     const nextStep = getNextStep('time', bookingFlow);
     if (!nextStep) {
@@ -600,6 +589,7 @@ export function BookTimeClient({
       startTime: slot.startTime,
       locationId,
       originalAppointmentId,
+      manageToken,
     }, {
       routeSalonSlug,
       locale,
@@ -619,6 +609,7 @@ export function BookTimeClient({
         techId: effectiveTechId,
         locationId,
         originalAppointmentId,
+        manageToken,
       }, {
         routeSalonSlug,
         locale,
@@ -991,19 +982,7 @@ export function BookTimeClient({
           </p>
         </div>
 
-        {/* Spacer for floating dock when logged in */}
-        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
-
-        {/* Auth Footer - shown only on first step when not logged in */}
-        {isFirstStep && !isCheckingSession && !isLoggedIn && (
-          <BookingPhoneLogin
-            onLoginSuccess={handleLoginSuccess}
-          />
-        )}
       </div>
-
-      {/* Floating Dock - shown only when logged in and this is the first step */}
-      {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
     </div>
   );
 }

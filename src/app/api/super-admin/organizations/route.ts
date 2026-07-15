@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { seedDefaultCatalogForSalon } from '@/libs/defaultCatalog';
 import { getSuperAdminInfo, requireSuperAdmin } from '@/libs/superAdmin';
+import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
   adminInviteSchema,
   adminSalonMembershipSchema,
@@ -331,6 +332,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const { name, slug, ownerName, ownerPhone, ownerEmail, plan, maxLocations, isMultiLocationEnabled } = validated.data;
+
+    if (!isValidSalonSlug(slug)) {
+      return Response.json({ error: 'This slug is invalid or reserved by Luster' }, { status: 400 });
+    }
 
     // Check for duplicate slug
     const existingSlug = await db

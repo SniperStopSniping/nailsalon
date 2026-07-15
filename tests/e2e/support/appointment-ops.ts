@@ -1,4 +1,4 @@
-import { expect, request as playwrightRequest, type APIRequestContext, type Page } from '@playwright/test';
+import { type APIRequestContext, expect, type Page, request as playwrightRequest } from '@playwright/test';
 
 import { appPath, appPathPattern, authStatePaths, e2eBaseUrl, e2eConfig } from './config';
 
@@ -41,13 +41,15 @@ async function fetchTargetSalon(context: APIRequestContext) {
     `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonName)}`,
   );
   const body = await response.json().catch(() => null) as { items?: SuperAdminOrganization[] } | null;
+
   expect(response.ok(), JSON.stringify(body)).toBeTruthy();
 
-  const target = body?.items?.find((item) => item.slug === e2eConfig.salonSlug)
+  const target = body?.items?.find(item => item.slug === e2eConfig.salonSlug)
     ?? body?.items?.[0]
     ?? null;
 
   expect(target?.id, `Missing target salon for ${e2eConfig.salonSlug}`).toBeTruthy();
+
   return target!;
 }
 
@@ -62,30 +64,37 @@ export async function createImpersonatedAdminRequestContext() {
     data: { salonId: targetSalon.id },
   });
   const body = await response.json().catch(() => null);
+
   expect(response.ok(), JSON.stringify(body)).toBeTruthy();
 
   return context;
 }
 
 export async function getStaffTechnicianProfile() {
-  const context = await playwrightRequest.newContext({
-    baseURL: e2eBaseUrl,
-    storageState: authStatePaths.staff,
-  });
+  const context = await createImpersonatedAdminRequestContext();
 
   try {
-    const response = await context.get('/api/staff/me');
+    const response = await context.get(
+      `/api/admin/technicians?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}&status=active&limit=100`,
+    );
     const body = await response.json().catch(() => null) as {
       data?: {
-        technician?: {
+        technicians?: Array<{
           id: string;
           name: string | null;
-        };
+        }>;
       };
     } | null;
+
     expect(response.ok(), JSON.stringify(body)).toBeTruthy();
-    expect(body?.data?.technician?.id).toBeTruthy();
-    return body!.data!.technician!;
+
+    const technician = body?.data?.technicians?.find(item => (
+      item.name?.toLowerCase() === e2eConfig.staffTechnicianName.toLowerCase()
+    )) ?? body?.data?.technicians?.[0];
+
+    expect(technician?.id).toBeTruthy();
+
+    return technician!;
   } finally {
     await context.dispose();
   }
@@ -99,6 +108,7 @@ export async function cancelAppointmentAsAdmin(appointmentId: string) {
       data: { cancelReason: 'client_request' },
     });
     const body = await response.json().catch(() => null);
+
     expect(response.ok(), JSON.stringify(body)).toBeTruthy();
   } finally {
     await context.dispose();
@@ -114,9 +124,10 @@ export async function impersonateSalonAsSuperAdmin(page: Page) {
     `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonName)}`,
   );
   const listBody = await listResponse.json().catch(() => null) as { items?: SuperAdminOrganization[] } | null;
+
   expect(listResponse.ok(), JSON.stringify(listBody)).toBeTruthy();
 
-  const targetSalon = listBody?.items?.find((item) => item.slug === e2eConfig.salonSlug)
+  const targetSalon = listBody?.items?.find(item => item.slug === e2eConfig.salonSlug)
     ?? listBody?.items?.[0]
     ?? null;
 
@@ -126,6 +137,7 @@ export async function impersonateSalonAsSuperAdmin(page: Page) {
     data: { salonId: targetSalon!.id },
   });
   const body = await response.json().catch(() => null);
+
   expect(response.ok(), JSON.stringify(body)).toBeTruthy();
 }
 
@@ -134,18 +146,23 @@ export async function openAdminBookings(page: Page) {
   await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, {
     waitUntil: 'domcontentloaded',
   });
+
   await expect(page).toHaveURL(appPathPattern('/admin'));
+
   const pageTwoButton = page.getByRole('button', { name: 'Go to page 2' });
   if (await pageTwoButton.isVisible().catch(() => false)) {
     await pageTwoButton.click();
   }
   await page.getByTestId('admin-app-tile-bookings').click();
+
   await expect(page.getByRole('button', { name: /next week/i })).toBeVisible();
 }
 
 async function getSelectedCalendarDay(page: Page) {
   const selected = page.locator('[data-testid^="calendar-day-"][data-selected="true"]').first();
+
   await expect(selected).toBeVisible();
+
   const testId = await selected.getAttribute('data-testid');
   return testId?.replace('calendar-day-', '') ?? null;
 }
@@ -177,15 +194,19 @@ export async function selectCalendarDay(page: Page, dateString: string) {
   const dayButton = await ensureCalendarDayVisible(page, dateString);
   if ((await dayButton.getAttribute('data-selected')) === 'true') {
     await expect(dayButton).toHaveAttribute('data-selected', 'true');
+
     return;
   }
   await dayButton.click();
+
   await expect(dayButton).toHaveAttribute('data-selected', 'true');
 }
 
 export async function getAppointmentBlock(page: Page, appointmentId: string) {
   const block = page.getByTestId(`appointment-block-${appointmentId}`);
+
   await expect(block).toBeVisible();
+
   return block;
 }
 
@@ -229,8 +250,8 @@ export async function waitForAppointmentBlockState(page: Page, args: {
     }).toBe(expected);
   } catch (error) {
     const selectedDay = await getSelectedCalendarDay(page).catch(() => null);
-    const visibleBlocks = await page.locator('[data-testid^="appointment-block-"]').evaluateAll((elements) => (
-      elements.map((element) => ({
+    const visibleBlocks = await page.locator('[data-testid^="appointment-block-"]').evaluateAll(elements => (
+      elements.map(element => ({
         testId: element.getAttribute('data-testid'),
         startTime: element.getAttribute('data-start-time'),
         resourceId: element.getAttribute('data-resource-id'),
@@ -274,7 +295,7 @@ export async function dragAppointmentToSlotAndWaitForManageResult(page: Page, ar
   dateString: string;
   time: string;
 }) {
-  const responsePromise = page.waitForResponse((response) => (
+  const responsePromise = page.waitForResponse(response => (
     response.url().includes(`/api/appointments/${args.appointmentId}/manage`)
     && response.request().method() === 'PATCH'
   ));
@@ -293,6 +314,7 @@ export async function dragAppointmentToSlotAndWaitForManageResult(page: Page, ar
   }
 
   const calendarEvent = body?.data?.calendarEvent;
+
   expect(calendarEvent?.id, JSON.stringify(body)).toBe(args.appointmentId);
 
   try {
@@ -318,7 +340,7 @@ export async function dragAppointmentToSlotAndWaitForManageResult(page: Page, ar
 }
 
 export async function clickNextAvailableAndWaitForManageResult(page: Page, appointmentId: string) {
-  const responsePromise = page.waitForResponse((response) => (
+  const responsePromise = page.waitForResponse(response => (
     response.url().includes(`/api/appointments/${appointmentId}/manage`)
     && response.request().method() === 'PATCH'
   ));
@@ -337,6 +359,7 @@ export async function clickNextAvailableAndWaitForManageResult(page: Page, appoi
   }
 
   const calendarEvent = body?.data?.calendarEvent;
+
   expect(calendarEvent?.id, JSON.stringify(body)).toBe(appointmentId);
 
   try {
@@ -363,7 +386,9 @@ export async function clickNextAvailableAndWaitForManageResult(page: Page, appoi
 
 export async function waitForSheet(page: Page) {
   const sheet = page.getByTestId('appointment-quick-edit-sheet');
+
   await expect(sheet).toBeVisible();
+
   return sheet;
 }
 
@@ -418,9 +443,13 @@ export async function getAdminServiceByName(name: string) {
     const body = await response.json().catch(() => null) as {
       data?: { services?: Array<{ id: string; name: string }> };
     } | null;
+
     expect(response.ok(), JSON.stringify(body)).toBeTruthy();
-    const match = body?.data?.services?.find((service) => service.name === name) ?? null;
+
+    const match = body?.data?.services?.find(service => service.name === name) ?? null;
+
     expect(match?.id, `Missing admin service named ${name}`).toBeTruthy();
+
     return match!;
   } finally {
     await context.dispose();

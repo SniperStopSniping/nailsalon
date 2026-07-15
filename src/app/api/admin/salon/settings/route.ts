@@ -15,14 +15,14 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
+import { logAuditEvent } from '@/libs/auditLog';
+import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   bookingNotificationSettingsUpdateSchema,
   mergeBookingNotificationSettings,
   resolveBookingNotificationCapabilities,
   resolveBookingNotificationSettingsFromSettings,
 } from '@/libs/bookingNotificationSettings';
-import { logAuditEvent } from '@/libs/auditLog';
-import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
@@ -181,6 +181,15 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const updates = validated.data;
+    if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
+      return Response.json(
+        {
+          error: 'FEATURE_PROFILE_LOCKED',
+          message: 'Reviews and rewards are not available in the free solo profile.',
+        },
+        { status: 403 },
+      );
+    }
     const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(

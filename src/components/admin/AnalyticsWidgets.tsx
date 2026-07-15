@@ -69,6 +69,8 @@ type AnalyticsWidgetsProps = {
   appointments?: AppointmentGlance;
   /** Total revenue amount */
   revenue?: number;
+  /** Total tips for the period (cents) */
+  tips?: number;
   /** Revenue trend percentage */
   revenueTrend?: number;
   /** Revenue per bucket across the period (cents) — drives the sparkline */
@@ -251,6 +253,7 @@ const EMPTY_SERIES: number[] = [];
 export function AnalyticsWidgets({
   appointments,
   revenue = 0,
+  tips = 0,
   revenueTrend = 0,
   revenueSeries = EMPTY_SERIES,
   staffData = EMPTY_STAFF,
@@ -486,6 +489,13 @@ export function AnalyticsWidgets({
                   {formatCurrency(displayRevenue)}
                 </motion.div>
               </AnimatePresence>
+              {tips > 0 && (
+                <div className="mt-1 text-[13px] font-medium text-[#8E8E93]">
+                  {formatCurrency(tips)}
+                  {' '}
+                  in tips
+                </div>
+              )}
             </div>
             <AnimatePresence mode="wait">
               <motion.div

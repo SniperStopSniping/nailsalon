@@ -10,6 +10,8 @@
 
 import { NextResponse } from 'next/server';
 
+import { isIsolatedLegacyOtpFixtureEnabled } from '@/libs/authConfig.server';
+import { rejectDisabledLegacyOtp } from '@/libs/legacyOtp.server';
 import { getSalonBySlug, getTechnicianByPhone } from '@/libs/queries';
 
 // =============================================================================
@@ -79,6 +81,11 @@ function validatePhone(phone: string): boolean {
 // =============================================================================
 
 export async function POST(request: Request) {
+  const disabled = rejectDisabledLegacyOtp();
+  if (disabled) {
+    return disabled;
+  }
+
   try {
     // Parse request body
     const body = (await request.json()) as SendOtpRequest;
@@ -130,13 +137,16 @@ export async function POST(request: Request) {
     // DEVELOPMENT MODE: Skip Twilio, auto-approve
     // ==========================================================================
     if (!isTwilioConfigured) {
-      console.warn(`[DEV MODE] Staff OTP would be sent to ${formattedPhone}`);
-      console.warn('[DEV MODE] Use code "123456" to verify');
-      console.warn(`[DEV MODE] Technician: ${technician.name} (${technician.id})`);
+      if (!isIsolatedLegacyOtpFixtureEnabled()) {
+        return NextResponse.json(
+          { error: 'Verification service unavailable' },
+          { status: 503 },
+        );
+      }
 
       return NextResponse.json({
         success: true,
-        message: 'Verification code sent (dev mode)',
+        message: 'Verification code sent (isolated fixture)',
         technicianName: technician.name,
         devMode: true,
       });

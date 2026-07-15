@@ -7,7 +7,7 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
-import { syncGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
+import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { salonSchema } from '@/models/Schema';
 
@@ -184,7 +184,7 @@ export async function PATCH(
     });
     const salon = await getSalonSummary(access.appointment.salonId);
 
-    await syncGoogleCalendarEventForAppointment({
+    await enqueueGoogleCalendarUpsert({
       appointmentId: result.calendarEvent.id,
       salonId: access.appointment.salonId,
       salonName: salon.name,

@@ -28,6 +28,8 @@ import { db } from '@/libs/DB';
 type HealthCheck = {
   db: boolean;
   redis: boolean;
+  clerkEnv: boolean;
+  passwordAuthEnv: boolean;
   cloudinaryEnv: boolean;
   metaEnv: boolean;
   cronSecretConfigured: boolean;
@@ -51,6 +53,8 @@ export async function GET(): Promise<Response> {
   const checks: HealthCheck = {
     db: false,
     redis: false,
+    clerkEnv: false,
+    passwordAuthEnv: false,
     cloudinaryEnv: false,
     metaEnv: false,
     cronSecretConfigured: false,
@@ -81,6 +85,19 @@ export async function GET(): Promise<Response> {
     checks.redis = false;
   }
 
+  checks.clerkEnv = Boolean(
+    process.env.CLERK_SECRET_KEY
+    && process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  );
+
+  checks.passwordAuthEnv = Boolean(
+    process.env.SUPER_ADMIN_AUTH_MODE === 'password'
+    && process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED === 'true'
+    && process.env.SUPER_ADMIN_TEST_PHONE
+    && process.env.SUPER_ADMIN_TEST_PASSWORD
+    && process.env.LEGACY_OTP_AUTH_ENABLED === 'false',
+  );
+
   // ---------------------------------------------------------------------------
   // 3. Cloudinary env check (presence only, no external call)
   // ---------------------------------------------------------------------------
@@ -107,12 +124,7 @@ export async function GET(): Promise<Response> {
   // ---------------------------------------------------------------------------
   // 6. Twilio env check (presence only, no external call)
   // ---------------------------------------------------------------------------
-  checks.twilioEnv = Boolean(
-    process.env.TWILIO_ACCOUNT_SID
-    && process.env.TWILIO_AUTH_TOKEN
-    && process.env.TWILIO_VERIFY_SERVICE_SID
-    && process.env.TWILIO_PHONE_NUMBER,
-  );
+  checks.twilioEnv = Boolean(process.env.TWILIO_CONNECT_APP_SID);
 
   // ---------------------------------------------------------------------------
   // 7. Resend env check (presence only, no external call)
@@ -156,7 +168,15 @@ export async function GET(): Promise<Response> {
   // ---------------------------------------------------------------------------
   // DB is critical - if it's down, we're degraded
   // Other services being down is acceptable (graceful degradation)
-  const status: 'ok' | 'degraded' = checks.db ? 'ok' : 'degraded';
+  const hosted = Boolean(process.env.VERCEL_ENV)
+    || process.env.APP_ENV === 'staging'
+    || process.env.APP_ENV === 'production';
+  const criticalChecksPass = checks.db
+    && checks.clerkEnv
+    && checks.passwordAuthEnv
+    && checks.resendEnv
+    && (!hosted || checks.redis);
+  const status: 'ok' | 'degraded' = criticalChecksPass ? 'ok' : 'degraded';
 
   const response: HealthResponse = {
     status,

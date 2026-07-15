@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  isDayBeforeReminderDue,
+  isSameDayReminderDue,
+  processAppointmentReminders,
+} from './appointmentReminders';
+
 vi.mock('server-only', () => ({}));
 
 const {
@@ -66,12 +72,6 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
-import {
-  isDayBeforeReminderDue,
-  isSameDayReminderDue,
-  processAppointmentReminders,
-} from './appointmentReminders';
-
 describe('appointment reminders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,7 +101,7 @@ describe('appointment reminders', () => {
     expect(due).toBe(true);
   });
 
-  it('sends a day-before reminder email and marks it as sent', async () => {
+  it('sends guaranteed day-before email and attempts consent-gated SMS', async () => {
     queueSelectResults([{
       appointmentId: 'appt_1',
       salonId: 'salon_1',
@@ -124,7 +124,10 @@ describe('appointment reminders', () => {
       to: 'ava@example.com',
       subject: 'Reminder: Your appointment tomorrow at Isla Nail Studio',
     }));
-    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
+      kind: 'day_before',
+      phone: '4165551234',
+    }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       dayBeforeReminderChannel: 'email',
     }));
@@ -171,7 +174,7 @@ describe('appointment reminders', () => {
     expect(result.failures).toBe(0);
   });
 
-  it('sends the 2-hour reminder by SMS only', async () => {
+  it('sends the 2-hour reminder by email and attempts consent-gated SMS', async () => {
     queueSelectResults([{
       appointmentId: 'appt_3',
       salonId: 'salon_1',
@@ -190,13 +193,16 @@ describe('appointment reminders', () => {
       now: new Date('2026-04-01T16:55:00.000Z'),
     });
 
-    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'ava@example.com',
+      subject: 'Your Isla Nail Studio appointment is today',
+    }));
     expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
       kind: 'same_day',
       phone: '4165551234',
     }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
-      sameDayReminderChannel: 'sms',
+      sameDayReminderChannel: 'email',
     }));
     expect(result.sameDaySent).toBe(1);
   });
