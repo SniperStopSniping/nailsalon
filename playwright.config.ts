@@ -37,7 +37,10 @@ const chromiumUse = {
 
 // Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port
 const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
-const webServerReadyURL = `${baseURL}/api/health`;
+// The deployment health endpoint intentionally returns 503 when required hosted
+// integrations are absent. CI only needs to know that Next.js is accepting
+// requests before tests start, so use a static liveness route for this probe.
+const webServerReadyURL = `${baseURL}/robots.txt`;
 process.env.PUBLIC_APP_URL ||= baseURL;
 
 /**
