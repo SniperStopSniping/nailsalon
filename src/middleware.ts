@@ -97,6 +97,7 @@ export default async function middleware(
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
+      || firstPublicSegment === 'owner'
       || firstPublicSegment === 'join';
 
     if (isOwnerPath) {
@@ -109,6 +110,12 @@ export default async function middleware(
       rewriteUrl.pathname = `/${locale}/${hostnameSalonSlug}${rawSegments.length ? `/${rawSegments.join('/')}` : ''}`;
       return finalizeResponse(NextResponse.rewrite(rewriteUrl));
     }
+  }
+
+  if (p === '/owner') {
+    return finalizeResponse(
+      NextResponse.redirect(new URL(`/${AppConfig.defaultLocale}/owner-sign-in`, request.url)),
+    );
   }
 
   if (isDevMode && devRole === 'super_admin') {
