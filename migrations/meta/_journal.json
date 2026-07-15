@@ -330,6 +330,13 @@
       "when": 1784259200000,
       "tag": "0046_google_calendar_two_way",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784345600000,
+      "tag": "0047_owner_multi_salon",
+      "breakpoints": true
     }
   ]
 }

@@ -1,12 +1,12 @@
 import { currentUser } from '@clerk/nextjs/server';
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { buildSalonTenantPublicUrl, getCanonicalAppOrigin } from '@/libs/publicUrl';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
   adminInviteSchema,
@@ -81,7 +81,7 @@ function normalizeSetupError(error: unknown): string {
       || constraint.includes('admin_user_email')
       || constraint.includes('admin_user_phone')
     ) {
-      return 'OWNER_EXISTS';
+      return constraint.includes('admin_user_phone') ? 'OWNER_PHONE_CONFLICT' : 'OWNER_ACCOUNT_CONFLICT';
     }
   }
   return error instanceof Error ? error.message : 'SETUP_FAILED';
@@ -148,18 +148,92 @@ export async function POST(request: Request) {
       const [invite] = await tx
         .select()
         .from(salonSignupInviteSchema)
-        .where(and(
-          eq(salonSignupInviteSchema.tokenHash, inviteTokenHash),
-          isNull(salonSignupInviteSchema.consumedAt),
-          isNull(salonSignupInviteSchema.revokedAt),
-          gt(salonSignupInviteSchema.expiresAt, new Date()),
-        ))
+        .where(eq(salonSignupInviteSchema.tokenHash, inviteTokenHash))
         .limit(1);
       if (!invite) {
         throw new Error('INVITE_INVALID');
       }
       if (invite.invitedEmail.trim().toLowerCase() !== normalizedEmail) {
         throw new Error('INVITE_EMAIL_MISMATCH');
+      }
+
+      const now = new Date();
+      const identityOwners = await tx
+        .select({
+          id: adminUserSchema.id,
+          clerkUserId: adminUserSchema.clerkUserId,
+          email: adminUserSchema.email,
+        })
+        .from(adminUserSchema)
+        .where(or(
+          eq(adminUserSchema.clerkUserId, clerkUser.id),
+          eq(adminUserSchema.email, normalizedEmail),
+        ))
+        .limit(2);
+
+      const clerkOwner = identityOwners.find(owner => owner.clerkUserId === clerkUser.id);
+      const emailOwner = identityOwners.find(owner => owner.email?.trim().toLowerCase() === normalizedEmail);
+      if (clerkOwner && emailOwner && clerkOwner.id !== emailOwner.id) {
+        throw new Error('OWNER_ACCOUNT_CONFLICT');
+      }
+      const identityOwner = clerkOwner ?? emailOwner;
+
+      if (identityOwner?.clerkUserId && identityOwner.clerkUserId !== clerkUser.id) {
+        throw new Error('OWNER_ACCOUNT_CONFLICT');
+      }
+
+      const adminId = identityOwner?.id ?? crypto.randomUUID();
+      if (identityOwner && !identityOwner.clerkUserId) {
+        const linked = await tx
+          .update(adminUserSchema)
+          .set({ clerkUserId: clerkUser.id, emailVerifiedAt: now })
+          .where(and(
+            eq(adminUserSchema.id, identityOwner.id),
+            isNull(adminUserSchema.clerkUserId),
+          ))
+          .returning();
+        if (linked.length !== 1) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+      }
+
+      if (invite.consumedAt) {
+        if (!invite.resultSalonId || invite.consumedByAdminId !== adminId) {
+          throw new Error('INVITE_INVALID');
+        }
+        const [completedSalon] = await tx
+          .select({
+            id: salonSchema.id,
+            slug: salonSchema.slug,
+            customDomain: salonSchema.customDomain,
+          })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, invite.resultSalonId))
+          .limit(1);
+        if (!completedSalon) {
+          throw new Error('INVITE_INVALID');
+        }
+        return {
+          salonId: completedSalon.id,
+          slug: completedSalon.slug,
+          customDomain: completedSalon.customDomain,
+          intent: invite.intent,
+          created: false,
+        };
+      }
+      if (invite.revokedAt || invite.expiresAt <= now) {
+        throw new Error('INVITE_INVALID');
+      }
+
+      if (!identityOwner) {
+        const [phoneOwner] = await tx
+          .select({ id: adminUserSchema.id })
+          .from(adminUserSchema)
+          .where(eq(adminUserSchema.phoneE164, phoneE164))
+          .limit(1);
+        if (phoneOwner) {
+          throw new Error('OWNER_PHONE_CONFLICT');
+        }
       }
 
       let salonId: string;
@@ -215,19 +289,8 @@ export async function POST(request: Request) {
         salonId = crypto.randomUUID();
       }
 
-      const [duplicateOwner] = await tx
-        .select({ id: adminUserSchema.id })
-        .from(adminUserSchema)
-        .where(or(eq(adminUserSchema.clerkUserId, clerkUser.id), eq(adminUserSchema.email, normalizedEmail), eq(adminUserSchema.phoneE164, phoneE164)))
-        .limit(1);
-      if (duplicateOwner) {
-        throw new Error('OWNER_EXISTS');
-      }
-
-      const adminId = crypto.randomUUID();
       const technicianId = crypto.randomUUID();
       const locationId = crypto.randomUUID();
-      const now = new Date();
       const salonValues = {
         name: salonName,
         slug,
@@ -293,14 +356,16 @@ export async function POST(request: Request) {
         await tx.insert(salonSchema).values({ id: salonId, ...salonValues });
       }
 
-      await tx.insert(adminUserSchema).values({
-        id: adminId,
-        phoneE164,
-        clerkUserId: clerkUser.id,
-        name: input.ownerName,
-        email: normalizedEmail,
-        emailVerifiedAt: now,
-      });
+      if (!identityOwner) {
+        await tx.insert(adminUserSchema).values({
+          id: adminId,
+          phoneE164,
+          clerkUserId: clerkUser.id,
+          name: input.ownerName,
+          email: normalizedEmail,
+          emailVerifiedAt: now,
+        });
+      }
       await tx.insert(adminSalonMembershipSchema).values({ adminId, salonId, role: 'owner' });
       await tx.insert(salonLocationSchema).values({
         id: locationId,
@@ -352,7 +417,7 @@ export async function POST(request: Request) {
 
       const consumed = await tx
         .update(salonSignupInviteSchema)
-        .set({ consumedAt: now, consumedByAdminId: adminId })
+        .set({ consumedAt: now, consumedByAdminId: adminId, resultSalonId: salonId })
         .where(and(
           eq(salonSignupInviteSchema.id, invite.id),
           isNull(salonSignupInviteSchema.consumedAt),
@@ -363,7 +428,7 @@ export async function POST(request: Request) {
         throw new Error('INVITE_INVALID');
       }
 
-      return { salonId, slug, customDomain, intent: invite.intent };
+      return { salonId, slug, customDomain, intent: invite.intent, created: true };
     });
 
     if (result.intent === 'claim_existing') {
@@ -377,16 +442,22 @@ export async function POST(request: Request) {
       });
     }
 
+    const publicUrl = buildSalonTenantPublicUrl('/', {
+      slug: result.slug,
+      customDomain: result.customDomain,
+    });
     return Response.json({
       data: {
         salonId: result.salonId,
         slug: result.slug,
-        publicUrl: buildSalonTenantPublicUrl('/', {
+        publicUrl,
+        bookingUrl: buildSalonTenantPublicUrl('/book/service', {
           slug: result.slug,
           customDomain: result.customDomain,
         }),
+        dashboardUrl: `${getCanonicalAppOrigin()}/en/admin?salon=${encodeURIComponent(result.slug)}`,
       },
-    }, { status: 201 });
+    }, { status: result.created ? 201 : 200 });
   } catch (error) {
     const code = normalizeSetupError(error);
     if (claimAuditSalonId) {
@@ -405,9 +476,10 @@ export async function POST(request: Request) {
       INVITE_EMAIL_MISMATCH: 'Sign in with the email address that received this invitation.',
       CLAIM_REQUIRES_REVIEW: 'This salon changed after the invitation was issued. Ask Luster support to review it.',
       SLUG_TAKEN: 'That salon link is already taken.',
-      OWNER_EXISTS: 'An owner account already exists for this email or phone.',
+      OWNER_ACCOUNT_CONFLICT: 'This email is connected to a different owner login. Sign in with the invited email or reset its password.',
+      OWNER_PHONE_CONFLICT: 'That phone number belongs to another owner account. Sign in to that account or use a different contact number.',
     };
-    const status = code === 'SLUG_TAKEN' || code === 'OWNER_EXISTS' || code === 'CLAIM_REQUIRES_REVIEW'
+    const status = code === 'SLUG_TAKEN' || code.startsWith('OWNER_') || code === 'CLAIM_REQUIRES_REVIEW'
       ? 409
       : code.startsWith('INVITE_')
         ? 403

@@ -10,7 +10,7 @@ const DAYS: DayName[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday',
 
 const defaultHours = Object.fromEntries(DAYS.map(day => [day, ['saturday', 'sunday'].includes(day) ? null : { open: '09:00', close: '17:00' }])) as Record<DayName, { open: string; close: string } | null>;
 
-export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string; locale: string }) {
+export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale: string }) {
   const { isLoaded: clerkLoaded, user } = useUser();
   const [salonName, setSalonName] = useState('');
   const [ownerName, setOwnerName] = useState('');
@@ -28,7 +28,11 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ publicUrl: string } | null>(null);
+  const [result, setResult] = useState<{
+    publicUrl: string;
+    bookingUrl: string;
+    dashboardUrl: string;
+  } | null>(null);
   const [inviteIntent, setInviteIntent] = useState<'create_salon' | 'claim_existing'>('create_salon');
   const [loadingInvite, setLoadingInvite] = useState(Boolean(inviteToken));
   const [verificationCode, setVerificationCode] = useState('');
@@ -215,11 +219,13 @@ export function LusterSetupWizard({ inviteToken, locale }: { inviteToken: string
           <h1 className="mt-5 text-3xl font-semibold text-stone-900">Your booking page is live</h1>
           <p className="mt-3 text-stone-600">Calendar and text reminders are optional. You can connect them from your owner dashboard.</p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <a className="inline-flex items-center justify-center gap-2 rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" href={result.publicUrl}>
+            <a className="inline-flex items-center justify-center gap-2 rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" href={result.dashboardUrl}>
+              Open owner dashboard
+            </a>
+            <a className="inline-flex items-center justify-center gap-2 rounded-full border border-stone-300 px-5 py-3 text-sm font-medium text-stone-800" href={result.bookingUrl} target="_blank" rel="noreferrer">
               View booking page
               <ExternalLink size={16} />
             </a>
-            <a className="rounded-full border border-stone-300 px-5 py-3 text-sm font-medium text-stone-800" href={`/${locale}/admin`}>Open owner dashboard</a>
           </div>
         </div>
       </main>

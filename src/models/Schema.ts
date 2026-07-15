@@ -1440,6 +1440,7 @@ export const salonSignupInviteSchema = pgTable(
     consumedAt: timestamp('consumed_at', { mode: 'date', withTimezone: true }),
     revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
     consumedByAdminId: text('consumed_by_admin_id').references(() => adminUserSchema.id),
+    resultSalonId: text('result_salon_id').references(() => salonSchema.id),
     createdByAdminId: text('created_by_admin_id').references(() => adminUserSchema.id),
     emailDeliveryStatus: text('email_delivery_status').$type<'pending' | 'sent' | 'failed'>().default('pending').notNull(),
     emailSentAt: timestamp('email_sent_at', { mode: 'date', withTimezone: true }),
@@ -1450,6 +1451,7 @@ export const salonSignupInviteSchema = pgTable(
     tokenIdx: uniqueIndex('salon_signup_invite_token_idx').on(table.tokenHash),
     emailIdx: index('salon_signup_invite_email_idx').on(table.invitedEmail),
     salonIdx: index('salon_signup_invite_salon_idx').on(table.salonId),
+    resultSalonIdx: index('salon_signup_invite_result_salon_idx').on(table.resultSalonId),
     expiresIdx: index('salon_signup_invite_expires_idx').on(table.expiresAt),
     activeSalonIdx: uniqueIndex('salon_signup_invite_active_salon_idx')
       .on(table.salonId)

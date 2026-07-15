@@ -46,6 +46,7 @@ export type SalonMembership = {
   salonId: string;
   salonSlug: string;
   salonName: string;
+  customDomain?: string | null;
   status?: string | null;
   role: string;
   freeSoloEnabled?: boolean;
@@ -74,6 +75,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       role: adminSalonMembershipSchema.role,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      customDomain: salonSchema.customDomain,
       salonStatus: salonSchema.status,
       freeSoloEnabled: salonSchema.freeSoloEnabled,
     })
@@ -87,6 +89,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
+      customDomain: m.customDomain,
       status: m.salonStatus,
       role: m.role,
       freeSoloEnabled: m.freeSoloEnabled,
@@ -626,6 +629,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       role: adminSalonMembershipSchema.role,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      customDomain: salonSchema.customDomain,
       salonStatus: salonSchema.status,
     })
     .from(adminSalonMembershipSchema)
@@ -638,6 +642,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
+      customDomain: m.customDomain,
       status: m.salonStatus,
       role: m.role,
     })),

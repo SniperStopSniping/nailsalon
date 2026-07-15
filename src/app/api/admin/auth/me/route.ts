@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAdminImpersonationForAdmin, getAdminSession } from '@/libs/adminAuth';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSalonById } from '@/libs/queries';
 
 // Force dynamic rendering
@@ -48,7 +49,10 @@ export async function GET(request: Request) {
         status: s.status ?? null,
         role: s.role,
         freeSoloEnabled: s.freeSoloEnabled ?? false,
+        publicUrl: buildSalonTenantPublicUrl('/', { slug: s.salonSlug, customDomain: s.customDomain }),
+        bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: s.salonSlug, customDomain: s.customDomain }),
       }));
+      const availableSalons = [...salons];
 
       if (impersonation) {
         salons = [{
@@ -58,6 +62,8 @@ export async function GET(request: Request) {
           status: impersonationSalon?.status ?? null,
           role: 'impersonation',
           freeSoloEnabled: impersonationSalon?.freeSoloEnabled ?? false,
+          publicUrl: buildSalonTenantPublicUrl('/', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
+          bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
         }];
       }
 
@@ -97,6 +103,7 @@ export async function GET(request: Request) {
           isSuperAdmin: admin.isSuperAdmin,
           profileComplete,
           salons,
+          availableSalons: impersonation ? salons : availableSalons,
           impersonation: impersonation
             ? {
                 isActive: true,

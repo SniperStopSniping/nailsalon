@@ -144,6 +144,8 @@ describe('POST /api/onboarding/luster', () => {
         intent: 'claim_existing',
         salonId: 'salon_best',
       }],
+      [],
+      [],
       [{
         id: 'salon_best',
         name: 'best',
@@ -153,7 +155,6 @@ describe('POST /api/onboarding/luster', () => {
       }],
       [{ count: 0 }],
       [{ count: 0 }],
-      [],
     );
 
     const response = await POST(request({
@@ -171,6 +172,89 @@ describe('POST /api/onboarding/luster', () => {
       salonId: 'salon_best',
       role: 'owner',
     }));
+  });
+
+  it('reuses an existing Clerk owner and adds another salon membership', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_2',
+        invitedEmail: 'owner@example.com',
+        campaignSource: 'second-salon',
+        intent: 'create_salon',
+      }],
+      [{ id: 'admin_existing', clerkUserId: 'clerk_owner_1', email: 'owner@example.com' }],
+      [],
+    );
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.dashboardUrl).toContain('/en/admin?salon=isla-nails');
+    expect(insertValues).not.toHaveBeenCalledWith(expect.objectContaining({
+      clerkUserId: 'clerk_owner_1',
+    }));
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      adminId: 'admin_existing',
+      role: 'owner',
+    }));
+  });
+
+  it('links an existing verified-email owner to Clerk without replacing memberships', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_3',
+        invitedEmail: 'owner@example.com',
+        intent: 'create_salon',
+      }],
+      [{ id: 'admin_unlinked', clerkUserId: null, email: 'owner@example.com' }],
+      [],
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(201);
+    expect(tx.update).toHaveBeenCalled();
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      adminId: 'admin_unlinked',
+      role: 'owner',
+    }));
+  });
+
+  it('returns the completed salon on a safe retry without creating duplicate records', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_used',
+        invitedEmail: 'owner@example.com',
+        intent: 'create_salon',
+        consumedAt: new Date(),
+        consumedByAdminId: 'admin_existing',
+        resultSalonId: 'salon_existing',
+      }],
+      [{ id: 'admin_existing', clerkUserId: 'clerk_owner_1', email: 'owner@example.com' }],
+      [{ id: 'salon_existing', slug: 'existing', customDomain: null }],
+    );
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({ salonId: 'salon_existing', slug: 'existing' });
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects an email already linked to a different Clerk identity', async () => {
+    queueSelectResults(
+      [{ id: 'invite_4', invitedEmail: 'owner@example.com', intent: 'create_salon' }],
+      [{ id: 'admin_existing', clerkUserId: 'clerk_someone_else', email: 'owner@example.com' }],
+    );
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('OWNER_ACCOUNT_CONFLICT');
+    expect(tx.insert).not.toHaveBeenCalled();
   });
 
   it('requires the primary Clerk email to be verified', async () => {

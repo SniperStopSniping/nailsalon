@@ -66,6 +66,8 @@ describe('GET /api/admin/auth/me', () => {
       status: null,
       role: 'impersonation',
       freeSoloEnabled: false,
+      publicUrl: 'http://localhost:3000/en/locked-salon',
+      bookingUrl: 'http://localhost:3000/en/locked-salon/book/service',
     }]);
   });
 

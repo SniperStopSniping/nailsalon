@@ -10,7 +10,8 @@
  * - iOS spring physics and animations
  */
 
-import { Bell, LogOut } from 'lucide-react';
+import { useClerk } from '@clerk/nextjs';
+import { Bell, Building2, LogOut } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -126,7 +127,10 @@ type AdminUser = {
     status?: string | null;
     role: string;
     freeSoloEnabled?: boolean;
+    publicUrl?: string;
+    bookingUrl?: string;
   }>;
+  availableSalons?: AdminUser['salons'];
 };
 
 type DashboardData = {
@@ -201,6 +205,7 @@ function mapAnalyticsModuleStatus(reason: ModuleReason | undefined): AnalyticsMo
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
+  const clerk = useClerk();
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -305,7 +310,8 @@ function AdminDashboardContent() {
           }
 
           // If admin has multiple salons and no salon selected, show selector
-          if (!data.user.impersonation?.isActive && data.user.salons.length > 1 && !requestedSalonSlug) {
+          const salonChoices = data.user.availableSalons ?? data.user.salons;
+          if (!data.user.impersonation?.isActive && salonChoices.length > 1 && !requestedSalonSlug) {
             setShowSalonSelector(true);
           }
 
@@ -346,7 +352,7 @@ function AdminDashboardContent() {
     } catch {
       // Ignore
     }
-    router.push(`/${locale}/admin-login`);
+    await clerk.signOut({ redirectUrl: '/owner' });
   };
 
   const resetAnalyticsPresentation = useCallback(() => {
@@ -729,10 +735,11 @@ function AdminDashboardContent() {
   }
 
   // 3) Salon selector for admins with multiple salons (check before loading since fetchData waits for salon selection)
-  if (!adminUser.impersonation?.isActive && showSalonSelector && adminUser.salons.length > 1) {
+  const selectableSalons = adminUser.availableSalons ?? adminUser.salons;
+  if (!adminUser.impersonation?.isActive && showSalonSelector && selectableSalons.length > 1) {
     return (
       <AdminSalonSelector
-        salons={adminUser.salons}
+        salons={selectableSalons}
         onSelect={(salon) => {
           router.push(`/${locale}/admin?salon=${salon.slug}`);
           setShowSalonSelector(false);
@@ -841,6 +848,16 @@ function AdminDashboardContent() {
             subtitleClassName="text-[15px] text-[#8E8E93]"
             actions={(
               <>
+                {!adminUser.impersonation?.isActive && selectableSalons.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSalonSelector(true)}
+                    aria-label="Switch salon"
+                    className="flex size-9 items-center justify-center rounded-full bg-black/5 transition-colors active:bg-black/10"
+                  >
+                    <Building2 size={19} className="text-[#8E8E93]" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
