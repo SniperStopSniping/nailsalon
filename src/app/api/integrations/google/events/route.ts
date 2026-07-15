@@ -1,8 +1,11 @@
+import { and, eq, gte, lt } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 import { listExternalGoogleCalendarEvents } from '@/libs/googleCalendar';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
+import { googleCalendarDraftSchema } from '@/models/Schema';
 
 const querySchema = z.object({
   salonSlug: z.string().min(1),
@@ -29,19 +32,35 @@ export async function GET(request: Request) {
 
   try {
     await processGoogleCalendarInboundSync(1, salon.id);
-    const events = await listExternalGoogleCalendarEvents({
-      salonId: salon.id,
-      startTime,
-      endTime,
-    });
+    const [events, drafts] = await Promise.all([
+      listExternalGoogleCalendarEvents({ salonId: salon.id, startTime, endTime }),
+      db.select({
+        id: googleCalendarDraftSchema.id,
+        googleEventId: googleCalendarDraftSchema.googleEventId,
+        title: googleCalendarDraftSchema.title,
+        startTime: googleCalendarDraftSchema.startTime,
+        endTime: googleCalendarDraftSchema.endTime,
+      }).from(googleCalendarDraftSchema).where(and(
+        eq(googleCalendarDraftSchema.salonId, salon.id),
+        eq(googleCalendarDraftSchema.status, 'needs_details'),
+        gte(googleCalendarDraftSchema.startTime, startTime),
+        lt(googleCalendarDraftSchema.startTime, endTime),
+      )),
+    ]);
+    const draftsByEventId = new Map(drafts.map(draft => [draft.googleEventId, draft]));
     return Response.json({
       data: {
-        events: events.map(event => ({
-          id: event.id,
-          startTime: event.startTime.toISOString(),
-          endTime: event.endTime.toISOString(),
-          label: 'Google Calendar busy',
-        })),
+        events: events.map((event) => {
+          const draft = draftsByEventId.get(event.id);
+          return {
+            id: event.id,
+            draftId: draft?.id ?? null,
+            startTime: event.startTime.toISOString(),
+            endTime: event.endTime.toISOString(),
+            label: draft?.title || (draft ? 'Google appointment needs details' : 'Google Calendar busy'),
+            needsDetails: Boolean(draft),
+          };
+        }),
       },
     });
   } catch (cause) {

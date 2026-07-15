@@ -337,6 +337,20 @@
       "when": 1784345600000,
       "tag": "0047_owner_multi_salon",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784432000000,
+      "tag": "0048_nail_tech_crm",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784518400000,
+      "tag": "0049_google_calendar_drafts",
+      "breakpoints": true
     }
   ]
 }

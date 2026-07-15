@@ -17,13 +17,13 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
-import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
+import type { TimePeriod } from '@/components/admin/AnalyticsWidgets';
 import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
-import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
-import { StateCard } from '@/components/ui/state-card';
+import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
+import { OwnerWorkspaceNav, type OwnerWorkspaceTab } from '@/components/admin/OwnerWorkspaceNav';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Main Page Component
@@ -219,12 +219,13 @@ function AdminDashboardContent() {
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
+  const [coreAppointments, setCoreAppointments] = useState<DashboardData['appointments']>(getEmptyDashboardData().appointments);
   const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [, setLastUpdated] = useState<Date | null>(null);
   const [analyticsModuleStatus, setAnalyticsModuleStatus] = useState<AnalyticsModuleStatus>('loading');
 
   // Analytics should never block rendering:
@@ -237,7 +238,7 @@ function AdminDashboardContent() {
   const latestResolvedModuleRef = useRef<{ salonSlug: string; status: AnalyticsModuleStatus } | null>(null);
 
   // Swipe page state
-  const [currentPage, setCurrentPage] = useState(0);
+  const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
@@ -635,14 +636,6 @@ function AdminDashboardContent() {
     }
   }, [activeDashboardSalonSlug, timePeriod, anchorDate, locale, router, analyticsModuleStatus, resetAnalyticsPresentation]);
 
-  // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
-    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
-    if (nextStatus === 'enabled') {
-      await fetchData({ skipModuleCheck: true });
-    }
-  }, [fetchData, resolveAnalyticsModuleAvailability]);
-
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -655,6 +648,33 @@ function AdminDashboardContent() {
       });
     }
   }, [authLoading, adminUser, showSalonSelector, activeDashboardSalonSlug, resolveAnalyticsModuleAvailability]);
+
+  // Core operational counts must load independently of the optional analytics entitlement.
+  useEffect(() => {
+    if (authLoading || !adminUser || showSalonSelector || !activeDashboardSalonSlug) {
+      return;
+    }
+    const controller = new AbortController();
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    fetch(`/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,completed,no_show`, { signal: controller.signal })
+      .then(async response => response.ok ? response.json() : Promise.reject(new Error('Core appointments unavailable')))
+      .then((payload) => {
+        const appointments = (payload.data?.appointments ?? []) as Array<{ status: string; startTime: string }>;
+        setCoreAppointments({
+          total: appointments.length,
+          completed: appointments.filter(item => item.status === 'completed').length,
+          noShows: appointments.filter(item => item.status === 'no_show').length,
+          upcoming: appointments.filter(item => ['pending', 'confirmed', 'in_progress'].includes(item.status) && new Date(item.startTime) >= now).length,
+        });
+      })
+      .catch((fetchError) => {
+        if (fetchError instanceof Error && fetchError.name !== 'AbortError') {
+          setNonBlockingMessage('Today’s appointment count could not be refreshed. Your calendar and bookings are still available.');
+        }
+      });
+    return () => controller.abort();
+  }, [activeDashboardSalonSlug, adminUser, authLoading, showSalonSelector]);
 
   // Fetch analytics only when module availability is explicitly enabled
   useEffect(() => {
@@ -713,6 +733,31 @@ function AdminDashboardContent() {
       default:
         break;
     }
+  }, []);
+
+  const handleRefreshAnalytics = useCallback(async () => {
+    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
+    if (nextStatus === 'enabled') {
+      await fetchData({ skipModuleCheck: true });
+    }
+  }, [fetchData, resolveAnalyticsModuleAvailability]);
+
+  const handleWorkspaceTab = useCallback((tab: OwnerWorkspaceTab) => {
+    setWorkspaceTab(tab);
+    if (tab === 'calendar') {
+      setShowScheduleCalendar(true);
+      return;
+    }
+    if (tab === 'clients') {
+      setActiveModal('clients');
+      return;
+    }
+    if (tab === 'services') {
+      setActiveModal('services');
+      return;
+    }
+    setShowScheduleCalendar(false);
+    setActiveModal(null);
   }, []);
 
   // Close modal
@@ -904,65 +949,32 @@ function AdminDashboardContent() {
           </div>
         )}
 
-        {/* Swipeable Pages Container */}
-        <div className="h-[calc(100vh-140px)]">
-          <SwipeablePages
-            onPageChange={setCurrentPage}
-            initialPage={currentPage}
-            onRefresh={handleRefresh}
-            lastUpdated={lastUpdated}
-          >
-            {/* Page 1: Analytics Widgets */}
-            {analyticsUnavailableState
-              ? (
-                  <div className="px-5 py-4" data-testid="analytics-unavailable-state">
-                    <StateCard
-                      title={analyticsUnavailableState.title}
-                      description={analyticsUnavailableState.description}
-                      tone={analyticsUnavailableState.tone}
-                    />
-                  </div>
-                )
-              : (
-                  <AnalyticsWidgets
-                    appointments={data.appointments}
-                    revenue={data.revenue.today ?? 0}
-                    tips={analyticsData?.revenue?.tips ?? 0}
-                    revenueTrend={data.revenue.trend ?? 0}
-                    revenueSeries={analyticsData?.revenue?.series ?? []}
-                    staffData={staffData}
-                    utilization={utilization}
-                    services={services}
-                    onQuickAction={handleQuickAction}
-                    timePeriod={timePeriod}
-                    onTimePeriodChange={setTimePeriod}
-                    dateRange={analyticsData?.dateRange}
-                    anchorDate={anchorDate}
-                    onPrev={onPrev}
-                    onNext={onNext}
-                    onToday={onToday}
-                    onAnchorChange={setAnchorDate}
-                  />
-                )}
+        {workspaceTab === 'more'
+          ? (
+              <div className="min-h-[calc(100vh-140px)] pb-24" data-testid="owner-more-workspace">
+                <AppGrid
+                  theme="apple"
+                  badges={appBadges}
+                  onAppTap={handleAppTap}
+                  hiddenIds={isFreeSolo ? ['analytics', 'marketing', 'reviews', 'rewards', 'staff', 'staff-ops', 'schedule', 'bookings', 'clients', 'services'] : ['schedule', 'bookings', 'clients', 'services']}
+                />
+              </div>
+            )
+          : (
+              <OwnerTodayWorkspace
+                salonSlug={activeDashboardSalonSlug || ''}
+                appointments={analyticsModuleStatus === 'enabled' ? data.appointments : coreAppointments}
+                analyticsTitle={analyticsUnavailableState?.title}
+                analyticsMessage={analyticsUnavailableState?.description}
+                onRefreshAnalytics={analyticsUnavailableState ? handleRefreshAnalytics : undefined}
+                onQuickAction={handleQuickAction}
+                onOpenBookings={() => setActiveModal('bookings')}
+                onOpenCalendar={() => setShowScheduleCalendar(true)}
+                onOpenIntegrations={() => router.push(`/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`)}
+              />
+            )}
 
-            {/* Page 2: App Grid */}
-            <AppGrid
-              theme="apple"
-              badges={appBadges}
-              onAppTap={handleAppTap}
-              hiddenIds={isFreeSolo ? ['analytics', 'marketing', 'reviews', 'rewards', 'staff', 'staff-ops'] : []}
-            />
-          </SwipeablePages>
-        </div>
-
-        {/* Page Indicator */}
-        <div className="pb-safe fixed inset-x-0 bottom-0">
-          <PageIndicator
-            pageCount={2}
-            currentPage={currentPage}
-            onPageSelect={setCurrentPage}
-          />
-        </div>
+        <OwnerWorkspaceNav active={workspaceTab} onSelect={handleWorkspaceTab} />
       </div>
 
       <AdminModalHost

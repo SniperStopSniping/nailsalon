@@ -14,6 +14,7 @@ import { listGoogleCalendarEventsForSalon } from '@/libs/googleCalendar';
 import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import {
   appointmentSchema,
+  googleCalendarDraftSchema,
   salonGoogleCalendarConnectionSchema,
   salonSchema,
 } from '@/models/Schema';
@@ -123,6 +124,7 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
     cancelledAppointments: 0,
     conflicts: 0,
     failedConnections: 0,
+    importedDrafts: 0,
   };
 
   for (const connection of connections) {
@@ -155,6 +157,37 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
       summary.scannedEvents += latestById.size;
 
       for (const remoteEvent of latestById.values()) {
+        if (!remoteEvent.appointmentId && !remoteEvent.salonId) {
+          if (remoteEvent.status === 'cancelled') {
+            await db.update(googleCalendarDraftSchema).set({
+              status: 'dismissed',
+              updatedAt: new Date(),
+            }).where(and(
+              eq(googleCalendarDraftSchema.salonId, connection.salonId),
+              eq(googleCalendarDraftSchema.googleEventId, remoteEvent.id),
+            ));
+          } else if (remoteEvent.startTime && remoteEvent.endTime && remoteEvent.endTime > remoteEvent.startTime) {
+            await db.insert(googleCalendarDraftSchema).values({
+              id: `gcd_${crypto.randomUUID()}`,
+              salonId: connection.salonId,
+              googleEventId: remoteEvent.id,
+              title: remoteEvent.summary,
+              startTime: remoteEvent.startTime,
+              endTime: remoteEvent.endTime,
+              status: 'needs_details',
+            }).onConflictDoUpdate({
+              target: [googleCalendarDraftSchema.salonId, googleCalendarDraftSchema.googleEventId],
+              set: {
+                title: remoteEvent.summary,
+                startTime: remoteEvent.startTime,
+                endTime: remoteEvent.endTime,
+                updatedAt: new Date(),
+              },
+            });
+            summary.importedDrafts += 1;
+          }
+          continue;
+        }
         if (
           !remoteEvent.appointmentId
           || remoteEvent.salonId !== connection.salonId

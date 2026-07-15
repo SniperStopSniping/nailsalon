@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -331,7 +331,7 @@ describe('AdminDashboardPage', () => {
     )).toBe(false);
   });
 
-  it('caches module availability by salon slug and only revalidates on manual refresh', async () => {
+  it('caches module availability by salon slug while switching salons', async () => {
     let currentSalon = 'salon-b';
 
     searchParamGet.mockImplementation((key: string) => (key === 'salon' ? currentSalon : null));
@@ -410,20 +410,9 @@ describe('AdminDashboardPage', () => {
         String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
       )).toHaveLength(1);
     });
-
-    const swipeableProps = swipeablePagesSpy.mock.calls.at(-1)?.[0];
-    act(() => {
-      void swipeableProps.onRefresh();
-    });
-
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.filter(([url]) =>
-        String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
-      )).toHaveLength(2);
-    });
   });
 
-  it('downgrades to the disabled state when analytics returns a gated 403 and re-downgrades after a manual refresh retry', async () => {
+  it('downgrades to the disabled state when analytics returns a gated 403', async () => {
     let analyticsRequests = 0;
 
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
@@ -474,21 +463,6 @@ describe('AdminDashboardPage', () => {
       expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
     });
 
-    const analyticsRequestsBeforeRefresh = analyticsRequests;
-
-    expect(analyticsRequestsBeforeRefresh).toBeGreaterThan(0);
-
-    const swipeableProps = swipeablePagesSpy.mock.calls.at(-1)?.[0];
-    act(() => {
-      void swipeableProps.onRefresh();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
-      expect(analyticsRequests).toBe(analyticsRequestsBeforeRefresh + 1);
-    });
+    expect(analyticsRequests).toBeGreaterThan(0);
   });
 });

@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}));
 
 const {
   db,
+  insertValues,
   selectResults,
   updateSet,
   listGoogleCalendarEventsForSalon,
@@ -22,9 +23,13 @@ const {
   const updateWhere = vi.fn(async () => undefined);
   const updateSet = vi.fn(() => ({ where: updateWhere }));
   const update = vi.fn(() => ({ set: updateSet }));
+  const onConflictDoUpdate = vi.fn(async () => undefined);
+  const insertValues = vi.fn(() => ({ onConflictDoUpdate }));
+  const insert = vi.fn(() => ({ values: insertValues }));
 
   return {
-    db: { select, update },
+    db: { select, update, insert },
+    insertValues,
     selectResults,
     updateSet,
     listGoogleCalendarEventsForSalon: vi.fn(),
@@ -130,6 +135,30 @@ describe('processGoogleCalendarInboundSync', () => {
       to: 'client@example.com',
       subject: 'Best Nails appointment rescheduled',
     }));
+  });
+
+  it('imports a new Google event as a tenant-scoped draft that needs details', async () => {
+    selectResults.push([connection], [salon]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_external_1',
+      appointmentId: null,
+      salonId: null,
+      status: 'confirmed',
+      summary: 'Maya nails',
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:30:00.000Z'),
+    }]);
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      googleEventId: 'google_external_1',
+      title: 'Maya nails',
+      status: 'needs_details',
+    }));
+    expect(result.importedDrafts).toBe(1);
+    expect(runAppointmentManageMutation).not.toHaveBeenCalled();
   });
 
   it('cancels a matching appointment when its connected Google event is deleted', async () => {

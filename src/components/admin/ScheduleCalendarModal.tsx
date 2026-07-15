@@ -505,12 +505,12 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         const existing = dataMap.get(dateKey);
         const summary: AppointmentSummary = {
           id: `google:${event.id}`,
-          clientName: 'Google Calendar',
+          clientName: event.needsDetails ? (event.label || 'Google appointment') : 'Google Calendar',
           startTime: event.startTime,
           endTime: event.endTime,
-          services: ['Busy time'],
+          services: [event.needsDetails ? 'Needs client & service details' : 'Busy time'],
           technician: null,
-          status: 'external_busy',
+          status: event.needsDetails ? 'needs_details' : 'external_busy',
         };
         if (existing) {
           existing.count++;

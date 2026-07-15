@@ -1,20 +1,27 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { listExternalGoogleCalendarEvents, processGoogleCalendarInboundSync, requireAdminSalon } = vi.hoisted(() => ({
+const { dbSelect, listExternalGoogleCalendarEvents, processGoogleCalendarInboundSync, requireAdminSalon } = vi.hoisted(() => ({
+  dbSelect: vi.fn(),
   listExternalGoogleCalendarEvents: vi.fn(),
   processGoogleCalendarInboundSync: vi.fn(),
   requireAdminSalon: vi.fn(),
 }));
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon }));
+vi.mock('@/libs/DB', () => ({ db: { select: dbSelect } }));
 vi.mock('@/libs/googleCalendar', () => ({ listExternalGoogleCalendarEvents }));
 vi.mock('@/libs/googleCalendarInbound', () => ({ processGoogleCalendarInboundSync }));
 
 import { GET } from './route';
 
 describe('Google external events route', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbSelect.mockReturnValue({
+      from: () => ({ where: vi.fn().mockResolvedValue([]) }),
+    });
+  });
 
   it('returns privacy-safe tenant-scoped busy blocks', async () => {
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1' }, error: null });
@@ -34,9 +41,11 @@ describe('Google external events route', () => {
     expect(listExternalGoogleCalendarEvents).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon_1' }));
     expect(body.data.events).toEqual([{
       id: 'event_1',
+      draftId: null,
       startTime: '2026-07-20T14:00:00.000Z',
       endTime: '2026-07-20T15:00:00.000Z',
       label: 'Google Calendar busy',
+      needsDetails: false,
     }]);
     expect(JSON.stringify(body)).not.toContain('summary');
   });

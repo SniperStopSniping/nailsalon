@@ -781,6 +781,17 @@ export const salonClientSchema = pgTable(
       () => technicianSchema.id,
     ),
     notes: text('notes'), // internal staff notes
+    sensitivities: text('sensitivities'),
+    nailPreferences: jsonb('nail_preferences').$type<{
+      shape?: string;
+      length?: string;
+      favoriteColors?: string;
+      productsUsed?: string;
+    }>().default({}),
+    tags: jsonb('tags').$type<string[]>().default([]),
+    rebookIntervalDays: integer('rebook_interval_days'),
+    nextRebookDueAt: timestamp('next_rebook_due_at', { mode: 'date', withTimezone: true }),
+    lastContactAt: timestamp('last_contact_at', { mode: 'date', withTimezone: true }),
 
     // Computed stats (updated after each booking)
     lastVisitAt: timestamp('last_visit_at', { mode: 'date' }),
@@ -1490,6 +1501,26 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
   },
   table => ({
     statusIdx: index('salon_google_calendar_status_idx').on(table.status),
+  }),
+);
+
+export const googleCalendarDraftSchema = pgTable(
+  'google_calendar_draft',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    googleEventId: text('google_event_id').notNull(),
+    title: text('title'),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
+    status: text('status').$type<'needs_details' | 'dismissed' | 'converted'>().default('needs_details').notNull(),
+    convertedAppointmentId: text('converted_appointment_id').references(() => appointmentSchema.id),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonEventIdx: uniqueIndex('google_calendar_draft_salon_event_idx').on(table.salonId, table.googleEventId),
+    salonStatusTimeIdx: index('google_calendar_draft_salon_status_time_idx').on(table.salonId, table.status, table.startTime),
   }),
 );
 

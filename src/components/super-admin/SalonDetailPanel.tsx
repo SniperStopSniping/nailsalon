@@ -41,6 +41,7 @@ import { AuditLogTable } from './AuditLogTable';
 import { DeleteSalonModal } from './DeleteSalonModal';
 import { LocationForm } from './LocationForm';
 import { ResetDataModal } from './ResetDataModal';
+import { SalonFeatureAccessManager } from './SalonFeatureAccessManager';
 import { UserSearchModal } from './UserSearchModal';
 
 type SalonDetail = {
@@ -384,7 +385,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     overview: true,
     plan: true,
-    features: true,
+    featureAccess: true,
+    features: false,
     billingPrograms: false,
     status: true,
     ownership: false,
@@ -1010,6 +1012,21 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         </div>
                       </CollapsibleSection>
 
+                      <CollapsibleSection
+                        title="Features & Access"
+                        icon={<ToggleRight className="size-4" />}
+                        expanded={expandedSections.featureAccess ?? true}
+                        onToggle={() => toggleSection('featureAccess')}
+                      >
+                        <SalonFeatureAccessManager
+                          features={features}
+                          onChange={(nextFeatures) => {
+                            setFeatures(nextFeatures);
+                            markDirty();
+                          }}
+                        />
+                      </CollapsibleSection>
+
                       {/* Plan & Limits Section */}
                       <CollapsibleSection
                         title="Plan & Limits"
@@ -1085,9 +1102,9 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
 
                       {/* Features Section */}
                       <CollapsibleSection
-                        title="Features"
+                        title="Legacy feature settings"
                         icon={<ToggleRight className="size-4" />}
-                        expanded={expandedSections.features ?? true}
+                        expanded={expandedSections.features ?? false}
                         onToggle={() => toggleSection('features')}
                       >
                         <div className="space-y-4">
