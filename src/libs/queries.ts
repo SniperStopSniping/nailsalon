@@ -3,11 +3,11 @@ import 'server-only';
 import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import {
-  addOnSchema,
   type AddOn,
+  addOnSchema,
   type Appointment,
-  appointmentServicesSchema,
   appointmentSchema,
+  appointmentServicesSchema,
   type CancelReason,
   type Client,
   clientSchema,
@@ -497,9 +497,9 @@ export async function getAppointmentById(
     .where(
       salonId
         ? and(
-            eq(appointmentSchema.id, appointmentId),
-            eq(appointmentSchema.salonId, salonId),
-          )
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salonId),
+        )
         : eq(appointmentSchema.id, appointmentId),
     )
     .limit(1);
@@ -814,8 +814,8 @@ export async function upsertSalonClient(
         ...(email && { email }),
         updatedAt: new Date(),
       })
-        .where(eq(salonClientSchema.id, existingClient.id))
-        .returning();
+      .where(eq(salonClientSchema.id, existingClient.id))
+      .returning();
 
     return updated!;
   }
@@ -1043,7 +1043,7 @@ export async function getSalonClients(
 export async function updateSalonClient(
   salonId: string,
   salonClientId: string,
-  updates: Partial<Pick<SalonClient, 'fullName' | 'email' | 'preferredTechnicianId' | 'notes'>>,
+  updates: Partial<Pick<SalonClient, 'fullName' | 'email' | 'preferredTechnicianId' | 'notes' | 'sensitivities' | 'nailPreferences' | 'tags' | 'rebookIntervalDays' | 'nextRebookDueAt' | 'lastContactAt'>>,
 ): Promise<SalonClient | null> {
   const [updated] = await db
     .update(salonClientSchema)
@@ -1130,6 +1130,10 @@ export async function updateSalonClientStats(
     previousCompletedSpendCents: salonClient.totalSpent,
     nextCompletedSpendCents: totalSpentCents,
   });
+  const lastVisitAt = clientStats?.lastVisitAt ?? null;
+  const nextRebookDueAt = lastVisitAt && salonClient.rebookIntervalDays
+    ? new Date(lastVisitAt.getTime() + salonClient.rebookIntervalDays * 86_400_000)
+    : null;
 
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety
@@ -1139,7 +1143,8 @@ export async function updateSalonClientStats(
       totalVisits: clientStats?.totalVisits ?? 0,
       totalSpent: clientStats?.totalSpent ?? 0,
       noShowCount: clientStats?.noShowCount ?? 0,
-      lastVisitAt: clientStats?.lastVisitAt ?? null,
+      lastVisitAt,
+      nextRebookDueAt,
       loyaltyPoints,
       updatedAt: new Date(),
     })

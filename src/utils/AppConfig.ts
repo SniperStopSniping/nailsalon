@@ -4,9 +4,8 @@ import { BILLING_INTERVAL, type PricingPlan } from '@/types/Subscription';
 
 const localePrefix: LocalePrefix = 'as-needed';
 
-// FIXME: Update this configuration file based on your project information
 export const AppConfig = {
-  name: 'SaaS Template',
+  name: 'Luster',
   locales: [
     {
       id: 'en',

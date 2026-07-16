@@ -62,6 +62,8 @@ export type ServiceResponse = {
   price: number; // cents
   priceDisplayText?: string | null;
   durationMinutes: number;
+  preparationBufferMinutes?: number;
+  cleanupBufferMinutes?: number;
   category?: string | null;
   imageUrl?: string | null;
   sortOrder?: number | null;

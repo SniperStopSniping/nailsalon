@@ -46,6 +46,11 @@ export const RESERVED_TENANT_SUBDOMAINS = new Set([
   'support',
   'mail',
   'status',
+  'accounts',
+  'clerk',
+  'auth',
+  'signin',
+  'signup',
 ]);
 
 export function isReservedSalonSlug(value: string): boolean {
@@ -62,6 +67,20 @@ export function isValidSalonSlug(value: string): boolean {
     && /^[a-z0-9](?:[a-z0-9-]{1,45}[a-z0-9])?$/.test(normalized)
     && !isReservedSalonSlug(normalized),
   );
+}
+
+export function isTenantSubdomainSlugEnabled(value: string): boolean {
+  const slug = normalizeSalonSlug(value);
+  if (!slug || isReservedSalonSlug(slug)) {
+    return false;
+  }
+  if (process.env.TENANT_SUBDOMAINS_ENABLED === 'true') {
+    return true;
+  }
+  return (process.env.TENANT_SUBDOMAIN_ALLOWLIST ?? '')
+    .split(',')
+    .map(normalizeSalonSlug)
+    .includes(slug);
 }
 
 export function getSalonSlugFromHostname(

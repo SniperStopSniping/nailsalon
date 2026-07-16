@@ -564,9 +564,8 @@ export default function GalleryContent() {
       {/* Main Content */}
       <main className="mx-auto max-w-lg space-y-6 px-5 py-28">
         <AnimatePresence mode="wait">
-          {loading ? (
-            <GallerySkeleton key="skeleton" />
-          ) : (
+          {loading && <GallerySkeleton key="skeleton" />}
+          {!loading && (
             <motion.div
               key="content"
               initial={{ opacity: 0 }}
@@ -602,7 +601,8 @@ export default function GalleryContent() {
                 <EmptyState onBook={() => router.push(appendSalonSlug('/book', salonSlug, {
                   routeSalonSlug,
                   locale,
-                }))} />
+                }))}
+                />
               )}
 
               {/* Footer */}
@@ -613,7 +613,7 @@ export default function GalleryContent() {
                 className="pt-6 text-center opacity-40"
               >
                 <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
-                  {salonName || 'Nail Salon No.5'}
+                  {salonName || 'Luster Nail Studio'}
                   {' '}
                   · Gallery
                 </p>

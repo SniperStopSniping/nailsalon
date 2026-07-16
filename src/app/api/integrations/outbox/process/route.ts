@@ -1,3 +1,5 @@
+import { withTransientDatabaseRetry } from '@/libs/databaseRetry';
+import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
 import { processIntegrationOutbox } from '@/libs/integrationOutbox';
 
 function authorized(request: Request): boolean {
@@ -5,15 +7,28 @@ function authorized(request: Request): boolean {
   if (!secret) {
     return false;
   }
-  return request.headers.get('x-cron-secret') === secret || request.headers.get('authorization') === `Bearer ${secret}`;
+  return (
+    request.headers.get('x-cron-secret') === secret
+    || request.headers.get('authorization') === `Bearer ${secret}`
+  );
 }
 
-export async function POST(request: Request) {
+async function handleProcess(request: Request) {
   if (!process.env.CRON_SECRET) {
-    return Response.json({ error: 'CRON_SECRET is not configured' }, { status: 500 });
+    return Response.json(
+      { error: 'CRON_SECRET is not configured' },
+      { status: 500 },
+    );
   }
   if (!authorized(request)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  return Response.json({ data: await processIntegrationOutbox() });
+  const [outbound, inbound] = await Promise.all([
+    withTransientDatabaseRetry(() => processIntegrationOutbox()),
+    withTransientDatabaseRetry(() => processGoogleCalendarInboundSync()),
+  ]);
+  return Response.json({ data: { outbound, inbound } });
 }
+
+export const GET = handleProcess;
+export const POST = handleProcess;

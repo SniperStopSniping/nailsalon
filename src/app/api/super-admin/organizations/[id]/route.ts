@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
@@ -30,7 +31,7 @@ import {
   technicianServicesSchema,
   technicianTimeOffSchema,
 } from '@/models/Schema';
-import type { SalonFeatures } from '@/types/salonPolicy';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +66,9 @@ const updateSalonSchema = z.object({
   bookingFlowCustomizationEnabled: z.boolean().optional(),
   bookingFlow: z.array(z.enum(BOOKING_STEPS)).optional().nullable(),
   features: salonFeaturesSchema.optional(),
+  // Super-admin feature switches are authoritative. When this marker is set,
+  // the owner-facing module state is synchronized in the same database write.
+  syncFeatureModules: z.boolean().optional(),
 });
 
 // =============================================================================
@@ -107,6 +111,14 @@ export async function GET(
           eq(technicianSchema.isActive, true),
         ),
       );
+
+    const [locationCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(salonLocationSchema)
+      .where(and(
+        eq(salonLocationSchema.salonId, id),
+        eq(salonLocationSchema.isActive, true),
+      ));
 
     // Get unique client count (from clientPreferences which tracks registered clients)
     const [clientCount] = await db
@@ -181,10 +193,11 @@ export async function GET(
     const integrationHealth = await getSalonIntegrationHealth(id);
     const publicUrl = buildSalonTenantPublicUrl('/', salon);
     const bookingUrl = buildSalonTenantPublicUrl('/book', salon);
+    const findBookingUrl = buildSalonTenantPublicUrl('/find-booking', salon);
 
     return Response.json({
       testToolsEnabled: areSuperAdminTestToolsEnabled(),
-      canonicalUrls: { publicUrl, bookingUrl },
+      canonicalUrls: { publicUrl, bookingUrl, findBookingUrl },
       integrationHealth,
       salon: {
         id: salon.id,
@@ -234,7 +247,7 @@ export async function GET(
         email: a.email,
       })),
       metrics: {
-        locationsCount: 1, // For now, assume 1 location per salon
+        locationsCount: Number(locationCount?.count ?? 0),
         techsCount: Number(techCount?.count ?? 0),
         clientsCount: Number(clientCount?.count ?? 0),
         appointmentsLast30d: Number(apptLast30d?.count ?? 0),
@@ -288,7 +301,19 @@ export async function PUT(
       );
     }
 
-    const updates = validated.data;
+    const { syncFeatureModules, ...validatedUpdates } = validated.data;
+    const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
+
+    if (syncFeatureModules && updates.features) {
+      const existingSettings = (existing.settings as SalonSettings | null) ?? {};
+      updates.settings = {
+        ...existingSettings,
+        modules: {
+          ...(existingSettings.modules ?? {}),
+          ...getEntitledModules(updates.features as SalonFeatures),
+        },
+      };
+    }
 
     // If slug is being changed, check for duplicates
     if (updates.slug && updates.slug !== existing.slug) {

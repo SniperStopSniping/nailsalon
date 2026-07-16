@@ -16,7 +16,8 @@
 import { NextResponse } from 'next/server';
 
 import { getAdminImpersonationForAdmin, getAdminSession } from '@/libs/adminAuth';
-import { getSalonById } from '@/libs/queries';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { getSalonById, getSalonBySlug } from '@/libs/queries';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -48,7 +49,10 @@ export async function GET(request: Request) {
         status: s.status ?? null,
         role: s.role,
         freeSoloEnabled: s.freeSoloEnabled ?? false,
+        publicUrl: buildSalonTenantPublicUrl('/', { slug: s.salonSlug, customDomain: s.customDomain }),
+        bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: s.salonSlug, customDomain: s.customDomain }),
       }));
+      const availableSalons = [...salons];
 
       if (impersonation) {
         salons = [{
@@ -58,6 +62,8 @@ export async function GET(request: Request) {
           status: impersonationSalon?.status ?? null,
           role: 'impersonation',
           freeSoloEnabled: impersonationSalon?.freeSoloEnabled ?? false,
+          publicUrl: buildSalonTenantPublicUrl('/', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
+          bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
         }];
       }
 
@@ -82,9 +88,30 @@ export async function GET(request: Request) {
           );
         }
 
-        // Filter to only the requested salon (if they have membership)
+        // Filter to only the requested salon (if they have membership).
+        // A super-admin opening a salon directly may not have a membership;
+        // load that exact tenant instead of silently displaying their first
+        // membership under the requested salon URL.
         if (hasMembership) {
           salons = salons.filter(s => s.slug?.toLowerCase() === salonSlug);
+        } else if (admin.isSuperAdmin && !impersonation) {
+          const requestedSalon = await getSalonBySlug(salonSlug);
+          if (!requestedSalon) {
+            return NextResponse.json(
+              { error: 'Salon not found' },
+              { status: 404 },
+            );
+          }
+          salons = [{
+            id: requestedSalon.id,
+            slug: requestedSalon.slug,
+            name: requestedSalon.name,
+            status: requestedSalon.status ?? null,
+            role: 'super_admin',
+            freeSoloEnabled: requestedSalon.freeSoloEnabled ?? false,
+            publicUrl: buildSalonTenantPublicUrl('/', requestedSalon),
+            bookingUrl: buildSalonTenantPublicUrl('/book/service', requestedSalon),
+          }];
         }
       }
 
@@ -97,6 +124,7 @@ export async function GET(request: Request) {
           isSuperAdmin: admin.isSuperAdmin,
           profileComplete,
           salons,
+          availableSalons: impersonation ? salons : availableSalons,
           impersonation: impersonation
             ? {
                 isActive: true,

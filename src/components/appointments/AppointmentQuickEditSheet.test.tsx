@@ -1,14 +1,14 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+
+import type { AppointmentManageDetail } from '@/libs/appointmentManage';
+
+import { AppointmentQuickEditSheet } from './AppointmentQuickEditSheet';
 
 vi.mock('next/image', () => ({
   default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={props.alt} />,
 }));
-
-import type { AppointmentManageDetail } from '@/libs/appointmentManage';
-import { AppointmentQuickEditSheet } from './AppointmentQuickEditSheet';
 
 const baseDetail: AppointmentManageDetail = {
   appointment: {
@@ -34,6 +34,8 @@ const baseDetail: AppointmentManageDetail = {
     baseServiceName: 'Gel Manicure',
     discountType: null,
     discountAmountCents: 0,
+    notes: null,
+    techNotes: null,
   },
   services: [{
     id: 'svc_1',
@@ -58,9 +60,12 @@ const baseDetail: AppointmentManageDetail = {
     canCancel: true,
     canMarkCompleted: true,
     canStart: true,
+    canConfirm: false,
+    canMarkNoShow: true,
     canReassignTechnician: false,
   },
   warnings: [],
+  communications: [],
 };
 
 describe('AppointmentQuickEditSheet', () => {

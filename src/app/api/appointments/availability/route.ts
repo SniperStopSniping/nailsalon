@@ -228,6 +228,7 @@ export async function GET(request: Request): Promise<Response> {
       excludedAppointmentId: originalAppointmentId,
     });
     const googleBusyWindows = await getGoogleCalendarBusyWindows({
+      salonId: salon.id,
       startTime: startOfDay,
       endTime: endOfDay,
       timeZone: bookingConfig.timezone,
@@ -322,7 +323,10 @@ export async function GET(request: Request): Promise<Response> {
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
       visibleSlots,
-      slots,
+      slots: slots.map(slot => ({
+        ...slot,
+        availability: blockedSlots.has(slot.time) ? 'schedule_conflict' : 'available',
+      })),
       bookedSlots,
       appointmentCount: bookedSlots.length,
     });

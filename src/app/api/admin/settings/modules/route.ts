@@ -172,18 +172,6 @@ export async function PUT(request: Request): Promise<Response> {
       return error!;
     }
 
-    if (salon.freeSoloEnabled) {
-      return Response.json(
-        {
-          error: {
-            code: 'FEATURE_PROFILE_LOCKED',
-            message: 'Advanced modules are not available in the free solo profile.',
-          },
-        } satisfies ErrorResponse,
-        { status: 403 },
-      );
-    }
-
     // Get current features to check entitlements
     const features = salon.features as SalonFeatures | null;
 

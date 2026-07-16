@@ -1,6 +1,7 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
@@ -80,6 +81,10 @@ export async function PATCH(request: Request, context: { params: { token: string
   const managed = await loadManagedAppointment(context.params.token);
   if (!managed) {
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
+  }
+  const bookingConfig = resolveBookingConfigFromSettings(managed.capability.salonSettings);
+  if (!getClientChangePolicy(managed.capability.appointment.startTime, bookingConfig).canChange) {
+    return Response.json({ error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } }, { status: 409 });
   }
 
   const [cancelled] = await db

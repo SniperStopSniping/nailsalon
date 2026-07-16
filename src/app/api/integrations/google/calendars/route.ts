@@ -18,7 +18,29 @@ export async function GET(request: Request) {
   try {
     const calendars = await listGoogleCalendarsForSalon(salon.id);
     const [connection] = await db.select({ destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId, busyCalendarIds: salonGoogleCalendarConnectionSchema.busyCalendarIds }).from(salonGoogleCalendarConnectionSchema).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id)).limit(1);
-    return Response.json({ data: { calendars, selection: connection || null } });
+    const primaryCalendarId = calendars.find(calendar => calendar.primary)?.id;
+    const selection = connection
+      ? {
+          destinationCalendarId: connection.destinationCalendarId === 'primary'
+            ? primaryCalendarId || connection.destinationCalendarId
+            : connection.destinationCalendarId,
+          busyCalendarIds: connection.busyCalendarIds.map(id => id === 'primary' ? primaryCalendarId || id : id),
+        }
+      : null;
+    if (
+      connection
+      && primaryCalendarId
+      && (
+        connection.destinationCalendarId === 'primary'
+        || connection.busyCalendarIds.includes('primary')
+      )
+    ) {
+      await db.update(salonGoogleCalendarConnectionSchema).set({
+        destinationCalendarId: selection!.destinationCalendarId,
+        busyCalendarIds: [...new Set(selection!.busyCalendarIds)],
+      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id));
+    }
+    return Response.json({ data: { calendars, selection } });
   } catch (cause) {
     return Response.json({ error: cause instanceof Error ? cause.message : 'Calendar list failed' }, { status: 503 });
   }
@@ -35,10 +57,23 @@ export async function PATCH(request: Request) {
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
   const available = await listGoogleCalendarsForSalon(salon.id);
+  const primaryCalendarId = available.find(calendar => calendar.primary)?.id;
+  const destinationCalendarId = parsed.data.destinationCalendarId === 'primary'
+    ? primaryCalendarId || parsed.data.destinationCalendarId
+    : parsed.data.destinationCalendarId;
+  const busyCalendarIds = [...new Set(parsed.data.busyCalendarIds.map(id => id === 'primary' ? primaryCalendarId || id : id))];
   const ids = new Set(available.map(calendar => calendar.id));
-  if (!ids.has(parsed.data.destinationCalendarId) || parsed.data.busyCalendarIds.some(id => !ids.has(id))) {
+  if (!ids.has(destinationCalendarId) || busyCalendarIds.some(id => !ids.has(id))) {
     return Response.json({ error: 'A selected calendar is not available to this Google account' }, { status: 400 });
   }
-  await db.update(salonGoogleCalendarConnectionSchema).set({ destinationCalendarId: parsed.data.destinationCalendarId, busyCalendarIds: parsed.data.busyCalendarIds, status: 'active', lastError: null }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id));
-  return Response.json({ data: { saved: true } });
+  await db.update(salonGoogleCalendarConnectionSchema).set({
+    destinationCalendarId,
+    busyCalendarIds,
+    status: 'active',
+    lastError: null,
+    inboundSyncEnabled: true,
+    inboundSyncedAt: null,
+    inboundSyncError: null,
+  }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id));
+  return Response.json({ data: { saved: true, selection: { destinationCalendarId, busyCalendarIds } } });
 }

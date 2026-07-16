@@ -203,4 +203,68 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
       visibilityControls: true,
     });
   });
+
+  it('synchronizes owner module switches with super-admin feature access', async () => {
+    const existingSalon = {
+      id: 'salon_1',
+      name: 'Luster Nail Studio',
+      slug: 'luster-nail-studio',
+      plan: 'free',
+      status: 'active',
+      maxLocations: 1,
+      isMultiLocationEnabled: false,
+      freeSoloEnabled: true,
+      features: {},
+      settings: {
+        booking: { timezone: 'America/Toronto' },
+        modules: { analyticsDashboard: false, rewards: false },
+      },
+      onlineBookingEnabled: true,
+      smsRemindersEnabled: false,
+      rewardsEnabled: false,
+      profilePageEnabled: true,
+      bookingFlowCustomizationEnabled: false,
+      bookingFlow: null,
+      ownerEmail: null,
+      ownerClerkUserId: null,
+      internalNotes: null,
+      deletedAt: null,
+      createdAt: new Date('2026-03-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-24T00:00:00.000Z'),
+    };
+    const enabledFeatures = {
+      analytics: { dashboard: true, utilization: true },
+      marketing: { rewards: true, referrals: false, smsReminders: false },
+    };
+
+    setSelectResults([[existingSalon]]);
+    setUpdateResult([{ ...existingSalon, features: enabledFeatures }]);
+
+    const response = await PUT(
+      new Request('http://localhost/api/super-admin/organizations/salon_1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: enabledFeatures,
+          syncFeatureModules: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'salon_1' }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(getLastUpdatePayload()).toMatchObject({
+      features: enabledFeatures,
+      settings: {
+        booking: { timezone: 'America/Toronto' },
+        modules: {
+          analyticsDashboard: true,
+          utilization: true,
+          rewards: true,
+          referrals: false,
+          smsReminders: false,
+        },
+      },
+    });
+  });
 });

@@ -41,6 +41,8 @@ type ServiceData = {
   price: number;
   priceDisplayText?: string | null;
   durationMinutes: number;
+  preparationBufferMinutes: number;
+  cleanupBufferMinutes: number;
   category: string;
   imageUrl: string | null;
   isActive: boolean;
@@ -53,7 +55,14 @@ type ServicesModalProps = {
   salonSlug: string | null;
 };
 
-type ServiceCategory = 'manicure' | 'builder_gel' | 'extensions' | 'pedicure' | 'hands' | 'feet' | 'combo';
+type ServiceCategory =
+  | 'manicure'
+  | 'builder_gel'
+  | 'extensions'
+  | 'pedicure'
+  | 'hands'
+  | 'feet'
+  | 'combo';
 
 // Category definitions
 const CATEGORIES = [
@@ -80,14 +89,22 @@ function formatCurrency(cents: number): string {
 // Get category gradient
 function getCategoryGradient(category: string): string {
   switch (category) {
-    case 'manicure': return 'from-[#f093fb] to-[#f5576c]';
-    case 'builder_gel': return 'from-[#8EC5FC] to-[#E0C3FC]';
-    case 'extensions': return 'from-[#f6d365] to-[#fda085]';
-    case 'pedicure': return 'from-[#4facfe] to-[#00f2fe]';
-    case 'hands': return 'from-[#f093fb] to-[#f5576c]';
-    case 'feet': return 'from-[#4facfe] to-[#00f2fe]';
-    case 'combo': return 'from-[#43e97b] to-[#38f9d7]';
-    default: return 'from-[#a18cd1] to-[#fbc2eb]';
+    case 'manicure':
+      return 'from-[#f093fb] to-[#f5576c]';
+    case 'builder_gel':
+      return 'from-[#8EC5FC] to-[#E0C3FC]';
+    case 'extensions':
+      return 'from-[#f6d365] to-[#fda085]';
+    case 'pedicure':
+      return 'from-[#4facfe] to-[#00f2fe]';
+    case 'hands':
+      return 'from-[#f093fb] to-[#f5576c]';
+    case 'feet':
+      return 'from-[#4facfe] to-[#00f2fe]';
+    case 'combo':
+      return 'from-[#43e97b] to-[#38f9d7]';
+    default:
+      return 'from-[#a18cd1] to-[#fbc2eb]';
   }
 }
 
@@ -108,7 +125,10 @@ function CategoryTabs({
       <div className="scrollbar-hide flex gap-2 overflow-x-auto pb-1">
         {CATEGORIES.map((cat) => {
           const isActive = active === cat.id;
-          const count = cat.id === 'all' ? Object.values(counts).reduce((a, b) => a + b, 0) : (counts[cat.id] || 0);
+          const count
+            = cat.id === 'all'
+              ? Object.values(counts).reduce((a, b) => a + b, 0)
+              : counts[cat.id] || 0;
 
           return (
             <button
@@ -118,15 +138,18 @@ function CategoryTabs({
               className={`
                 flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-[14px]
                 font-medium transition-all
-                ${isActive
-              ? 'bg-[#007AFF] text-white shadow-sm'
+                ${
+            isActive
+              ? 'bg-rose-800 text-white shadow-sm'
               : 'border border-gray-200 bg-white text-[#1C1C1E]'
             }
               `}
             >
               <cat.icon className="size-4" />
               {cat.label}
-              <span className={`text-[12px] ${isActive ? 'text-white/70' : 'text-[#8E8E93]'}`}>
+              <span
+                className={`text-[12px] ${isActive ? 'text-white/70' : 'text-[#8E8E93]'}`}
+              >
                 {count}
               </span>
             </button>
@@ -157,14 +180,20 @@ function ServiceRow({
       onClick={onClick}
     >
       {/* Icon */}
-      <div className={`size-12 rounded-[12px] bg-gradient-to-br ${getCategoryGradient(service.category)} mr-3 flex items-center justify-center shadow-sm`}>
+      <div
+        className={`size-12 rounded-[12px] bg-gradient-to-br ${getCategoryGradient(service.category)} mr-3 flex items-center justify-center shadow-sm`}
+      >
         <Scissors className="size-6 text-white" />
       </div>
 
       {/* Content */}
-      <div className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}>
+      <div
+        className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}
+      >
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[17px] font-semibold text-[#1C1C1E]">{service.name}</div>
+          <div className="truncate text-[17px] font-semibold text-[#1C1C1E]">
+            {service.name}
+          </div>
           <div className="mt-0.5 flex items-center gap-3 text-[13px] text-[#8E8E93]">
             <span className="flex items-center gap-1">
               <Clock className="size-3" />
@@ -177,7 +206,7 @@ function ServiceRow({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="text-[17px] font-semibold text-[#34C759]">
+          <div className="text-[17px] font-semibold text-emerald-700">
             {service.priceDisplayText || formatCurrency(service.price)}
           </div>
           <ChevronRight className="size-4 text-[#C7C7CC]" />
@@ -201,12 +230,19 @@ function EmptyState({
     <AsyncStatePanel
       icon={<Scissors className="mx-auto size-8 text-[#8E8E93]" />}
       title="No Services"
-      description={category === 'all'
-        ? 'Add services to your catalog.'
-        : `No ${category} services available.`}
+      description={
+        category === 'all'
+          ? 'Add services to your catalog.'
+          : `No ${category} services available.`
+      }
       className="mx-4 my-8"
       action={(
-        <Button type="button" variant="brandSoft" size="pillSm" onClick={onAddService}>
+        <Button
+          type="button"
+          variant="brandSoft"
+          size="pillSm"
+          onClick={onAddService}
+        >
           Add Service
         </Button>
       )}
@@ -217,39 +253,66 @@ function EmptyState({
 function AddServiceDialog({
   isOpen,
   salonSlug,
+  service,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   isOpen: boolean;
   salonSlug: string | null;
+  service?: ServiceData | null;
   onClose: () => void;
-  onCreated: (service: ServiceData) => void;
+  onSaved: (service: ServiceData) => void;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priceDisplayText, setPriceDisplayText] = useState('');
   const [price, setPrice] = useState('');
   const [durationMinutes, setDurationMinutes] = useState('');
+  const [preparationBufferMinutes, setPreparationBufferMinutes] = useState('0');
+  const [cleanupBufferMinutes, setCleanupBufferMinutes] = useState('0');
   const [category, setCategory] = useState<ServiceCategory>('manicure');
   const [isIntroPrice, setIsIntroPrice] = useState(false);
   const [introPriceLabel, setIntroPriceLabel] = useState('');
+  const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen && service) {
+      setName(service.name);
+      setDescription(
+        (service.descriptionItems?.length
+          ? service.descriptionItems.join('\n')
+          : service.description) || '',
+      );
+      setPriceDisplayText(service.priceDisplayText || '');
+      setPrice(String(service.price / 100));
+      setDurationMinutes(String(service.durationMinutes));
+      setPreparationBufferMinutes(
+        String(service.preparationBufferMinutes || 0),
+      );
+      setCleanupBufferMinutes(String(service.cleanupBufferMinutes || 0));
+      setCategory(service.category as ServiceCategory);
+      setIsIntroPrice(Boolean(service.isIntroPrice));
+      setIntroPriceLabel(service.introPriceLabel || '');
+      setIsActive(service.isActive);
+      setError(null);
+    } else if (!isOpen) {
       setName('');
       setDescription('');
       setPriceDisplayText('');
       setPrice('');
       setDurationMinutes('');
+      setPreparationBufferMinutes('0');
+      setCleanupBufferMinutes('0');
       setCategory('manicure');
       setIsIntroPrice(false);
       setIntroPriceLabel('');
+      setIsActive(true);
       setSaving(false);
       setError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, service]);
 
   const handleSubmit = async () => {
     if (!salonSlug) {
@@ -260,6 +323,11 @@ function AddServiceDialog({
     const trimmedName = name.trim();
     const parsedPrice = Number.parseFloat(price);
     const parsedDuration = Number.parseInt(durationMinutes, 10);
+    const parsedPreparationBuffer = Number.parseInt(
+      preparationBufferMinutes,
+      10,
+    );
+    const parsedCleanupBuffer = Number.parseInt(cleanupBufferMinutes, 10);
 
     if (!trimmedName) {
       setError('Service name is required.');
@@ -273,44 +341,71 @@ function AddServiceDialog({
       setError('Enter a valid duration in minutes.');
       return;
     }
+    if (
+      !Number.isInteger(parsedPreparationBuffer)
+      || parsedPreparationBuffer < 0
+      || parsedPreparationBuffer > 120
+      || !Number.isInteger(parsedCleanupBuffer)
+      || parsedCleanupBuffer < 0
+      || parsedCleanupBuffer > 120
+    ) {
+      setError(
+        'Preparation and cleanup buffers must be between 0 and 120 minutes.',
+      );
+      return;
+    }
 
     setSaving(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/salon/services', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug,
-          name: trimmedName,
-          description: description.trim() || null,
-          descriptionItems: description
-            .split('\n')
-            .map(item => item.trim())
-            .filter(Boolean),
-          price: Math.round(parsedPrice * 100),
-          priceDisplayText: priceDisplayText.trim() || null,
-          durationMinutes: parsedDuration,
-          category,
-          isIntroPrice,
-          introPriceLabel: isIntroPrice ? introPriceLabel.trim() || null : null,
-        }),
-      });
+      const response = await fetch(
+        service
+          ? `/api/salon/services/${encodeURIComponent(service.id)}`
+          : '/api/salon/services',
+        {
+          method: service ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug,
+            name: trimmedName,
+            description: description.trim() || null,
+            descriptionItems: description
+              .split('\n')
+              .map(item => item.trim())
+              .filter(Boolean),
+            price: Math.round(parsedPrice * 100),
+            priceDisplayText: priceDisplayText.trim() || null,
+            durationMinutes: parsedDuration,
+            preparationBufferMinutes: parsedPreparationBuffer,
+            cleanupBufferMinutes: parsedCleanupBuffer,
+            category,
+            isIntroPrice,
+            introPriceLabel: isIntroPrice
+              ? introPriceLabel.trim() || null
+              : null,
+            isActive,
+          }),
+        },
+      );
 
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(result?.error?.message ?? 'Failed to create service');
+        throw new Error(result?.error?.message ?? 'Failed to save service');
       }
 
       const createdService = result?.data?.service as ServiceData | undefined;
       if (!createdService) {
-        throw new Error('Created service was missing from the response');
+        throw new Error('Saved service was missing from the response');
       }
 
-      onCreated(createdService);
+      onSaved(createdService);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Failed to create service');
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : 'Failed to save service',
+      );
     } finally {
       setSaving(false);
     }
@@ -325,31 +420,77 @@ function AddServiceDialog({
         }
       }}
       maxWidthClassName="max-w-md"
-      contentClassName="rounded-3xl bg-white p-6 shadow-2xl"
+      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
       alignClassName="items-end justify-center p-4 sm:items-center"
     >
       <div className="space-y-4">
         <div>
-          <h2 className="text-xl font-semibold text-[#1C1C1E]">Add Service</h2>
+          <h2 className="text-xl font-semibold text-[#1C1C1E]">
+            {service ? 'Edit Service' : 'Add Service'}
+          </h2>
           <p className="mt-1 text-sm text-[#6B7280]">
-            Create a new bookable service for this salon.
+            {service
+              ? 'Update what clients see and how much calendar time this service reserves.'
+              : 'Create a new bookable service for this salon.'}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Preparation buffer
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="120"
+              step="5"
+              inputMode="numeric"
+              value={preparationBufferMinutes}
+              onChange={event =>
+                setPreparationBufferMinutes(event.target.value)}
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Cleanup buffer
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="120"
+              step="5"
+              inputMode="numeric"
+              value={cleanupBufferMinutes}
+              onChange={event => setCleanupBufferMinutes(event.target.value)}
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            />
+          </label>
+          <p className="col-span-2 text-xs leading-5 text-[#6B7280]">
+            Luster reserves the larger of the salon-wide buffer or these service
+            buffers after the client duration, preventing back-to-back overlap.
           </p>
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Name</span>
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Name
+          </span>
           <input
             type="text"
             value={name}
             onChange={event => setName(event.target.value)}
             placeholder="BIAB Short"
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price</span>
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Price
+            </span>
             <input
               type="number"
               min="0"
@@ -358,12 +499,14 @@ function AddServiceDialog({
               value={price}
               onChange={event => setPrice(event.target.value)}
               placeholder="65"
-              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Duration</span>
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Duration
+            </span>
             <input
               type="number"
               min="5"
@@ -372,17 +515,20 @@ function AddServiceDialog({
               value={durationMinutes}
               onChange={event => setDurationMinutes(event.target.value)}
               placeholder="75"
-              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
             />
           </label>
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Category</span>
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Category
+          </span>
           <select
             value={category}
-            onChange={event => setCategory(event.target.value as ServiceCategory)}
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            onChange={event =>
+              setCategory(event.target.value as ServiceCategory)}
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
           >
             <option value="manicure">Manicure</option>
             <option value="builder_gel">Builder Gel</option>
@@ -395,29 +541,37 @@ function AddServiceDialog({
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Description items</span>
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Description items
+          </span>
           <textarea
             value={description}
             onChange={event => setDescription(event.target.value)}
             rows={3}
-            placeholder={'One benefit per line\nDry manicure\nDetailed cuticle work'}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-[#007AFF]"
+            placeholder={
+              'One benefit per line\nDry manicure\nDetailed cuticle work'
+            }
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-rose-700"
           />
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price display text</span>
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Price display text
+          </span>
           <input
             type="text"
             value={priceDisplayText}
             onChange={event => setPriceDisplayText(event.target.value)}
             placeholder="$70+"
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
           />
         </label>
 
         <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
-          <span className="text-sm font-medium text-[#1C1C1E]">Intro pricing badge</span>
+          <span className="text-sm font-medium text-[#1C1C1E]">
+            Intro pricing badge
+          </span>
           <input
             type="checkbox"
             checked={isIntroPrice}
@@ -426,15 +580,36 @@ function AddServiceDialog({
           />
         </label>
 
+        {service && (
+          <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+            <span>
+              <span className="block text-sm font-medium text-[#1C1C1E]">
+                Bookable
+              </span>
+              <span className="block text-xs text-[#6B7280]">
+                Turn off to hide this service without deleting history.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={event => setIsActive(event.target.checked)}
+              className="size-4"
+            />
+          </label>
+        )}
+
         {isIntroPrice && (
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Intro label</span>
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Intro label
+            </span>
             <input
               type="text"
               value={introPriceLabel}
               onChange={event => setIntroPriceLabel(event.target.value)}
               placeholder="Founding Client Price"
-              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-[#007AFF]"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
             />
           </label>
         )}
@@ -446,10 +621,22 @@ function AddServiceDialog({
         )}
 
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="brandSoft" size="pillSm" onClick={onClose} disabled={saving}>
+          <Button
+            type="button"
+            variant="brandSoft"
+            size="pillSm"
+            onClick={onClose}
+            disabled={saving}
+          >
             Cancel
           </Button>
-          <Button type="button" variant="brand" size="pillSm" onClick={handleSubmit} disabled={saving}>
+          <Button
+            type="button"
+            variant="brand"
+            size="pillSm"
+            onClick={handleSubmit}
+            disabled={saving}
+          >
             {saving
               ? (
                   <>
@@ -457,7 +644,13 @@ function AddServiceDialog({
                     Saving...
                   </>
                 )
-              : 'Save Service'}
+              : service
+                ? (
+                    'Update Service'
+                  )
+                : (
+                    'Save Service'
+                  )}
           </Button>
         </div>
       </div>
@@ -471,9 +664,11 @@ function AddServiceDialog({
 function ServiceDetail({
   service,
   onBack,
+  onEdit,
 }: {
   service: ServiceData;
   onBack: () => void;
+  onEdit: () => void;
 }) {
   return (
     <motion.div
@@ -481,21 +676,34 @@ function ServiceDetail({
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="absolute inset-0 overflow-y-auto bg-[#F2F2F7]"
+      className="absolute inset-0 overflow-y-auto bg-[#FFF8F5]"
     >
       <ModalHeader
         title={service.name}
         leftAction={<BackButton onClick={onBack} label="Services" />}
+        rightAction={(
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-[17px] font-medium text-rose-800"
+          >
+            Edit
+          </button>
+        )}
       />
 
       <div className="p-4">
         {/* Hero Card */}
         <AdminDetailCard className="mb-4 rounded-[22px]" contentClassName="p-6">
           <div className="flex flex-col items-center">
-            <div className={`size-20 rounded-[20px] bg-gradient-to-br ${getCategoryGradient(service.category)} mb-4 flex items-center justify-center shadow-lg`}>
+            <div
+              className={`size-20 rounded-[20px] bg-gradient-to-br ${getCategoryGradient(service.category)} mb-4 flex items-center justify-center shadow-lg`}
+            >
               <Scissors className="size-10 text-white" />
             </div>
-            <h2 className="text-center text-[22px] font-semibold text-[#1C1C1E]">{service.name}</h2>
+            <h2 className="text-center text-[22px] font-semibold text-[#1C1C1E]">
+              {service.name}
+            </h2>
             <div className="mt-3 flex items-center gap-4">
               <span className="rounded-full bg-gray-100 px-3 py-1 text-[13px] capitalize text-[#8E8E93]">
                 {service.category}
@@ -527,7 +735,7 @@ function ServiceDetail({
               <DollarSign className="size-4" />
               Price
             </div>
-            <div className="mt-1 text-[32px] font-bold text-[#34C759]">
+            <div className="mt-1 text-[32px] font-bold text-emerald-700">
               {service.priceDisplayText || formatCurrency(service.price)}
             </div>
           </AdminDetailCard>
@@ -542,10 +750,27 @@ function ServiceDetail({
           </AdminDetailCard>
         </div>
 
+        {(service.preparationBufferMinutes > 0
+          || service.cleanupBufferMinutes > 0) && (
+          <AdminDetailCard className="mb-4">
+            <div className="text-[13px] font-medium uppercase text-[#8E8E93]">
+              Reserved setup time
+            </div>
+            <p className="mt-1 text-[15px] text-[#1C1C1E]">
+              {service.preparationBufferMinutes}
+              {' min preparation · '}
+              {service.cleanupBufferMinutes}
+              {' min cleanup'}
+            </p>
+          </AdminDetailCard>
+        )}
+
         {/* Description */}
         {(service.descriptionItems?.length || service.description) && (
           <AdminDetailCard>
-            <div className="mb-2 text-[13px] font-medium uppercase text-[#8E8E93]">Description</div>
+            <div className="mb-2 text-[13px] font-medium uppercase text-[#8E8E93]">
+              Description
+            </div>
             {service.descriptionItems && service.descriptionItems.length > 0
               ? (
                   <ul className="space-y-2 text-[15px] leading-relaxed text-[#1C1C1E]">
@@ -557,7 +782,11 @@ function ServiceDetail({
                     ))}
                   </ul>
                 )
-              : <p className="text-[15px] leading-relaxed text-[#1C1C1E]">{service.description}</p>}
+              : (
+                  <p className="text-[15px] leading-relaxed text-[#1C1C1E]">
+                    {service.description}
+                  </p>
+                )}
           </AdminDetailCard>
         )}
       </div>
@@ -570,8 +799,13 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
-  const [selectedService, setSelectedService] = useState<ServiceData | null>(null);
+  const [selectedService, setSelectedService] = useState<ServiceData | null>(
+    null,
+  );
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingService, setEditingService] = useState<ServiceData | null>(
+    null,
+  );
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -586,7 +820,9 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`/api/salon/services?salonSlug=${salonSlug}`);
+      const response = await fetch(
+        `/api/salon/services?salonSlug=${salonSlug}`,
+      );
 
       if (!response.ok) {
         throw new Error('Failed to load services');
@@ -596,33 +832,39 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       const fetchedServices = result.data?.services || [];
 
       // Transform API data to component format
-      const transformedServices: ServiceData[] = fetchedServices.map((service: {
-        id: string;
-        name: string;
-        description: string | null;
-        descriptionItems?: string[] | null;
-        price: number;
-        priceDisplayText?: string | null;
-        durationMinutes: number;
-        category: string;
-        imageUrl: string | null;
-        isActive: boolean;
-        isIntroPrice?: boolean | null;
-        introPriceLabel?: string | null;
-      }) => ({
-        id: service.id,
-        name: service.name,
-        description: service.description,
-        descriptionItems: service.descriptionItems ?? null,
-        price: service.price,
-        priceDisplayText: service.priceDisplayText ?? null,
-        durationMinutes: service.durationMinutes,
-        category: service.category,
-        imageUrl: service.imageUrl,
-        isActive: service.isActive,
-        isIntroPrice: service.isIntroPrice ?? false,
-        introPriceLabel: service.introPriceLabel ?? null,
-      }));
+      const transformedServices: ServiceData[] = fetchedServices.map(
+        (service: {
+          id: string;
+          name: string;
+          description: string | null;
+          descriptionItems?: string[] | null;
+          price: number;
+          priceDisplayText?: string | null;
+          durationMinutes: number;
+          preparationBufferMinutes?: number;
+          cleanupBufferMinutes?: number;
+          category: string;
+          imageUrl: string | null;
+          isActive: boolean;
+          isIntroPrice?: boolean | null;
+          introPriceLabel?: string | null;
+        }) => ({
+          id: service.id,
+          name: service.name,
+          description: service.description,
+          descriptionItems: service.descriptionItems ?? null,
+          price: service.price,
+          priceDisplayText: service.priceDisplayText ?? null,
+          durationMinutes: service.durationMinutes,
+          preparationBufferMinutes: service.preparationBufferMinutes ?? 0,
+          cleanupBufferMinutes: service.cleanupBufferMinutes ?? 0,
+          category: service.category,
+          imageUrl: service.imageUrl,
+          isActive: service.isActive,
+          isIntroPrice: service.isIntroPrice ?? false,
+          introPriceLabel: service.introPriceLabel ?? null,
+        }),
+      );
 
       setServices(transformedServices);
     } catch (err) {
@@ -638,20 +880,22 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   }, [fetchServices]);
 
   // Filter services by category
-  const filteredServices = activeCategory === 'all'
-    ? services
-    : services.filter(s => s.category === activeCategory);
+  const filteredServices
+    = activeCategory === 'all'
+      ? services
+      : services.filter(s => s.category === activeCategory);
 
   // Count per category
   const categoryCounts: Record<string, number> = {};
   for (const service of services) {
-    categoryCounts[service.category] = (categoryCounts[service.category] || 0) + 1;
+    categoryCounts[service.category]
+      = (categoryCounts[service.category] || 0) + 1;
   }
 
   return (
-    <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
+    <div className="relative flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
+      <div className="sticky top-0 z-20 bg-[#FFF8F5]/90 backdrop-blur-md">
         <ModalHeader
           title="Services"
           subtitle={`${services.length} services`}
@@ -661,7 +905,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
               type="button"
               onClick={() => setShowAddDialog(true)}
               disabled={!salonSlug}
-              className="text-[17px] font-medium text-[#007AFF] transition-opacity active:opacity-50 disabled:text-[#8E8E93] disabled:opacity-60"
+              className="text-[17px] font-medium text-rose-800 transition-opacity active:opacity-50 disabled:text-[#8E8E93] disabled:opacity-60"
             >
               Add
             </button>
@@ -694,7 +938,12 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
                   description={error}
                   className="mx-4 my-8"
                   action={(
-                    <Button type="button" variant="brandSoft" size="pillSm" onClick={fetchServices}>
+                    <Button
+                      type="button"
+                      variant="brandSoft"
+                      size="pillSm"
+                      onClick={fetchServices}
+                    >
                       Try again
                     </Button>
                   )}
@@ -702,7 +951,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
               )
             : filteredServices.length === 0
               ? (
-                  <EmptyState category={activeCategory} onAddService={() => setShowAddDialog(true)} />
+                  <EmptyState
+                    category={activeCategory}
+                    onAddService={() => setShowAddDialog(true)}
+                  />
                 )
               : (
                   <ListSurface className="mx-4 rounded-[10px]">
@@ -724,17 +976,24 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           <ServiceDetail
             service={selectedService}
             onBack={() => setSelectedService(null)}
+            onEdit={() => setEditingService(selectedService)}
           />
         )}
       </AnimatePresence>
 
       <AddServiceDialog
-        isOpen={showAddDialog}
+        isOpen={showAddDialog || Boolean(editingService)}
         salonSlug={salonSlug}
-        onClose={() => setShowAddDialog(false)}
-        onCreated={(createdService) => {
+        service={editingService}
+        onClose={() => {
           setShowAddDialog(false);
-          setActiveCategory(createdService.category);
+          setEditingService(null);
+        }}
+        onSaved={(savedService) => {
+          setShowAddDialog(false);
+          setEditingService(null);
+          setSelectedService(savedService);
+          setActiveCategory(savedService.category);
           void fetchServices();
         }}
       />

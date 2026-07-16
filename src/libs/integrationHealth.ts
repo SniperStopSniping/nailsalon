@@ -17,6 +17,9 @@ export async function getSalonIntegrationHealth(salonId: string) {
         status: salonGoogleCalendarConnectionSchema.status,
         email: salonGoogleCalendarConnectionSchema.googleEmail,
         lastError: salonGoogleCalendarConnectionSchema.lastError,
+        inboundSyncEnabled: salonGoogleCalendarConnectionSchema.inboundSyncEnabled,
+        inboundSyncedAt: salonGoogleCalendarConnectionSchema.inboundSyncedAt,
+        inboundSyncError: salonGoogleCalendarConnectionSchema.inboundSyncError,
       })
       .from(salonGoogleCalendarConnectionSchema)
       .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
@@ -53,7 +56,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
       .where(
         and(
           eq(integrationOutboxSchema.salonId, salonId),
-          eq(integrationOutboxSchema.provider, 'google'),
+          eq(integrationOutboxSchema.provider, 'google_calendar'),
           inArray(integrationOutboxSchema.status, ['pending', 'retry']),
         ),
       ),
@@ -63,24 +66,50 @@ export async function getSalonIntegrationHealth(salonId: string) {
       .where(
         and(
           eq(integrationOutboxSchema.salonId, salonId),
-          eq(integrationOutboxSchema.provider, 'google'),
+          eq(integrationOutboxSchema.provider, 'google_calendar'),
           eq(integrationOutboxSchema.status, 'failed'),
         ),
       ),
   ]);
 
   return {
+    availability: {
+      google: Boolean(
+        process.env.GOOGLE_OAUTH_CLIENT_ID
+        && process.env.GOOGLE_OAUTH_CLIENT_SECRET
+        && process.env.GOOGLE_OAUTH_REDIRECT_URI
+        && process.env.INTEGRATION_ENCRYPTION_KEY
+        && process.env.OAUTH_STATE_SECRET,
+      ),
+      twilio: Boolean(
+        process.env.TWILIO_CONNECT_APP_SID
+        && process.env.TWILIO_CONNECT_REDIRECT_URI
+        && process.env.TWILIO_AUTH_TOKEN,
+      ),
+      email: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
+      photos: Boolean(
+        process.env.CLOUDINARY_CLOUD_NAME
+        && process.env.CLOUDINARY_API_KEY
+        && process.env.CLOUDINARY_API_SECRET,
+      ),
+    },
     google: google
       ? {
           status: google.status,
           email: google.email,
           lastError: google.lastError,
+          inboundSyncEnabled: google.inboundSyncEnabled,
+          inboundSyncedAt: google.inboundSyncedAt,
+          inboundSyncError: google.inboundSyncError,
           reconnectRequired: google.status === 'reconnect_required',
         }
       : {
           status: 'disconnected',
           email: null,
           lastError: null,
+          inboundSyncEnabled: false,
+          inboundSyncedAt: null,
+          inboundSyncError: null,
           reconnectRequired: false,
         },
     twilio: twilio

@@ -18,7 +18,7 @@ type Props = {
 };
 
 export function SystemStatusClient({ data, locale }: Props) {
-  const { envStatus, queueSummary, failedJobs } = data;
+  const { envStatus, queueSummary, operationalSummary, failedJobs } = data;
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryResult, setRetryResult] = useState<{
     id: string;
@@ -91,7 +91,12 @@ export function SystemStatusClient({ data, locale }: Props) {
         <h2 className="mb-4 text-lg font-semibold text-gray-800">
           Environment Configuration
         </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <StatusCard label="Database" configured={envStatus.databaseHealthy} critical />
+          <StatusCard label="Clerk owner auth" configured={envStatus.clerkConfigured} critical />
+          <StatusCard label="Super-admin auth" configured={envStatus.passwordAuthConfigured} critical />
+          <StatusCard label="Verified email sender" configured={envStatus.resendSenderVerified} critical />
+          <StatusCard label="Google Calendar" configured={envStatus.googleCalendarConfigured} />
           <StatusCard
             label="Meta API"
             configured={envStatus.metaConfigured}
@@ -102,8 +107,10 @@ export function SystemStatusClient({ data, locale }: Props) {
           />
           <StatusCard
             label="Redis"
-            configured={envStatus.redisConfigured}
+            configured={envStatus.redisConfigured && envStatus.redisHealthy}
+            critical
           />
+          <StatusCard label="DNS & HTTPS" configured={envStatus.dnsAndSslHealthy} critical />
           <StatusCard
             label="Cron Secret"
             configured={envStatus.cronSecretConfigured}
@@ -124,6 +131,8 @@ export function SystemStatusClient({ data, locale }: Props) {
             label="Sentry"
             configured={envStatus.sentryConfigured}
           />
+          <StatusCard label="Production test tools off" configured={envStatus.productionTestToolsDisabled} critical />
+          <StatusCard label="Tenant subdomains" configured={envStatus.tenantSubdomainsEnabled} />
         </div>
         <p className="mt-2 text-sm text-gray-500">
           Meta Graph Version:
@@ -133,6 +142,17 @@ export function SystemStatusClient({ data, locale }: Props) {
         <p className="mt-1 text-sm text-gray-500">
           Missing cards do not always block the app, but they do signal degraded SaaS readiness for auth, billing, monitoring, email, or media flows.
         </p>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-4 text-lg font-semibold text-gray-800">Booking & Integration Operations</h2>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <QueueCard label="Integration pending" count={operationalSummary.integrationPending} color={operationalSummary.integrationPending ? 'yellow' : 'green'} />
+          <QueueCard label="Integration failed" count={operationalSummary.integrationFailed} color={operationalSummary.integrationFailed ? 'red' : 'green'} />
+          <QueueCard label="Email failures (24h)" count={operationalSummary.emailFailures24h} color={operationalSummary.emailFailures24h ? 'red' : 'green'} />
+          <QueueCard label="SMS failures (24h)" count={operationalSummary.smsFailures24h} color={operationalSummary.smsFailures24h ? 'yellow' : 'green'} />
+        </div>
+        <p className="mt-2 text-xs text-gray-500">SMS is optional. Email, database, authentication, and booking operations are launch-critical.</p>
       </section>
 
       {/* Queue Summary */}
@@ -268,9 +288,11 @@ export function SystemStatusClient({ data, locale }: Props) {
 function StatusCard({
   label,
   configured,
+  critical = false,
 }: {
   label: string;
   configured: boolean;
+  critical?: boolean;
 }) {
   return (
     <div className="rounded-lg border bg-white p-4">
@@ -285,6 +307,7 @@ function StatusCard({
           {configured ? 'Configured' : 'Not configured'}
         </span>
       </div>
+      {critical && <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Launch critical</p>}
     </div>
   );
 }

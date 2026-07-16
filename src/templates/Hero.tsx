@@ -1,4 +1,5 @@
-import { GitHubLogoIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
+import { CalendarDays, Sparkles } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { badgeVariants } from '@/components/ui/badgeVariants';
@@ -13,16 +14,11 @@ export const Hero = () => {
     <Section className="py-36">
       <CenteredHero
         banner={(
-          <a
-            className={badgeVariants()}
-            href="https://twitter.com/ixartz"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <TwitterLogoIcon className="mr-1 size-5" />
+          <span className={badgeVariants()}>
+            <Sparkles className="mr-1 size-4 text-rose-700" />
             {' '}
             {t('follow_twitter')}
-          </a>
+          </span>
         )}
         title={t.rich('title', {
           important: chunks => (
@@ -34,20 +30,20 @@ export const Hero = () => {
         description={t('description')}
         buttons={(
           <>
-            <a
-              className={buttonVariants({ size: 'lg' })}
-              href="https://github.com/ixartz/SaaS-Boilerplate"
+            <Link
+              className={buttonVariants({ size: 'lg', className: 'bg-rose-700 hover:bg-rose-800' })}
+              href="/owner"
             >
               {t('primary_button')}
-            </a>
+            </Link>
 
-            <a
+            <Link
               className={buttonVariants({ variant: 'outline', size: 'lg' })}
-              href="https://github.com/ixartz/SaaS-Boilerplate"
+              href="/book"
             >
-              <GitHubLogoIcon className="mr-2 size-5" />
+              <CalendarDays className="mr-2 size-5" />
               {t('secondary_button')}
-            </a>
+            </Link>
           </>
         )}
       />

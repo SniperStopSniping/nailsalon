@@ -1,5 +1,5 @@
 {
-  "name": "saas-boilerplate",
+  "name": "luster-booking-platform",
   "version": "1.5.1",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
@@ -40,6 +40,7 @@
     "db:verify:appointment-discount-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-appointment-discount-schema.ts",
     "db:verify-fraud-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-fraud-schema.ts",
     "db:smoke-test-fraud": "NODE_ENV=development dotenv -c development -- tsx scripts/smoke-test-fraud-system.ts",
+    "ops:cleanup:unowned-empty-salons": "tsx scripts/draft-unowned-empty-salons.ts",
     "ops:verify:launch": "cross-env NODE_ENV=production dotenv -c production -- tsx scripts/verify-env.ts",
     "security:check-secrets": "node scripts/check-secret-leaks.mjs",
     "security:verify-super-admin": "tsx scripts/verify-super-admin-account.ts",

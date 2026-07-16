@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -14,7 +14,7 @@ import {
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
@@ -32,6 +32,7 @@ import {
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
 import { hasGoogleCalendarConflict } from '@/libs/googleCalendar';
+import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
@@ -67,6 +68,7 @@ import {
   type AppointmentService,
   appointmentServicesSchema,
   communicationConsentSchema,
+  googleCalendarEventSchema,
   referralSchema,
   rewardSchema,
   salonSchema,
@@ -177,6 +179,8 @@ const createAppointmentSchema = z.object({
   // Optional: If provided, this is a reschedule - bypass duplicate check and cancel the original
   originalAppointmentId: z.string().optional(),
   manageToken: z.string().min(20).optional(),
+  googleEventReviewId: z.string().min(1).optional(),
+  priceCentsOverride: z.number().int().min(0).max(1_000_000).optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -432,6 +436,28 @@ export async function POST(request: Request): Promise<Response> {
           actorRole = 'client';
           clientPhoneInput = clientAuth.normalizedPhone;
         }
+      }
+    }
+
+    let googleReviewEvent: typeof googleCalendarEventSchema.$inferSelect | null = null;
+    if (data.googleEventReviewId) {
+      if (actorRole !== 'admin') {
+        return Response.json({ error: { code: 'FORBIDDEN', message: 'Only a salon owner can convert a Google event.' } }, { status: 403 });
+      }
+      const [selectedGoogleReviewEvent] = await db.select().from(googleCalendarEventSchema).where(and(
+        eq(googleCalendarEventSchema.id, data.googleEventReviewId),
+        eq(googleCalendarEventSchema.salonId, salon.id),
+        isNull(googleCalendarEventSchema.deletedAt),
+      )).limit(1);
+      googleReviewEvent = selectedGoogleReviewEvent || null;
+      if (!googleReviewEvent) {
+        return Response.json({ error: { code: 'GOOGLE_EVENT_NOT_FOUND', message: 'Google event not found.' } }, { status: 404 });
+      }
+      if (googleReviewEvent.appointmentId || googleReviewEvent.reviewStatus === 'appointment') {
+        return Response.json({ error: { code: 'GOOGLE_EVENT_ALREADY_CONVERTED', message: 'This Google event is already an appointment.' } }, { status: 409 });
+      }
+      if (Math.abs(googleReviewEvent.startTime.getTime() - parsedStartTime.getTime()) > 60_000) {
+        return Response.json({ error: { code: 'GOOGLE_EVENT_TIME_CHANGED', message: 'The Google event time changed. Refresh and try again.' } }, { status: 409 });
       }
     }
 
@@ -870,6 +896,12 @@ export async function POST(request: Request): Promise<Response> {
           { status: 400 },
         );
       }
+      if (actorRole === 'guest' && !getClientChangePolicy(originalAppointment.startTime, bookingConfig).canChange) {
+        return Response.json(
+          { error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
     }
 
     // 4d. Look up existing client by phone to get their name
@@ -908,6 +940,20 @@ export async function POST(request: Request): Promise<Response> {
       discountAppliedAt = new Date();
     }
 
+    if (googleReviewEvent) {
+      totalDurationMinutes = googleReviewEvent.durationMinutes;
+      blockedDurationMinutes = googleReviewEvent.durationMinutes + bufferMinutes;
+      if (data.priceCentsOverride !== undefined) {
+        totalPrice = data.priceCentsOverride;
+        subtotalBeforeDiscountCents = data.priceCentsOverride;
+        discountAmountCents = 0;
+        appointmentDiscountType = null;
+        appointmentDiscountLabel = null;
+        appointmentDiscountPercent = null;
+        discountAppliedAt = null;
+      }
+    }
+
     // 6. Compute endTime from startTime + total duration
     // Use parsedStartTime (already validated above - not Invalid Date)
     const startTime = parsedStartTime;
@@ -931,7 +977,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    if (startTime < minimumStartTime) {
+    if (!googleReviewEvent && startTime < minimumStartTime) {
       return Response.json(
         {
           error: {
@@ -1241,12 +1287,27 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     try {
-      const googleCalendarConflict = await hasGoogleCalendarConflict({
-        salonId: salon.id,
-        startTime,
-        endTime: blockedEndTime,
-        timeZone: bookingConfig.timezone,
-      });
+      if (googleReviewEvent) {
+        const [otherGoogleConflict] = await db.select({ id: googleCalendarEventSchema.id }).from(googleCalendarEventSchema).where(and(
+          eq(googleCalendarEventSchema.salonId, salon.id),
+          ne(googleCalendarEventSchema.id, googleReviewEvent.id),
+          eq(googleCalendarEventSchema.transparency, 'busy'),
+          isNull(googleCalendarEventSchema.deletedAt),
+          lt(googleCalendarEventSchema.startTime, blockedEndTime),
+          gt(googleCalendarEventSchema.endTime, startTime),
+        )).limit(1);
+        if (otherGoogleConflict) {
+          return Response.json({ error: { code: 'TIME_CONFLICT', message: 'Another Google event overlaps this time.' } }, { status: 409 });
+        }
+      }
+      const googleCalendarConflict = googleReviewEvent
+        ? false
+        : await hasGoogleCalendarConflict({
+          salonId: salon.id,
+          startTime,
+          endTime: blockedEndTime,
+          timeZone: bookingConfig.timezone,
+        });
 
       if (googleCalendarConflict) {
         return Response.json(
@@ -1320,6 +1381,7 @@ export async function POST(request: Request): Promise<Response> {
               clientName,
               clientEmail: normalizedClientEmail ?? originalAppointment.clientEmail,
               salonClientId: salonClient.id,
+              googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
               startTime,
               endTime,
               status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
@@ -1470,6 +1532,7 @@ export async function POST(request: Request): Promise<Response> {
             clientName,
             clientEmail: normalizedClientEmail,
             salonClientId: salonClient.id,
+            googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
             startTime,
             endTime,
             status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
@@ -1565,6 +1628,21 @@ export async function POST(request: Request): Promise<Response> {
           });
         }
 
+        if (googleReviewEvent) {
+          const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
+            appointmentId: createdAppointment.id,
+            reviewStatus: 'appointment',
+            reviewedAt: new Date(),
+          }).where(and(
+            eq(googleCalendarEventSchema.id, googleReviewEvent.id),
+            eq(googleCalendarEventSchema.salonId, salon.id),
+            isNull(googleCalendarEventSchema.appointmentId),
+          )).returning();
+          if (!claimedEvent) {
+            throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
+          }
+        }
+
         return {
           appointment: createdAppointment,
           appointmentServices: insertedServices,
@@ -1575,6 +1653,14 @@ export async function POST(request: Request): Promise<Response> {
       appointment = transactionalResult.appointment;
       appointmentServices = transactionalResult.appointmentServices;
       appointmentAddOns = transactionalResult.appointmentAddOns;
+    }
+
+    if (googleReviewEvent) {
+      await recordGoogleEventReviewDecision({
+        salonId: salon.id,
+        title: googleReviewEvent.title,
+        decision: 'appointment',
+      });
     }
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
@@ -1663,24 +1749,26 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    await enqueueGoogleCalendarUpsert({
-      appointmentId: appointment.id,
-      salonId: salon.id,
-      salonName: salon.name,
-      clientName,
-      clientPhone: salonClient.phone,
-      serviceNames: services.map(s => s.name),
-      technicianName: technician?.name ?? null,
-      startTime,
-      endTime,
-      totalPrice,
-      totalDurationMinutes,
-      timeZone: bookingConfig.timezone,
-      locationName: validatedLocation?.name ?? null,
-      locationAddress: formatLocationAddress(validatedLocation),
-      notes: appointment.notes,
-      googleCalendarEventId: appointment.googleCalendarEventId,
-    });
+    if (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional') {
+      await enqueueGoogleCalendarUpsert({
+        appointmentId: appointment.id,
+        salonId: salon.id,
+        salonName: salon.name,
+        clientName,
+        clientPhone: salonClient.phone,
+        serviceNames: services.map(s => s.name),
+        technicianName: technician?.name ?? null,
+        startTime,
+        endTime,
+        totalPrice,
+        totalDurationMinutes,
+        timeZone: bookingConfig.timezone,
+        locationName: validatedLocation?.name ?? null,
+        locationAddress: formatLocationAddress(validatedLocation),
+        notes: appointment.notes,
+        googleCalendarEventId: appointment.googleCalendarEventId,
+      });
+    }
 
     // =========================================================================
     // 10. BUILD RESPONSE (single definition, used for cache AND return)
@@ -1747,6 +1835,8 @@ export async function POST(request: Request): Promise<Response> {
     const confirmationEmail = normalizedClientEmail ?? originalAppointment?.clientEmail ?? null;
     if (confirmationEmail) {
       await sendCustomerBookingConfirmationEmail({
+        salonId: salon.id,
+        appointmentId: appointment.id,
         to: confirmationEmail,
         salonName: salon.name,
         clientName: clientName ?? 'Guest',
@@ -1803,6 +1893,18 @@ export async function POST(request: Request): Promise<Response> {
     // 13. Return response (same object that was cached, if caching was enabled)
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === 'GOOGLE_EVENT_ALREADY_CONVERTED') {
+      return Response.json(
+        {
+          error: {
+            code: 'GOOGLE_EVENT_ALREADY_CONVERTED',
+            message: 'This Google event is already an appointment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
     console.error('Error creating appointment:', error);
 
     return Response.json(

@@ -3,8 +3,8 @@ import dynamicImport from 'next/dynamic';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, unstable_setRequestLocale } from 'next-intl/server';
 
-import type { SalonStatus } from '@/models/Schema';
 import { getResolvedSalon } from '@/libs/tenant';
+import type { SalonStatus } from '@/models/Schema';
 import { SalonProvider } from '@/providers/SalonProvider';
 import { ThemeProvider } from '@/theme';
 import { AllLocales } from '@/utils/AppConfig';
@@ -16,6 +16,11 @@ const DevRoleSwitcher = dynamicImport(
 );
 
 export const metadata: Metadata = {
+  title: {
+    default: 'Luster',
+    template: '%s | Luster',
+  },
+  description: 'Free booking, CRM, Calendar sync, and growth tools built for nail techs.',
   icons: [
     {
       rel: 'apple-touch-icon',

@@ -7,26 +7,23 @@ const sendDefaults = {
   sendDegraded: true,
 };
 
-// FIXME: Add your production URL
-const productionURL = 'https://react-saas.com';
+const productionURL = 'https://islanailsalon.com';
 
 const emailChannel = new EmailAlertChannel('email-channel-1', {
-  // FIXME: add your own email address, Checkly will send you an email notification if a check fails
-  address: 'contact@creativedesignsguru.com',
+  address: process.env.CHECKLY_ALERT_EMAIL || 'support@islanailsalon.com',
   ...sendDefaults,
 });
 
 export const config = defineConfig({
-  // FIXME: Add your own project name, logical ID, and repository URL
-  projectName: 'SaaS Boilerplate',
-  logicalId: 'saas-boilerplate',
-  repoUrl: 'https://github.com/ixartz/Next-js-Boilerplate',
+  projectName: 'Luster Free Booking',
+  logicalId: 'luster-free-booking',
+  repoUrl: 'https://github.com/SniperStopSniping/nailsalon',
   checks: {
     locations: ['us-east-1', 'eu-west-1'],
     tags: ['website'],
     runtimeId: '2024.02',
     browserChecks: {
-      frequency: Frequency.EVERY_24H,
+      frequency: Frequency.EVERY_10M,
       testMatch: '**/tests/e2e/**/*.check.e2e.ts',
       alertChannels: [emailChannel],
     },

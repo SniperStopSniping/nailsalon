@@ -1,12 +1,19 @@
-import { nanoid } from 'nanoid';
 import { eq, sql } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
-import { descriptionItemsToLegacyText, normalizeDescriptionItems } from '@/libs/bookingCatalog';
+import {
+  descriptionItemsToLegacyText,
+  normalizeDescriptionItems,
+} from '@/libs/bookingCatalog';
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
-import { SERVICE_CATEGORIES, serviceSchema, type Service } from '@/models/Schema';
+import {
+  type Service,
+  SERVICE_CATEGORIES,
+  serviceSchema,
+} from '@/models/Schema';
 import type { ServiceResponse } from '@/types/admin';
 
 // Force dynamic rendering for this API route
@@ -22,19 +29,35 @@ const querySchema = z.object({
 
 const optionalTextField = z
   .union([z.string(), z.null(), z.undefined()])
-  .transform(value => {
+  .transform((value) => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     return trimmed.length > 0 ? trimmed : null;
   });
 
 const createServiceSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  name: z.string().trim().min(1, 'Service name is required').max(120, 'Service name is too long'),
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Service name is required')
+    .max(120, 'Service name is too long'),
   description: optionalTextField,
   descriptionItems: z.array(z.string()).optional().default([]),
   price: z.number().int().min(0, 'Price must be zero or greater'),
   priceDisplayText: optionalTextField,
-  durationMinutes: z.number().int().min(5, 'Duration must be at least 5 minutes').max(480, 'Duration is too long'),
+  durationMinutes: z
+    .number()
+    .int()
+    .min(5, 'Duration must be at least 5 minutes')
+    .max(480, 'Duration is too long'),
+  preparationBufferMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(120)
+    .optional()
+    .default(0),
+  cleanupBufferMinutes: z.number().int().min(0).max(120).optional().default(0),
   category: z.enum(SERVICE_CATEGORIES),
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
@@ -62,6 +85,8 @@ function buildServicePayload(service: Service): ServiceResponse {
     price: service.price,
     priceDisplayText: service.priceDisplayText ?? null,
     durationMinutes: service.durationMinutes,
+    preparationBufferMinutes: service.preparationBufferMinutes,
+    cleanupBufferMinutes: service.cleanupBufferMinutes,
     category: service.category,
     imageUrl: service.imageUrl,
     sortOrder: service.sortOrder,
@@ -74,12 +99,14 @@ function buildServicePayload(service: Service): ServiceResponse {
   };
 }
 
-function slugFromName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80);
+function uniqueSlugFromName(name: string): string {
+  const base
+    = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 72) || 'service';
+  return `${base}-${nanoid(6).toLowerCase()}`;
 }
 
 // =============================================================================
@@ -118,7 +145,8 @@ export async function GET(request: Request): Promise<Response> {
     const services = await getServicesBySalonId(salon.id);
 
     // Format response using shared type
-    const formattedServices: ServiceResponse[] = services.map(buildServicePayload);
+    const formattedServices: ServiceResponse[]
+      = services.map(buildServicePayload);
 
     return Response.json({
       data: {
@@ -153,7 +181,8 @@ export async function POST(request: Request): Promise<Response> {
         {
           error: {
             code: 'VALIDATION_ERROR',
-            message: validated.error.issues[0]?.message ?? 'Invalid request body',
+            message:
+              validated.error.issues[0]?.message ?? 'Invalid request body',
             details: validated.error.flatten(),
           },
         } satisfies ErrorResponse,
@@ -169,15 +198,20 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const maxOrderRows = await db
-      .select({ maxOrder: sql<number>`coalesce(max(${serviceSchema.sortOrder}), 0)` })
+      .select({
+        maxOrder: sql<number>`coalesce(max(${serviceSchema.sortOrder}), 0)`,
+      })
       .from(serviceSchema)
       .where(eq(serviceSchema.salonId, salon.id));
     const nextSortOrder = (maxOrderRows[0]?.maxOrder ?? 0) + 1;
 
-    const normalizedDescriptionItems = normalizeDescriptionItems(data.descriptionItems);
-    const legacyDescription = normalizedDescriptionItems && normalizedDescriptionItems.length > 0
-      ? descriptionItemsToLegacyText(normalizedDescriptionItems)
-      : data.description;
+    const normalizedDescriptionItems = normalizeDescriptionItems(
+      data.descriptionItems,
+    );
+    const legacyDescription
+      = normalizedDescriptionItems && normalizedDescriptionItems.length > 0
+        ? descriptionItemsToLegacyText(normalizedDescriptionItems)
+        : data.description;
 
     const [createdService] = await db
       .insert(serviceSchema)
@@ -185,12 +219,14 @@ export async function POST(request: Request): Promise<Response> {
         id: `svc_${nanoid()}`,
         salonId: salon.id,
         name: data.name,
-        slug: slugFromName(data.name),
+        slug: uniqueSlugFromName(data.name),
         description: legacyDescription,
         descriptionItems: normalizedDescriptionItems,
         price: data.price,
         priceDisplayText: data.priceDisplayText,
         durationMinutes: data.durationMinutes,
+        preparationBufferMinutes: data.preparationBufferMinutes,
+        cleanupBufferMinutes: data.cleanupBufferMinutes,
         category: data.category,
         isIntroPrice: data.isIntroPrice,
         introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
@@ -211,11 +247,14 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    return Response.json({
-      data: {
-        service: buildServicePayload(createdService),
+    return Response.json(
+      {
+        data: {
+          service: buildServicePayload(createdService),
+        },
       },
-    }, { status: 201 });
+      { status: 201 },
+    );
   } catch (error) {
     console.error('Error creating service:', error);
     return Response.json(

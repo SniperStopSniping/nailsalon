@@ -58,6 +58,17 @@ type ClientProfile = {
     avatarUrl: string | null;
   } | null;
   notes: string | null;
+  sensitivities: string | null;
+  nailPreferences: {
+    shape?: string;
+    length?: string;
+    favoriteColors?: string;
+    productsUsed?: string;
+  };
+  tags: string[];
+  rebookIntervalDays: number | null;
+  nextRebookDueAt: string | null;
+  lastContactAt: string | null;
   lastVisitAt: string | null;
   totalVisits: number;
   totalSpent: number;
@@ -115,6 +126,15 @@ type ClientDetailCacheEntry = {
   recentIssues: ClientAppointment[];
   flagsState: ClientFlagsState | null;
   flagsLoaded: boolean;
+};
+
+type ClientPhoto = {
+  id: string;
+  imageUrl: string;
+  thumbnailUrl: string | null;
+  photoType: string;
+  caption: string | null;
+  createdAt: string;
 };
 
 type ClientsModalProps = {
@@ -327,9 +347,9 @@ function SortPills({
   onChange: (value: SortOption) => void;
 }) {
   return (
-    <div className="-mx-4 overflow-x-auto overflow-y-hidden px-4 pb-1 scrollbar-hide">
+    <div className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 pb-1">
       <div className="flex min-w-max gap-2">
-        {SORT_OPTIONS.map(option => {
+        {SORT_OPTIONS.map((option) => {
           const active = option.value === sortBy;
           return (
             <button
@@ -473,7 +493,8 @@ function ClientDetail({
   const [upcomingAppointments, setUpcomingAppointments] = useState<ClientAppointment[]>(initialCachedDetail?.upcomingAppointments ?? []);
   const [pastAppointments, setPastAppointments] = useState<ClientAppointment[]>(initialCachedDetail?.pastAppointments ?? []);
   const [recentIssues, setRecentIssues] = useState<ClientAppointment[]>(initialCachedDetail?.recentIssues ?? []);
-  const [detailLoading, setDetailLoading] = useState(initialCachedDetail?.profile ? false : true);
+  const [photos, setPhotos] = useState<ClientPhoto[]>([]);
+  const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [flagsState, setFlagsState] = useState<ClientFlagsState | null>(initialCachedDetail?.flagsState ?? null);
@@ -486,6 +507,13 @@ function ClientDetail({
 
   const [notesDraft, setNotesDraft] = useState(initialCachedDetail?.profile?.notes ?? clientSummary.notes ?? '');
   const [preferredTechnicianIdDraft, setPreferredTechnicianIdDraft] = useState(initialCachedDetail?.profile?.preferredTechnician?.id ?? clientSummary.preferredTechnician?.id ?? '');
+  const [sensitivitiesDraft, setSensitivitiesDraft] = useState(initialCachedDetail?.profile?.sensitivities ?? '');
+  const [shapeDraft, setShapeDraft] = useState(initialCachedDetail?.profile?.nailPreferences?.shape ?? '');
+  const [lengthDraft, setLengthDraft] = useState(initialCachedDetail?.profile?.nailPreferences?.length ?? '');
+  const [colorsDraft, setColorsDraft] = useState(initialCachedDetail?.profile?.nailPreferences?.favoriteColors ?? '');
+  const [productsDraft, setProductsDraft] = useState(initialCachedDetail?.profile?.nailPreferences?.productsUsed ?? '');
+  const [tagsDraft, setTagsDraft] = useState(initialCachedDetail?.profile?.tags?.join(', ') ?? '');
+  const [rebookDaysDraft, setRebookDaysDraft] = useState(initialCachedDetail?.profile?.rebookIntervalDays?.toString() ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
 
@@ -504,6 +532,7 @@ function ClientDetail({
     upcomingAppointments: ClientAppointment[];
     pastAppointments: ClientAppointment[];
     recentIssues?: ClientAppointment[];
+    photos?: ClientPhoto[];
   }) => {
     const nextUpcoming = payload.upcomingAppointments ?? [];
     const nextPast = payload.pastAppointments ?? [];
@@ -513,8 +542,16 @@ function ClientDetail({
     setUpcomingAppointments(nextUpcoming);
     setPastAppointments(nextPast);
     setRecentIssues(nextIssues);
+    setPhotos(payload.photos ?? []);
     setNotesDraft(payload.client.notes ?? '');
     setPreferredTechnicianIdDraft(payload.client.preferredTechnician?.id ?? '');
+    setSensitivitiesDraft(payload.client.sensitivities ?? '');
+    setShapeDraft(payload.client.nailPreferences?.shape ?? '');
+    setLengthDraft(payload.client.nailPreferences?.length ?? '');
+    setColorsDraft(payload.client.nailPreferences?.favoriteColors ?? '');
+    setProductsDraft(payload.client.nailPreferences?.productsUsed ?? '');
+    setTagsDraft(payload.client.tags?.join(', ') ?? '');
+    setRebookDaysDraft(payload.client.rebookIntervalDays?.toString() ?? '');
 
     onCacheUpdate(clientSummary.id, {
       profile: payload.client,
@@ -612,7 +649,14 @@ function ClientDetail({
 
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
-      || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '');
+    || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
+    || sensitivitiesDraft !== (profile?.sensitivities ?? '')
+    || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
+    || lengthDraft !== (profile?.nailPreferences?.length ?? '')
+    || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
+    || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
+    || tagsDraft !== (profile?.tags?.join(', ') ?? '')
+    || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
 
   const flagsDirty = useMemo(() => {
     if (!flagsState) {
@@ -656,6 +700,15 @@ function ClientDetail({
           salonSlug,
           notes: notesDraft.trim() || null,
           preferredTechnicianId: preferredTechnicianIdDraft || null,
+          sensitivities: sensitivitiesDraft.trim() || null,
+          nailPreferences: {
+            shape: shapeDraft.trim(),
+            length: lengthDraft.trim(),
+            favoriteColors: colorsDraft.trim(),
+            productsUsed: productsDraft.trim(),
+          },
+          tags: tagsDraft.split(',').map(tag => tag.trim()).filter(Boolean),
+          rebookIntervalDays: rebookDaysDraft ? Number(rebookDaysDraft) : null,
         }),
       });
 
@@ -858,6 +911,54 @@ function ClientDetail({
                       />
                     </label>
 
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred shape</span>
+                        <input value={shapeDraft} onChange={event => setShapeDraft(event.target.value)} placeholder="Almond, square..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred length</span>
+                        <input value={lengthDraft} onChange={event => setLengthDraft(event.target.value)} placeholder="Short, medium..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                      </label>
+                    </div>
+
+                    <label className="mt-3 block">
+                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Favourite colours & styles</span>
+                      <input value={colorsDraft} onChange={event => setColorsDraft(event.target.value)} placeholder="Nudes, French, chrome..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                    </label>
+
+                    <label className="mt-3 block">
+                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Products used</span>
+                      <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                    </label>
+
+                    <label className="mt-3 block">
+                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Sensitivities & nail notes</span>
+                      <textarea value={sensitivitiesDraft} onChange={event => setSensitivitiesDraft(event.target.value)} rows={3} placeholder="Known sensitivities, damaged nails, removal care..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                    </label>
+
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Tags</span>
+                        <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} placeholder="VIP, bridal" className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Rebook every</span>
+                        <div className="flex items-center gap-2">
+                          <input type="number" min={1} max={365} value={rebookDaysDraft} onChange={event => setRebookDaysDraft(event.target.value)} placeholder="21" className="min-w-0 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          <span className="text-sm text-[#8E8E93]">days</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    {profile?.nextRebookDueAt && (
+                      <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                        Rebooking due
+                        {' '}
+                        {formatDate(profile.nextRebookDueAt)}
+                      </p>
+                    )}
+
                     {profileSaveError && (
                       <div className="mt-3 text-[13px] text-[#FF3B30]">{profileSaveError}</div>
                     )}
@@ -871,6 +972,13 @@ function ClientDetail({
                         onClick={() => {
                           setNotesDraft(profile?.notes ?? '');
                           setPreferredTechnicianIdDraft(profile?.preferredTechnician?.id ?? '');
+                          setSensitivitiesDraft(profile?.sensitivities ?? '');
+                          setShapeDraft(profile?.nailPreferences?.shape ?? '');
+                          setLengthDraft(profile?.nailPreferences?.length ?? '');
+                          setColorsDraft(profile?.nailPreferences?.favoriteColors ?? '');
+                          setProductsDraft(profile?.nailPreferences?.productsUsed ?? '');
+                          setTagsDraft(profile?.tags?.join(', ') ?? '');
+                          setRebookDaysDraft(profile?.rebookIntervalDays?.toString() ?? '');
                           setProfileSaveError(null);
                         }}
                       >
@@ -1001,6 +1109,20 @@ function ClientDetail({
                                 </div>
                               </>
                             )}
+                    </AdminDetailCard>
+                  )}
+
+                  {photos.length > 0 && (
+                    <AdminDetailCard className="mb-4">
+                      <div className="mb-3 text-[12px] font-medium uppercase text-[#8E8E93]">Nail history photos</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {photos.map(photo => (
+                          <a key={photo.id} href={photo.imageUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl bg-stone-100">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- provider URLs are tenant uploads */}
+                            <img src={photo.thumbnailUrl || photo.imageUrl} alt={photo.caption || `${photo.photoType} appointment photo`} className="aspect-square w-full object-cover" />
+                          </a>
+                        ))}
+                      </div>
                     </AdminDetailCard>
                   )}
 
@@ -1229,7 +1351,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {loading && clients.length === 0
           ? (
-              <div className="px-4 py-4">
+              <div className="p-4">
                 <AsyncStatePanel
                   loading
                   title="Loading clients"

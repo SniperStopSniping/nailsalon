@@ -17,9 +17,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -33,13 +33,35 @@ jobs:
 
     name: Run all tests
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      E2E_SUPER_ADMIN_PHONE: ${{ secrets.E2E_SUPER_ADMIN_PHONE }}
+      E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+      SUPER_ADMIN_AUTH_MODE: password
+      SUPER_ADMIN_TEST_LOGIN_ENABLED: true
+      ALLOW_STAGING_SUPER_ADMIN_PASSWORD: true
+      LEGACY_OTP_AUTH_ENABLED: false
+      PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Retrieve Git history, needed to verify commits
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -74,11 +96,13 @@ jobs:
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
-      - name: Run E2E tests
+      - name: Run E2E tests with Percy
+        if: env.PERCY_TOKEN != ''
         run: npx percy exec -- npm run test:e2e
-        env:
-          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+      - name: Run E2E tests without Percy
+        if: env.PERCY_TOKEN == ''
+        run: npm run test:e2e
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -93,6 +117,9 @@ jobs:
 
     needs: [build, test]
     if: github.event_name == 'pull_request'
+    env:
+      CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +128,7 @@ jobs:
           fetch-depth: 0
 
       - name: crowdin action
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != '' && hashFiles('crowdin.yml', 'crowdin.yaml') != ''
         uses: crowdin/github-action@v2
         with:
           upload_sources: true
@@ -111,5 +139,3 @@ jobs:
           commit_message: 'chore: new Crowdin translations by GitHub Action'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}

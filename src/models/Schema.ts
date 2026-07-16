@@ -281,6 +281,8 @@ export const serviceSchema = pgTable(
     price: integer('price').notNull(), // in cents
     priceDisplayText: text('price_display_text'),
     durationMinutes: integer('duration_minutes').notNull(),
+    preparationBufferMinutes: integer('preparation_buffer_minutes').default(0).notNull(),
+    cleanupBufferMinutes: integer('cleanup_buffer_minutes').default(0).notNull(),
     isIntroPrice: boolean('is_intro_price').default(false),
     introPriceLabel: text('intro_price_label'),
     introPriceExpiresAt: timestamp('intro_price_expires_at', { mode: 'date' }),
@@ -488,8 +490,8 @@ export const appointmentSchema = pgTable(
     salonClientId: text('salon_client_id').references(() => salonClientSchema.id, { onDelete: 'restrict' }),
 
     // Timing
-    startTime: timestamp('start_time', { mode: 'date' }).notNull(),
-    endTime: timestamp('end_time', { mode: 'date' }).notNull(),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
 
     // Status
     status: text('status').notNull().default('confirmed'),
@@ -518,7 +520,7 @@ export const appointmentSchema = pgTable(
     discountType: text('discount_type'),
     discountLabel: text('discount_label'),
     discountPercent: integer('discount_percent'),
-    discountAppliedAt: timestamp('discount_applied_at', { mode: 'date' }),
+    discountAppliedAt: timestamp('discount_applied_at', { mode: 'date', withTimezone: true }),
 
     // Additional
     notes: text('notes'),
@@ -530,15 +532,15 @@ export const appointmentSchema = pgTable(
     sameDayReminderChannel: text('same_day_reminder_channel'),
 
     // Lifecycle timestamps (for staff workflow)
-    startedAt: timestamp('started_at', { mode: 'date' }), // When tech starts the appointment
-    completedAt: timestamp('completed_at', { mode: 'date' }), // When appointment is finished
+    startedAt: timestamp('started_at', { mode: 'date', withTimezone: true }), // When tech starts the appointment
+    completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }), // When appointment is finished
 
     // Appointment locking (Step 16A - prevents edits once service starts)
-    lockedAt: timestamp('locked_at', { mode: 'date' }), // Set when canvas_state -> 'working'
+    lockedAt: timestamp('locked_at', { mode: 'date', withTimezone: true }), // Set when canvas_state -> 'working'
     lockedBy: text('locked_by'), // technician ID who locked it
 
     // Arrival tracking (Step 16A - grace window handling)
-    arrivedAt: timestamp('arrived_at', { mode: 'date' }),
+    arrivedAt: timestamp('arrived_at', { mode: 'date', withTimezone: true }),
     wasLate: boolean('was_late').default(false),
 
     // Staff private notes (Step 16A - only visible to assigned tech)
@@ -561,12 +563,12 @@ export const appointmentSchema = pgTable(
 
     // Post-appointment review follow-up (what the tech chose to send)
     reviewFollowupAction: text('review_followup_action'), // 'satisfaction_question' | 'google_review_link' | 'skipped' | 'already_reviewed'
-    reviewFollowupSentAt: timestamp('review_followup_sent_at', { mode: 'date' }),
+    reviewFollowupSentAt: timestamp('review_followup_sent_at', { mode: 'date', withTimezone: true }),
     reviewFollowupSentBy: text('review_followup_sent_by').references(() => technicianSchema.id),
 
     // Metadata
-    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'date' })
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
@@ -781,9 +783,20 @@ export const salonClientSchema = pgTable(
       () => technicianSchema.id,
     ),
     notes: text('notes'), // internal staff notes
+    sensitivities: text('sensitivities'),
+    nailPreferences: jsonb('nail_preferences').$type<{
+      shape?: string;
+      length?: string;
+      favoriteColors?: string;
+      productsUsed?: string;
+    }>().default({}),
+    tags: jsonb('tags').$type<string[]>().default([]),
+    rebookIntervalDays: integer('rebook_interval_days'),
+    nextRebookDueAt: timestamp('next_rebook_due_at', { mode: 'date', withTimezone: true }),
+    lastContactAt: timestamp('last_contact_at', { mode: 'date', withTimezone: true }),
 
     // Computed stats (updated after each booking)
-    lastVisitAt: timestamp('last_visit_at', { mode: 'date' }),
+    lastVisitAt: timestamp('last_visit_at', { mode: 'date', withTimezone: true }),
     totalVisits: integer('total_visits').default(0),
     totalSpent: integer('total_spent').default(0), // in cents
     noShowCount: integer('no_show_count').default(0),
@@ -800,7 +813,7 @@ export const salonClientSchema = pgTable(
 
     // Late cancellation tracking (Step 16A - client accountability)
     lateCancelCount: integer('late_cancel_count').default(0),
-    lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date' }),
+    lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date', withTimezone: true }),
 
     // Admin-only client flags (Step 16A - problem client management)
     adminFlags: jsonb('admin_flags').$type<{
@@ -1309,6 +1322,9 @@ export const adminUserSchema = pgTable(
   table => ({
     phoneIdx: uniqueIndex('admin_user_phone_idx').on(table.phoneE164),
     emailIdx: uniqueIndex('admin_user_email_idx').on(table.email),
+    normalizedEmailIdx: uniqueIndex('admin_user_normalized_email_idx')
+      .on(sql`lower(${table.email})`)
+      .where(sql`${table.email} is not null`),
     clerkUserIdx: uniqueIndex('admin_user_clerk_user_idx').on(table.clerkUserId),
   }),
 );
@@ -1433,17 +1449,32 @@ export const salonSignupInviteSchema = pgTable(
     id: text('id').primaryKey(),
     tokenHash: text('token_hash').notNull().unique(),
     invitedEmail: text('invited_email').notNull(),
+    intent: text('intent').$type<'create_salon' | 'claim_existing'>().default('create_salon').notNull(),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'cascade' }),
     campaignSource: text('campaign_source'),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { mode: 'date', withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
     consumedByAdminId: text('consumed_by_admin_id').references(() => adminUserSchema.id),
+    resultSalonId: text('result_salon_id').references(() => salonSchema.id),
     createdByAdminId: text('created_by_admin_id').references(() => adminUserSchema.id),
+    emailDeliveryStatus: text('email_delivery_status').$type<'pending' | 'sent' | 'failed'>().default('pending').notNull(),
+    emailSentAt: timestamp('email_sent_at', { mode: 'date', withTimezone: true }),
+    emailDeliveryErrorCode: text('email_delivery_error_code'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
     tokenIdx: uniqueIndex('salon_signup_invite_token_idx').on(table.tokenHash),
     emailIdx: index('salon_signup_invite_email_idx').on(table.invitedEmail),
+    salonIdx: index('salon_signup_invite_salon_idx').on(table.salonId),
+    resultSalonIdx: index('salon_signup_invite_result_salon_idx').on(table.resultSalonId),
     expiresIdx: index('salon_signup_invite_expires_idx').on(table.expiresAt),
+    activeSalonIdx: uniqueIndex('salon_signup_invite_active_salon_idx')
+      .on(table.salonId)
+      .where(sql`${table.salonId} is not null and ${table.consumedAt} is null and ${table.revokedAt} is null`),
+    activeEmailIdx: uniqueIndex('salon_signup_invite_active_email_idx')
+      .on(table.invitedEmail)
+      .where(sql`${table.intent} = 'create_salon' and ${table.consumedAt} is null and ${table.revokedAt} is null`),
   }),
 );
 
@@ -1464,6 +1495,9 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
     tokenExpiresAt: timestamp('token_expires_at', { mode: 'date', withTimezone: true }),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { mode: 'date', withTimezone: true }),
+    inboundSyncEnabled: boolean('inbound_sync_enabled').default(true).notNull(),
+    inboundSyncedAt: timestamp('inbound_synced_at', { mode: 'date', withTimezone: true }),
+    inboundSyncError: text('inbound_sync_error'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()
@@ -1472,6 +1506,82 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
   },
   table => ({
     statusIdx: index('salon_google_calendar_status_idx').on(table.status),
+  }),
+);
+
+export const googleCalendarDraftSchema = pgTable(
+  'google_calendar_draft',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    googleEventId: text('google_event_id').notNull(),
+    title: text('title'),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
+    status: text('status').$type<'needs_details' | 'dismissed' | 'converted'>().default('needs_details').notNull(),
+    convertedAppointmentId: text('converted_appointment_id').references(() => appointmentSchema.id),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonEventIdx: uniqueIndex('google_calendar_draft_salon_event_idx').on(table.salonId, table.googleEventId),
+    salonStatusTimeIdx: index('google_calendar_draft_salon_status_time_idx').on(table.salonId, table.status, table.startTime),
+  }),
+);
+
+// GoogleCalendarEvent - provider-owned calendar time kept separate from CRM appointments.
+export const googleCalendarEventSchema = pgTable(
+  'google_calendar_event',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    calendarId: text('calendar_id').notNull(),
+    googleEventId: text('google_event_id').notNull(),
+    recurringEventId: text('recurring_event_id'),
+    appointmentId: text('appointment_id').references(() => appointmentSchema.id, { onDelete: 'set null' }),
+    sourceAccessRole: text('source_access_role').default('reader').notNull(),
+    syncMode: text('sync_mode').$type<'inbound_only' | 'bidirectional' | 'superseded'>().default('inbound_only').notNull(),
+    title: text('title'),
+    description: text('description'),
+    location: text('location'),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    isAllDay: boolean('is_all_day').default(false).notNull(),
+    transparency: text('transparency').$type<'busy' | 'free'>().default('busy').notNull(),
+    googleStatus: text('google_status').default('confirmed').notNull(),
+    reviewStatus: text('review_status').$type<'needs_review' | 'reviewed' | 'appointment'>().default('needs_review').notNull(),
+    googleUpdatedAt: timestamp('google_updated_at', { mode: 'date', withTimezone: true }),
+    lastSyncedAt: timestamp('last_synced_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    reviewedAt: timestamp('reviewed_at', { mode: 'date', withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
+    supersededByEventId: text('superseded_by_event_id'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonCalendarEventIdx: uniqueIndex('google_calendar_event_tenant_provider_idx').on(table.salonId, table.calendarId, table.googleEventId),
+    salonReviewTimeIdx: index('google_calendar_event_review_time_idx').on(table.salonId, table.reviewStatus, table.startTime),
+    salonTimeIdx: index('google_calendar_event_salon_time_idx').on(table.salonId, table.startTime, table.endTime),
+    appointmentIdx: index('google_calendar_event_appointment_idx').on(table.appointmentId),
+  }),
+);
+
+// Exact-title review memory for future suggestions. The title itself is never duplicated here.
+export const googleEventReviewPatternSchema = pgTable(
+  'google_event_review_pattern',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    titleFingerprint: text('title_fingerprint').notNull(),
+    lastDecision: text('last_decision').$type<'busy_time' | 'free_event' | 'appointment'>().notNull(),
+    decisionCount: integer('decision_count').default(1).notNull(),
+    lastDecisionAt: timestamp('last_decision_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonPatternIdx: uniqueIndex('google_event_review_pattern_tenant_title_idx').on(table.salonId, table.titleFingerprint),
   }),
 );
 
@@ -2289,11 +2399,19 @@ export const AUDIT_LOG_ACTIONS = [
   'super_admin_password_login_succeeded',
   'super_admin_password_login_failed',
   'test_invitation_created',
+  'signup_invitation_created',
+  'signup_invitation_resent',
+  'signup_invitation_delivery_attempted',
+  'signup_invitation_failed',
+  'salon_claim_invitation_created',
+  'salon_claim_completed',
+  'salon_claim_failed',
   'test_tool_action',
   'integration_health_checked',
   'impersonation_started',
   'impersonation_ended',
   'clerk_owner_linked',
+  'clerk_owner_relinked',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

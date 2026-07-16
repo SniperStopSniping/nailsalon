@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import {
@@ -21,6 +21,7 @@ import {
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  notificationDeliverySchema,
   salonLocationSchema,
   salonSchema,
   type Service,
@@ -63,6 +64,8 @@ export type ManagePermissions = {
   canCancel: boolean;
   canMarkCompleted: boolean;
   canStart: boolean;
+  canConfirm: boolean;
+  canMarkNoShow: boolean;
   canReassignTechnician: boolean;
 };
 
@@ -98,6 +101,7 @@ export type AppointmentManageDetail = {
     salonId: string;
     salonSlug: string;
     clientName: string | null;
+    clientEmail?: string | null;
     clientPhone: string;
     technicianId: string | null;
     locationId: string | null;
@@ -116,6 +120,8 @@ export type AppointmentManageDetail = {
     baseServiceName: string;
     discountType: string | null;
     discountAmountCents: number;
+    notes: string | null;
+    techNotes: string | null;
   };
   services: Array<{
     id: string;
@@ -147,6 +153,19 @@ export type AppointmentManageDetail = {
   }>;
   permissions: ManagePermissions;
   warnings: ManageWarning[];
+  confirmationDelivery?: {
+    status: string;
+    errorCode: string | null;
+    retryable: boolean | null;
+    updatedAt: string;
+  } | null;
+  communications: Array<{
+    channel: string;
+    purpose: string;
+    status: string;
+    errorCode: string | null;
+    updatedAt: string;
+  }>;
 };
 
 export type AppointmentCalendarEvent = {
@@ -171,6 +190,7 @@ export type AppointmentCalendarEvent = {
 type MoveArgs = {
   loaded: LoadedManagedAppointment;
   startTime: Date;
+  durationMinutes?: number;
   technicianId?: string | null;
 };
 
@@ -224,6 +244,8 @@ function buildPermissions(
     canCancel: !terminal,
     canMarkCompleted: !terminal && appointment.status !== 'completed',
     canStart: appointment.status === 'confirmed' && !appointment.lockedAt,
+    canConfirm: appointment.status === 'pending' && !appointment.lockedAt,
+    canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status),
     canReassignTechnician: canReassignTechnician && !terminal && !isLocked,
   };
 }
@@ -639,6 +661,19 @@ export async function getAppointmentManageDetail(args: {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
+  const deliveryRows = await db.select({
+    channel: notificationDeliverySchema.channel,
+    purpose: notificationDeliverySchema.purpose,
+    status: notificationDeliverySchema.status,
+    errorCode: notificationDeliverySchema.errorCode,
+    retryable: notificationDeliverySchema.retryable,
+    updatedAt: notificationDeliverySchema.updatedAt,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, args.salonId),
+    eq(notificationDeliverySchema.appointmentId, args.appointmentId),
+  )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(8);
+  const confirmationDelivery = deliveryRows.find(delivery => delivery.channel === 'email' && delivery.purpose.includes('booking_confirmation'))
+    ?? deliveryRows.find(delivery => delivery.channel === 'email');
 
   return {
     appointment: {
@@ -646,6 +681,7 @@ export async function getAppointmentManageDetail(args: {
       salonId: loaded.appointment.salonId,
       salonSlug: args.salonSlug,
       clientName: loaded.appointment.clientName,
+      clientEmail: loaded.appointment.clientEmail,
       clientPhone: loaded.appointment.clientPhone,
       technicianId: loaded.appointment.technicianId,
       locationId: loaded.appointment.locationId,
@@ -664,6 +700,8 @@ export async function getAppointmentManageDetail(args: {
       baseServiceName: baseService?.row.nameSnapshot ?? baseService?.liveService?.name ?? 'Service',
       discountType: loaded.appointment.discountType,
       discountAmountCents: loaded.appointment.discountAmountCents ?? 0,
+      notes: loaded.appointment.notes,
+      techNotes: loaded.appointment.techNotes,
     },
     services: loaded.appointmentServices.map((entry, index) => ({
       id: entry.row.serviceId,
@@ -699,13 +737,30 @@ export async function getAppointmentManageDetail(args: {
       })),
     permissions,
     warnings: [],
+    confirmationDelivery: confirmationDelivery
+      ? { ...confirmationDelivery, updatedAt: confirmationDelivery.updatedAt.toISOString() }
+      : null,
+    communications: deliveryRows.map(delivery => ({
+      channel: delivery.channel,
+      purpose: delivery.purpose,
+      status: delivery.status,
+      errorCode: delivery.errorCode,
+      updatedAt: delivery.updatedAt.toISOString(),
+    })),
   };
 }
 
 async function mutateMove(args: MoveArgs): Promise<MutationResult> {
   ensureEditable(args.loaded.appointment);
   const requestedServices = toRequestedServices(args.loaded.appointmentServices);
-  const totalDurationMinutes = args.loaded.appointment.totalDurationMinutes;
+  const totalDurationMinutes = args.durationMinutes ?? args.loaded.appointment.totalDurationMinutes;
+  if (!Number.isInteger(totalDurationMinutes) || totalDurationMinutes < 15 || totalDurationMinutes > 480) {
+    throw new AppointmentManageError(
+      'INVALID_DURATION',
+      'Appointment duration must be between 15 and 480 minutes.',
+      400,
+    );
+  }
   const bufferMinutes = args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes;
   const normalizedStartTime = roundDownToSlot(args.startTime, args.loaded.slotIntervalMinutes);
   const validated = await validateTimeAndTechnician({
@@ -723,6 +778,7 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
       technicianId: validated.technician?.id ?? args.loaded.appointment.technicianId,
       startTime: validated.startTime,
       endTime: validated.endTime,
+      totalDurationMinutes,
       bufferMinutes,
       blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
       updatedAt: new Date(),
@@ -963,6 +1019,7 @@ export async function runAppointmentManageMutation(args: {
   salonId: string;
   operation: ManageAction;
   startTime?: Date;
+  durationMinutes?: number;
   baseServiceId?: string;
   technicianId?: string | null;
   canReassignTechnician: boolean;
@@ -982,6 +1039,7 @@ export async function runAppointmentManageMutation(args: {
       result = await mutateMove({
         loaded,
         startTime: args.startTime,
+        durationMinutes: args.durationMinutes,
         technicianId: args.technicianId,
       });
       break;
@@ -1034,4 +1092,11 @@ export async function runAppointmentManageMutation(args: {
     calendarEvent: buildCalendarEvent(reloaded),
     warnings: result.warnings,
   };
+}
+
+export async function getAppointmentCalendarEventForSync(
+  appointmentId: string,
+  salonId: string,
+): Promise<AppointmentCalendarEvent> {
+  return buildCalendarEvent(await loadManagedAppointment(appointmentId, salonId));
 }

@@ -146,7 +146,7 @@ export function getMockAdminMeResponse(role: 'super_admin' | 'admin') {
         {
           id: 'salon_nail-salon-no5',
           slug: 'nail-salon-no5',
-          name: 'Nail Salon No.5',
+          name: 'Luster Demo Studio',
           role: 'owner',
         },
       ],
@@ -177,7 +177,7 @@ export function getMockStaffMeResponse() {
       salon: {
         id: 'salon_nail-salon-no5',
         slug: 'nail-salon-no5',
-        name: 'Nail Salon No.5',
+        name: 'Luster Demo Studio',
       },
     },
   };
@@ -231,7 +231,7 @@ export function getMockAdminSession(
       {
         salonId: 'salon_nail-salon-no5',
         salonSlug: 'nail-salon-no5',
-        salonName: 'Nail Salon No.5',
+        salonName: 'Luster Demo Studio',
         role: 'owner',
       },
     ],

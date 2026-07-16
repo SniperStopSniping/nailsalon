@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_BOOKING_CONFIG, resolveBookingConfigFromSettings, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { DEFAULT_BOOKING_CONFIG, getClientChangePolicy, resolveBookingConfigFromSettings, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 
 describe('bookingConfig', () => {
   it('applies defaults when booking settings are missing', () => {
@@ -24,7 +24,17 @@ describe('bookingConfig', () => {
       timezone: 'America/New_York',
       introPriceDefaultLabel: 'Soft Opening Price',
       firstVisitDiscountEnabled: true,
+      clientChangeCutoffHours: 24,
     });
+  });
+
+  it('enforces the salon client-change cutoff at the exact boundary', () => {
+    const config = resolveBookingConfigFromSettings({ booking: { ...DEFAULT_BOOKING_CONFIG, clientChangeCutoffHours: 24 } });
+    const start = new Date('2026-07-17T23:15:00.000Z');
+
+    expect(getClientChangePolicy(start, config, new Date('2026-07-16T23:14:59.000Z')).canChange).toBe(true);
+    expect(getClientChangePolicy(start, config, new Date('2026-07-16T23:15:00.000Z')).canChange).toBe(false);
+    expect(getClientChangePolicy(start, { ...config, clientChangeCutoffHours: 0 }, start).canChange).toBe(true);
   });
 
   it('hides intro labels after expiry and falls back to salon defaults otherwise', () => {

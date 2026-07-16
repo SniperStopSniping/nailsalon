@@ -29,6 +29,8 @@ export async function verifyAppointmentAccessToken(token: string, options?: {
       appointment: appointmentSchema,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      salonEmail: salonSchema.email,
+      salonPhone: salonSchema.phone,
       salonSettings: salonSchema.settings,
     })
     .from(appointmentAccessTokenSchema)

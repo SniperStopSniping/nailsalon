@@ -1,14 +1,19 @@
 import { currentUser } from '@clerk/nextjs/server';
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
+import { logAuditEvent } from '@/libs/auditLog';
+import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
+import { buildSalonTenantPublicUrl, getCanonicalAppOrigin } from '@/libs/publicUrl';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
+  adminInviteSchema,
   adminSalonMembershipSchema,
   adminUserSchema,
+  appointmentSchema,
   salonLocationSchema,
   salonSchema,
   salonSignupInviteSchema,
@@ -77,11 +82,28 @@ function normalizeSetupError(error: unknown): string {
       || constraint.includes('admin_user_email')
       || constraint.includes('admin_user_phone')
     ) {
-      return 'OWNER_EXISTS';
+      return constraint.includes('admin_user_phone') ? 'OWNER_PHONE_CONFLICT' : 'OWNER_ACCOUNT_CONFLICT';
     }
   }
   return error instanceof Error ? error.message : 'SETUP_FAILED';
 }
+
+const freeSoloFeatures = {
+  booking: { onlineBooking: true, staffDashboard: true },
+  staff: { scheduleOverrides: false, timeOff: true },
+  clients: { clientProfiles: true, clientHistory: true },
+  social: { photoUploads: false },
+  marketing: { smsReminders: true, referrals: false, rewards: false },
+  money: { staffEarnings: false },
+  analytics: { dashboard: false, utilization: false },
+  controls: { clientBlocking: false, clientFlags: false },
+  multiLocation: false,
+  advancedAnalytics: false,
+  revenueReports: false,
+  techPerformance: false,
+  customBranding: true,
+  apiAccess: false,
+};
 
 export async function POST(request: Request) {
   const clerkUser = await currentUser();
@@ -106,12 +128,11 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: 'INVALID_TIMEZONE', message: 'Choose a valid timezone.' } }, { status: 400 });
   }
 
-  const primaryEmail = clerkUser.emailAddresses.find(item => item.id === clerkUser.primaryEmailAddressId)?.emailAddress
-    ?? clerkUser.emailAddresses[0]?.emailAddress;
-  if (!primaryEmail) {
-    return Response.json({ error: { code: 'EMAIL_REQUIRED', message: 'A verified owner email is required.' } }, { status: 400 });
+  const primaryEmail = clerkUser.emailAddresses.find(item => item.id === clerkUser.primaryEmailAddressId);
+  if (!primaryEmail || primaryEmail.verification?.status !== 'verified') {
+    return Response.json({ error: { code: 'EMAIL_NOT_VERIFIED', message: 'Verify the invited email before finishing setup.' } }, { status: 403 });
   }
-  const normalizedEmail = primaryEmail.trim().toLowerCase();
+  const normalizedEmail = primaryEmail.emailAddress.trim().toLowerCase();
   let phoneE164: string;
   try {
     phoneE164 = formatPhoneE164(input.ownerPhone);
@@ -119,49 +140,185 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: 'INVALID_PHONE', message: 'Enter a valid Canadian or US phone number.' } }, { status: 400 });
   }
 
+  const inviteTokenHash = hashOpaqueToken(input.inviteToken);
+  let claimAuditSalonId: string | null = null;
+  let claimAuditInviteId: string | null = null;
+  let relinkedAdminId: string | null = null;
   try {
     const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ${salonSignupInviteSchema} where ${salonSignupInviteSchema.tokenHash} = ${inviteTokenHash} for update`);
       const [invite] = await tx
         .select()
         .from(salonSignupInviteSchema)
-        .where(and(
-          eq(salonSignupInviteSchema.tokenHash, hashOpaqueToken(input.inviteToken)),
-          isNull(salonSignupInviteSchema.consumedAt),
-          gt(salonSignupInviteSchema.expiresAt, new Date()),
-        ))
+        .where(eq(salonSignupInviteSchema.tokenHash, inviteTokenHash))
         .limit(1);
       if (!invite) {
         throw new Error('INVITE_INVALID');
       }
       if (invite.invitedEmail.trim().toLowerCase() !== normalizedEmail) {
-        const error = new Error('INVITE_EMAIL_MISMATCH');
-        error.cause = invite.invitedEmail;
-        throw error;
+        throw new Error('INVITE_EMAIL_MISMATCH');
       }
 
-      const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);
-      if (duplicateSalon) {
-        throw new Error('SLUG_TAKEN');
-      }
-      const [duplicateOwner] = await tx
-        .select({ id: adminUserSchema.id })
+      const now = new Date();
+      const identityOwners = await tx
+        .select({
+          id: adminUserSchema.id,
+          clerkUserId: adminUserSchema.clerkUserId,
+          email: adminUserSchema.email,
+        })
         .from(adminUserSchema)
-        .where(or(eq(adminUserSchema.clerkUserId, clerkUser.id), eq(adminUserSchema.email, normalizedEmail), eq(adminUserSchema.phoneE164, phoneE164)))
-        .limit(1);
-      if (duplicateOwner) {
-        throw new Error('OWNER_EXISTS');
+        .where(or(
+          eq(adminUserSchema.clerkUserId, clerkUser.id),
+          sql`lower(${adminUserSchema.email}) = ${normalizedEmail}`,
+        ))
+        .limit(2);
+
+      const clerkOwner = identityOwners.find(owner => owner.clerkUserId === clerkUser.id);
+      const emailOwner = identityOwners.find(owner => owner.email?.trim().toLowerCase() === normalizedEmail);
+      if (clerkOwner && emailOwner && clerkOwner.id !== emailOwner.id) {
+        throw new Error('OWNER_ACCOUNT_CONFLICT');
+      }
+      const identityOwner = clerkOwner ?? emailOwner;
+
+      if (identityOwner?.clerkUserId && identityOwner.clerkUserId !== clerkUser.id) {
+        let oldIdentityIsMissing = false;
+        try {
+          oldIdentityIsMissing = await isClerkUserMissing(identityOwner.clerkUserId);
+        } catch {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+        if (!oldIdentityIsMissing) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+
+        const oldClerkUserId = identityOwner.clerkUserId;
+        const relinked = await tx
+          .update(adminUserSchema)
+          .set({ clerkUserId: clerkUser.id, emailVerifiedAt: now, updatedAt: now })
+          .where(and(
+            eq(adminUserSchema.id, identityOwner.id),
+            eq(adminUserSchema.clerkUserId, oldClerkUserId),
+          ))
+          .returning();
+        if (relinked.length !== 1) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+        identityOwner.clerkUserId = clerkUser.id;
+        relinkedAdminId = identityOwner.id;
       }
 
-      const salonId = crypto.randomUUID();
-      const adminId = crypto.randomUUID();
+      const adminId = identityOwner?.id ?? crypto.randomUUID();
+      if (identityOwner && !identityOwner.clerkUserId) {
+        const linked = await tx
+          .update(adminUserSchema)
+          .set({ clerkUserId: clerkUser.id, emailVerifiedAt: now })
+          .where(and(
+            eq(adminUserSchema.id, identityOwner.id),
+            isNull(adminUserSchema.clerkUserId),
+          ))
+          .returning();
+        if (linked.length !== 1) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+      }
+
+      if (invite.consumedAt) {
+        if (!invite.resultSalonId || invite.consumedByAdminId !== adminId) {
+          throw new Error('INVITE_INVALID');
+        }
+        const [completedSalon] = await tx
+          .select({
+            id: salonSchema.id,
+            slug: salonSchema.slug,
+            customDomain: salonSchema.customDomain,
+          })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, invite.resultSalonId))
+          .limit(1);
+        if (!completedSalon) {
+          throw new Error('INVITE_INVALID');
+        }
+        return {
+          salonId: completedSalon.id,
+          slug: completedSalon.slug,
+          customDomain: completedSalon.customDomain,
+          intent: invite.intent,
+          created: false,
+        };
+      }
+      if (invite.revokedAt || invite.expiresAt <= now) {
+        throw new Error('INVITE_INVALID');
+      }
+
+      if (!identityOwner) {
+        const [phoneOwner] = await tx
+          .select({ id: adminUserSchema.id })
+          .from(adminUserSchema)
+          .where(eq(adminUserSchema.phoneE164, phoneE164))
+          .limit(1);
+        if (phoneOwner) {
+          throw new Error('OWNER_PHONE_CONFLICT');
+        }
+      }
+
+      let salonId: string;
+      let salonName = input.salonName;
+      let slug = input.slug;
+      let customDomain: string | null = null;
+      const isClaim = invite.intent === 'claim_existing';
+      if (isClaim) {
+        claimAuditSalonId = invite.salonId;
+        claimAuditInviteId = invite.id;
+        if (!invite.salonId) {
+          throw new Error('CLAIM_REQUIRES_REVIEW');
+        }
+        await tx.execute(sql`select id from ${salonSchema} where ${salonSchema.id} = ${invite.salonId} for update`);
+        const [claimSalon] = await tx
+          .select({
+            id: salonSchema.id,
+            name: salonSchema.name,
+            slug: salonSchema.slug,
+            customDomain: salonSchema.customDomain,
+            ownerEmail: salonSchema.ownerEmail,
+            ownerClerkUserId: salonSchema.ownerClerkUserId,
+          })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, invite.salonId))
+          .limit(1);
+        const [membershipCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(adminSalonMembershipSchema)
+          .where(eq(adminSalonMembershipSchema.salonId, invite.salonId));
+        const [appointmentCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(appointmentSchema)
+          .where(eq(appointmentSchema.salonId, invite.salonId));
+        if (
+          !claimSalon
+          || claimSalon.ownerClerkUserId
+          || claimSalon.ownerEmail?.trim().toLowerCase() !== normalizedEmail
+          || Number(membershipCount?.count ?? 0) > 0
+          || Number(appointmentCount?.count ?? 0) > 0
+        ) {
+          throw new Error('CLAIM_REQUIRES_REVIEW');
+        }
+        salonId = claimSalon.id;
+        salonName = claimSalon.name;
+        slug = claimSalon.slug;
+        customDomain = claimSalon.customDomain;
+      } else {
+        const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);
+        if (duplicateSalon) {
+          throw new Error('SLUG_TAKEN');
+        }
+        salonId = crypto.randomUUID();
+      }
+
       const technicianId = crypto.randomUUID();
       const locationId = crypto.randomUUID();
-      const now = new Date();
-
-      await tx.insert(salonSchema).values({
-        id: salonId,
-        name: input.salonName,
-        slug: input.slug,
+      const salonValues = {
+        name: salonName,
+        slug,
         logoUrl: input.logoUrl || null,
         phone: phoneE164,
         email: normalizedEmail,
@@ -175,31 +332,17 @@ export async function POST(request: Request) {
         ownerPhone: phoneE164,
         ownerClerkUserId: clerkUser.id,
         status: 'active',
+        isActive: true,
         publicationStatus: 'published',
         publishedAt: now,
         slugLockedAt: now,
         onboardingCompletedAt: now,
         freeSoloEnabled: true,
         invitationSource: invite.campaignSource,
-        plan: 'free_solo',
+        plan: 'free',
         maxLocations: 1,
         isMultiLocationEnabled: false,
-        features: {
-          booking: { onlineBooking: true, staffDashboard: true },
-          staff: { scheduleOverrides: false, timeOff: true },
-          clients: { clientProfiles: true, clientHistory: true },
-          social: { photoUploads: false },
-          marketing: { smsReminders: true, referrals: false, rewards: false },
-          money: { staffEarnings: false },
-          analytics: { dashboard: false, utilization: false },
-          controls: { clientBlocking: false, clientFlags: false },
-          multiLocation: false,
-          advancedAnalytics: false,
-          revenueReports: false,
-          techPerformance: false,
-          customBranding: true,
-          apiAccess: false,
-        },
+        features: freeSoloFeatures,
         settings: {
           booking: {
             bufferMinutes: 10,
@@ -225,15 +368,29 @@ export async function POST(request: Request) {
         smsRemindersEnabled: false,
         bookingFlowCustomizationEnabled: false,
         bookingFlow: ['service', 'time', 'confirm'],
-      });
-      await tx.insert(adminUserSchema).values({
-        id: adminId,
-        phoneE164,
-        clerkUserId: clerkUser.id,
-        name: input.ownerName,
-        email: normalizedEmail,
-        emailVerifiedAt: now,
-      });
+      };
+
+      if (isClaim) {
+        await tx.update(salonSchema).set(salonValues).where(eq(salonSchema.id, salonId));
+        await tx.update(serviceSchema).set({ isActive: false }).where(eq(serviceSchema.salonId, salonId));
+        await tx.update(adminInviteSchema).set({ usedAt: now }).where(and(
+          eq(adminInviteSchema.salonId, salonId),
+          isNull(adminInviteSchema.usedAt),
+        ));
+      } else {
+        await tx.insert(salonSchema).values({ id: salonId, ...salonValues });
+      }
+
+      if (!identityOwner) {
+        await tx.insert(adminUserSchema).values({
+          id: adminId,
+          phoneE164,
+          clerkUserId: clerkUser.id,
+          name: input.ownerName,
+          email: normalizedEmail,
+          emailVerifiedAt: now,
+        });
+      }
       await tx.insert(adminSalonMembershipSchema).values({ adminId, salonId, role: 'owner' });
       await tx.insert(salonLocationSchema).values({
         id: locationId,
@@ -268,11 +425,12 @@ export async function POST(request: Request) {
 
       for (const [index, service] of input.services.entries()) {
         const serviceId = crypto.randomUUID();
+        const baseSlug = service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'service';
         await tx.insert(serviceSchema).values({
           id: serviceId,
           salonId,
           name: service.name,
-          slug: `${service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${index + 1}`,
+          slug: `${baseSlug}-${index + 1}-${serviceId.slice(0, 8)}`,
           price: service.priceCents,
           durationMinutes: service.durationMinutes,
           category: service.category,
@@ -284,31 +442,86 @@ export async function POST(request: Request) {
 
       const consumed = await tx
         .update(salonSignupInviteSchema)
-        .set({ consumedAt: now, consumedByAdminId: adminId })
-        .where(and(eq(salonSignupInviteSchema.id, invite.id), isNull(salonSignupInviteSchema.consumedAt)))
+        .set({ consumedAt: now, consumedByAdminId: adminId, resultSalonId: salonId })
+        .where(and(
+          eq(salonSignupInviteSchema.id, invite.id),
+          isNull(salonSignupInviteSchema.consumedAt),
+          isNull(salonSignupInviteSchema.revokedAt),
+        ))
         .returning();
       if (consumed.length !== 1) {
         throw new Error('INVITE_INVALID');
       }
 
-      return { salonId, slug: input.slug };
+      return { salonId, slug, customDomain, intent: invite.intent, created: true };
     });
 
-    return Response.json({ data: { ...result, publicUrl: `https://${result.slug}.${process.env.LUSTER_ROOT_DOMAIN || 'luster.com'}` } }, { status: 201 });
+    if (result.intent === 'claim_existing') {
+      await logAuditEvent({
+        salonId: result.salonId,
+        actorType: 'admin',
+        actorId: clerkUser.id,
+        action: 'salon_claim_completed',
+        entityType: 'salon',
+        entityId: result.salonId,
+      });
+    }
+    if (relinkedAdminId) {
+      await logAuditEvent({
+        salonId: result.salonId,
+        actorType: 'admin',
+        actorId: relinkedAdminId,
+        action: 'clerk_owner_relinked',
+        entityType: 'admin_user',
+        entityId: relinkedAdminId,
+        metadata: { reason: 'verified_email_stale_identity' },
+      });
+    }
+
+    const publicUrl = buildSalonTenantPublicUrl('/', {
+      slug: result.slug,
+      customDomain: result.customDomain,
+    });
+    return Response.json({
+      data: {
+        salonId: result.salonId,
+        slug: result.slug,
+        publicUrl,
+        bookingUrl: buildSalonTenantPublicUrl('/book/service', {
+          slug: result.slug,
+          customDomain: result.customDomain,
+        }),
+        dashboardUrl: `${getCanonicalAppOrigin()}/en/admin?salon=${encodeURIComponent(result.slug)}`,
+      },
+    }, { status: result.created ? 201 : 200 });
   } catch (error) {
     const code = normalizeSetupError(error);
-    const invitedEmail = error instanceof Error && error.message === 'INVITE_EMAIL_MISMATCH' && typeof error.cause === 'string'
-      ? error.cause
-      : null;
+    if (claimAuditSalonId) {
+      await logAuditEvent({
+        salonId: claimAuditSalonId,
+        actorType: 'admin',
+        actorId: clerkUser.id,
+        action: 'salon_claim_failed',
+        entityType: 'salon_signup_invite',
+        entityId: claimAuditInviteId,
+        metadata: { failureCode: code },
+      });
+    }
     const messages: Record<string, string> = {
       INVITE_INVALID: 'This invitation is invalid, expired, or already used.',
-      INVITE_EMAIL_MISMATCH: invitedEmail ? `Sign in with the invited email: ${invitedEmail}` : 'Sign in with the email address that received this invitation.',
+      INVITE_EMAIL_MISMATCH: 'Sign in with the email address that received this invitation.',
+      CLAIM_REQUIRES_REVIEW: 'This salon changed after the invitation was issued. Ask Luster support to review it.',
       SLUG_TAKEN: 'That salon link is already taken.',
-      OWNER_EXISTS: 'An owner account already exists for this email or phone.',
+      OWNER_ACCOUNT_CONFLICT: 'This email is connected to a different owner login. Sign in with the invited email or reset its password.',
+      OWNER_PHONE_CONFLICT: 'That phone number belongs to another owner account. Sign in to that account or use a different contact number.',
     };
-    const status = code === 'SLUG_TAKEN' || code === 'OWNER_EXISTS' ? 409 : code.startsWith('INVITE_') ? 403 : 500;
+    const status = code === 'SLUG_TAKEN' || code.startsWith('OWNER_') || code === 'CLAIM_REQUIRES_REVIEW'
+      ? 409
+      : code.startsWith('INVITE_')
+        ? 403
+        : 500;
     if (status >= 500) {
-      console.error('[Luster onboarding]', error);
+      console.error('[Luster onboarding] Setup failed');
     }
     return Response.json({ error: { code, message: messages[code] || 'Salon setup could not be completed.' } }, { status });
   }

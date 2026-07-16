@@ -2,6 +2,7 @@ import { and, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import { seedDefaultCatalogForSalon } from '@/libs/defaultCatalog';
 import { getSuperAdminInfo, requireSuperAdmin } from '@/libs/superAdmin';
@@ -318,6 +319,11 @@ export async function POST(request: Request): Promise<Response> {
   const guard = await requireSuperAdmin();
   if (guard) {
     return guard;
+  }
+  if (!isLegacyOtpAuthEnabled()) {
+    return Response.json({
+      error: { code: 'LEGACY_OTP_DISABLED', message: 'Create salons with an email invitation.' },
+    }, { status: 410 });
   }
 
   try {

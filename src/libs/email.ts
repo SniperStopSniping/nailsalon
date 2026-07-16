@@ -9,17 +9,25 @@ type SendTransactionalEmailParams = {
   text: string;
 };
 
-export async function sendTransactionalEmail(params: SendTransactionalEmailParams): Promise<boolean> {
+export type TransactionalEmailResult = {
+  ok: boolean;
+  errorCode: string | null;
+  providerMessageId: string | null;
+};
+
+export async function sendTransactionalEmailDetailed(
+  params: SendTransactionalEmailParams,
+): Promise<TransactionalEmailResult> {
   if (!Env.RESEND_API_KEY || !Env.RESEND_FROM_EMAIL) {
     console.warn('[EMAIL DISABLED] Resend is not configured');
-    return false;
+    return { ok: false, errorCode: 'RESEND_NOT_CONFIGURED', providerMessageId: null };
   }
 
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${Env.RESEND_API_KEY}`,
+        'Authorization': `Bearer ${Env.RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -35,14 +43,27 @@ export async function sendTransactionalEmail(params: SendTransactionalEmailParam
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      console.error('[EMAIL ERROR] Resend request failed:', response.status, body);
-      return false;
+      // Do not log provider response bodies: they can contain recipient data.
+      console.error('[EMAIL ERROR] Resend request failed with status', response.status);
+      return {
+        ok: false,
+        errorCode: `RESEND_HTTP_${response.status}`,
+        providerMessageId: null,
+      };
     }
 
-    return true;
-  } catch (error) {
-    console.error('[EMAIL ERROR] Failed to send transactional email:', error);
-    return false;
+    const body = await response.json().catch(() => null) as { id?: unknown } | null;
+    return {
+      ok: true,
+      errorCode: null,
+      providerMessageId: typeof body?.id === 'string' ? body.id : null,
+    };
+  } catch {
+    console.error('[EMAIL ERROR] Resend request failed with a network error');
+    return { ok: false, errorCode: 'RESEND_NETWORK_ERROR', providerMessageId: null };
   }
+}
+
+export async function sendTransactionalEmail(params: SendTransactionalEmailParams): Promise<boolean> {
+  return (await sendTransactionalEmailDetailed(params)).ok;
 }

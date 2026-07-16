@@ -6,8 +6,11 @@ import { salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const rawState = url.searchParams.get('state') || '';
+  let salonSlug = getSafeReturnSlug(rawState);
   try {
-    const state = verifyOAuthState<{ provider: string; salonId: string; salonSlug: string }>(url.searchParams.get('state') || '');
+    const state = verifyOAuthState<{ provider: string; salonId: string; salonSlug: string }>(rawState);
+    salonSlug = state.salonSlug;
     if (state.provider !== 'google') {
       throw new Error('Invalid provider state');
     }
@@ -49,6 +52,12 @@ export async function GET(request: Request) {
       status: 'active',
       tokenExpiresAt: new Date(Date.now() + (token.expires_in ?? 3600) * 1000),
       lastError: null,
+      inboundSyncEnabled: true,
+      // A null cursor triggers the bounded initial import. Historical events are
+      // recorded as reviewed busy time, while current/future events enter the
+      // review queue. Upserts make reconnects duplicate-safe.
+      inboundSyncedAt: null,
+      inboundSyncError: null,
     }).onConflictDoUpdate({
       target: salonGoogleCalendarConnectionSchema.salonId,
       set: {
@@ -60,12 +69,34 @@ export async function GET(request: Request) {
         status: 'active',
         tokenExpiresAt: new Date(Date.now() + (token.expires_in ?? 3600) * 1000),
         lastError: null,
+        inboundSyncEnabled: true,
+        inboundSyncedAt: null,
+        inboundSyncError: null,
         updatedAt: new Date(),
       },
     });
     return Response.redirect(new URL(`/en/admin/luster?salon=${encodeURIComponent(state.salonSlug)}&google=connected`, request.url));
   } catch (error) {
     console.error('[Google OAuth callback]', error);
-    return Response.redirect(new URL('/en/admin/luster?google=error', request.url));
+    const returnUrl = new URL('/en/admin/luster', request.url);
+    if (salonSlug) {
+      returnUrl.searchParams.set('salon', salonSlug);
+    }
+    returnUrl.searchParams.set('google', error instanceof Error && error.message.includes('expired') ? 'expired' : 'error');
+    return Response.redirect(returnUrl);
+  }
+}
+
+function getSafeReturnSlug(state: string): string {
+  try {
+    const [payload] = state.split('.');
+    if (!payload) {
+      return '';
+    }
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { salonSlug?: unknown };
+    const slug = typeof decoded.salonSlug === 'string' ? decoded.salonSlug.trim().toLowerCase() : '';
+    return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug) ? slug : '';
+  } catch {
+    return '';
   }
 }

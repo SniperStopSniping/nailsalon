@@ -1,21 +1,21 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { mapAddOnToCatalogSummary, mapServiceAddOnRule, mapServiceToCatalogSummary } from '@/libs/bookingCatalog';
+import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
   getPublicTechnicianCompatibility as resolveSharedPublicTechnicianCompatibility,
   type PublicRequestedService,
   type PublicTechnicianPreview,
 } from '@/libs/publicTechnicianCompatibility';
 import {
-  addOnSchema,
   type AddOn,
   type AddOnCategory,
   type AddOnPricingType,
+  addOnSchema,
   type Service,
-  type ServiceCategory,
   serviceAddOnSchema,
+  type ServiceCategory,
   technicianServicesSchema,
 } from '@/models/Schema';
 
@@ -270,7 +270,10 @@ export async function validatePublicBookingSelection(args: {
     const quote = buildBookingQuote({
       baseService: serviceSummary,
       addOns: [],
-      bufferMinutes: bookingConfig.bufferMinutes,
+      bufferMinutes: Math.max(
+        bookingConfig.bufferMinutes,
+        baseService.preparationBufferMinutes + baseService.cleanupBufferMinutes,
+      ),
       resolvedIntroPriceLabel: resolveIntroPriceLabel({
         isIntroPrice: baseService.isIntroPrice,
         introPriceExpiresAt: baseService.introPriceExpiresAt,
@@ -339,7 +342,10 @@ export async function validatePublicBookingSelection(args: {
   const quote = buildBookingQuote({
     baseService: serviceSummary,
     addOns: resolvedAddOns,
-    bufferMinutes: bookingConfig.bufferMinutes,
+    bufferMinutes: Math.max(
+      bookingConfig.bufferMinutes,
+      baseService.preparationBufferMinutes + baseService.cleanupBufferMinutes,
+    ),
     resolvedIntroPriceLabel: resolveIntroPriceLabel({
       isIntroPrice: baseService.isIntroPrice,
       introPriceExpiresAt: baseService.introPriceExpiresAt,
