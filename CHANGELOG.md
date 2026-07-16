@@ -1,3 +1,27 @@
+# [1.6.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.5.1...v1.6.0) (2026-07-16)
+
+
+### Bug Fixes
+
+* owner identity relinking for multiple salons ([28969a7](https://github.com/SniperStopSniping/nailsalon/commit/28969a7194bbc1efbe05c432843cfe3a3037c619))
+* repair owner signup and salon claims ([e3c1a8b](https://github.com/SniperStopSniping/nailsalon/commit/e3c1a8b59041df732681d21a2fd21d6bb1811972))
+* restore owner dashboard Clerk context ([57ada1c](https://github.com/SniperStopSniping/nailsalon/commit/57ada1c207f272c6d5600b57b78e3982678be89c))
+* route owner portal before locale middleware ([11dfd31](https://github.com/SniperStopSniping/nailsalon/commit/11dfd3111cab81967bc0ec176a7e7e57e0130278))
+* satisfy release lint checks ([e60b759](https://github.com/SniperStopSniping/nailsalon/commit/e60b759d711261e0fa4ec25d8f74c542daec6156))
+* supply CI integration secrets ([7662e42](https://github.com/SniperStopSniping/nailsalon/commit/7662e426114732dd07cc0a7d204e8f907f13bcd7))
+* support owners with multiple salons ([e02076f](https://github.com/SniperStopSniping/nailsalon/commit/e02076fec7fd61fe37df8b17ef27ef589d6ad067))
+
+
+### Features
+
+* add branded Luster home gateway ([3352d81](https://github.com/SniperStopSniping/nailsalon/commit/3352d813b4ea5bac2ccfe4b2d39258b5e9a92a8f))
+* add salon workspace and feature controls ([efcd3a0](https://github.com/SniperStopSniping/nailsalon/commit/efcd3a0050c426e46b75767d4f40365e73160150))
+* add secure guest booking recovery ([f03e003](https://github.com/SniperStopSniping/nailsalon/commit/f03e003788bac990cc6beb5dd8089dd5d76734a0))
+* add two-way calendar sync and email verification ([55a8c6f](https://github.com/SniperStopSniping/nailsalon/commit/55a8c6f27812d8246b3406b0b0c3d2dca5bf6bed))
+* complete Luster nail-tech pilot experience ([10ec491](https://github.com/SniperStopSniping/nailsalon/commit/10ec4912b87e1a8a7cc0b446cadd07a9f50835fb))
+* polish Luster workspace and fix feature sync ([f5c3e9d](https://github.com/SniperStopSniping/nailsalon/commit/f5c3e9d87b23049820c8c1c32eb3bc659c9c776d))
+* repair Google calendar review and mobile schedule ([f0c37b1](https://github.com/SniperStopSniping/nailsalon/commit/f0c37b12b06fd604d10446dfdf99b39ad44697ed))
+
 ## [1.5.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.5.0...v1.5.1) (2026-07-10)
 
 
