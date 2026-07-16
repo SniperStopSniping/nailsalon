@@ -1,25 +1,25 @@
-import { and, eq } from "drizzle-orm";
-import { z } from "zod";
+import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 
-import { requireAdminSalon } from "@/libs/adminAuth";
+import { requireAdminSalon } from '@/libs/adminAuth';
 import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
-} from "@/libs/bookingCatalog";
-import { db } from "@/libs/DB";
+} from '@/libs/bookingCatalog';
+import { db } from '@/libs/DB';
 import {
+  type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
-  type Service,
-} from "@/models/Schema";
-import type { ServiceResponse } from "@/types/admin";
+} from '@/models/Schema';
+import type { ServiceResponse } from '@/types/admin';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 const optionalText = z
   .union([z.string(), z.null(), z.undefined()])
   .transform((value) => {
-    const trimmed = typeof value === "string" ? value.trim() : "";
+    const trimmed = typeof value === 'string' ? value.trim() : '';
     return trimmed || null;
   });
 
@@ -72,8 +72,8 @@ export async function PATCH(
     return Response.json(
       {
         error: {
-          code: "VALIDATION_ERROR",
-          message: parsed.error.issues[0]?.message || "Invalid service details",
+          code: 'VALIDATION_ERROR',
+          message: parsed.error.issues[0]?.message || 'Invalid service details',
         },
       },
       { status: 400 },
@@ -117,22 +117,22 @@ export async function PATCH(
       .returning();
     if (!updated) {
       return Response.json(
-        { error: { code: "SERVICE_NOT_FOUND", message: "Service not found" } },
+        { error: { code: 'SERVICE_NOT_FOUND', message: 'Service not found' } },
         { status: 404 },
       );
     }
     return Response.json({ data: { service: buildServicePayload(updated) } });
   } catch (updateError) {
     console.error(
-      "Service update failed:",
-      updateError instanceof Error ? updateError.message : "unknown",
+      'Service update failed:',
+      updateError instanceof Error ? updateError.message : 'unknown',
     );
     return Response.json(
       {
         error: {
-          code: "UPDATE_FAILED",
+          code: 'UPDATE_FAILED',
           message:
-            "The service could not be saved. Check the name and try again.",
+            'The service could not be saved. Check the name and try again.',
         },
       },
       { status: 409 },

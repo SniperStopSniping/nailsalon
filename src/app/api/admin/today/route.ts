@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -115,17 +115,17 @@ export async function GET(request: Request) {
   const appointmentIds = appointments.map(appointment => appointment.id);
   const serviceRows = appointmentIds.length
     ? await db
-        .select({
-          appointmentId: appointmentServicesSchema.appointmentId,
-          snapshotName: appointmentServicesSchema.nameSnapshot,
-          liveName: serviceSchema.name,
-        })
-        .from(appointmentServicesSchema)
-        .leftJoin(serviceSchema, and(
-          eq(appointmentServicesSchema.serviceId, serviceSchema.id),
-          eq(serviceSchema.salonId, salon.id),
-        ))
-        .where(inArray(appointmentServicesSchema.appointmentId, appointmentIds))
+      .select({
+        appointmentId: appointmentServicesSchema.appointmentId,
+        snapshotName: appointmentServicesSchema.nameSnapshot,
+        liveName: serviceSchema.name,
+      })
+      .from(appointmentServicesSchema)
+      .leftJoin(serviceSchema, and(
+        eq(appointmentServicesSchema.serviceId, serviceSchema.id),
+        eq(serviceSchema.salonId, salon.id),
+      ))
+      .where(inArray(appointmentServicesSchema.appointmentId, appointmentIds))
     : [];
   const services = new Map<string, string[]>();
   for (const row of serviceRows) {
