@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
@@ -30,7 +31,7 @@ import {
   technicianServicesSchema,
   technicianTimeOffSchema,
 } from '@/models/Schema';
-import type { SalonFeatures } from '@/types/salonPolicy';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +66,9 @@ const updateSalonSchema = z.object({
   bookingFlowCustomizationEnabled: z.boolean().optional(),
   bookingFlow: z.array(z.enum(BOOKING_STEPS)).optional().nullable(),
   features: salonFeaturesSchema.optional(),
+  // Super-admin feature switches are authoritative. When this marker is set,
+  // the owner-facing module state is synchronized in the same database write.
+  syncFeatureModules: z.boolean().optional(),
 });
 
 // =============================================================================
@@ -296,7 +300,19 @@ export async function PUT(
       );
     }
 
-    const updates = validated.data;
+    const { syncFeatureModules, ...validatedUpdates } = validated.data;
+    const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
+
+    if (syncFeatureModules && updates.features) {
+      const existingSettings = (existing.settings as SalonSettings | null) ?? {};
+      updates.settings = {
+        ...existingSettings,
+        modules: {
+          ...(existingSettings.modules ?? {}),
+          ...getEntitledModules(updates.features as SalonFeatures),
+        },
+      };
+    }
 
     // If slug is being changed, check for duplicates
     if (updates.slug && updates.slug !== existing.slug) {

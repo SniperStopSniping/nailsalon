@@ -6,8 +6,10 @@ import { salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  let salonSlug = '';
   try {
     const state = verifyOAuthState<{ provider: string; salonId: string; salonSlug: string }>(url.searchParams.get('state') || '');
+    salonSlug = state.salonSlug;
     if (state.provider !== 'google') {
       throw new Error('Invalid provider state');
     }
@@ -72,6 +74,11 @@ export async function GET(request: Request) {
     return Response.redirect(new URL(`/en/admin/luster?salon=${encodeURIComponent(state.salonSlug)}&google=connected`, request.url));
   } catch (error) {
     console.error('[Google OAuth callback]', error);
-    return Response.redirect(new URL('/en/admin/luster?google=error', request.url));
+    const returnUrl = new URL('/en/admin/luster', request.url);
+    if (salonSlug) {
+      returnUrl.searchParams.set('salon', salonSlug);
+    }
+    returnUrl.searchParams.set('google', 'error');
+    return Response.redirect(returnUrl);
   }
 }

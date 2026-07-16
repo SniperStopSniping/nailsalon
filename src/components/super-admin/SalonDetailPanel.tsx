@@ -364,6 +364,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Feature entitlements state (JSONB - source of truth)
   // Initialize with Starter tier defaults
   const [features, setFeatures] = useState<SalonFeatures>({ ...STARTER_FEATURES });
+  const [featureSaveStatus, setFeatureSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [featureSaveError, setFeatureSaveError] = useState<string | null>(null);
 
   // Legacy feature toggles (kept for backward compatibility display)
   const [onlineBookingEnabled, setOnlineBookingEnabled] = useState(true);
@@ -510,6 +512,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
           internalNotes: internalNotes || null,
           // Feature entitlements (JSONB - source of truth)
           features,
+          syncFeatureModules: true,
           // Legacy feature toggles (kept for backward compatibility)
           onlineBookingEnabled,
           smsRemindersEnabled,
@@ -563,6 +566,41 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const markDirty = () => {
     setIsDirty(true);
     setJustSaved(false);
+  };
+
+  const handleFeatureAccessChange = async (nextFeatures: SalonFeatures) => {
+    if (featureSaveStatus === 'saving') {
+      return;
+    }
+
+    const previousFeatures = features;
+    setFeatures(nextFeatures);
+    setFeatureSaveStatus('saving');
+    setFeatureSaveError(null);
+
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: nextFeatures,
+          syncFeatureModules: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Feature access could not be saved.');
+      }
+
+      setSalon(payload.salon);
+      setFeatures(payload.salon?.features ?? nextFeatures);
+      setFeatureSaveStatus('saved');
+      window.setTimeout(() => setFeatureSaveStatus('idle'), 1800);
+    } catch (saveError) {
+      setFeatures(previousFeatures);
+      setFeatureSaveError(saveError instanceof Error ? saveError.message : 'Feature access could not be saved.');
+      setFeatureSaveStatus('error');
+    }
   };
 
   const smsRemindersEntitled = resolveEntitlement(features, 'marketing', 'smsReminders');
@@ -1020,10 +1058,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                       >
                         <SalonFeatureAccessManager
                           features={features}
-                          onChange={(nextFeatures) => {
-                            setFeatures(nextFeatures);
-                            markDirty();
-                          }}
+                          onChange={nextFeatures => void handleFeatureAccessChange(nextFeatures)}
+                          saving={featureSaveStatus === 'saving'}
+                          saveStatus={featureSaveStatus}
+                          error={featureSaveError}
                         />
                       </CollapsibleSection>
 

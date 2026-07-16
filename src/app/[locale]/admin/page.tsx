@@ -11,7 +11,7 @@
  */
 
 import { useClerk } from '@clerk/nextjs';
-import { Bell, Building2, LogOut } from 'lucide-react';
+import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -30,6 +30,7 @@ import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Use shared type from admin types
 import type { AnalyticsResponse } from '@/types/admin';
+import type { ModuleKey } from '@/types/salonPolicy';
 
 // =============================================================================
 // Types
@@ -174,9 +175,7 @@ type ModuleReason = 'ENABLED' | 'MODULE_DISABLED' | 'UPGRADE_REQUIRED';
 
 type ModuleSettingsResponse = {
   data?: {
-    moduleReasons?: {
-      analyticsDashboard?: ModuleReason;
-    };
+    moduleReasons?: Partial<Record<ModuleKey, ModuleReason>>;
   };
 };
 
@@ -227,6 +226,7 @@ function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
   const [, setLastUpdated] = useState<Date | null>(null);
   const [analyticsModuleStatus, setAnalyticsModuleStatus] = useState<AnalyticsModuleStatus>('loading');
+  const [moduleReasons, setModuleReasons] = useState<Partial<Record<ModuleKey, ModuleReason>>>({});
 
   // Analytics should never block rendering:
   // - Preserve last known-good analytics on transient failures
@@ -235,6 +235,7 @@ function AdminDashboardContent() {
   const latestFetchIdRef = useRef<string>('');
   const latestModuleRequestIdRef = useRef<string>('');
   const analyticsModuleCacheRef = useRef<Record<string, Exclude<AnalyticsModuleStatus, 'loading' | 'error'>>>({});
+  const moduleReasonCacheRef = useRef<Record<string, Partial<Record<ModuleKey, ModuleReason>>>>({});
   const latestResolvedModuleRef = useRef<{ salonSlug: string; status: AnalyticsModuleStatus } | null>(null);
 
   // Swipe page state
@@ -250,9 +251,11 @@ function AdminDashboardContent() {
     ?? requestedSalonSlug
     ?? adminUser?.salons[0]?.slug
     ?? null;
-  const activeDashboardSalon = adminUser?.salons.find(
-    s => s.slug?.toLowerCase() === activeDashboardSalonSlug?.toLowerCase(),
-  ) ?? adminUser?.salons[0] ?? null;
+  const activeDashboardSalon = activeDashboardSalonSlug
+    ? adminUser?.salons.find(
+      s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
+    ) ?? null
+    : adminUser?.salons[0] ?? null;
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
@@ -376,6 +379,7 @@ function AdminDashboardContent() {
     const force = options?.force ?? false;
     const cached = !force ? analyticsModuleCacheRef.current[activeDashboardSalonSlug] : undefined;
     if (cached) {
+      setModuleReasons(moduleReasonCacheRef.current[activeDashboardSalonSlug] ?? {});
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: cached,
@@ -410,12 +414,15 @@ function AdminDashboardContent() {
       }
 
       const nextStatus = mapAnalyticsModuleStatus(body?.data?.moduleReasons?.analyticsDashboard);
+      const nextModuleReasons = body?.data?.moduleReasons ?? {};
 
       if (latestModuleRequestIdRef.current !== requestId) {
         return nextStatus;
       }
 
       setAnalyticsModuleStatus(nextStatus);
+      setModuleReasons(nextModuleReasons);
+      moduleReasonCacheRef.current[activeDashboardSalonSlug] = nextModuleReasons;
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: nextStatus,
@@ -435,6 +442,7 @@ function AdminDashboardContent() {
       }
 
       setAnalyticsModuleStatus('error');
+      setModuleReasons({});
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: 'error',
@@ -815,6 +823,28 @@ function AdminDashboardContent() {
     marketing: data.badges.marketing,
     reviews: data.badges.reviews,
   };
+  const moduleIsEnabled = (module: ModuleKey) => moduleReasons[module] === 'ENABLED';
+  const marketingEnabled = moduleIsEnabled('smsReminders')
+    || moduleIsEnabled('referrals')
+    || moduleIsEnabled('rewards');
+  const staffToolsEnabled = moduleIsEnabled('scheduleOverrides')
+    || moduleIsEnabled('staffEarnings');
+  const hiddenAppIds: string[] = ['schedule', 'bookings', 'clients', 'services'];
+  if (!moduleIsEnabled('analyticsDashboard')) {
+    hiddenAppIds.push('analytics');
+  }
+  if (!marketingEnabled) {
+    hiddenAppIds.push('marketing');
+  }
+  if (!moduleIsEnabled('rewards')) {
+    hiddenAppIds.push('rewards');
+  }
+  if (isFreeSolo) {
+    hiddenAppIds.push('reviews');
+  }
+  if (isFreeSolo && !staffToolsEnabled) {
+    hiddenAppIds.push('staff', 'staff-ops');
+  }
 
   // Staff data for analytics - use real data from API
   const avatarColors = [
@@ -869,7 +899,7 @@ function AdminDashboardContent() {
 
   return (
     <div
-      className="min-h-screen bg-[#F2F2F7] font-sans"
+      className="min-h-screen bg-[#F8F3F0] font-sans text-stone-950"
       style={{
         opacity: mounted ? 1 : 0,
         transform: mounted ? 'translateY(0)' : 'translateY(10px)',
@@ -885,12 +915,12 @@ function AdminDashboardContent() {
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
         {/* Header */}
-        <div className="px-5 py-3">
+        <div className="mx-auto max-w-2xl px-5 pb-3 pt-4">
           <WorkspacePageHeader
-            title="Dashboard"
-            subtitle={activeDashboardSalonName}
-            titleClassName="text-[28px] font-bold tracking-tight text-[#1C1C1E]"
-            subtitleClassName="text-[15px] text-[#8E8E93]"
+            title="Luster Workspace"
+            subtitle={activeDashboardSalonName ? `Managing ${activeDashboardSalonName}` : 'Salon owner workspace'}
+            titleClassName="text-[28px] font-bold tracking-tight text-stone-950"
+            subtitleClassName="text-[15px] text-stone-500"
             actions={(
               <>
                 {!adminUser.impersonation?.isActive && selectableSalons.length > 1 && (
@@ -898,17 +928,17 @@ function AdminDashboardContent() {
                     type="button"
                     onClick={() => setShowSalonSelector(true)}
                     aria-label="Switch salon"
-                    className="flex size-9 items-center justify-center rounded-full bg-black/5 transition-colors active:bg-black/10"
+                    className="flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
                   >
-                    <Building2 size={19} className="text-[#8E8E93]" />
+                    <Building2 size={19} />
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
-                  className="relative flex size-9 items-center justify-center rounded-full bg-black/5 transition-colors active:bg-black/10"
+                  className="relative flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
                 >
-                  <Bell size={20} className="text-[#8E8E93]" />
+                  <Bell size={20} />
                   {notificationCount > 0 && (
                     <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
                       <span className="text-[11px] font-bold text-white">
@@ -925,8 +955,8 @@ function AdminDashboardContent() {
                   <LogOut size={16} />
                   <span>Log Out</span>
                 </button>
-                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-[#007AFF] to-[#5856D6] text-[15px] font-semibold text-white">
-                  {userInitial}
+                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm" title="Luster owner account">
+                  {userInitial || <Sparkles size={16} />}
                 </div>
               </>
             )}
@@ -956,7 +986,7 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={isFreeSolo ? ['analytics', 'marketing', 'reviews', 'rewards', 'staff', 'staff-ops', 'schedule', 'bookings', 'clients', 'services'] : ['schedule', 'bookings', 'clients', 'services']}
+                  hiddenIds={hiddenAppIds}
                 />
               </div>
             )

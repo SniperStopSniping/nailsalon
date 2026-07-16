@@ -1115,7 +1115,7 @@ export default function ProfileContent() {
   const experienceItems: SettingsItem[] = [
     { label: 'Beauty Profile', icon: User, onClick: () => handleNavigate('/preferences') },
     { label: 'Refer a Friend', icon: Share2, badge: '$10 OFF', onClick: () => handleNavigate('/invite') },
-    { label: 'Rate Your Experience', icon: Star, badge: '$10 OFF', onClick: () => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank') },
+    { label: 'Rate Your Experience', icon: Star, badge: '$10 OFF', onClick: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(salonName || 'Luster Nail Studio')}`, '_blank') },
   ];
 
   const accountItems: SettingsItem[] = [
@@ -1273,7 +1273,7 @@ export default function ProfileContent() {
                     <p
                       className="font-heading text-[10px] italic text-[var(--n5-ink-main)]"
                     >
-                      {salonName || 'Nail Salon No.5'}
+                      {salonName || 'Luster Nail Studio'}
                       {' '}
                       · Client profile
                     </p>

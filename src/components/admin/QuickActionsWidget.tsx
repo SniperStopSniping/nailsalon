@@ -34,29 +34,29 @@ const QUICK_ACTIONS: QuickAction[] = [
     id: 'new-appointment',
     label: 'New Appt',
     icon: CalendarPlus,
-    gradient: 'from-[#4facfe] to-[#00f2fe]',
-    shadowColor: '#4facfe',
+    gradient: 'from-rose-800 to-rose-500',
+    shadowColor: '#9f1239',
   },
   {
     id: 'walk-in',
     label: 'Walk-in',
     icon: UserPlus,
-    gradient: 'from-[#43e97b] to-[#38f9d7]',
-    shadowColor: '#43e97b',
+    gradient: 'from-amber-500 to-orange-400',
+    shadowColor: '#d97706',
   },
   {
     id: 'send-sms',
     label: 'Send SMS',
     icon: MessageSquare,
-    gradient: 'from-[#fa709a] to-[#fee140]',
-    shadowColor: '#fa709a',
+    gradient: 'from-stone-800 to-stone-600',
+    shadowColor: '#292524',
   },
   {
     id: 'today-schedule',
     label: 'Schedule',
     icon: Calendar,
-    gradient: 'from-[#a18cd1] to-[#fbc2eb]',
-    shadowColor: '#a18cd1',
+    gradient: 'from-rose-500 to-amber-400',
+    shadowColor: '#e11d48',
   },
 ];
 
@@ -91,7 +91,7 @@ function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
       </motion.button>
 
       {/* Label */}
-      <span className="text-center text-[11px] font-medium leading-tight text-[#8E8E93]">
+      <span className="text-center text-[11px] font-medium leading-tight text-stone-500">
         {action.label}
       </span>
     </div>
@@ -108,8 +108,8 @@ export function QuickActionsWidget({ onAction }: QuickActionsWidgetProps) {
   };
 
   return (
-    <div className="rounded-[22px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-      <div className="mb-4 text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+    <div className="rounded-[24px] border border-rose-100/80 bg-white p-4 shadow-[0_10px_30px_rgba(76,29,46,0.06)]">
+      <div className="mb-4 text-[12px] font-semibold uppercase tracking-[0.18em] text-rose-800">
         Quick Actions
       </div>
       <div className="flex justify-between">

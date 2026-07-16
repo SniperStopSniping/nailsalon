@@ -54,78 +54,78 @@ const APPS: AppItem[] = [
     id: 'schedule',
     name: 'Schedule',
     icon: CalendarDays,
-    gradient: 'from-[#667eea] to-[#764ba2]',
-    shadowColor: '#667eea',
+    gradient: 'from-rose-800 to-rose-500',
+    shadowColor: '#9f1239',
   },
   {
     id: 'bookings',
     name: 'Bookings',
     icon: Calendar,
-    gradient: 'from-[#4facfe] to-[#00f2fe]',
-    shadowColor: '#4facfe',
+    gradient: 'from-rose-700 to-amber-500',
+    shadowColor: '#be123c',
   },
   {
     id: 'clients',
     name: 'Clients',
     icon: Users,
-    gradient: 'from-[#43e97b] to-[#38f9d7]',
-    shadowColor: '#43e97b',
+    gradient: 'from-amber-500 to-orange-400',
+    shadowColor: '#d97706',
   },
   {
     id: 'analytics',
     name: 'Analytics',
     icon: BarChart3,
-    gradient: 'from-[#fa709a] to-[#fee140]',
-    shadowColor: '#fa709a',
+    gradient: 'from-stone-800 to-stone-600',
+    shadowColor: '#292524',
   },
   {
     id: 'services',
     name: 'Services',
     icon: Scissors,
-    gradient: 'from-[#f093fb] to-[#f5576c]',
-    shadowColor: '#f093fb',
+    gradient: 'from-rose-600 to-pink-400',
+    shadowColor: '#e11d48',
   },
   {
     id: 'marketing',
     name: 'Marketing',
     icon: Bell,
-    gradient: 'from-[#89f7fe] to-[#66a6ff]',
-    shadowColor: '#66a6ff',
+    gradient: 'from-[#4C1D2E] to-[#8B1538]',
+    shadowColor: '#4C1D2E',
   },
   {
     id: 'reviews',
     name: 'Reviews',
     icon: Star,
-    gradient: 'from-[#f6d365] to-[#fda085]',
-    shadowColor: '#f6d365',
+    gradient: 'from-amber-400 to-rose-400',
+    shadowColor: '#f59e0b',
   },
   {
     id: 'rewards',
     name: 'Rewards',
     icon: Gift,
-    gradient: 'from-[#84fab0] to-[#8fd3f4]',
-    shadowColor: '#84fab0',
+    gradient: 'from-amber-500 to-yellow-300',
+    shadowColor: '#d97706',
   },
   {
     id: 'staff',
     name: 'Staff',
     icon: Shield,
-    gradient: 'from-[#a18cd1] to-[#fbc2eb]',
-    shadowColor: '#a18cd1',
+    gradient: 'from-stone-700 to-rose-500',
+    shadowColor: '#57534e',
   },
   {
     id: 'staff-ops',
     name: 'Staff Ops',
     icon: ClipboardList,
-    gradient: 'from-[#FF9500] to-[#FF5E3A]',
-    shadowColor: '#FF9500',
+    gradient: 'from-rose-900 to-amber-500',
+    shadowColor: '#881337',
   },
   {
     id: 'settings',
     name: 'Settings',
     icon: Settings,
-    gradient: 'from-[#d4fc79] to-[#96e6a1]',
-    shadowColor: '#d4fc79',
+    gradient: 'from-stone-500 to-stone-300',
+    shadowColor: '#78716c',
   },
 ];
 
@@ -232,7 +232,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
     <div
       className={`
         min-h-full w-full px-6 pb-20 pt-8
-        ${theme === 'tesla' ? 'bg-black' : 'bg-[#F2F2F7]'}
+        ${theme === 'tesla' ? 'bg-black' : 'bg-[#F8F3F0]'}
       `}
     >
       {/* Grid: 3 Columns */}

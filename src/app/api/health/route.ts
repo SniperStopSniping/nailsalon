@@ -161,13 +161,24 @@ export async function GET(): Promise<Response> {
 
   // ---------------------------------------------------------------------------
   // 10. Google Calendar env check (presence only, no external call)
+  // Per-salon OAuth is the active Luster integration. Keep recognizing the
+  // legacy service-account configuration so older deployments remain visible
+  // while they migrate.
   // ---------------------------------------------------------------------------
-  checks.googleCalendarEnv = Boolean(
+  const googleOAuthConfigured = Boolean(
+    process.env.GOOGLE_OAUTH_CLIENT_ID
+    && process.env.GOOGLE_OAUTH_CLIENT_SECRET
+    && process.env.GOOGLE_OAUTH_REDIRECT_URI
+    && process.env.INTEGRATION_ENCRYPTION_KEY
+    && process.env.OAUTH_STATE_SECRET,
+  );
+  const legacyGoogleCalendarConfigured = Boolean(
     (process.env.GOOGLE_CALENDAR_ENABLED === 'true' || process.env.GOOGLE_CALENDAR_ENABLED === '1')
     && process.env.GOOGLE_CALENDAR_ID
     && process.env.GOOGLE_CALENDAR_CLIENT_EMAIL
     && process.env.GOOGLE_CALENDAR_PRIVATE_KEY,
   );
+  checks.googleCalendarEnv = googleOAuthConfigured || legacyGoogleCalendarConfigured;
 
   // ---------------------------------------------------------------------------
   // Determine overall status

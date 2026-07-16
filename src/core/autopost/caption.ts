@@ -68,7 +68,7 @@ function generateDeterministicCaption(
   // This prevents us from inventing data.
 
   // Call to action with salon name
-  const salon = salonName || 'Nail Salon No. 5';
+  const salon = salonName || 'Luster Nail Studio';
   parts.push(`Book your next appointment at ${salon}.`);
 
   // Hashtags

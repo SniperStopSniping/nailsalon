@@ -46,7 +46,7 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
     .insert(schema.salonSchema)
     .values({
       id: 'salon_nail-salon-no5',
-      name: 'Nail Salon No.5',
+      name: 'Luster Demo Studio',
       slug: 'nail-salon-no5',
       themeKey: 'nail-salon-no5',
     })

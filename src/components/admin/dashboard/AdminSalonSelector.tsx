@@ -25,12 +25,12 @@ export function AdminSalonSelector({
   footerAction,
 }: AdminSalonSelectorProps) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#F2F2F7] px-5">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#F8F3F0] px-5">
       <div className="w-full max-w-sm space-y-4">
         <AsyncStatePanel
-          icon="🏢"
-          title="My Salons"
-          description="Choose a salon to manage, or open its live booking page."
+          icon="✨"
+          title="Your Luster salons"
+          description="Choose a salon workspace or open its live booking page."
         />
         <div className="space-y-3">
           {salons.map(salon => (
@@ -51,7 +51,7 @@ export function AdminSalonSelector({
                 <button
                   type="button"
                   onClick={() => onSelect(salon)}
-                  className="rounded-full bg-[#1C1C1E] px-3 py-1.5 text-xs font-semibold text-white"
+                  className="rounded-full bg-rose-800 px-3 py-1.5 text-xs font-semibold text-white"
                 >
                   Open dashboard
                 </button>

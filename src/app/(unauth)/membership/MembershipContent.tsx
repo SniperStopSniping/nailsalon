@@ -787,7 +787,7 @@ export default function MembershipContent() {
                   {/* Footer */}
                   <div className="pt-10 text-center opacity-40">
                     <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
-                      {salonName || 'Nail Salon No.5'}
+                      {salonName || 'Luster Nail Studio'}
                       {' '}
                       · Est 2024
                     </p>

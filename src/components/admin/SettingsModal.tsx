@@ -1601,7 +1601,7 @@ export function SettingsModal({
               )}
         </Section>
 
-        {!isFreeSolo && (
+        {(
           <>
             {/* Section 3.5: Modules (Step 16.3) */}
             <Section
@@ -1955,12 +1955,10 @@ export function SettingsModal({
       </div>
 
       {/* Compare Plans Modal (Step 19) */}
-      {!isFreeSolo && (
-        <ComparePlansModal
-          isOpen={showComparePlans}
-          onClose={() => setShowComparePlans(false)}
-        />
-      )}
+      <ComparePlansModal
+        isOpen={showComparePlans}
+        onClose={() => setShowComparePlans(false)}
+      />
     </div>
   );
 }

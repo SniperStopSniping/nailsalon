@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, ChevronLeft, ChevronRight, LogOut, Search, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LogOut, Search, Sparkles, UserPlus } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -238,24 +238,25 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
   };
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7]">
+    <div className="min-h-screen bg-[#F8F3F0]">
       {/* Header */}
-      <div className="border-b border-gray-200 bg-white">
+      <div className="border-b border-rose-100 bg-[#4C1D2E] text-white">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
-                <Building2 className="size-5 text-white" />
+              <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-rose-400 shadow-lg shadow-black/15">
+                <Sparkles className="size-5 text-[#4C1D2E]" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Super Admin</h1>
-                <p className="text-sm text-gray-500">Platform owner controls</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-200">Luster</p>
+                <h1 className="text-2xl font-bold text-white">Platform Control Center</h1>
+                <p className="text-sm text-rose-100/80">Salons, feature access, integrations, and owner support</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <a
                 href="#luster-invite"
-                className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-semibold text-[#4C1D2E] transition-colors hover:bg-amber-200"
               >
                 <UserPlus className="size-4" />
                 Invite Nail Tech
@@ -263,7 +264,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"
+                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/15"
               >
                 <LogOut className="size-4" />
                 Log Out
@@ -277,7 +278,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
 
       {/* Filters */}
       <div className="mx-auto max-w-7xl p-4 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-rose-100 bg-white p-4 shadow-[0_10px_30px_rgba(76,29,46,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row">
             {/* Search */}
             <div className="relative flex-1">
@@ -287,7 +288,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                 placeholder="Search salons, slugs, or owner phones..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-xl border border-stone-200 bg-white py-2.5 pl-10 pr-4 text-sm text-stone-900 placeholder:text-stone-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-rose-700"
               />
             </div>
 
@@ -299,7 +300,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                 setPage(1);
               }}
               aria-label="Filter by plan"
-              className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm text-stone-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-rose-700"
             >
               {PLAN_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
@@ -316,7 +317,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                 setPage(1);
               }}
               aria-label="Filter by status"
-              className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm text-stone-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-rose-700"
             >
               {STATUS_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
@@ -330,7 +331,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
 
       {/* Table */}
       <div className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-rose-100 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.06)]">
           {error && (
             <div className="border-b border-red-100 bg-red-50 p-4 text-sm text-red-700">
               {error}
@@ -483,7 +484,7 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                               <button
                                 type="button"
                                 onClick={() => setSelectedSalonId(salon.id)}
-                                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                                className="text-sm font-semibold text-rose-700 hover:text-rose-900"
                               >
                                 View
                               </button>

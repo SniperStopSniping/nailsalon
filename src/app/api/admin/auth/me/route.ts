@@ -17,7 +17,7 @@ import { NextResponse } from 'next/server';
 
 import { getAdminImpersonationForAdmin, getAdminSession } from '@/libs/adminAuth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
-import { getSalonById } from '@/libs/queries';
+import { getSalonById, getSalonBySlug } from '@/libs/queries';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -88,9 +88,30 @@ export async function GET(request: Request) {
           );
         }
 
-        // Filter to only the requested salon (if they have membership)
+        // Filter to only the requested salon (if they have membership).
+        // A super-admin opening a salon directly may not have a membership;
+        // load that exact tenant instead of silently displaying their first
+        // membership under the requested salon URL.
         if (hasMembership) {
           salons = salons.filter(s => s.slug?.toLowerCase() === salonSlug);
+        } else if (admin.isSuperAdmin && !impersonation) {
+          const requestedSalon = await getSalonBySlug(salonSlug);
+          if (!requestedSalon) {
+            return NextResponse.json(
+              { error: 'Salon not found' },
+              { status: 404 },
+            );
+          }
+          salons = [{
+            id: requestedSalon.id,
+            slug: requestedSalon.slug,
+            name: requestedSalon.name,
+            status: requestedSalon.status ?? null,
+            role: 'super_admin',
+            freeSoloEnabled: requestedSalon.freeSoloEnabled ?? false,
+            publicUrl: buildSalonTenantPublicUrl('/', requestedSalon),
+            bookingUrl: buildSalonTenantPublicUrl('/book/service', requestedSalon),
+          }];
         }
       }
 

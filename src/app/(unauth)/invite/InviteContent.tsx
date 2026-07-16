@@ -545,7 +545,7 @@ export default function InviteContent() {
               label="Rate Your Experience on Google"
               icon={Star}
               badge={`$${GOOGLE_REVIEW_REWARD_AMOUNT_CENTS / 100} OFF`}
-              onClick={() => window.open('https://www.google.com/maps/place/Nail+Salon+No.5', '_blank')}
+              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(salonName || 'Luster Nail Studio')}`, '_blank')}
             />
             <div style={{ height: 1, backgroundColor: 'var(--n5-border-muted)' }} />
             <SettingsItem
@@ -567,7 +567,7 @@ export default function InviteContent() {
           className="pt-6 text-center opacity-40"
         >
           <p className="font-heading text-[10px] italic text-[var(--n5-ink-main)]">
-            {salonName || 'Nail Salon No.5'}
+            {salonName || 'Luster Nail Studio'}
             {' '}
             · Referral Program
           </p>

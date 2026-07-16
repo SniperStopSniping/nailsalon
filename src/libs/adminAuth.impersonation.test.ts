@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { requireActiveAdminSalon, requireAdmin } from './adminAuth';
+
 const {
   cookieGet,
   db,
@@ -96,8 +98,6 @@ vi.mock('@/libs/devRole.server', () => ({
   getMockAdminSession: vi.fn(),
 }));
 
-import { requireActiveAdminSalon, requireAdmin } from './adminAuth';
-
 function primeAdminSessionSelects() {
   setSelectPlans([
     {
@@ -171,6 +171,7 @@ describe('adminAuth impersonation enforcement', () => {
     const guard = await requireAdmin('salon_other');
 
     expect(guard.ok).toBe(false);
+
     if (!guard.ok) {
       expect(guard.response.status).toBe(403);
       await expect(guard.response.json()).resolves.toEqual({

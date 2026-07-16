@@ -15,9 +15,15 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 export function SalonFeatureAccessManager({
   features,
   onChange,
+  saving = false,
+  saveStatus = 'idle',
+  error,
 }: {
   features: SalonFeatures;
   onChange: (features: SalonFeatures) => void;
+  saving?: boolean;
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
+  error?: string | null;
 }) {
   const applyPreset = (preset: SalonFeaturePreset) => {
     onChange(applySalonFeaturePreset(features, preset));
@@ -45,12 +51,12 @@ export function SalonFeatureAccessManager({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h4 className="font-semibold text-gray-900">Optional access</h4>
-            <p className="text-xs text-gray-500">Grant or remove add-ons for this salon.</p>
+            <p className="text-xs text-gray-500">Changes save immediately and control what appears in the owner workspace.</p>
           </div>
           <div className="flex gap-1 rounded-lg bg-gray-100 p-1 text-xs">
-            <button type="button" onClick={() => applyPreset('free_solo')} className="rounded-md px-2 py-1.5 hover:bg-white">Free Solo</button>
-            <button type="button" onClick={() => applyPreset('pro')} className="rounded-md px-2 py-1.5 hover:bg-white">Pro</button>
-            <button type="button" onClick={() => applyPreset('all_available')} className="rounded-md px-2 py-1.5 hover:bg-white">All</button>
+            <button type="button" disabled={saving} onClick={() => applyPreset('free_solo')} className="rounded-md px-2 py-1.5 hover:bg-white disabled:opacity-50">Free Solo</button>
+            <button type="button" disabled={saving} onClick={() => applyPreset('pro')} className="rounded-md px-2 py-1.5 hover:bg-white disabled:opacity-50">Pro</button>
+            <button type="button" disabled={saving} onClick={() => applyPreset('all_available')} className="rounded-md px-2 py-1.5 hover:bg-white disabled:opacity-50">All</button>
           </div>
         </div>
         <div className="mt-3 divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white px-4">
@@ -67,16 +73,22 @@ export function SalonFeatureAccessManager({
                   role="switch"
                   aria-checked={enabled}
                   aria-label={`Toggle ${feature.label}`}
+                  disabled={saving}
                   onClick={() => onChange(setOptionalSalonFeature(features, feature.key, !enabled))}
-                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-wait disabled:opacity-60 ${enabled ? 'bg-rose-700' : 'bg-gray-200'}`}
                 >
                   <span className={`absolute left-1 top-1 flex size-5 items-center justify-center rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : ''}`}>
-                    {enabled && <Check size={12} className="text-indigo-700" />}
+                    {enabled && <Check size={12} className="text-rose-700" />}
                   </span>
                 </button>
               </div>
             );
           })}
+        </div>
+        <div className="mt-3 min-h-5 text-xs" aria-live="polite">
+          {saveStatus === 'saving' && <span className="text-stone-500">Saving feature access…</span>}
+          {saveStatus === 'saved' && <span className="font-medium text-emerald-700">Saved to the owner dashboard.</span>}
+          {saveStatus === 'error' && <span className="font-medium text-red-700">{error || 'Feature access could not be saved.'}</span>}
         </div>
       </div>
     </div>
