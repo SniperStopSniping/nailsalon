@@ -13,6 +13,7 @@ test('guest can reschedule and cancel through the capability management link', a
     clientName,
     clientEmail,
     clientPhone: phone,
+    startDayOffset: 3,
   });
 
   expect(originalAppointment.manageUrl).toBeTruthy();
@@ -33,6 +34,7 @@ test('guest can reschedule and cancel through the capability management link', a
     clientName,
     clientEmail,
     clientPhone: phone,
+    startDayOffset: 3,
     originalAppointmentId: originalAppointment.id,
     manageToken,
   });

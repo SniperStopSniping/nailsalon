@@ -37,6 +37,7 @@ test('guest can book without OTP and receive an appointment management link', as
   const technicianId = timeStepUrl.searchParams.get('techId');
   await selectBookableSlotFromApi(page, {
     technicianId: technicianId && technicianId !== 'any' ? technicianId : null,
+    startDayOffset: 3,
     baseServiceId: timeStepUrl.searchParams.get('baseServiceId'),
     locationId: timeStepUrl.searchParams.get('locationId'),
     selectedAddOns: timeStepUrl.searchParams.get('selectedAddOns'),

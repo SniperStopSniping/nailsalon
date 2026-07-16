@@ -329,6 +329,30 @@ describe('BookServiceClient', () => {
     expect(screen.queryByText('New clients may be eligible for 25% off their first appointment')).not.toBeInTheDocument();
   });
 
+  it('waits for booking-state hydration before accepting a service selection', () => {
+    bookingStateMock.values.isHydrated = false;
+
+    const props: React.ComponentProps<typeof BookServiceClient> = {
+      services: [services[0]!],
+      bookingFlow: ['service', 'tech', 'time', 'confirm'],
+      locations: [],
+    };
+    const { rerender } = render(<BookServiceClient {...props} />);
+
+    expect(screen.getByTestId('service-card-svc-1')).toBeDisabled();
+
+    bookingStateMock.values.isHydrated = true;
+    rerender(<BookServiceClient {...props} />);
+
+    const serviceCard = screen.getByTestId('service-card-svc-1');
+
+    expect(serviceCard).toBeEnabled();
+
+    fireEvent.click(serviceCard);
+
+    expect(screen.getByTestId('service-continue-button')).toBeVisible();
+  });
+
   it('renders category chips inside a horizontal mobile scroll track in canonical order, including combo', () => {
     render(
       <BookServiceClient

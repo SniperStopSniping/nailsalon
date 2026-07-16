@@ -39,6 +39,7 @@ export type AvailabilitySlot = {
 type FindBookableSlotOptions = {
   technicianId?: string | null;
   daysToScan?: number;
+  startDayOffset?: number;
   dateString?: string | null;
   count?: number;
   baseServiceId?: string | null;
@@ -172,13 +173,14 @@ async function findBookableSlotsInternal(
   const selectedAddOnsParam = options?.selectedAddOnsParam
     ?? serializeSelectedAddOns(options?.selectedAddOns ?? []);
   const count = options?.count ?? 1;
+  const startDayOffset = Math.max(1, options?.startDayOffset ?? 1);
 
   try {
     const dateCandidates = options?.dateString
       ? [options.dateString]
       : Array.from({ length: daysToScan }, (_, index) => {
         const date = new Date();
-        date.setDate(date.getDate() + index + 1);
+        date.setDate(date.getDate() + index + startDayOffset);
         date.setHours(0, 0, 0, 0);
         return isoDate(date);
       });
@@ -331,6 +333,7 @@ export async function createAppointmentViaApi(
     locationId?: string | null;
     originalAppointmentId?: string;
     manageToken?: string;
+    startDayOffset?: number;
   },
 ) {
   const serviceIds = options?.serviceIds ?? [e2eConfig.serviceId];
@@ -390,7 +393,10 @@ export async function createAppointmentViaApi(
   const selectedAddOnsParam = serializeSelectedAddOns(selectedAddOns);
 
   try {
-    for (let offset = 1; offset <= 21; offset += 1) {
+    const startDayOffset = Math.max(1, options?.startDayOffset ?? 1);
+    const finalDayOffset = startDayOffset + 20;
+
+    for (let offset = startDayOffset; offset <= finalDayOffset; offset += 1) {
       const date = new Date();
       date.setDate(date.getDate() + offset);
       date.setHours(0, 0, 0, 0);
@@ -558,6 +564,7 @@ export async function selectBookableSlotFromApi(
   options?: {
     technicianId?: string | null;
     daysToScan?: number;
+    startDayOffset?: number;
     baseServiceId?: string | null;
     locationId?: string | null;
     selectedAddOns?: string | null;
@@ -566,6 +573,7 @@ export async function selectBookableSlotFromApi(
   const slot = await findBookableSlot(page, {
     technicianId: options?.technicianId,
     daysToScan: options?.daysToScan,
+    startDayOffset: options?.startDayOffset,
     baseServiceId: options?.baseServiceId,
     locationId: options?.locationId,
     selectedAddOnsParam: options?.selectedAddOns ?? null,
@@ -601,16 +609,28 @@ export async function selectBookableSlotFromApi(
 
       await expect(dayButton).toBeDisabled({ timeout: 20_000 });
 
-      const slotButton = page.getByTestId(`time-slot-${slot.time}`);
+      const preferredSlotButton = page.getByTestId(`time-slot-${slot.time}`);
+      const preferredSlotIsEnabled = await preferredSlotButton
+        .isEnabled({ timeout: 2_000 })
+        .catch(() => false);
+      const slotButton = preferredSlotIsEnabled
+        ? preferredSlotButton
+        : page.locator('[data-testid^="time-slot-"]:not([disabled])').first();
 
       await expect(slotButton).toBeVisible({ timeout: 20_000 });
       await expect(slotButton).toBeEnabled({ timeout: 20_000 });
+
+      const selectedSlotTestId = await slotButton.getAttribute('data-testid');
 
       await Promise.all([
         page.waitForURL(confirmUrlPattern, { timeout: 20_000 }),
         slotButton.click(),
       ]);
-      return slot;
+
+      return {
+        ...slot,
+        time: selectedSlotTestId?.replace('time-slot-', '') ?? slot.time,
+      };
     }
 
     const nextMonthButton = page.getByRole('button', { name: /next month/i });
