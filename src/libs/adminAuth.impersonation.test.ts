@@ -81,6 +81,10 @@ vi.mock('@/libs/adminImpersonation', () => ({
   getAdminImpersonationSession,
 }));
 
+vi.mock('@/libs/clerkIdentity.server', () => ({
+  isClerkUserMissing: vi.fn(async () => false),
+}));
+
 vi.mock('@/libs/queries', () => ({
   getSalonById,
   getSalonBySlug,

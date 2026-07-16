@@ -10,6 +10,7 @@ import { cookies } from 'next/headers';
 
 import { type AdminImpersonationSession, getAdminImpersonationSession } from '@/libs/adminImpersonation';
 import { logAuditEvent } from '@/libs/auditLog';
+import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
@@ -122,10 +123,7 @@ async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
       .select()
       .from(adminUserSchema)
       .where(
-        and(
-          isNull(adminUserSchema.clerkUserId),
-          sql`lower(${adminUserSchema.email}) = ${email}`,
-        ),
+        sql`lower(${adminUserSchema.email}) = ${email}`,
       )
       .limit(1);
 
@@ -133,6 +131,17 @@ async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
       continue;
     }
 
+    if (candidate.clerkUserId && candidate.clerkUserId !== userId) {
+      try {
+        if (!await isClerkUserMissing(candidate.clerkUserId)) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const previousClerkUserId = candidate.clerkUserId;
     const [linked] = await db
       .update(adminUserSchema)
       .set({
@@ -143,7 +152,9 @@ async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
       .where(
         and(
           eq(adminUserSchema.id, candidate.id),
-          isNull(adminUserSchema.clerkUserId),
+          previousClerkUserId
+            ? eq(adminUserSchema.clerkUserId, previousClerkUserId)
+            : isNull(adminUserSchema.clerkUserId),
         ),
       )
       .returning();
@@ -152,9 +163,10 @@ async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
       await logAuditEvent({
         actorType: 'admin',
         actorId: linked.id,
-        action: 'clerk_owner_linked',
+        action: previousClerkUserId ? 'clerk_owner_relinked' : 'clerk_owner_linked',
         entityType: 'admin_user',
         entityId: linked.id,
+        metadata: previousClerkUserId ? { reason: 'verified_email_stale_identity' } : null,
       });
       return linked;
     }

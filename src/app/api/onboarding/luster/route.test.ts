@@ -5,6 +5,7 @@ const {
   currentUser,
   db,
   insertValues,
+  isClerkUserMissing,
   queueSelectResults,
   transaction,
   tx,
@@ -33,6 +34,7 @@ const {
     currentUser: vi.fn(),
     db: { transaction },
     insertValues,
+    isClerkUserMissing: vi.fn(),
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
     },
@@ -44,6 +46,7 @@ const {
 vi.mock('@clerk/nextjs/server', () => ({ currentUser }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent: vi.fn() }));
+vi.mock('@/libs/clerkIdentity.server', () => ({ isClerkUserMissing }));
 vi.mock('server-only', () => ({}));
 
 import { POST } from './route';
@@ -99,6 +102,7 @@ describe('POST /api/onboarding/luster', () => {
     process.env.LUSTER_ROOT_DOMAIN = 'luster.com';
     process.env.TENANT_SUBDOMAINS_ENABLED = 'true';
     transaction.mockImplementation(callback => callback(tx));
+    isClerkUserMissing.mockResolvedValue(false);
   });
 
   it('creates the complete solo salon and consumes the invitation atomically', async () => {
@@ -255,6 +259,33 @@ describe('POST /api/onboarding/luster', () => {
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('OWNER_ACCOUNT_CONFLICT');
     expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it('safely relinks a deleted Clerk identity and preserves the owner for another salon', async () => {
+    isClerkUserMissing.mockResolvedValue(true);
+    queueSelectResults(
+      [{ id: 'invite_5', invitedEmail: 'owner@example.com', intent: 'create_salon' }],
+      [{ id: 'admin_existing', clerkUserId: 'clerk_deleted', email: 'owner@example.com' }],
+      [],
+    );
+
+    const response = await POST(request({
+      ...validSetup,
+      salonName: 'Second Salon',
+      slug: 'second-salon',
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data).toMatchObject({ slug: 'second-salon' });
+    expect(isClerkUserMissing).toHaveBeenCalledWith('clerk_deleted');
+    expect(insertValues).not.toHaveBeenCalledWith(expect.objectContaining({
+      clerkUserId: 'clerk_owner_1',
+    }));
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      adminId: 'admin_existing',
+      role: 'owner',
+    }));
   });
 
   it('requires the primary Clerk email to be verified', async () => {

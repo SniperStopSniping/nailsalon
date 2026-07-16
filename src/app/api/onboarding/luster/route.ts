@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { buildSalonTenantPublicUrl, getCanonicalAppOrigin } from '@/libs/publicUrl';
@@ -142,6 +143,7 @@ export async function POST(request: Request) {
   const inviteTokenHash = hashOpaqueToken(input.inviteToken);
   let claimAuditSalonId: string | null = null;
   let claimAuditInviteId: string | null = null;
+  let relinkedAdminId: string | null = null;
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`select id from ${salonSignupInviteSchema} where ${salonSignupInviteSchema.tokenHash} = ${inviteTokenHash} for update`);
@@ -167,7 +169,7 @@ export async function POST(request: Request) {
         .from(adminUserSchema)
         .where(or(
           eq(adminUserSchema.clerkUserId, clerkUser.id),
-          eq(adminUserSchema.email, normalizedEmail),
+          sql`lower(${adminUserSchema.email}) = ${normalizedEmail}`,
         ))
         .limit(2);
 
@@ -179,7 +181,30 @@ export async function POST(request: Request) {
       const identityOwner = clerkOwner ?? emailOwner;
 
       if (identityOwner?.clerkUserId && identityOwner.clerkUserId !== clerkUser.id) {
-        throw new Error('OWNER_ACCOUNT_CONFLICT');
+        let oldIdentityIsMissing = false;
+        try {
+          oldIdentityIsMissing = await isClerkUserMissing(identityOwner.clerkUserId);
+        } catch {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+        if (!oldIdentityIsMissing) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+
+        const oldClerkUserId = identityOwner.clerkUserId;
+        const relinked = await tx
+          .update(adminUserSchema)
+          .set({ clerkUserId: clerkUser.id, emailVerifiedAt: now, updatedAt: now })
+          .where(and(
+            eq(adminUserSchema.id, identityOwner.id),
+            eq(adminUserSchema.clerkUserId, oldClerkUserId),
+          ))
+          .returning();
+        if (relinked.length !== 1) {
+          throw new Error('OWNER_ACCOUNT_CONFLICT');
+        }
+        identityOwner.clerkUserId = clerkUser.id;
+        relinkedAdminId = identityOwner.id;
       }
 
       const adminId = identityOwner?.id ?? crypto.randomUUID();
@@ -439,6 +464,17 @@ export async function POST(request: Request) {
         action: 'salon_claim_completed',
         entityType: 'salon',
         entityId: result.salonId,
+      });
+    }
+    if (relinkedAdminId) {
+      await logAuditEvent({
+        salonId: result.salonId,
+        actorType: 'admin',
+        actorId: relinkedAdminId,
+        action: 'clerk_owner_relinked',
+        entityType: 'admin_user',
+        entityId: relinkedAdminId,
+        metadata: { reason: 'verified_email_stale_identity' },
       });
     }
 

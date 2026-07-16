@@ -1320,6 +1320,9 @@ export const adminUserSchema = pgTable(
   table => ({
     phoneIdx: uniqueIndex('admin_user_phone_idx').on(table.phoneE164),
     emailIdx: uniqueIndex('admin_user_email_idx').on(table.email),
+    normalizedEmailIdx: uniqueIndex('admin_user_normalized_email_idx')
+      .on(sql`lower(${table.email})`)
+      .where(sql`${table.email} is not null`),
     clerkUserIdx: uniqueIndex('admin_user_clerk_user_idx').on(table.clerkUserId),
   }),
 );
@@ -2350,6 +2353,7 @@ export const AUDIT_LOG_ACTIONS = [
   'impersonation_started',
   'impersonation_ended',
   'clerk_owner_linked',
+  'clerk_owner_relinked',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
