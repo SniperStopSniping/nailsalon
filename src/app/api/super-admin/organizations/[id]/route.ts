@@ -193,10 +193,11 @@ export async function GET(
     const integrationHealth = await getSalonIntegrationHealth(id);
     const publicUrl = buildSalonTenantPublicUrl('/', salon);
     const bookingUrl = buildSalonTenantPublicUrl('/book', salon);
+    const findBookingUrl = buildSalonTenantPublicUrl('/find-booking', salon);
 
     return Response.json({
       testToolsEnabled: areSuperAdminTestToolsEnabled(),
-      canonicalUrls: { publicUrl, bookingUrl },
+      canonicalUrls: { publicUrl, bookingUrl, findBookingUrl },
       integrationHealth,
       salon: {
         id: salon.id,

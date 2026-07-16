@@ -11,7 +11,15 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, User, X } from 'lucide-react';
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Plus,
+  User,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -22,7 +30,12 @@ import { NewAppointmentModal } from './NewAppointmentModal';
 
 // Types
 type ViewMode = 'weekly' | 'monthly';
-type ScheduleFilter = 'all' | 'appointments' | 'google_busy' | 'free' | 'needs_review';
+type ScheduleFilter =
+  | 'all'
+  | 'appointments'
+  | 'google_busy'
+  | 'free'
+  | 'needs_review';
 
 type AppointmentSummary = {
   id: string;
@@ -171,30 +184,56 @@ function isToday(date: Date): boolean {
 }
 
 // Status colors
-const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-300' },
-  pending: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-300' },
-  in_progress: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-300' },
-  completed: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-300' },
-  cancelled: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-300' },
-  no_show: { bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-300' },
-  external_busy: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-300' },
-  external_free: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-300' },
-  needs_details: { bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-300' },
+const STATUS_COLORS: Record<
+  string,
+  { bg: string; text: string; border: string }
+> = {
+  confirmed: {
+    bg: 'bg-blue-50',
+    text: 'text-blue-700',
+    border: 'border-blue-300',
+  },
+  pending: {
+    bg: 'bg-yellow-50',
+    text: 'text-yellow-700',
+    border: 'border-yellow-300',
+  },
+  in_progress: {
+    bg: 'bg-green-50',
+    text: 'text-green-700',
+    border: 'border-green-300',
+  },
+  completed: {
+    bg: 'bg-gray-50',
+    text: 'text-gray-600',
+    border: 'border-gray-300',
+  },
+  cancelled: {
+    bg: 'bg-red-50',
+    text: 'text-red-600',
+    border: 'border-red-300',
+  },
+  no_show: {
+    bg: 'bg-orange-50',
+    text: 'text-orange-600',
+    border: 'border-orange-300',
+  },
+  external_busy: {
+    bg: 'bg-violet-50',
+    text: 'text-violet-700',
+    border: 'border-violet-300',
+  },
+  external_free: {
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-300',
+  },
+  needs_details: {
+    bg: 'bg-amber-50',
+    text: 'text-amber-800',
+    border: 'border-amber-300',
+  },
 };
-
-// Loading skeleton
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse space-y-4 p-4">
-      <div className="grid grid-cols-7 gap-1">
-        {Array.from({ length: 35 }).map((_, i) => (
-          <div key={i} className="aspect-square rounded-lg bg-gray-100" />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // Day Cell Component
 type DayCellProps = {
@@ -208,29 +247,48 @@ type DayCellProps = {
   viewMode: ViewMode;
 };
 
-function DayCell({ date, count, appointmentCount, googleBusyCount, isCurrentMonth, isSelected, onClick, viewMode }: DayCellProps) {
+function DayCell({
+  date,
+  count,
+  appointmentCount,
+  googleBusyCount,
+  isCurrentMonth,
+  isSelected,
+  onClick,
+  viewMode,
+}: DayCellProps) {
   const today = isToday(date);
+  const dayLabel = date.toLocaleDateString('en-CA', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
   return (
     <motion.button
       type="button"
+      aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}. ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}.`}
       onClick={onClick}
       whileTap={{ scale: 0.95 }}
       className={`
         relative flex flex-col items-center justify-center rounded-xl transition-all
         ${viewMode === 'weekly' ? 'aspect-[1/1.2] min-h-[80px]' : 'aspect-square min-h-[44px]'}
-        ${isSelected
-      ? 'bg-[#007AFF] text-white shadow-lg shadow-[#007AFF]/30'
+        ${
+    isSelected
+      ? 'bg-rose-800 text-white shadow-lg shadow-rose-900/20'
       : today
-        ? 'bg-blue-50 text-blue-600'
+        ? 'bg-rose-50 text-rose-700'
         : isCurrentMonth
           ? 'bg-white text-gray-900 hover:bg-gray-50'
           : 'bg-gray-50/50 text-gray-400'
     }
-        ${count > 0 && !isSelected ? 'ring-1 ring-blue-200' : ''}
+        ${count > 0 && !isSelected ? 'ring-1 ring-rose-200' : ''}
       `}
     >
-      <span className={`text-sm font-semibold ${viewMode === 'weekly' ? 'text-lg' : ''}`}>
+      <span
+        className={`text-sm font-semibold ${viewMode === 'weekly' ? 'text-lg' : ''}`}
+      >
         {date.getDate()}
       </span>
 
@@ -239,20 +297,18 @@ function DayCell({ date, count, appointmentCount, googleBusyCount, isCurrentMont
           className={`
             mt-0.5 text-[10px] font-bold
             ${viewMode === 'weekly' ? 'text-xs' : ''}
-            ${isSelected
-          ? 'text-white/90'
-          : 'text-[#007AFF]'
-        }
+            ${isSelected ? 'text-white/90' : 'text-rose-800'}
           `}
         >
-          {appointmentCount > 0 && `${appointmentCount} ${appointmentCount === 1 ? 'appt' : 'appts'}`}
+          {appointmentCount > 0
+          && `${appointmentCount} ${appointmentCount === 1 ? 'appt' : 'appts'}`}
           {appointmentCount > 0 && googleBusyCount > 0 && ' · '}
           {googleBusyCount > 0 && `${googleBusyCount} busy`}
         </span>
       )}
 
       {today && !isSelected && (
-        <div className="absolute bottom-1 size-1.5 rounded-full bg-blue-500" />
+        <div className="absolute bottom-1 size-1.5 rounded-full bg-rose-700" />
       )}
     </motion.button>
   );
@@ -266,10 +322,20 @@ type DayDetailPanelProps = {
   onConvertGoogleEvent: (appointment: AppointmentSummary) => void;
 };
 
-function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: DayDetailPanelProps) {
+function DayDetailPanel({
+  date,
+  appointments,
+  onClose,
+  onConvertGoogleEvent,
+}: DayDetailPanelProps) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
-  const dateStr = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const appointmentCountLabel = appointments.length === 1 ? 'appointment' : 'appointments';
+  const dateStr = date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const appointmentCountLabel
+    = appointments.length === 1 ? 'appointment' : 'appointments';
 
   // Group appointments by technician
   const byTechnician = useMemo(() => {
@@ -285,7 +351,10 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
 
     // Sort each group by start time
     for (const tech of Object.keys(groups)) {
-      groups[tech]!.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      groups[tech]!.sort(
+        (a, b) =>
+          new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+      );
     }
 
     return groups;
@@ -297,7 +366,7 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-hidden rounded-t-[24px] bg-white shadow-2xl"
+      className="relative max-h-[70dvh] w-full overflow-hidden rounded-t-[24px] bg-white shadow-2xl"
     >
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-5 pb-4 pt-5">
@@ -326,13 +395,21 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
       </div>
 
       {/* Content */}
-      <div className="pb-safe overflow-y-auto p-5" style={{ maxHeight: 'calc(70vh - 100px)' }}>
+      <div
+        className="overflow-y-auto p-5"
+        style={{
+          maxHeight: 'calc(70dvh - 100px)',
+          paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 20px)',
+        }}
+      >
         {appointments.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
               <Calendar className="size-7 text-gray-400" />
             </div>
-            <p className="text-sm font-medium text-gray-500">No appointments scheduled</p>
+            <p className="text-sm font-medium text-gray-500">
+              No appointments scheduled
+            </p>
           </div>
         )}
         {appointments.length > 0 && (
@@ -342,9 +419,16 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
                 {/* Technician Header */}
                 <div className="mb-3 flex items-center gap-2">
                   <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-xs font-bold text-white">
-                    {techName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                    {techName
+                      .split(' ')
+                      .map(n => n[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase()}
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{techName}</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {techName}
+                  </span>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                     {appts.length}
                     {' '}
@@ -356,7 +440,8 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
                 {/* Appointments List */}
                 <div className="space-y-2">
                   {appts.map((appt, idx) => {
-                    const statusColors = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
+                    const statusColors
+                      = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
 
                     return (
                       <motion.div
@@ -373,11 +458,19 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
                           <div className="flex-1">
                             {/* Client Name & Time */}
                             <div className="flex items-center gap-2">
-                              <User className={`size-4 ${statusColors!.text}`} />
-                              <span className={`font-semibold ${statusColors!.text}`}>
+                              <User
+                                className={`size-4 ${statusColors!.text}`}
+                              />
+                              <span
+                                className={`font-semibold ${statusColors!.text}`}
+                              >
                                 {appt.clientName || 'Guest'}
                               </span>
-                              {appt.source === 'google' && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">Google</span>}
+                              {appt.source === 'google' && (
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                  Google
+                                </span>
+                              )}
                             </div>
 
                             {/* Services */}
@@ -388,7 +481,9 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
 
                           {/* Time & Duration */}
                           <div className="text-right">
-                            <div className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}>
+                            <div
+                              className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}
+                            >
                               <Clock className="size-3.5" />
                               {formatTime(appt.startTime, appt.timeZone)}
                             </div>
@@ -400,7 +495,8 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
 
                         {/* Status Badge */}
                         <div className="mt-2 flex items-center justify-between">
-                          <span className={`
+                          <span
+                            className={`
                             inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
                             ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
                           `}
@@ -414,8 +510,13 @@ function DayDetailPanel({ date, appointments, onClose, onConvertGoogleEvent }: D
                             {formatTime(appt.endTime, appt.timeZone)}
                           </span>
                         </div>
-                        {appt.source === 'google' && appt.googleEventReviewId && (
-                          <button type="button" onClick={() => onConvertGoogleEvent(appt)} className="mt-3 w-full rounded-lg bg-rose-800 px-3 py-2 text-xs font-semibold text-white">
+                        {appt.source === 'google'
+                        && appt.googleEventReviewId && (
+                          <button
+                            type="button"
+                            onClick={() => onConvertGoogleEvent(appt)}
+                            className="mt-3 w-full rounded-lg bg-rose-800 px-3 py-2 text-xs font-semibold text-white"
+                          >
                             Convert to appointment
                           </button>
                         )}
@@ -439,11 +540,14 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [appointmentData, setAppointmentData] = useState<Map<string, DaySummary>>(new Map());
+  const [appointmentData, setAppointmentData] = useState<
+    Map<string, DaySummary>
+  >(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
-  const [googleEventPrefill, setGoogleEventPrefill] = useState<AppointmentSummary | null>(null);
+  const [googleEventPrefill, setGoogleEventPrefill]
+    = useState<AppointmentSummary | null>(null);
   const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
@@ -490,15 +594,33 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
 
       const externalRangeEnd = new Date(dateRange.end);
       externalRangeEnd.setDate(externalRangeEnd.getDate() + 1);
+      const fetchGoogleEvents = async () => {
+        if (!salonSlug) {
+          return null;
+        }
+
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 5000);
+        try {
+          return await fetch(
+            `/api/integrations/google/events?${new URLSearchParams({
+              salonSlug,
+              startTime: dateRange.start.toISOString(),
+              endTime: externalRangeEnd.toISOString(),
+            }).toString()}`,
+            { signal: controller.signal },
+          );
+        } catch {
+          return null;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      };
       const [response, googleResponse] = await Promise.all([
-        fetch(`/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`),
-        salonSlug
-          ? fetch(`/api/integrations/google/events?${new URLSearchParams({
-            salonSlug,
-            startTime: dateRange.start.toISOString(),
-            endTime: externalRangeEnd.toISOString(),
-          }).toString()}`).catch(() => null)
-          : Promise.resolve(null),
+        fetch(
+          `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`,
+        ),
+        fetchGoogleEvents(),
       ]);
 
       if (!response.ok) {
@@ -508,14 +630,19 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       const result = await response.json();
       const rawAppointments = result.data?.appointments || [];
       const salonTimeZone = result.meta?.timeZone || 'America/Toronto';
-      const googlePayload = googleResponse?.ok ? await googleResponse.json() : null;
+      const googlePayload = googleResponse?.ok
+        ? await googleResponse.json()
+        : null;
       const externalEvents = googlePayload?.data?.events || [];
 
       // Group appointments by date
       const dataMap = new Map<string, DaySummary>();
 
       for (const appt of rawAppointments) {
-        const dateKey = formatDateKeyInTimeZone(new Date(appt.startTime), salonTimeZone);
+        const dateKey = formatDateKeyInTimeZone(
+          new Date(appt.startTime),
+          salonTimeZone,
+        );
         const existing = dataMap.get(dateKey);
 
         const summary: AppointmentSummary = {
@@ -550,16 +677,30 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         if (event.appointmentId) {
           continue;
         }
-        const dateKey = formatDateKeyInTimeZone(new Date(event.startTime), salonTimeZone);
+        const dateKey = formatDateKeyInTimeZone(
+          new Date(event.startTime),
+          salonTimeZone,
+        );
         const existing = dataMap.get(dateKey);
         const summary: AppointmentSummary = {
           id: `google:${event.id}`,
           clientName: event.label || 'Google Calendar event',
           startTime: event.startTime,
           endTime: event.endTime,
-          services: [event.reviewStatus === 'needs_review' ? 'Needs review' : event.transparency === 'free' ? 'Free Google event' : 'Busy time'],
+          services: [
+            event.reviewStatus === 'needs_review'
+              ? 'Needs review'
+              : event.transparency === 'free'
+                ? 'Free Google event'
+                : 'Busy time',
+          ],
           technician: null,
-          status: event.reviewStatus === 'needs_review' ? 'needs_details' : event.transparency === 'free' ? 'external_free' : 'external_busy',
+          status:
+            event.reviewStatus === 'needs_review'
+              ? 'needs_details'
+              : event.transparency === 'free'
+                ? 'external_free'
+                : 'external_busy',
           source: 'google',
           transparency: event.transparency,
           reviewStatus: event.reviewStatus,
@@ -639,36 +780,49 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   const selectedDateData = selectedDate
     ? appointmentData.get(formatDateKey(selectedDate))
     : null;
-  const selectedAppointments = (selectedDateData?.appointments || []).filter((appointment) => {
-    if (scheduleFilter === 'appointments') {
-      return appointment.source === 'luster';
-    }
-    if (scheduleFilter === 'google_busy') {
-      return appointment.source === 'google' && appointment.transparency === 'busy';
-    }
-    if (scheduleFilter === 'free') {
-      return appointment.source === 'google' && appointment.transparency === 'free';
-    }
-    if (scheduleFilter === 'needs_review') {
-      return appointment.source === 'google' && appointment.reviewStatus === 'needs_review';
-    }
-    return true;
-  });
+  const selectedAppointments = (selectedDateData?.appointments || []).filter(
+    (appointment) => {
+      if (scheduleFilter === 'appointments') {
+        return appointment.source === 'luster';
+      }
+      if (scheduleFilter === 'google_busy') {
+        return (
+          appointment.source === 'google' && appointment.transparency === 'busy'
+        );
+      }
+      if (scheduleFilter === 'free') {
+        return (
+          appointment.source === 'google' && appointment.transparency === 'free'
+        );
+      }
+      if (scheduleFilter === 'needs_review') {
+        return (
+          appointment.source === 'google'
+          && appointment.reviewStatus === 'needs_review'
+        );
+      }
+      return true;
+    },
+  );
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
+    <div className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
       {/* Header */}
       <ModalHeader
         title="Schedule"
-        subtitle={viewMode === 'weekly' ? formatWeekRange(getWeekStart(currentDate)) : formatMonthYear(currentDate)}
+        subtitle={
+          viewMode === 'weekly'
+            ? formatWeekRange(getWeekStart(currentDate))
+            : formatMonthYear(currentDate)
+        }
         leftAction={<BackButton onClick={onClose} label="Back" />}
         rightAction={(
           <button
             type="button"
             onClick={handleToday}
-            className="text-[15px] font-medium text-[#007AFF] transition-opacity active:opacity-50"
+            className="text-[15px] font-medium text-rose-800 transition-opacity active:opacity-50"
           >
             Today
           </button>
@@ -683,7 +837,8 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
             onClick={() => setViewMode('weekly')}
             className={`
               rounded-md px-4 py-1.5 text-sm font-medium transition-all
-              ${viewMode === 'weekly'
+              ${
+    viewMode === 'weekly'
       ? 'bg-white text-gray-900 shadow-sm'
       : 'text-gray-600 hover:text-gray-900'
     }
@@ -696,7 +851,8 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
             onClick={() => setViewMode('monthly')}
             className={`
               rounded-md px-4 py-1.5 text-sm font-medium transition-all
-              ${viewMode === 'monthly'
+              ${
+    viewMode === 'monthly'
       ? 'bg-white text-gray-900 shadow-sm'
       : 'text-gray-600 hover:text-gray-900'
     }
@@ -712,7 +868,9 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         <button
           type="button"
           onClick={handlePrev}
-          aria-label={viewMode === 'weekly' ? 'Previous week' : 'Previous month'}
+          aria-label={
+            viewMode === 'weekly' ? 'Previous week' : 'Previous month'
+          }
           className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-gray-100 active:bg-gray-200"
         >
           <ChevronLeft className="size-6 text-gray-600" />
@@ -737,14 +895,23 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       {/* Calendar Grid */}
       <div className="flex-1 overflow-y-auto bg-white px-3 pb-24">
         <div className="flex gap-2 overflow-x-auto py-3">
-          {([
-            ['all', 'All'],
-            ['appointments', 'Appointments'],
-            ['google_busy', 'Google Busy'],
-            ['free', 'Free Events'],
-            ['needs_review', 'Needs Review'],
-          ] as Array<[ScheduleFilter, string]>).map(([id, label]) => (
-            <button key={id} type="button" onClick={() => setScheduleFilter(id)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${scheduleFilter === id ? 'bg-rose-800 text-white' : 'bg-stone-100 text-stone-600'}`}>{label}</button>
+          {(
+            [
+              ['all', 'All'],
+              ['appointments', 'Appointments'],
+              ['google_busy', 'Google Busy'],
+              ['free', 'Free Events'],
+              ['needs_review', 'Needs Review'],
+            ] as Array<[ScheduleFilter, string]>
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setScheduleFilter(id)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${scheduleFilter === id ? 'bg-rose-800 text-white' : 'bg-stone-100 text-stone-600'}`}
+            >
+              {label}
+            </button>
           ))}
         </div>
         {/* Day Names Header */}
@@ -759,60 +926,72 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           ))}
         </div>
 
-        {loading
-          ? (
-              <LoadingSkeleton />
-            )
-          : error
-            ? (
-                <div className="flex flex-col items-center justify-center px-8 py-20">
-                  <p className="mb-2 text-sm text-red-600">{error}</p>
-                  <button
-                    type="button"
-                    onClick={fetchAppointments}
-                    className="text-sm font-medium text-[#007AFF]"
-                  >
-                    Try again
-                  </button>
-                </div>
-              )
-            : (
-                <div className={`grid grid-cols-7 gap-1 ${viewMode === 'weekly' ? 'gap-2' : ''}`}>
-                  {displayDays.map((date, idx) => {
-                    const dateKey = formatDateKey(date);
-                    const daySummary = appointmentData.get(dateKey);
-                    const isCurrentMonth = date.getMonth() === currentDate.getMonth();
-                    const isSelected = selectedDate ? isSameDay(date, selectedDate) : false;
+        {loading && (
+          <div
+            role="status"
+            className="mb-2 flex items-center justify-center gap-2 text-xs font-medium text-stone-500"
+          >
+            <span className="size-3 animate-spin rounded-full border-2 border-rose-200 border-t-rose-800" />
+            Refreshing schedule…
+          </div>
+        )}
 
-                    return (
-                      <DayCell
-                        key={idx}
-                        date={date}
-                        count={daySummary?.count || 0}
-                        appointmentCount={daySummary?.appointmentCount || 0}
-                        googleBusyCount={daySummary?.googleBusyCount || 0}
-                        isCurrentMonth={isCurrentMonth}
-                        isSelected={isSelected}
-                        onClick={() => handleDayClick(date)}
-                        viewMode={viewMode}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+        {error && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2">
+            <p className="text-xs text-red-700">
+              Schedule details could not refresh. Existing calendar dates are
+              still available.
+            </p>
+            <button
+              type="button"
+              onClick={fetchAppointments}
+              className="shrink-0 text-xs font-semibold text-rose-800"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        <div
+          aria-busy={loading}
+          className={`grid grid-cols-7 gap-1 ${viewMode === 'weekly' ? 'gap-2' : ''}`}
+        >
+          {displayDays.map((date) => {
+            const dateKey = formatDateKey(date);
+            const daySummary = appointmentData.get(dateKey);
+            const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+            const isSelected = selectedDate
+              ? isSameDay(date, selectedDate)
+              : false;
+
+            return (
+              <DayCell
+                key={dateKey}
+                date={date}
+                count={daySummary?.count || 0}
+                appointmentCount={daySummary?.appointmentCount || 0}
+                googleBusyCount={daySummary?.googleBusyCount || 0}
+                isCurrentMonth={isCurrentMonth}
+                isSelected={isSelected}
+                onClick={() => handleDayClick(date)}
+                viewMode={viewMode}
+              />
+            );
+          })}
+        </div>
 
         {/* Legend */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded-full bg-blue-500" />
+            <div className="size-3 rounded-full bg-rose-700" />
             <span>Today</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded border border-blue-200 bg-white" />
+            <div className="size-3 rounded border border-rose-200 bg-white" />
             <span>Has Appointments</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded bg-[#007AFF]" />
+            <div className="size-3 rounded bg-rose-800" />
             <span>Selected</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -827,13 +1006,14 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
-        className="fixed bottom-24 right-6 z-40 flex size-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
+        className="fixed bottom-24 right-6 z-40 flex size-14 items-center justify-center rounded-full bg-rose-800 text-white shadow-[0_4px_16px_rgba(159,18,57,0.3)] transition-transform active:scale-90"
       >
         <Plus className="size-8" />
       </button>
 
       {/* Day Detail Panel */}
-      {portalReady && createPortal(
+      {portalReady
+      && createPortal(
         <AnimatePresence>
           {selectedDate && !showNewAppointmentModal && (
             <>
@@ -874,15 +1054,24 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           setGoogleEventPrefill(null);
         }}
         preselectedDate={selectedDate || new Date()}
-        googleEventPrefill={googleEventPrefill
-          ? {
-              id: googleEventPrefill.googleEventReviewId!,
-              title: googleEventPrefill.clientName,
-              startTime: googleEventPrefill.startTime,
-              durationMinutes: Math.max(1, Math.round((new Date(googleEventPrefill.endTime).getTime() - new Date(googleEventPrefill.startTime).getTime()) / 60_000)),
-              isReadOnly: googleEventPrefill.isReadOnly,
-            }
-          : null}
+        googleEventPrefill={
+          googleEventPrefill
+            ? {
+                id: googleEventPrefill.googleEventReviewId!,
+                title: googleEventPrefill.clientName,
+                startTime: googleEventPrefill.startTime,
+                durationMinutes: Math.max(
+                  1,
+                  Math.round(
+                    (new Date(googleEventPrefill.endTime).getTime()
+                      - new Date(googleEventPrefill.startTime).getTime())
+                      / 60_000,
+                  ),
+                ),
+                isReadOnly: googleEventPrefill.isReadOnly,
+              }
+            : null
+        }
       />
     </div>
   );

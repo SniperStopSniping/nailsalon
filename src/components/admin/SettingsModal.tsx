@@ -37,7 +37,11 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import type { BookingStep } from '@/libs/bookingFlow';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { useSalon } from '@/providers/SalonProvider';
-import type { ModuleKey, ResolvedModules, SalonVisibilityPolicy } from '@/types/salonPolicy';
+import type {
+  ModuleKey,
+  ResolvedModules,
+  SalonVisibilityPolicy,
+} from '@/types/salonPolicy';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
@@ -110,14 +114,16 @@ function Row({
     <div
       className="flex min-h-[48px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
       onClick={type === 'link' ? onClick : undefined}
-      onKeyDown={type === 'link' && onClick
-        ? (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onClick();
+      onKeyDown={
+        type === 'link' && onClick
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClick();
+              }
             }
-          }
-        : undefined}
+          : undefined
+      }
       role={type === 'link' && onClick ? 'button' : undefined}
       tabIndex={type === 'link' && onClick ? 0 : undefined}
     >
@@ -141,7 +147,9 @@ function Row({
         <div className="flex items-center gap-2">
           {value && <span className="text-[16px] text-[#8E8E93]">{value}</span>}
 
-          {type === 'link' && <ChevronRight className="size-4 text-[#C7C7CC]" />}
+          {type === 'link' && (
+            <ChevronRight className="size-4 text-[#C7C7CC]" />
+          )}
 
           {type === 'toggle' && (
             <button
@@ -150,7 +158,7 @@ function Row({
               aria-label={`Toggle ${label}`}
               className={`
                 relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
-                ${isOn ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}
+                ${isOn ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
               `}
             >
               <motion.div
@@ -233,7 +241,7 @@ function ModuleRow({
             className={`
               relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
               ${!entitled ? 'cursor-not-allowed' : 'cursor-pointer'}
-              ${enabled && entitled ? 'bg-[#34C759]' : 'bg-[#E9E9EA]'}
+              ${enabled && entitled ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
             `}
           >
             <motion.div
@@ -264,7 +272,13 @@ function ProfileCard({
   initials,
   onClick,
 }: ProfileCardProps) {
-  const displayInitials = initials || name.split(' ').map(n => n[0]).join('').toUpperCase();
+  const displayInitials
+    = initials
+    || name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase();
 
   return (
     <button
@@ -320,11 +334,15 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`);
+      const response = await fetch(
+        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
+      );
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(body?.error?.message || 'Failed to load location settings');
+        throw new Error(
+          body?.error?.message || 'Failed to load location settings',
+        );
       }
 
       const location = body?.data?.location;
@@ -341,7 +359,11 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
         zipCode: location?.zipCode ?? '',
       });
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : 'Failed to load location settings');
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : 'Failed to load location settings',
+      );
     } finally {
       setLoading(false);
     }
@@ -360,7 +382,10 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
     return () => window.clearTimeout(timer);
   }, [saved]);
 
-  const handleChange = (field: keyof DirectionsLocationFormState, value: string) => {
+  const handleChange = (
+    field: keyof DirectionsLocationFormState,
+    value: string,
+  ) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setSaved(false);
   };
@@ -374,21 +399,26 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          address: form.address,
-          city: form.city,
-          state: form.state,
-          zipCode: form.zipCode,
-        }),
-      });
+      const response = await fetch(
+        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: form.name,
+            address: form.address,
+            city: form.city,
+            state: form.state,
+            zipCode: form.zipCode,
+          }),
+        },
+      );
 
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error?.message || 'Failed to save location settings');
+        throw new Error(
+          body?.error?.message || 'Failed to save location settings',
+        );
       }
 
       const location = body?.data?.location;
@@ -405,7 +435,11 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
       }));
       setSaved(true);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to save location settings');
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Failed to save location settings',
+      );
     } finally {
       setSaving(false);
     }
@@ -414,21 +448,24 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
   return (
     <Section
       title="Directions Location"
-      footer={locationCount > 1
-        ? 'This edits the primary location used as the default customer directions target. Other locations remain unchanged.'
-        : 'This address is used for customer directions and the default booking location when a visit does not specify another location.'}
+      footer={
+        locationCount > 1
+          ? 'This edits the primary location used as the default customer directions target. Other locations remain unchanged.'
+          : 'This address is used for customer directions and the default booking location when a visit does not specify another location.'
+      }
     >
       {loading
         ? (
             <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+              <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
             </div>
           )
         : (
             <div className="space-y-4 p-4">
               {isPrimaryFallback && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                  No primary location was set. Saving here will promote the current default location for customer directions.
+                  No primary location was set. Saving here will promote the current
+                  default location for customer directions.
                 </div>
               )}
 
@@ -441,7 +478,9 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Location name</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Location name
+                  </span>
                   <input
                     type="text"
                     value={form.name}
@@ -452,18 +491,23 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
                 </label>
 
                 <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Street address</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Street address
+                  </span>
                   <input
                     type="text"
                     value={form.address}
-                    onChange={event => handleChange('address', event.target.value)}
+                    onChange={event =>
+                      handleChange('address', event.target.value)}
                     className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                     placeholder="123 Main St"
                   />
                 </label>
 
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">City</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    City
+                  </span>
                   <input
                     type="text"
                     value={form.city}
@@ -475,22 +519,28 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">State</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      State
+                    </span>
                     <input
                       type="text"
                       value={form.state}
-                      onChange={event => handleChange('state', event.target.value)}
+                      onChange={event =>
+                        handleChange('state', event.target.value)}
                       className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                       placeholder="ON"
                     />
                   </label>
 
                   <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">ZIP / postal</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      ZIP / postal
+                    </span>
                     <input
                       type="text"
                       value={form.zipCode}
-                      onChange={event => handleChange('zipCode', event.target.value)}
+                      onChange={event =>
+                        handleChange('zipCode', event.target.value)}
                       className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                       placeholder="M5H 2M9"
                     />
@@ -500,14 +550,18 @@ function DirectionsLocationSection({ salonSlug }: { salonSlug: string }) {
 
               <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
                 <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <MapPin className="size-4 text-[#007AFF]" />
-                  <span>{form.id ? 'Editing current default location' : 'Create the first customer-facing location'}</span>
+                  <MapPin className="size-4 text-rose-800" />
+                  <span>
+                    {form.id
+                      ? 'Editing current default location'
+                      : 'Create the first customer-facing location'}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={handleSave}
                   disabled={!form.name.trim() || saving}
-                  className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Save className="size-4" />
                   <span>{saving ? 'Saving...' : 'Save location'}</span>
@@ -554,7 +608,10 @@ type BookingNotificationEventFormState = {
   ownerChannel: BookingNotificationChannel;
 };
 
-type BookingNotificationFormState = Record<BookingNotificationEventKey, BookingNotificationEventFormState>;
+type BookingNotificationFormState = Record<
+  BookingNotificationEventKey,
+  BookingNotificationEventFormState
+>;
 
 type BookingNotificationCapabilitiesState = {
   ownerPhonePresent: boolean;
@@ -563,20 +620,29 @@ type BookingNotificationCapabilitiesState = {
   emailChannelAvailable: boolean;
 };
 
-const SLOT_INTERVAL_OPTIONS: Array<BookingConfigFormState['slotIntervalMinutes']> = [5, 10, 15, 30];
-const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = ['CAD', 'USD'];
-const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{ value: BookingNotificationChannel; label: string }> = [
+const SLOT_INTERVAL_OPTIONS: Array<
+  BookingConfigFormState['slotIntervalMinutes']
+> = [5, 10, 15, 30];
+const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = [
+  'CAD',
+  'USD',
+];
+const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{
+  value: BookingNotificationChannel;
+  label: string;
+}> = [
   { value: 'sms', label: 'SMS' },
   { value: 'email', label: 'Email' },
   { value: 'both', label: 'Both' },
 ];
 
-const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFormState = {
-  technicianEnabled: true,
-  ownerEnabled: false,
-  technicianChannel: 'sms',
-  ownerChannel: 'both',
-};
+const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFormState
+  = {
+    technicianEnabled: true,
+    ownerEnabled: false,
+    technicianChannel: 'sms',
+    ownerChannel: 'both',
+  };
 
 const PLAN_FEATURES = {
   starter: {
@@ -689,9 +755,15 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
                   </div>
                 )}
                 <div className="mb-3 text-center">
-                  <h3 className="text-lg font-semibold text-gray-900">{plan.name}</h3>
-                  <div className="mt-1 text-2xl font-bold text-gray-900">{plan.price}</div>
-                  <p className="mt-1 text-xs text-gray-500">{plan.description}</p>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {plan.name}
+                  </h3>
+                  <div className="mt-1 text-2xl font-bold text-gray-900">
+                    {plan.price}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {plan.description}
+                  </p>
                 </div>
 
                 <div className="mb-3 rounded-lg bg-gray-50 p-2 text-center text-xs text-gray-600">
@@ -699,7 +771,9 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
                   {' '}
                   staff
                   {' · '}
-                  <span className="font-medium">{plan.limits.locations}</span>
+                  <span className="font-medium">
+                    {plan.limits.locations}
+                  </span>
                   {' '}
                   location
                   {plan.limits.locations > 1 ? 's' : ''}
@@ -707,7 +781,10 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 
                 <ul className="space-y-2">
                   {plan.features.map(feature => (
-                    <li key={feature.name} className="flex items-center gap-2 text-sm">
+                    <li
+                      key={feature.name}
+                      className="flex items-center gap-2 text-sm"
+                    >
                       {feature.included
                         ? (
                             <Check className="size-4 shrink-0 text-green-500" />
@@ -715,7 +792,11 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
                         : (
                             <X className="size-4 shrink-0 text-gray-300" />
                           )}
-                      <span className={feature.included ? 'text-gray-700' : 'text-gray-400'}>
+                      <span
+                        className={
+                          feature.included ? 'text-gray-700' : 'text-gray-400'
+                        }
+                      >
                         {feature.name}
                       </span>
                     </li>
@@ -737,7 +818,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
           </div>
 
           <p className="mt-6 text-center text-xs text-gray-500">
-            Need a custom plan? Contact us at support@example.com
+            Need help? Contact Luster at support@islanailsalon.com
           </p>
         </div>
       </motion.div>
@@ -757,7 +838,7 @@ export function SettingsModal({
   onClose,
   salonSlug: explicitSalonSlug,
   isFreeSolo = false,
-  userName = 'Justin Hodgeman',
+  userName = 'Salon owner',
   userInitials,
 }: SettingsModalProps) {
   const { salonSlug: providerSalonSlug } = useSalon();
@@ -783,7 +864,9 @@ export function SettingsModal({
     analyticsDashboard: true,
     utilization: true,
   });
-  const [entitledModules, setEntitledModules] = useState<Record<ModuleKey, boolean>>({
+  const [entitledModules, setEntitledModules] = useState<
+    Record<ModuleKey, boolean>
+  >({
     smsReminders: false,
     referrals: false,
     rewards: false,
@@ -808,34 +891,43 @@ export function SettingsModal({
   const [programsSaving, setProgramsSaving] = useState(false);
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [rewardsEnabledProgram, setRewardsEnabledProgram] = useState(true);
-  const [_effectivePoints, setEffectivePoints] = useState<ResolvedLoyaltyPoints | null>(null);
-  const [_defaultPoints, setDefaultPoints] = useState<ResolvedLoyaltyPoints | null>(null);
+  const [_effectivePoints, setEffectivePoints]
+    = useState<ResolvedLoyaltyPoints | null>(null);
+  const [_defaultPoints, setDefaultPoints]
+    = useState<ResolvedLoyaltyPoints | null>(null);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(
+    null,
+  );
   const [bookingConfigLoading, setBookingConfigLoading] = useState(true);
   const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
   const [bookingConfigSaved, setBookingConfigSaved] = useState(false);
-  const [bookingConfigForm, setBookingConfigForm] = useState<BookingConfigFormState>({
-    bufferMinutes: 10,
-    slotIntervalMinutes: 15,
-    currency: 'CAD',
-    timezone: 'America/Toronto',
-    introPriceDefaultLabel: '',
-    firstVisitDiscountEnabled: false,
-    clientChangeCutoffHours: 24,
-  });
-  const [bookingNotificationsSaving, setBookingNotificationsSaving] = useState(false);
-  const [bookingNotificationsSaved, setBookingNotificationsSaved] = useState(false);
-  const [bookingNotificationsForm, setBookingNotificationsForm] = useState<BookingNotificationFormState>({
-    newBooking: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
-    appointmentCancelled: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
-  });
-  const [bookingNotificationCapabilities, setBookingNotificationCapabilities] = useState<BookingNotificationCapabilitiesState>({
-    ownerPhonePresent: false,
-    ownerEmailPresent: false,
-    smsChannelAvailable: false,
-    emailChannelAvailable: false,
-  });
+  const [bookingConfigForm, setBookingConfigForm]
+    = useState<BookingConfigFormState>({
+      bufferMinutes: 10,
+      slotIntervalMinutes: 15,
+      currency: 'CAD',
+      timezone: 'America/Toronto',
+      introPriceDefaultLabel: '',
+      firstVisitDiscountEnabled: false,
+      clientChangeCutoffHours: 24,
+    });
+  const [bookingNotificationsSaving, setBookingNotificationsSaving]
+    = useState(false);
+  const [bookingNotificationsSaved, setBookingNotificationsSaved]
+    = useState(false);
+  const [bookingNotificationsForm, setBookingNotificationsForm]
+    = useState<BookingNotificationFormState>({
+      newBooking: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
+      appointmentCancelled: DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE,
+    });
+  const [bookingNotificationCapabilities, setBookingNotificationCapabilities]
+    = useState<BookingNotificationCapabilitiesState>({
+      ownerPhonePresent: false,
+      ownerEmailPresent: false,
+      smsChannelAvailable: false,
+      emailChannelAvailable: false,
+    });
 
   const [visibility, setVisibility] = useState<SalonVisibilityPolicy>({
     staff: {
@@ -857,7 +949,9 @@ export function SettingsModal({
 
     try {
       setModulesLoading(true);
-      const response = await fetch(`/api/admin/settings/modules?salonSlug=${salonSlug}`);
+      const response = await fetch(
+        `/api/admin/settings/modules?salonSlug=${salonSlug}`,
+      );
       if (response.ok) {
         const data = await response.json();
         if (data.data.modules) {
@@ -875,35 +969,38 @@ export function SettingsModal({
   }, [salonSlug]);
 
   // Save module toggle (Step 16.3)
-  const saveModuleToggle = useCallback(async (moduleKey: ModuleKey, value: boolean) => {
-    if (!salonSlug) {
-      return;
-    }
-
-    try {
-      setModulesSaving(true);
-      const response = await fetch('/api/admin/settings/modules', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug,
-          modules: { [moduleKey]: value },
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.data.modules) {
-          setModules(data.data.modules);
-        }
-        router.refresh();
+  const saveModuleToggle = useCallback(
+    async (moduleKey: ModuleKey, value: boolean) => {
+      if (!salonSlug) {
+        return;
       }
-    } catch (error) {
-      console.error('Failed to save module setting:', error);
-    } finally {
-      setModulesSaving(false);
-    }
-  }, [salonSlug, router]);
+
+      try {
+        setModulesSaving(true);
+        const response = await fetch('/api/admin/settings/modules', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug,
+            modules: { [moduleKey]: value },
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data.modules) {
+            setModules(data.data.modules);
+          }
+          router.refresh();
+        }
+      } catch (error) {
+        console.error('Failed to save module setting:', error);
+      } finally {
+        setModulesSaving(false);
+      }
+    },
+    [salonSlug, router],
+  );
 
   // Handle module toggle
   const handleModuleToggle = (moduleKey: ModuleKey, value: boolean) => {
@@ -922,7 +1019,9 @@ export function SettingsModal({
     try {
       setProgramsLoading(true);
       setBookingConfigLoading(true);
-      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`);
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+      );
       if (response.ok) {
         const data = await response.json();
         setReviewsEnabled(data.reviewsEnabled ?? true);
@@ -936,22 +1035,37 @@ export function SettingsModal({
           slotIntervalMinutes: data.bookingConfig?.slotIntervalMinutes ?? 15,
           currency: data.bookingConfig?.currency ?? 'CAD',
           timezone: data.bookingConfig?.timezone ?? 'America/Toronto',
-          introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
-          firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? false,
-          clientChangeCutoffHours: data.bookingConfig?.clientChangeCutoffHours ?? 24,
+          introPriceDefaultLabel:
+            data.bookingConfig?.introPriceDefaultLabel ?? '',
+          firstVisitDiscountEnabled:
+            data.bookingConfig?.firstVisitDiscountEnabled ?? false,
+          clientChangeCutoffHours:
+            data.bookingConfig?.clientChangeCutoffHours ?? 24,
         });
         setBookingNotificationsForm({
           newBooking: {
-            technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? true,
-            ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? false,
-            technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? 'sms',
-            ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? 'both',
+            technicianEnabled:
+              data.bookingNotifications?.newBooking?.technicianEnabled ?? true,
+            ownerEnabled:
+              data.bookingNotifications?.newBooking?.ownerEnabled ?? false,
+            technicianChannel:
+              data.bookingNotifications?.newBooking?.technicianChannel ?? 'sms',
+            ownerChannel:
+              data.bookingNotifications?.newBooking?.ownerChannel ?? 'both',
           },
           appointmentCancelled: {
-            technicianEnabled: data.bookingNotifications?.appointmentCancelled?.technicianEnabled ?? true,
-            ownerEnabled: data.bookingNotifications?.appointmentCancelled?.ownerEnabled ?? false,
-            technicianChannel: data.bookingNotifications?.appointmentCancelled?.technicianChannel ?? 'sms',
-            ownerChannel: data.bookingNotifications?.appointmentCancelled?.ownerChannel ?? 'both',
+            technicianEnabled:
+              data.bookingNotifications?.appointmentCancelled
+                ?.technicianEnabled ?? true,
+            ownerEnabled:
+              data.bookingNotifications?.appointmentCancelled?.ownerEnabled
+              ?? false,
+            technicianChannel:
+              data.bookingNotifications?.appointmentCancelled
+                ?.technicianChannel ?? 'sms',
+            ownerChannel:
+              data.bookingNotifications?.appointmentCancelled?.ownerChannel
+              ?? 'both',
           },
         });
         setBookingNotificationCapabilities({
@@ -970,28 +1084,34 @@ export function SettingsModal({
   }, [salonSlug]);
 
   // Save programs toggle (Step 21E)
-  const saveProgramToggle = useCallback(async (field: 'reviewsEnabled' | 'rewardsEnabled', value: boolean) => {
-    if (!salonSlug) {
-      return;
-    }
-
-    try {
-      setProgramsSaving(true);
-      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
-
-      if (response.ok) {
-        router.refresh();
+  const saveProgramToggle = useCallback(
+    async (field: 'reviewsEnabled' | 'rewardsEnabled', value: boolean) => {
+      if (!salonSlug) {
+        return;
       }
-    } catch (error) {
-      console.error('Failed to save program setting:', error);
-    } finally {
-      setProgramsSaving(false);
-    }
-  }, [salonSlug, router]);
+
+      try {
+        setProgramsSaving(true);
+        const response = await fetch(
+          `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: value }),
+          },
+        );
+
+        if (response.ok) {
+          router.refresh();
+        }
+      } catch (error) {
+        console.error('Failed to save program setting:', error);
+      } finally {
+        setProgramsSaving(false);
+      }
+    },
+    [salonSlug, router],
+  );
 
   const saveBookingConfig = useCallback(async () => {
     if (!salonSlug || bookingConfigSaving) {
@@ -1001,21 +1121,27 @@ export function SettingsModal({
     try {
       setBookingConfigSaving(true);
       setBookingConfigSaved(false);
-      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingConfig: {
-            bufferMinutes: bookingConfigForm.bufferMinutes,
-            slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
-            currency: bookingConfigForm.currency,
-            timezone: bookingConfigForm.timezone.trim(),
-            introPriceDefaultLabel: bookingConfigForm.introPriceDefaultLabel.trim() || null,
-            firstVisitDiscountEnabled: bookingConfigForm.firstVisitDiscountEnabled,
-            clientChangeCutoffHours: bookingConfigForm.clientChangeCutoffHours,
-          },
-        }),
-      });
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookingConfig: {
+              bufferMinutes: bookingConfigForm.bufferMinutes,
+              slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
+              currency: bookingConfigForm.currency,
+              timezone: bookingConfigForm.timezone.trim(),
+              introPriceDefaultLabel:
+                bookingConfigForm.introPriceDefaultLabel.trim() || null,
+              firstVisitDiscountEnabled:
+                bookingConfigForm.firstVisitDiscountEnabled,
+              clientChangeCutoffHours:
+                bookingConfigForm.clientChangeCutoffHours,
+            },
+          }),
+        },
+      );
 
       if (!response.ok) {
         throw new Error('Failed to save booking configuration');
@@ -1023,13 +1149,21 @@ export function SettingsModal({
 
       const data = await response.json();
       setBookingConfigForm({
-        bufferMinutes: data.bookingConfig?.bufferMinutes ?? bookingConfigForm.bufferMinutes,
-        slotIntervalMinutes: data.bookingConfig?.slotIntervalMinutes ?? bookingConfigForm.slotIntervalMinutes,
+        bufferMinutes:
+          data.bookingConfig?.bufferMinutes ?? bookingConfigForm.bufferMinutes,
+        slotIntervalMinutes:
+          data.bookingConfig?.slotIntervalMinutes
+          ?? bookingConfigForm.slotIntervalMinutes,
         currency: data.bookingConfig?.currency ?? bookingConfigForm.currency,
         timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
-        introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
-        firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? bookingConfigForm.firstVisitDiscountEnabled,
-        clientChangeCutoffHours: data.bookingConfig?.clientChangeCutoffHours ?? bookingConfigForm.clientChangeCutoffHours,
+        introPriceDefaultLabel:
+          data.bookingConfig?.introPriceDefaultLabel ?? '',
+        firstVisitDiscountEnabled:
+          data.bookingConfig?.firstVisitDiscountEnabled
+          ?? bookingConfigForm.firstVisitDiscountEnabled,
+        clientChangeCutoffHours:
+          data.bookingConfig?.clientChangeCutoffHours
+          ?? bookingConfigForm.clientChangeCutoffHours,
       });
       setBookingConfigSaved(true);
       router.refresh();
@@ -1048,26 +1182,37 @@ export function SettingsModal({
     try {
       setBookingNotificationsSaving(true);
       setBookingNotificationsSaved(false);
-      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingNotifications: {
-            newBooking: {
-              technicianEnabled: bookingNotificationsForm.newBooking.technicianEnabled,
-              ownerEnabled: bookingNotificationsForm.newBooking.ownerEnabled,
-              technicianChannel: bookingNotificationsForm.newBooking.technicianChannel,
-              ownerChannel: bookingNotificationsForm.newBooking.ownerChannel,
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookingNotifications: {
+              newBooking: {
+                technicianEnabled:
+                  bookingNotificationsForm.newBooking.technicianEnabled,
+                ownerEnabled: bookingNotificationsForm.newBooking.ownerEnabled,
+                technicianChannel:
+                  bookingNotificationsForm.newBooking.technicianChannel,
+                ownerChannel: bookingNotificationsForm.newBooking.ownerChannel,
+              },
+              appointmentCancelled: {
+                technicianEnabled:
+                  bookingNotificationsForm.appointmentCancelled
+                    .technicianEnabled,
+                ownerEnabled:
+                  bookingNotificationsForm.appointmentCancelled.ownerEnabled,
+                technicianChannel:
+                  bookingNotificationsForm.appointmentCancelled
+                    .technicianChannel,
+                ownerChannel:
+                  bookingNotificationsForm.appointmentCancelled.ownerChannel,
+              },
             },
-            appointmentCancelled: {
-              technicianEnabled: bookingNotificationsForm.appointmentCancelled.technicianEnabled,
-              ownerEnabled: bookingNotificationsForm.appointmentCancelled.ownerEnabled,
-              technicianChannel: bookingNotificationsForm.appointmentCancelled.technicianChannel,
-              ownerChannel: bookingNotificationsForm.appointmentCancelled.ownerChannel,
-            },
-          },
-        }),
-      });
+          }),
+        },
+      );
 
       if (!response.ok) {
         throw new Error('Failed to save booking notification settings');
@@ -1076,23 +1221,49 @@ export function SettingsModal({
       const data = await response.json();
       setBookingNotificationsForm({
         newBooking: {
-          technicianEnabled: data.bookingNotifications?.newBooking?.technicianEnabled ?? bookingNotificationsForm.newBooking.technicianEnabled,
-          ownerEnabled: data.bookingNotifications?.newBooking?.ownerEnabled ?? bookingNotificationsForm.newBooking.ownerEnabled,
-          technicianChannel: data.bookingNotifications?.newBooking?.technicianChannel ?? bookingNotificationsForm.newBooking.technicianChannel,
-          ownerChannel: data.bookingNotifications?.newBooking?.ownerChannel ?? bookingNotificationsForm.newBooking.ownerChannel,
+          technicianEnabled:
+            data.bookingNotifications?.newBooking?.technicianEnabled
+            ?? bookingNotificationsForm.newBooking.technicianEnabled,
+          ownerEnabled:
+            data.bookingNotifications?.newBooking?.ownerEnabled
+            ?? bookingNotificationsForm.newBooking.ownerEnabled,
+          technicianChannel:
+            data.bookingNotifications?.newBooking?.technicianChannel
+            ?? bookingNotificationsForm.newBooking.technicianChannel,
+          ownerChannel:
+            data.bookingNotifications?.newBooking?.ownerChannel
+            ?? bookingNotificationsForm.newBooking.ownerChannel,
         },
         appointmentCancelled: {
-          technicianEnabled: data.bookingNotifications?.appointmentCancelled?.technicianEnabled ?? bookingNotificationsForm.appointmentCancelled.technicianEnabled,
-          ownerEnabled: data.bookingNotifications?.appointmentCancelled?.ownerEnabled ?? bookingNotificationsForm.appointmentCancelled.ownerEnabled,
-          technicianChannel: data.bookingNotifications?.appointmentCancelled?.technicianChannel ?? bookingNotificationsForm.appointmentCancelled.technicianChannel,
-          ownerChannel: data.bookingNotifications?.appointmentCancelled?.ownerChannel ?? bookingNotificationsForm.appointmentCancelled.ownerChannel,
+          technicianEnabled:
+            data.bookingNotifications?.appointmentCancelled
+              ?.technicianEnabled
+              ?? bookingNotificationsForm.appointmentCancelled.technicianEnabled,
+          ownerEnabled:
+            data.bookingNotifications?.appointmentCancelled?.ownerEnabled
+            ?? bookingNotificationsForm.appointmentCancelled.ownerEnabled,
+          technicianChannel:
+            data.bookingNotifications?.appointmentCancelled
+              ?.technicianChannel
+              ?? bookingNotificationsForm.appointmentCancelled.technicianChannel,
+          ownerChannel:
+            data.bookingNotifications?.appointmentCancelled?.ownerChannel
+            ?? bookingNotificationsForm.appointmentCancelled.ownerChannel,
         },
       });
       setBookingNotificationCapabilities({
-        ownerPhonePresent: data.ownerPhonePresent ?? bookingNotificationCapabilities.ownerPhonePresent,
-        ownerEmailPresent: data.ownerEmailPresent ?? bookingNotificationCapabilities.ownerEmailPresent,
-        smsChannelAvailable: data.smsChannelAvailable ?? bookingNotificationCapabilities.smsChannelAvailable,
-        emailChannelAvailable: data.emailChannelAvailable ?? bookingNotificationCapabilities.emailChannelAvailable,
+        ownerPhonePresent:
+          data.ownerPhonePresent
+          ?? bookingNotificationCapabilities.ownerPhonePresent,
+        ownerEmailPresent:
+          data.ownerEmailPresent
+          ?? bookingNotificationCapabilities.ownerEmailPresent,
+        smsChannelAvailable:
+          data.smsChannelAvailable
+          ?? bookingNotificationCapabilities.smsChannelAvailable,
+        emailChannelAvailable:
+          data.emailChannelAvailable
+          ?? bookingNotificationCapabilities.emailChannelAvailable,
       });
       setBookingNotificationsSaved(true);
       router.refresh();
@@ -1101,21 +1272,30 @@ export function SettingsModal({
     } finally {
       setBookingNotificationsSaving(false);
     }
-  }, [bookingNotificationCapabilities, bookingNotificationsForm, bookingNotificationsSaving, router, salonSlug]);
+  }, [
+    bookingNotificationCapabilities,
+    bookingNotificationsForm,
+    bookingNotificationsSaving,
+    router,
+    salonSlug,
+  ]);
 
-  const updateBookingNotificationEvent = useCallback((
-    eventKey: BookingNotificationEventKey,
-    updates: Partial<BookingNotificationEventFormState>,
-  ) => {
-    setBookingNotificationsForm(prev => ({
-      ...prev,
-      [eventKey]: {
-        ...prev[eventKey],
-        ...updates,
-      },
-    }));
-    setBookingNotificationsSaved(false);
-  }, []);
+  const updateBookingNotificationEvent = useCallback(
+    (
+      eventKey: BookingNotificationEventKey,
+      updates: Partial<BookingNotificationEventFormState>,
+    ) => {
+      setBookingNotificationsForm(prev => ({
+        ...prev,
+        [eventKey]: {
+          ...prev[eventKey],
+          ...updates,
+        },
+      }));
+      setBookingNotificationsSaved(false);
+    },
+    [],
+  );
 
   // Fetch visibility settings
   const fetchVisibility = useCallback(async () => {
@@ -1125,7 +1305,9 @@ export function SettingsModal({
 
     try {
       setVisibilityLoading(true);
-      const response = await fetch(`/api/admin/settings/visibility?salonSlug=${salonSlug}`);
+      const response = await fetch(
+        `/api/admin/settings/visibility?salonSlug=${salonSlug}`,
+      );
       if (response.ok) {
         const data = await response.json();
         if (data.data.visibility) {
@@ -1142,34 +1324,40 @@ export function SettingsModal({
   }, [salonSlug]);
 
   // Save visibility settings
-  const saveVisibility = useCallback(async (newVisibility: SalonVisibilityPolicy) => {
-    if (!salonSlug) {
-      return;
-    }
-
-    try {
-      setVisibilitySaving(true);
-      const response = await fetch('/api/admin/settings/visibility', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug,
-          visibility: newVisibility,
-        }),
-      });
-
-      if (response.ok) {
-        router.refresh();
+  const saveVisibility = useCallback(
+    async (newVisibility: SalonVisibilityPolicy) => {
+      if (!salonSlug) {
+        return;
       }
-    } catch (error) {
-      console.error('Failed to save visibility settings:', error);
-    } finally {
-      setVisibilitySaving(false);
-    }
-  }, [salonSlug, router]);
+
+      try {
+        setVisibilitySaving(true);
+        const response = await fetch('/api/admin/settings/visibility', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug,
+            visibility: newVisibility,
+          }),
+        });
+
+        if (response.ok) {
+          router.refresh();
+        }
+      } catch (error) {
+        console.error('Failed to save visibility settings:', error);
+      } finally {
+        setVisibilitySaving(false);
+      }
+    },
+    [salonSlug, router],
+  );
 
   // Handle visibility toggle
-  const handleVisibilityToggle = (key: keyof NonNullable<SalonVisibilityPolicy['staff']>, value: boolean) => {
+  const handleVisibilityToggle = (
+    key: keyof NonNullable<SalonVisibilityPolicy['staff']>,
+    value: boolean,
+  ) => {
     const newVisibility: SalonVisibilityPolicy = {
       ...visibility,
       staff: {
@@ -1189,7 +1377,9 @@ export function SettingsModal({
 
     try {
       setBookingFlowLoading(true);
-      const response = await fetch(`/api/admin/settings/booking-flow?salonSlug=${salonSlug}`);
+      const response = await fetch(
+        `/api/admin/settings/booking-flow?salonSlug=${salonSlug}`,
+      );
       if (response.ok) {
         const data = await response.json();
         setBookingFlowEnabled(data.data.bookingFlowCustomizationEnabled);
@@ -1223,7 +1413,10 @@ export function SettingsModal({
       return undefined;
     }
 
-    const timer = window.setTimeout(() => setBookingNotificationsSaved(false), 2500);
+    const timer = window.setTimeout(
+      () => setBookingNotificationsSaved(false),
+      2500,
+    );
     return () => window.clearTimeout(timer);
   }, [bookingNotificationsSaved]);
 
@@ -1250,10 +1443,14 @@ export function SettingsModal({
     setBookingFlow(data.data.bookingFlow);
   };
 
+  const hasEntitledModules = Object.values(entitledModules).some(Boolean);
+  const hasClientPrograms
+    = entitledModules.rewards || entitledModules.referrals;
+
   return (
-    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
+    <div className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#F2F2F7]/80 backdrop-blur-md">
+      <div className="sticky top-0 z-10 bg-[#FFF8F5]/90 backdrop-blur-md">
         <ModalHeader
           title="Settings"
           leftAction={<BackButton onClick={onClose} label="Dashboard" />}
@@ -1282,36 +1479,51 @@ export function SettingsModal({
           {bookingConfigLoading
             ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                  <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
                 </div>
               )
             : (
                 <div className="space-y-4 p-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Buffer minutes</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Buffer minutes
+                      </span>
                       <input
                         type="number"
                         min={0}
                         max={60}
                         step={5}
                         value={bookingConfigForm.bufferMinutes}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          bufferMinutes: Math.max(0, Math.min(60, Number.parseInt(event.target.value || '0', 10) || 0)),
-                        }))}
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            bufferMinutes: Math.max(
+                              0,
+                              Math.min(
+                                60,
+                                Number.parseInt(event.target.value || '0', 10) || 0,
+                              ),
+                            ),
+                          }))}
                         className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                       />
                     </label>
 
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Slot interval</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Slot interval
+                      </span>
                       <select
                         value={bookingConfigForm.slotIntervalMinutes}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          slotIntervalMinutes: Number.parseInt(event.target.value, 10) as BookingConfigFormState['slotIntervalMinutes'],
-                        }))}
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            slotIntervalMinutes: Number.parseInt(
+                              event.target.value,
+                              10,
+                            ) as BookingConfigFormState['slotIntervalMinutes'],
+                          }))}
                         className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                       >
                         {SLOT_INTERVAL_OPTIONS.map(option => (
@@ -1325,23 +1537,31 @@ export function SettingsModal({
                     </label>
 
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Currency</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Currency
+                      </span>
                       <select
                         value={bookingConfigForm.currency}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          currency: event.target.value as BookingConfigFormState['currency'],
-                        }))}
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            currency: event.target
+                              .value as BookingConfigFormState['currency'],
+                          }))}
                         className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                       >
                         {CURRENCY_OPTIONS.map(option => (
-                          <option key={option} value={option}>{option}</option>
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
                         ))}
                       </select>
                     </label>
 
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Client change cutoff</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Client change cutoff
+                      </span>
                       <div className="relative">
                         <input
                           type="number"
@@ -1349,40 +1569,59 @@ export function SettingsModal({
                           max={168}
                           step={1}
                           value={bookingConfigForm.clientChangeCutoffHours}
-                          onChange={event => setBookingConfigForm(prev => ({
-                            ...prev,
-                            clientChangeCutoffHours: Math.max(0, Math.min(168, Number.parseInt(event.target.value || '0', 10) || 0)),
-                          }))}
+                          onChange={event =>
+                            setBookingConfigForm(prev => ({
+                              ...prev,
+                              clientChangeCutoffHours: Math.max(
+                                0,
+                                Math.min(
+                                  168,
+                                  Number.parseInt(event.target.value || '0', 10)
+                                  || 0,
+                                ),
+                              ),
+                            }))}
                           className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                         />
-                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">hours</span>
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                          hours
+                        </span>
                       </div>
-                      <span className="text-xs text-gray-500">Clients contact you inside this window. Use 0 to allow changes anytime.</span>
+                      <span className="text-xs text-gray-500">
+                        Clients contact you inside this window. Use 0 to allow
+                        changes anytime.
+                      </span>
                     </label>
 
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Timezone</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Timezone
+                      </span>
                       <input
                         type="text"
                         value={bookingConfigForm.timezone}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          timezone: event.target.value,
-                        }))}
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            timezone: event.target.value,
+                          }))}
                         className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                         placeholder="America/Toronto"
                       />
                     </label>
 
                     <label className="flex flex-col gap-1 sm:col-span-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Default intro label</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Default intro label
+                      </span>
                       <input
                         type="text"
                         value={bookingConfigForm.introPriceDefaultLabel}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          introPriceDefaultLabel: event.target.value,
-                        }))}
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            introPriceDefaultLabel: event.target.value,
+                          }))}
                         className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                         placeholder="Founding Client Price"
                       />
@@ -1390,35 +1629,42 @@ export function SettingsModal({
 
                     <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
                       <div className="space-y-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">First-visit offer</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          First-visit offer
+                        </span>
                         <p className="text-sm text-gray-700">
-                          Offer 25% off for first-time clients automatically during booking.
+                          Offer 25% off for first-time clients automatically during
+                          booking.
                         </p>
                       </div>
                       <input
                         type="checkbox"
                         checked={bookingConfigForm.firstVisitDiscountEnabled}
-                        onChange={event => setBookingConfigForm(prev => ({
-                          ...prev,
-                          firstVisitDiscountEnabled: event.target.checked,
-                        }))}
-                        className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                        onChange={event =>
+                          setBookingConfigForm(prev => ({
+                            ...prev,
+                            firstVisitDiscountEnabled: event.target.checked,
+                          }))}
+                        className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
                       />
                     </label>
                   </div>
 
                   <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
                     <div className="text-xs text-gray-500">
-                      Applies to slot generation and intro badges when a service does not define its own label.
+                      Applies to slot generation and intro badges when a service
+                      does not define its own label.
                     </div>
                     <button
                       type="button"
                       onClick={() => void saveBookingConfig()}
                       disabled={bookingConfigSaving}
-                      className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Save className="size-4" />
-                      <span>{bookingConfigSaving ? 'Saving...' : 'Save booking config'}</span>
+                      <span>
+                        {bookingConfigSaving ? 'Saving...' : 'Save booking config'}
+                      </span>
                     </button>
                   </div>
 
@@ -1439,32 +1685,46 @@ export function SettingsModal({
           {programsLoading
             ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                  <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
                 </div>
               )
             : (
                 <div className="space-y-4 p-4">
-                  {([
-                    {
-                      key: 'newBooking',
-                      title: 'New booking alerts',
-                      subtitle: 'Notify your team when a client books successfully.',
-                      technicianDescription: 'Send a new-booking alert to the artist assigned to the appointment.',
-                    },
-                    {
-                      key: 'appointmentCancelled',
-                      title: 'Cancellation alerts',
-                      subtitle: 'Notify your team when an appointment is cancelled or marked as no-show.',
-                      technicianDescription: 'Send a cancellation alert to the artist assigned to the appointment.',
-                    },
-                  ] as const).map((notificationEvent) => {
-                    const eventForm = bookingNotificationsForm[notificationEvent.key];
+                  {(
+                    [
+                      {
+                        key: 'newBooking',
+                        title: 'New booking alerts',
+                        subtitle:
+                      'Notify your team when a client books successfully.',
+                        technicianDescription:
+                      'Send a new-booking alert to the artist assigned to the appointment.',
+                      },
+                      {
+                        key: 'appointmentCancelled',
+                        title: 'Cancellation alerts',
+                        subtitle:
+                      'Notify your team when an appointment is cancelled or marked as no-show.',
+                        technicianDescription:
+                      'Send a cancellation alert to the artist assigned to the appointment.',
+                      },
+                    ] as const
+                  ).map((notificationEvent) => {
+                    const eventForm
+                  = bookingNotificationsForm[notificationEvent.key];
 
                     return (
-                      <div key={notificationEvent.key} className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
+                      <div
+                        key={notificationEvent.key}
+                        className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3"
+                      >
                         <div className="space-y-1 px-1">
-                          <div className="text-sm font-semibold text-[#1C1C1E]">{notificationEvent.title}</div>
-                          <p className="text-xs text-gray-500">{notificationEvent.subtitle}</p>
+                          <div className="text-sm font-semibold text-[#1C1C1E]">
+                            {notificationEvent.title}
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            {notificationEvent.subtitle}
+                          </p>
                         </div>
 
                         <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
@@ -1472,7 +1732,9 @@ export function SettingsModal({
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <Bell className="size-4 text-[#FF3B30]" />
-                                <span className="text-sm font-semibold text-[#1C1C1E]">Notify assigned technician</span>
+                                <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  Notify assigned technician
+                                </span>
                               </div>
                               <p className="text-sm text-gray-600">
                                 {notificationEvent.technicianDescription}
@@ -1481,46 +1743,69 @@ export function SettingsModal({
                             <input
                               type="checkbox"
                               checked={eventForm.technicianEnabled}
-                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
-                                technicianEnabled: event.target.checked,
-                              })}
-                              className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                              onChange={event =>
+                                updateBookingNotificationEvent(
+                                  notificationEvent.key,
+                                  {
+                                    technicianEnabled: event.target.checked,
+                                  },
+                                )}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
                               aria-label={`Notify assigned technician for ${notificationEvent.title.toLowerCase()}`}
                             />
                           </div>
 
                           <label className="mt-3 flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Channel
+                            </span>
                             <select
                               value={eventForm.technicianChannel}
-                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
-                                technicianChannel: event.target.value as BookingNotificationChannel,
-                              })}
+                              onChange={event =>
+                                updateBookingNotificationEvent(
+                                  notificationEvent.key,
+                                  {
+                                    technicianChannel: event.target
+                                      .value as BookingNotificationChannel,
+                                  },
+                                )}
                               disabled={!eventForm.technicianEnabled}
                               className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                               aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                             >
-                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
-                                const smsUnavailable = (option.value === 'sms' || option.value === 'both')
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
+                                (option) => {
+                                  const smsUnavailable
+                                = option.value === 'sms'
+                                || option.value === 'both'
                                   ? !bookingNotificationCapabilities.smsChannelAvailable
                                   : false;
-                                const emailUnavailable = (option.value === 'email' || option.value === 'both')
+                                  const emailUnavailable
+                                = option.value === 'email'
+                                || option.value === 'both'
                                   ? !bookingNotificationCapabilities.emailChannelAvailable
                                   : false;
-                                const disabled = smsUnavailable || emailUnavailable;
+                                  const disabled
+                                = smsUnavailable || emailUnavailable;
 
-                                return (
-                                  <option key={option.value} value={option.value} disabled={disabled}>
-                                    {option.label}
-                                    {disabled ? ' (Unavailable)' : ''}
-                                  </option>
-                                );
-                              })}
+                                  return (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                      disabled={disabled}
+                                    >
+                                      {option.label}
+                                      {disabled ? ' (Unavailable)' : ''}
+                                    </option>
+                                  );
+                                },
+                              )}
                             </select>
                           </label>
 
                           <p className="mt-2 text-xs text-gray-500">
-                            Technician email alerts require an email on each technician profile.
+                            Technician email alerts require an email on each
+                            technician profile.
                           </p>
                         </div>
 
@@ -1528,51 +1813,78 @@ export function SettingsModal({
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
-                                <User className="size-4 text-[#007AFF]" />
-                                <span className="text-sm font-semibold text-[#1C1C1E]">Notify salon owner</span>
+                                <User className="size-4 text-rose-800" />
+                                <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  Notify salon owner
+                                </span>
                               </div>
                               <p className="text-sm text-gray-600">
-                                Use the owner phone and email saved on the salon record.
+                                Use the owner phone and email saved on the salon
+                                record.
                               </p>
                             </div>
                             <input
                               type="checkbox"
                               checked={eventForm.ownerEnabled}
-                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
-                                ownerEnabled: event.target.checked,
-                              })}
-                              className="mt-1 size-4 rounded border-gray-300 text-[#007AFF] focus:ring-[#007AFF]"
+                              onChange={event =>
+                                updateBookingNotificationEvent(
+                                  notificationEvent.key,
+                                  {
+                                    ownerEnabled: event.target.checked,
+                                  },
+                                )}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
                               aria-label={`Notify salon owner for ${notificationEvent.title.toLowerCase()}`}
                             />
                           </div>
 
                           <label className="mt-3 flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Channel</span>
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Channel
+                            </span>
                             <select
                               value={eventForm.ownerChannel}
-                              onChange={event => updateBookingNotificationEvent(notificationEvent.key, {
-                                ownerChannel: event.target.value as BookingNotificationChannel,
-                              })}
+                              onChange={event =>
+                                updateBookingNotificationEvent(
+                                  notificationEvent.key,
+                                  {
+                                    ownerChannel: event.target
+                                      .value as BookingNotificationChannel,
+                                  },
+                                )}
                               disabled={!eventForm.ownerEnabled}
                               className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                               aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                             >
-                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
-                                const smsUnavailable = (option.value === 'sms' || option.value === 'both')
-                                  ? (!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.ownerPhonePresent)
+                              {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
+                                (option) => {
+                                  const smsUnavailable
+                                = option.value === 'sms'
+                                || option.value === 'both'
+                                  ? !bookingNotificationCapabilities.smsChannelAvailable
+                                  || !bookingNotificationCapabilities.ownerPhonePresent
                                   : false;
-                                const emailUnavailable = (option.value === 'email' || option.value === 'both')
-                                  ? (!bookingNotificationCapabilities.emailChannelAvailable || !bookingNotificationCapabilities.ownerEmailPresent)
+                                  const emailUnavailable
+                                = option.value === 'email'
+                                || option.value === 'both'
+                                  ? !bookingNotificationCapabilities.emailChannelAvailable
+                                  || !bookingNotificationCapabilities.ownerEmailPresent
                                   : false;
-                                const disabled = smsUnavailable || emailUnavailable;
+                                  const disabled
+                                = smsUnavailable || emailUnavailable;
 
-                                return (
-                                  <option key={option.value} value={option.value} disabled={disabled}>
-                                    {option.label}
-                                    {disabled ? ' (Unavailable)' : ''}
-                                  </option>
-                                );
-                              })}
+                                  return (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                      disabled={disabled}
+                                    >
+                                      {option.label}
+                                      {disabled ? ' (Unavailable)' : ''}
+                                    </option>
+                                  );
+                                },
+                              )}
                             </select>
                           </label>
                         </div>
@@ -1580,40 +1892,53 @@ export function SettingsModal({
                     );
                   })}
 
-                  {(!bookingNotificationCapabilities.ownerPhonePresent || !bookingNotificationCapabilities.ownerEmailPresent) && (
+                  {(!bookingNotificationCapabilities.ownerPhonePresent
+                    || !bookingNotificationCapabilities.ownerEmailPresent) && (
                     <div className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                       <AlertCircle className="mt-0.5 size-4 shrink-0" />
                       <div>
-                        Owner alerts use the salon owner contact on the salon record.
-                        {!bookingNotificationCapabilities.ownerPhonePresent && ' Phone is missing.'}
-                        {!bookingNotificationCapabilities.ownerEmailPresent && ' Email is missing.'}
+                        Owner alerts use the salon owner contact on the salon
+                        record.
+                        {!bookingNotificationCapabilities.ownerPhonePresent
+                        && ' Phone is missing.'}
+                        {!bookingNotificationCapabilities.ownerEmailPresent
+                        && ' Email is missing.'}
                       </div>
                     </div>
                   )}
 
-                  {(!bookingNotificationCapabilities.smsChannelAvailable || !bookingNotificationCapabilities.emailChannelAvailable) && (
+                  {(!bookingNotificationCapabilities.smsChannelAvailable
+                    || !bookingNotificationCapabilities.emailChannelAvailable) && (
                     <div className="rounded-[10px] border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
                       {!bookingNotificationCapabilities.smsChannelAvailable && (
-                        <div>SMS alerts are unavailable until SMS reminders are enabled for the salon and Twilio is configured.</div>
+                        <div>
+                          SMS alerts are unavailable until SMS reminders are enabled
+                          for the salon and Twilio is configured.
+                        </div>
                       )}
                       {!bookingNotificationCapabilities.emailChannelAvailable && (
-                        <div>Email alerts are unavailable until Resend is configured.</div>
+                        <div>
+                          Email alerts are unavailable until Resend is configured.
+                        </div>
                       )}
                     </div>
                   )}
 
                   <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
                     <div className="text-xs text-gray-500">
-                      Duplicate owner and technician destinations are deduplicated automatically per channel.
+                      Duplicate owner and technician destinations are deduplicated
+                      automatically per channel.
                     </div>
                     <button
                       type="button"
                       onClick={() => void saveBookingNotifications()}
                       disabled={bookingNotificationsSaving}
-                      className="inline-flex items-center gap-2 rounded-[10px] bg-[#007AFF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Save className="size-4" />
-                      <span>{bookingNotificationsSaving ? 'Saving...' : 'Save alerts'}</span>
+                      <span>
+                        {bookingNotificationsSaving ? 'Saving...' : 'Save alerts'}
+                      </span>
                     </button>
                   </div>
 
@@ -1626,7 +1951,7 @@ export function SettingsModal({
               )}
         </Section>
 
-        {(
+        {hasEntitledModules && (
           <>
             {/* Section 3.5: Modules (Step 16.3) */}
             <Section
@@ -1636,112 +1961,138 @@ export function SettingsModal({
               {modulesLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
                     </div>
                   )
                 : (
                     <>
                       {/* Marketing Group */}
                       <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Marketing</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Marketing
+                        </span>
                       </div>
-                      <ModuleRow
-                        icon={MessageSquare}
-                        iconColor="bg-green-500"
-                        label="SMS Reminders"
-                        moduleKey="smsReminders"
-                        enabled={modules.smsReminders}
-                        entitled={entitledModules.smsReminders}
-                        onToggle={handleModuleToggle}
-                      />
-                      <ModuleRow
-                        icon={Users}
-                        iconColor="bg-blue-500"
-                        label="Referrals"
-                        moduleKey="referrals"
-                        enabled={modules.referrals}
-                        entitled={entitledModules.referrals}
-                        onToggle={handleModuleToggle}
-                      />
-                      <ModuleRow
-                        icon={Gift}
-                        iconColor="bg-purple-500"
-                        label="Rewards"
-                        moduleKey="rewards"
-                        enabled={modules.rewards}
-                        entitled={entitledModules.rewards}
-                        onToggle={handleModuleToggle}
-                      />
+                      {entitledModules.smsReminders && (
+                        <ModuleRow
+                          icon={MessageSquare}
+                          iconColor="bg-green-500"
+                          label="SMS Reminders"
+                          moduleKey="smsReminders"
+                          enabled={modules.smsReminders}
+                          entitled={entitledModules.smsReminders}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
+                      {entitledModules.referrals && (
+                        <ModuleRow
+                          icon={Users}
+                          iconColor="bg-blue-500"
+                          label="Referrals"
+                          moduleKey="referrals"
+                          enabled={modules.referrals}
+                          entitled={entitledModules.referrals}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
+                      {entitledModules.rewards && (
+                        <ModuleRow
+                          icon={Gift}
+                          iconColor="bg-purple-500"
+                          label="Rewards"
+                          moduleKey="rewards"
+                          enabled={modules.rewards}
+                          entitled={entitledModules.rewards}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
 
                       {/* Staff Group */}
                       <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Staff</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Staff
+                        </span>
                       </div>
-                      <ModuleRow
-                        icon={User}
-                        iconColor="bg-orange-500"
-                        label="Schedule Overrides"
-                        moduleKey="scheduleOverrides"
-                        enabled={modules.scheduleOverrides}
-                        entitled={entitledModules.scheduleOverrides}
-                        onToggle={handleModuleToggle}
-                      />
-                      <ModuleRow
-                        icon={BarChart3}
-                        iconColor="bg-teal-500"
-                        label="Staff Earnings"
-                        moduleKey="staffEarnings"
-                        enabled={modules.staffEarnings}
-                        entitled={entitledModules.staffEarnings}
-                        onToggle={handleModuleToggle}
-                      />
+                      {entitledModules.scheduleOverrides && (
+                        <ModuleRow
+                          icon={User}
+                          iconColor="bg-orange-500"
+                          label="Schedule Overrides"
+                          moduleKey="scheduleOverrides"
+                          enabled={modules.scheduleOverrides}
+                          entitled={entitledModules.scheduleOverrides}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
+                      {entitledModules.staffEarnings && (
+                        <ModuleRow
+                          icon={BarChart3}
+                          iconColor="bg-teal-500"
+                          label="Staff Earnings"
+                          moduleKey="staffEarnings"
+                          enabled={modules.staffEarnings}
+                          entitled={entitledModules.staffEarnings}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
 
                       {/* Controls Group */}
                       <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Controls</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Controls
+                        </span>
                       </div>
-                      <ModuleRow
-                        icon={Flag}
-                        iconColor="bg-amber-500"
-                        label="Client Flags"
-                        moduleKey="clientFlags"
-                        enabled={modules.clientFlags}
-                        entitled={entitledModules.clientFlags}
-                        onToggle={handleModuleToggle}
-                      />
-                      <ModuleRow
-                        icon={Shield}
-                        iconColor="bg-red-500"
-                        label="Client Blocking"
-                        moduleKey="clientBlocking"
-                        enabled={modules.clientBlocking}
-                        entitled={entitledModules.clientBlocking}
-                        onToggle={handleModuleToggle}
-                      />
+                      {entitledModules.clientFlags && (
+                        <ModuleRow
+                          icon={Flag}
+                          iconColor="bg-amber-500"
+                          label="Client Flags"
+                          moduleKey="clientFlags"
+                          enabled={modules.clientFlags}
+                          entitled={entitledModules.clientFlags}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
+                      {entitledModules.clientBlocking && (
+                        <ModuleRow
+                          icon={Shield}
+                          iconColor="bg-red-500"
+                          label="Client Blocking"
+                          moduleKey="clientBlocking"
+                          enabled={modules.clientBlocking}
+                          entitled={entitledModules.clientBlocking}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
 
                       {/* Analytics Group */}
                       <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Analytics</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          Analytics
+                        </span>
                       </div>
-                      <ModuleRow
-                        icon={BarChart3}
-                        iconColor="bg-indigo-500"
-                        label="Analytics Dashboard"
-                        moduleKey="analyticsDashboard"
-                        enabled={modules.analyticsDashboard}
-                        entitled={entitledModules.analyticsDashboard}
-                        onToggle={handleModuleToggle}
-                      />
-                      <ModuleRow
-                        icon={BarChart3}
-                        iconColor="bg-cyan-500"
-                        label="Utilization Reports"
-                        moduleKey="utilization"
-                        enabled={modules.utilization}
-                        entitled={entitledModules.utilization}
-                        onToggle={handleModuleToggle}
-                        isLast
-                      />
+                      {entitledModules.analyticsDashboard && (
+                        <ModuleRow
+                          icon={BarChart3}
+                          iconColor="bg-indigo-500"
+                          label="Analytics Dashboard"
+                          moduleKey="analyticsDashboard"
+                          enabled={modules.analyticsDashboard}
+                          entitled={entitledModules.analyticsDashboard}
+                          onToggle={handleModuleToggle}
+                        />
+                      )}
+                      {entitledModules.utilization && (
+                        <ModuleRow
+                          icon={BarChart3}
+                          iconColor="bg-cyan-500"
+                          label="Utilization Reports"
+                          moduleKey="utilization"
+                          enabled={modules.utilization}
+                          entitled={entitledModules.utilization}
+                          onToggle={handleModuleToggle}
+                          isLast
+                        />
+                      )}
 
                       {modulesSaving && (
                         <div className="flex items-center justify-center py-2 text-xs text-gray-500">
@@ -1753,211 +2104,235 @@ export function SettingsModal({
             </Section>
 
             {/* Section 3.55: Programs (Step 21E) */}
-            <Section
-              title="Programs"
-              footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
-            >
-              {programsLoading
-                ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                    </div>
-                  )
-                : (
-                    <>
-                      {/* Program Toggles */}
-                      <Row
-                        icon={MessageSquare}
-                        iconColor="bg-purple-500"
-                        label="Reviews"
-                        type="toggle"
-                        defaultOn={reviewsEnabled}
-                        onToggle={(value) => {
-                          setReviewsEnabled(value);
-                          saveProgramToggle('reviewsEnabled', value);
-                        }}
-                      />
-                      <Row
-                        icon={Gift}
-                        iconColor="bg-green-500"
-                        label="Rewards Program"
-                        type="toggle"
-                        defaultOn={rewardsEnabledProgram}
-                        onToggle={(value) => {
-                          setRewardsEnabledProgram(value);
-                          saveProgramToggle('rewardsEnabled', value);
-                        }}
-                        isLast
-                      />
-
-                      <div className="border-t border-gray-100 px-4 py-3">
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Active Offers
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Referral reward</span>
-                            <span className="font-medium text-gray-900">$10 for the referrer</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Friend offer</span>
-                            <span className="font-medium text-gray-900">$10 off first appointment</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Google review reward</span>
-                            <span className="font-medium text-gray-900">$10 off (manual grant)</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Visit earning</span>
-                            <span className="font-medium text-gray-900">20 points per $1 spent</span>
-                          </div>
-                        </div>
+            {hasClientPrograms && (
+              <Section
+                title="Programs"
+                footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
+              >
+                {programsLoading
+                  ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
                       </div>
+                    )
+                  : (
+                      <>
+                        {/* Program Toggles */}
+                        <Row
+                          icon={MessageSquare}
+                          iconColor="bg-purple-500"
+                          label="Reviews"
+                          type="toggle"
+                          defaultOn={reviewsEnabled}
+                          onToggle={(value) => {
+                            setReviewsEnabled(value);
+                            saveProgramToggle('reviewsEnabled', value);
+                          }}
+                        />
+                        <Row
+                          icon={Gift}
+                          iconColor="bg-green-500"
+                          label="Rewards Program"
+                          type="toggle"
+                          defaultOn={rewardsEnabledProgram}
+                          onToggle={(value) => {
+                            setRewardsEnabledProgram(value);
+                            saveProgramToggle('rewardsEnabled', value);
+                          }}
+                          isLast
+                        />
 
-                      {/* Billing Status Display (Read-only) */}
-                      <div className="border-t border-gray-100 px-4 py-3">
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Billing Status
+                        <div className="border-t border-gray-100 px-4 py-3">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            Active Offers
+                          </div>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Referral reward</span>
+                              <span className="font-medium text-gray-900">
+                                $10 for the referrer
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Friend offer</span>
+                              <span className="font-medium text-gray-900">
+                                $10 off first appointment
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">
+                                Google review reward
+                              </span>
+                              <span className="font-medium text-gray-900">
+                                $10 off (manual grant)
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Visit earning</span>
+                              <span className="font-medium text-gray-900">
+                                20 points per $1 spent
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        {billingMode === 'STRIPE'
-                          ? (
-                              <div className="space-y-2">
+
+                        {/* Billing Status Display (Read-only) */}
+                        <div className="border-t border-gray-100 px-4 py-3">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            Billing Status
+                          </div>
+                          {billingMode === 'STRIPE'
+                            ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
+                                    />
+                                    <span className="text-sm text-gray-900">
+                                      Stripe Billing
+                                      {subscriptionStatus
+                                        ? ` (${subscriptionStatus})`
+                                        : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            : (
                                 <div className="flex items-center gap-2">
-                                  <div className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
-                                  <span className="text-sm text-gray-900">
-                                    Stripe Billing
-                                    {subscriptionStatus ? ` (${subscriptionStatus})` : ''}
+                                  <div className="size-2 rounded-full bg-gray-400" />
+                                  <span className="text-sm text-gray-600">
+                                    Cash / Offline billing enabled
                                   </span>
                                 </div>
-                              </div>
-                            )
-                          : (
-                              <div className="flex items-center gap-2">
-                                <div className="size-2 rounded-full bg-gray-400" />
-                                <span className="text-sm text-gray-600">Cash / Offline billing enabled</span>
-                              </div>
-                            )}
-                      </div>
-
-                      {programsSaving && (
-                        <div className="flex items-center justify-center py-2 text-xs text-gray-500">
-                          Saving...
+                              )}
                         </div>
-                      )}
-                    </>
-                  )}
-            </Section>
+
+                        {programsSaving && (
+                          <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                            Saving...
+                          </div>
+                        )}
+                      </>
+                    )}
+              </Section>
+            )}
 
             {/* Compare Plans Button (Step 19) */}
-            <div className="mb-6 px-4">
-              <button
-                type="button"
-                onClick={() => setShowComparePlans(true)}
-                className="w-full rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-3 text-center text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-              >
-                Compare Plans
-              </button>
-            </div>
+            {!isFreeSolo && (
+              <div className="mb-6 px-4">
+                <button
+                  type="button"
+                  onClick={() => setShowComparePlans(true)}
+                  className="w-full rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-3 text-center text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+                >
+                  Compare Plans
+                </button>
+              </div>
+            )}
 
             {/* Section 3.6: Staff Visibility (Step 16.1) */}
-            <Section
-              title="Staff Visibility"
-              footer={visibilityEntitled
-                ? 'Control what information staff can see in their dashboard. Changes take effect immediately.'
-                : undefined}
-            >
-              {visibilityLoading
-                ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
-                    </div>
-                  )
-                : !visibilityEntitled
-                    ? (
-                        <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
-                          <div className="mb-3 flex size-12 items-center justify-center rounded-full bg-amber-100">
-                            <Shield className="size-6 text-amber-600" />
+            {visibilityEntitled && (
+              <Section
+                title="Staff Visibility"
+                footer={
+                  visibilityEntitled
+                    ? 'Control what information staff can see in their dashboard. Changes take effect immediately.'
+                    : undefined
+                }
+              >
+                {visibilityLoading
+                  ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      </div>
+                    )
+                  : (
+                      <>
+                        <Row
+                          icon={Eye}
+                          iconColor="bg-rose-800"
+                          label="Client Phone"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showClientPhone ?? true}
+                          onToggle={value =>
+                            handleVisibilityToggle('showClientPhone', value)}
+                        />
+                        <Row
+                          label="Client Full Name"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showClientFullName ?? true}
+                          onToggle={value =>
+                            handleVisibilityToggle('showClientFullName', value)}
+                        />
+                        <Row
+                          label="Client Email"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showClientEmail ?? false}
+                          onToggle={value =>
+                            handleVisibilityToggle('showClientEmail', value)}
+                        />
+                        <Row
+                          label="Appointment Price"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showAppointmentPrice ?? true}
+                          onToggle={value =>
+                            handleVisibilityToggle('showAppointmentPrice', value)}
+                        />
+                        <Row
+                          label="Client History"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showClientHistory ?? false}
+                          onToggle={value =>
+                            handleVisibilityToggle('showClientHistory', value)}
+                        />
+                        <Row
+                          label="Client Notes"
+                          type="toggle"
+                          defaultOn={visibility.staff?.showClientNotes ?? true}
+                          onToggle={value =>
+                            handleVisibilityToggle('showClientNotes', value)}
+                        />
+                        <Row
+                          label="Other Tech Appointments"
+                          type="toggle"
+                          defaultOn={
+                            visibility.staff?.showOtherTechAppointments ?? false
+                          }
+                          onToggle={value =>
+                            handleVisibilityToggle(
+                              'showOtherTechAppointments',
+                              value,
+                            )}
+                          isLast
+                        />
+                        {visibilitySaving && (
+                          <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                            Saving...
                           </div>
-                          <div className="mb-1 text-sm font-medium text-gray-900">
-                            Upgrade Required
-                          </div>
-                          <div className="max-w-[240px] text-xs text-gray-500">
-                            Staff visibility controls are a premium feature. Contact support to upgrade your plan.
-                          </div>
-                        </div>
-                      )
-                    : (
-                        <>
-                          <Row
-                            icon={Eye}
-                            iconColor="bg-[#007AFF]"
-                            label="Client Phone"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showClientPhone ?? true}
-                            onToggle={value => handleVisibilityToggle('showClientPhone', value)}
-                          />
-                          <Row
-                            label="Client Full Name"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showClientFullName ?? true}
-                            onToggle={value => handleVisibilityToggle('showClientFullName', value)}
-                          />
-                          <Row
-                            label="Client Email"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showClientEmail ?? false}
-                            onToggle={value => handleVisibilityToggle('showClientEmail', value)}
-                          />
-                          <Row
-                            label="Appointment Price"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showAppointmentPrice ?? true}
-                            onToggle={value => handleVisibilityToggle('showAppointmentPrice', value)}
-                          />
-                          <Row
-                            label="Client History"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showClientHistory ?? false}
-                            onToggle={value => handleVisibilityToggle('showClientHistory', value)}
-                          />
-                          <Row
-                            label="Client Notes"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showClientNotes ?? true}
-                            onToggle={value => handleVisibilityToggle('showClientNotes', value)}
-                          />
-                          <Row
-                            label="Other Tech Appointments"
-                            type="toggle"
-                            defaultOn={visibility.staff?.showOtherTechAppointments ?? false}
-                            onToggle={value => handleVisibilityToggle('showOtherTechAppointments', value)}
-                            isLast
-                          />
-                          {visibilitySaving && (
-                            <div className="flex items-center justify-center py-2 text-xs text-gray-500">
-                              Saving...
-                            </div>
-                          )}
-                        </>
-                      )}
-            </Section>
-
+                        )}
+                      </>
+                    )}
+              </Section>
+            )}
           </>
         )}
 
         {/* Section 4: Page Themes */}
-        <Section title="Appearance">
+        <Section title="Branding & appearance">
           <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
         </Section>
 
         {!isFreeSolo && (
           <>
             {/* Section 5: Booking Flow */}
-            <Section title="Booking Flow" footer="Customize the order of steps in your online booking flow.">
+            <Section
+              title="Booking Flow"
+              footer="Customize the order of steps in your online booking flow."
+            >
               {bookingFlowLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
                     </div>
                   )
                 : (

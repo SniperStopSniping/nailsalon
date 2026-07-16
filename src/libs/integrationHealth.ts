@@ -73,6 +73,26 @@ export async function getSalonIntegrationHealth(salonId: string) {
   ]);
 
   return {
+    availability: {
+      google: Boolean(
+        process.env.GOOGLE_OAUTH_CLIENT_ID
+        && process.env.GOOGLE_OAUTH_CLIENT_SECRET
+        && process.env.GOOGLE_OAUTH_REDIRECT_URI
+        && process.env.INTEGRATION_ENCRYPTION_KEY
+        && process.env.OAUTH_STATE_SECRET,
+      ),
+      twilio: Boolean(
+        process.env.TWILIO_CONNECT_APP_SID
+        && process.env.TWILIO_CONNECT_REDIRECT_URI
+        && process.env.TWILIO_AUTH_TOKEN,
+      ),
+      email: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
+      photos: Boolean(
+        process.env.CLOUDINARY_CLOUD_NAME
+        && process.env.CLOUDINARY_API_KEY
+        && process.env.CLOUDINARY_API_SECRET,
+      ),
+    },
     google: google
       ? {
           status: google.status,

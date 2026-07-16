@@ -1,6 +1,6 @@
 'use client';
 
-import { Clock3, Mail, MapPin, UserRound } from 'lucide-react';
+import { CalendarPlus, Clock3, Mail, MapPin, Phone, UserRound } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -34,7 +34,10 @@ type AppointmentQuickEditSheetProps = {
   onCancelAppointment: (reason: string) => Promise<void>;
   onMarkCompleted: () => Promise<void>;
   onStartAppointment: () => Promise<void>;
+  onConfirmAppointment?: () => Promise<void>;
+  onMarkNoShow?: () => Promise<void>;
   onResendConfirmation?: () => Promise<void>;
+  onRebook?: () => void;
 };
 
 const EMPTY_WARNINGS: ManageWarning[] = [];
@@ -82,7 +85,10 @@ export function AppointmentQuickEditSheet({
   onCancelAppointment,
   onMarkCompleted,
   onStartAppointment,
+  onConfirmAppointment,
+  onMarkNoShow,
   onResendConfirmation,
+  onRebook,
 }: AppointmentQuickEditSheetProps) {
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
@@ -226,6 +232,20 @@ export function AppointmentQuickEditSheet({
                             </div>
                           </div>
                         </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <a href={`tel:${detail.appointment.clientPhone}`} className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm font-medium text-neutral-700">
+                            <Phone className="size-4" />
+                            Call client
+                          </a>
+                          {detail.appointment.clientEmail
+                            ? (
+                                <a href={`mailto:${detail.appointment.clientEmail}`} className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm font-medium text-neutral-700">
+                                  <Mail className="size-4" />
+                                  Email client
+                                </a>
+                              )
+                            : <div className="rounded-xl border border-dashed border-neutral-200 p-2.5 text-center text-xs text-neutral-400">No email saved</div>}
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-neutral-200 p-4">
@@ -255,6 +275,42 @@ export function AppointmentQuickEditSheet({
                           Resend confirmation & management link
                         </button>
                       </div>
+
+                      {(detail.appointment.notes || detail.appointment.techNotes) && (
+                        <div className="rounded-2xl border border-neutral-200 p-4">
+                          <div className="text-sm font-semibold text-neutral-900">Notes</div>
+                          {detail.appointment.notes && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">{detail.appointment.notes}</p>}
+                          {detail.appointment.techNotes && (
+                            <p className="mt-2 whitespace-pre-wrap rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+                              Private nail-tech note:
+                              {detail.appointment.techNotes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {(detail.communications?.length ?? 0) > 0 && (
+                        <div className="rounded-2xl border border-neutral-200 p-4">
+                          <div className="text-sm font-semibold text-neutral-900">Communication history</div>
+                          <div className="mt-3 divide-y divide-neutral-100">
+                            {detail.communications?.map((delivery, index) => (
+                              <div key={`${delivery.channel}-${delivery.purpose}-${delivery.updatedAt}-${index}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                <div>
+                                  <p className="font-medium capitalize text-neutral-800">{delivery.purpose.replaceAll('_', ' ')}</p>
+                                  <p className="text-xs text-neutral-500">
+                                    {delivery.channel.toUpperCase()}
+                                    {' '}
+                                    ·
+                                    {' '}
+                                    {new Date(delivery.updatedAt).toLocaleString()}
+                                  </p>
+                                </div>
+                                <span className={`rounded-full px-2 py-1 text-xs font-medium ${delivery.status === 'sent' || delivery.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' : delivery.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-stone-600'}`}>{delivery.status}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       {actionError && (
                         <div
@@ -467,6 +523,17 @@ export function AppointmentQuickEditSheet({
                       <div className="rounded-2xl border border-neutral-200 p-4">
                         <div className="mb-3 text-sm font-semibold text-neutral-900">Quick actions</div>
                         <div className="grid grid-cols-2 gap-2">
+                          {onRebook && (
+                            <button
+                              type="button"
+                              onClick={onRebook}
+                              disabled={saving}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
+                            >
+                              <CalendarPlus className="size-4" />
+                              Rebook client
+                            </button>
+                          )}
                           {detail.permissions.canMove && (
                             <button
                               type="button"
@@ -488,6 +555,11 @@ export function AppointmentQuickEditSheet({
                               Start appointment
                             </button>
                           )}
+                          {detail.permissions.canConfirm && onConfirmAppointment && (
+                            <button type="button" onClick={() => void onConfirmAppointment()} disabled={saving} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+                              Confirm appointment
+                            </button>
+                          )}
                           {detail.permissions.canMarkCompleted && (
                             <button
                               type="button"
@@ -496,6 +568,20 @@ export function AppointmentQuickEditSheet({
                               className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
                             >
                               Mark completed
+                            </button>
+                          )}
+                          {detail.permissions.canMarkNoShow && onMarkNoShow && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm('Mark this client as a no-show?')) {
+                                  void onMarkNoShow();
+                                }
+                              }}
+                              disabled={saving}
+                              className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+                            >
+                              Mark no-show
                             </button>
                           )}
                           {detail.permissions.canCancel && (

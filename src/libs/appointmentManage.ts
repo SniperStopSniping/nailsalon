@@ -64,6 +64,8 @@ export type ManagePermissions = {
   canCancel: boolean;
   canMarkCompleted: boolean;
   canStart: boolean;
+  canConfirm: boolean;
+  canMarkNoShow: boolean;
   canReassignTechnician: boolean;
 };
 
@@ -118,6 +120,8 @@ export type AppointmentManageDetail = {
     baseServiceName: string;
     discountType: string | null;
     discountAmountCents: number;
+    notes: string | null;
+    techNotes: string | null;
   };
   services: Array<{
     id: string;
@@ -155,6 +159,13 @@ export type AppointmentManageDetail = {
     retryable: boolean | null;
     updatedAt: string;
   } | null;
+  communications: Array<{
+    channel: string;
+    purpose: string;
+    status: string;
+    errorCode: string | null;
+    updatedAt: string;
+  }>;
 };
 
 export type AppointmentCalendarEvent = {
@@ -233,6 +244,8 @@ function buildPermissions(
     canCancel: !terminal,
     canMarkCompleted: !terminal && appointment.status !== 'completed',
     canStart: appointment.status === 'confirmed' && !appointment.lockedAt,
+    canConfirm: appointment.status === 'pending' && !appointment.lockedAt,
+    canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status),
     canReassignTechnician: canReassignTechnician && !terminal && !isLocked,
   };
 }
@@ -648,7 +661,9 @@ export async function getAppointmentManageDetail(args: {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
-  const [confirmationDelivery] = await db.select({
+  const deliveryRows = await db.select({
+    channel: notificationDeliverySchema.channel,
+    purpose: notificationDeliverySchema.purpose,
     status: notificationDeliverySchema.status,
     errorCode: notificationDeliverySchema.errorCode,
     retryable: notificationDeliverySchema.retryable,
@@ -656,8 +671,9 @@ export async function getAppointmentManageDetail(args: {
   }).from(notificationDeliverySchema).where(and(
     eq(notificationDeliverySchema.salonId, args.salonId),
     eq(notificationDeliverySchema.appointmentId, args.appointmentId),
-    eq(notificationDeliverySchema.channel, 'email'),
-  )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(1);
+  )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(8);
+  const confirmationDelivery = deliveryRows.find(delivery => delivery.channel === 'email' && delivery.purpose.includes('booking_confirmation'))
+    ?? deliveryRows.find(delivery => delivery.channel === 'email');
 
   return {
     appointment: {
@@ -684,6 +700,8 @@ export async function getAppointmentManageDetail(args: {
       baseServiceName: baseService?.row.nameSnapshot ?? baseService?.liveService?.name ?? 'Service',
       discountType: loaded.appointment.discountType,
       discountAmountCents: loaded.appointment.discountAmountCents ?? 0,
+      notes: loaded.appointment.notes,
+      techNotes: loaded.appointment.techNotes,
     },
     services: loaded.appointmentServices.map((entry, index) => ({
       id: entry.row.serviceId,
@@ -722,6 +740,13 @@ export async function getAppointmentManageDetail(args: {
     confirmationDelivery: confirmationDelivery
       ? { ...confirmationDelivery, updatedAt: confirmationDelivery.updatedAt.toISOString() }
       : null,
+    communications: deliveryRows.map(delivery => ({
+      channel: delivery.channel,
+      purpose: delivery.purpose,
+      status: delivery.status,
+      errorCode: delivery.errorCode,
+      updatedAt: delivery.updatedAt.toISOString(),
+    })),
   };
 }
 

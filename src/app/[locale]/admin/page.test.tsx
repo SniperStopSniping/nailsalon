@@ -192,7 +192,7 @@ describe('AdminDashboardPage', () => {
     expect(routerReplace).not.toHaveBeenCalledWith('/en/admin-login');
   });
 
-  it('renders the disabled analytics state and never requests analytics when the module is disabled', async () => {
+  it('hides analytics and never requests it when the module is disabled', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -230,16 +230,17 @@ describe('AdminDashboardPage', () => {
 
     render(<AdminDashboardPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
-    });
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-b'));
+
+    expect(screen.queryByText('Analytics dashboard is turned off for this salon.')).not.toBeInTheDocument();
 
     expect(fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith('/api/admin/analytics?'),
     )).toBe(false);
   });
 
-  it('renders the upgrade-required analytics state and never requests analytics when the module is gated off', async () => {
+  it('hides analytics and never requests it when the module is not entitled', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -277,16 +278,17 @@ describe('AdminDashboardPage', () => {
 
     render(<AdminDashboardPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Analytics dashboard is not included for this salon.')).toBeInTheDocument();
-    });
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-b'));
+
+    expect(screen.queryByText('Analytics dashboard is not included for this salon.')).not.toBeInTheDocument();
 
     expect(fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith('/api/admin/analytics?'),
     )).toBe(false);
   });
 
-  it('renders the temporary unavailable state when module availability fails and does not request analytics', async () => {
+  it('keeps analytics hidden when module availability fails and does not request analytics', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -318,13 +320,10 @@ describe('AdminDashboardPage', () => {
 
     render(<AdminDashboardPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Analytics availability could not be loaded right now.')).toBeInTheDocument();
-    });
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-b'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Pull to refresh and try again.')).toBeInTheDocument();
-    });
+    expect(screen.queryByText('Analytics availability could not be loaded right now.')).not.toBeInTheDocument();
 
     expect(fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith('/api/admin/analytics?'),
@@ -459,9 +458,10 @@ describe('AdminDashboardPage', () => {
 
     render(<AdminDashboardPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
-    });
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(analyticsRequests).toBeGreaterThan(0));
+
+    expect(screen.queryByText('Analytics dashboard is turned off for this salon.')).not.toBeInTheDocument();
 
     expect(analyticsRequests).toBeGreaterThan(0);
   });

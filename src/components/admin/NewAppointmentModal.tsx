@@ -48,13 +48,20 @@ type NewAppointmentModalProps = {
     suggestedService?: { id: string; price: number } | null;
     isReadOnly?: boolean;
   } | null;
+  clientPrefill?: {
+    name: string | null;
+    phone: string;
+    email: string | null;
+    serviceId?: string | null;
+    technicianId?: string | null;
+  } | null;
 };
 
 // Helper functions
 function formatCurrency(cents: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'CAD',
     minimumFractionDigits: 0,
   }).format(cents / 100);
 }
@@ -83,6 +90,7 @@ export function NewAppointmentModal({
   onSuccess,
   preselectedDate,
   googleEventPrefill,
+  clientPrefill,
 }: NewAppointmentModalProps) {
   const { salonSlug } = useSalon();
 
@@ -109,6 +117,10 @@ export function NewAppointmentModal({
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
 
   useEffect(() => {
     if (!isOpen || !googleEventPrefill) {
@@ -123,6 +135,17 @@ export function NewAppointmentModal({
     setSelectedServiceIds(googleEventPrefill.suggestedService ? [googleEventPrefill.suggestedService.id] : []);
     setPriceOverride(googleEventPrefill.suggestedService ? String(googleEventPrefill.suggestedService.price / 100) : '');
   }, [googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !clientPrefill) {
+      return;
+    }
+    setClientName(clientPrefill.name || '');
+    setClientPhone(clientPrefill.phone.replace(/\D/g, '').slice(-10));
+    setClientEmail(clientPrefill.email || '');
+    setSelectedTechnicianId(clientPrefill.technicianId || null);
+    setSelectedServiceIds(clientPrefill.serviceId ? [clientPrefill.serviceId] : []);
+  }, [clientPrefill, isOpen]);
 
   // Fetch technicians and services
   const fetchData = useCallback(async () => {
@@ -165,11 +188,76 @@ export function NewAppointmentModal({
     }
   }, [isOpen, fetchData]);
 
+  // Preserve unfinished work only for this browser tab. Session storage avoids
+  // keeping client contact information in long-lived local storage.
+  useEffect(() => {
+    if (!isOpen) {
+      setDraftHydrated(false);
+      setDraftRestored(false);
+      return;
+    }
+
+    if (!draftKey || googleEventPrefill || clientPrefill) {
+      setDraftHydrated(true);
+      return;
+    }
+
+    try {
+      const rawDraft = window.sessionStorage.getItem(draftKey);
+      if (rawDraft) {
+        const draft = JSON.parse(rawDraft) as {
+          expiresAt?: number;
+          selectedDate?: string;
+          selectedTime?: string;
+          clientPhone?: string;
+          clientName?: string;
+          clientEmail?: string;
+          selectedTechnicianId?: string | null;
+          selectedServiceIds?: string[];
+        };
+        if ((draft.expiresAt || 0) > Date.now()) {
+          setSelectedDate(draft.selectedDate || formatDateForInput(new Date()));
+          setSelectedTime(draft.selectedTime || '10:00');
+          setClientPhone(draft.clientPhone || '');
+          setClientName(draft.clientName || '');
+          setClientEmail(draft.clientEmail || '');
+          setSelectedTechnicianId(draft.selectedTechnicianId || null);
+          setSelectedServiceIds(Array.isArray(draft.selectedServiceIds) ? draft.selectedServiceIds : []);
+          setDraftRestored(true);
+        } else {
+          window.sessionStorage.removeItem(draftKey);
+        }
+      }
+    } catch {
+      window.sessionStorage.removeItem(draftKey);
+    } finally {
+      setDraftHydrated(true);
+    }
+  }, [clientPrefill, draftKey, googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !draftHydrated || !draftKey || googleEventPrefill || clientPrefill) {
+      return;
+    }
+    window.sessionStorage.setItem(draftKey, JSON.stringify({
+      expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+      selectedDate,
+      selectedTime,
+      clientPhone,
+      clientName,
+      clientEmail,
+      selectedTechnicianId,
+      selectedServiceIds,
+    }));
+  }, [clientEmail, clientName, clientPhone, clientPrefill, draftHydrated, draftKey, googleEventPrefill, isOpen, selectedDate, selectedServiceIds, selectedTechnicianId, selectedTime]);
+
   // Reset form when closing
   useEffect(() => {
     if (!isOpen) {
       setClientPhone('');
       setClientName('');
+      setClientEmail('');
+      setPriceOverride('');
       setSelectedTechnicianId(null);
       setSelectedServiceIds([]);
       setError(null);
@@ -281,6 +369,9 @@ export function NewAppointmentModal({
       }
 
       // Success
+      if (draftKey) {
+        window.sessionStorage.removeItem(draftKey);
+      }
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -359,6 +450,12 @@ export function NewAppointmentModal({
                       {error && (
                         <div className="rounded-lg border border-red-200 bg-red-50 p-3">
                           <p className="text-sm text-red-700">{error}</p>
+                        </div>
+                      )}
+
+                      {draftRestored && !error && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                          Your saved appointment draft was restored.
                         </div>
                       )}
 

@@ -179,9 +179,9 @@ function AdminOnboardingContent() {
         <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
           {/* Phone (Read-only) */}
           <div className="mb-4">
-            <label className="mb-2 block text-sm font-medium text-slate-700">
+            <div className="mb-2 block text-sm font-medium text-slate-700">
               Phone Number
-            </label>
+            </div>
             <div className="w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-lg text-slate-600">
               {formatPhoneDisplay(user.phone)}
             </div>
@@ -267,7 +267,7 @@ function AdminOnboardingContent() {
         <p className="text-sm text-slate-500">
           Need help?
           {' '}
-          <a href="mailto:support@example.com" className="font-medium text-slate-700 hover:underline">
+          <a href="mailto:support@islanailsalon.com" className="font-medium text-slate-700 hover:underline">
             Contact support
           </a>
         </p>

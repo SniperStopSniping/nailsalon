@@ -222,6 +222,8 @@ export function BookTimeClient({
   const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [findingNextAvailable, setFindingNextAvailable] = useState(false);
+  const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
 
   // Refs for smooth scrolling to time slot sections
   const morningSlotsRef = useRef<HTMLDivElement>(null);
@@ -278,6 +280,19 @@ export function BookTimeClient({
     });
   }, []);
 
+  const buildAvailabilityUrl = useCallback((date: Date) => {
+    const dateStr = getDateKey(date);
+    const effectiveTechId = techId || stateTechId;
+    const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
+    const durationParam = !baseServiceId ? `&durationMinutes=${totalDuration}` : '';
+    const serviceParam = serviceIdsParam ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}` : '';
+    const baseServiceParam = baseServiceId ? `&baseServiceId=${encodeURIComponent(baseServiceId)}` : '';
+    const addOnsParam = selectedAddOns.length > 0 ? `&selectedAddOns=${encodeURIComponent(JSON.stringify(selectedAddOns))}` : '';
+    const locationParam = locationId ? `&locationId=${encodeURIComponent(locationId)}` : '';
+    const rescheduleParam = originalAppointmentId ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}` : '';
+    return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}`;
+  }, [baseServiceId, locationId, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, stateTechId, techId, totalDuration]);
+
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
     if (!salonSlug) {
@@ -288,28 +303,8 @@ export function BookTimeClient({
     setLoadingSlots(true);
     setAvailabilityError(null);
     try {
-      const dateStr = getDateKey(date);
-      // The explicit URL selection should win over any persisted local booking state.
-      const effectiveTechId = techId || stateTechId;
-      const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
-      const durationParam = !baseServiceId ? `&durationMinutes=${totalDuration}` : '';
-      const serviceParam = serviceIdsParam
-        ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}`
-        : '';
-      const baseServiceParam = baseServiceId
-        ? `&baseServiceId=${encodeURIComponent(baseServiceId)}`
-        : '';
-      const addOnsParam = selectedAddOns.length > 0
-        ? `&selectedAddOns=${encodeURIComponent(JSON.stringify(selectedAddOns))}`
-        : '';
-      const locationParam = locationId
-        ? `&locationId=${encodeURIComponent(locationId)}`
-        : '';
-      const rescheduleParam = originalAppointmentId
-        ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`
-        : '';
       const response = await fetch(
-        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}`,
+        buildAvailabilityUrl(date),
         { cache: 'no-store' },
       );
 
@@ -356,7 +351,45 @@ export function BookTimeClient({
         setLoadingSlots(false);
       }
     }
-  }, [baseServiceId, locationId, originalAppointmentId, totalDuration, salonSlug, selectedAddOns, serviceIdsParam, techId, stateTechId]);
+  }, [buildAvailabilityUrl, salonSlug, totalDuration]);
+
+  const findNextAvailableDate = useCallback(async () => {
+    if (!selectedDate || findingNextAvailable) {
+      return;
+    }
+    setFindingNextAvailable(true);
+    setNextAvailableMessage(null);
+    let successfulChecks = 0;
+    try {
+      for (let dayOffset = 1; dayOffset <= 30; dayOffset += 1) {
+        const candidate = new Date(selectedDate);
+        candidate.setDate(candidate.getDate() + dayOffset);
+        const response = await fetch(buildAvailabilityUrl(candidate), { cache: 'no-store' }).catch(() => null);
+        if (!response?.ok) {
+          continue;
+        }
+        successfulChecks += 1;
+        const data = await response.json();
+        const hasAvailableSlot = Array.isArray(data.slots)
+          && data.slots.some((slot: { availability?: string }) => slot.availability === 'available');
+        if (hasAvailableSlot) {
+          allowTodayAutoAdvanceRef.current = false;
+          setSelectedDate(candidate);
+          setCurrentMonth(candidate.getMonth());
+          setCurrentYear(candidate.getFullYear());
+          pendingScrollRef.current = true;
+          scrollRequestIdRef.current += 1;
+          scrollTargetDateRef.current = getDateKey(candidate);
+          return;
+        }
+      }
+      setNextAvailableMessage(successfulChecks > 0
+        ? 'No openings were found in the next 30 days. Contact the salon or try another service.'
+        : 'Live availability could not be checked. Please try again shortly.');
+    } finally {
+      setFindingNextAvailable(false);
+    }
+  }, [buildAvailabilityUrl, findingNextAvailable, selectedDate]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -794,7 +827,12 @@ export function BookTimeClient({
             title={noSlotsAvailable
               ? 'No bookable times remain for this day.'
               : 'This day is fully booked.'}
-            description="Choose another date to keep booking."
+            description={nextAvailableMessage || 'Choose another date or let Luster find the next opening.'}
+            action={(
+              <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="mt-2 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
+              </button>
+            )}
           />
         )}
 

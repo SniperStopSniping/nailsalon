@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ServicesModal } from './ServicesModal';
 
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -20,8 +21,6 @@ vi.mock('framer-motion', () => {
     }),
   };
 });
-
-import { ServicesModal } from './ServicesModal';
 
 describe('ServicesModal', () => {
   beforeEach(() => {
@@ -85,6 +84,7 @@ describe('ServicesModal', () => {
     });
 
     const [url, requestInit] = fetchMock.mock.calls[1] ?? [];
+
     expect(url).toBe('/api/salon/services');
     expect(requestInit).toEqual(expect.objectContaining({
       method: 'POST',
@@ -98,12 +98,15 @@ describe('ServicesModal', () => {
       price: 8500,
       priceDisplayText: null,
       durationMinutes: 110,
+      preparationBufferMinutes: 0,
+      cleanupBufferMinutes: 0,
       category: 'combo',
+      isActive: true,
       isIntroPrice: false,
       introPriceLabel: null,
     });
 
-    expect(await screen.findByText('BIAB + Classic Pedicure')).toBeInTheDocument();
+    expect((await screen.findAllByText('BIAB + Classic Pedicure')).length).toBeGreaterThan(0);
   });
 
   it('keeps combo available as a filter category and shows combo services when selected', async () => {

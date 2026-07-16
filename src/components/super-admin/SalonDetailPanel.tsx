@@ -109,6 +109,7 @@ type SalonMetrics = {
 type CanonicalUrls = {
   publicUrl: string;
   bookingUrl: string;
+  findBookingUrl: string;
 };
 
 type IntegrationHealth = {
@@ -338,6 +339,7 @@ function AdminRow({ admin, salonId, totalAdmins, onRefresh }: AdminRowProps) {
 export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPanelProps) {
   const params = useParams();
   const locale = (params?.locale as string) || 'en';
+  const showLegacyFeatureSettings = process.env.NODE_ENV === 'development';
   const [salon, setSalon] = useState<SalonDetail | null>(null);
   const [metrics, setMetrics] = useState<SalonMetrics | null>(null);
   const [owner, setOwner] = useState<OwnerInfo | null>(null);
@@ -595,6 +597,15 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setSalon(payload.salon);
       setFeatures(payload.salon?.features ?? nextFeatures);
       setFeatureSaveStatus('saved');
+      try {
+        window.localStorage.setItem('luster:feature-access-updated', JSON.stringify({
+          salonSlug: payload.salon?.slug ?? salon?.slug ?? null,
+          updatedAt: Date.now(),
+        }));
+      } catch {
+        // Storage can be unavailable in private browsing; the saved server
+        // state remains authoritative and normal refresh still works.
+      }
       window.setTimeout(() => setFeatureSaveStatus('idle'), 1800);
     } catch (saveError) {
       setFeatures(previousFeatures);
@@ -955,6 +966,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                               Booking:
                               {canonicalUrls.bookingUrl}
                             </p>
+                            <p>
+                              Find booking:
+                              {canonicalUrls.findBookingUrl}
+                            </p>
                           </div>
                         </section>
                       )}
@@ -1138,382 +1153,386 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         </div>
                       </CollapsibleSection>
 
-                      {/* Features Section */}
-                      <CollapsibleSection
-                        title="Legacy feature settings"
-                        icon={<ToggleRight className="size-4" />}
-                        expanded={expandedSections.features ?? false}
-                        onToggle={() => toggleSection('features')}
-                      >
-                        <div className="space-y-4">
-                          {/* Core Features Header */}
-                          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                            Core Features
-                          </div>
-
-                          {/* Online Booking Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Online Booking</div>
-                              <div className="text-xs text-gray-500">Allow clients to book online</div>
+                      {/* Legacy controls remain available to developers while old
+                          data is migrated, but are hidden from the production
+                          super-admin experience to keep one source of truth. */}
+                      {showLegacyFeatureSettings && (
+                        <CollapsibleSection
+                          title="Legacy feature settings"
+                          icon={<ToggleRight className="size-4" />}
+                          expanded={expandedSections.features ?? false}
+                          onToggle={() => toggleSection('features')}
+                        >
+                          <div className="space-y-4">
+                            {/* Core Features Header */}
+                            <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                              Core Features
                             </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.onlineBooking ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, onlineBooking: !f.onlineBooking }));
-                                setOnlineBookingEnabled(!features.onlineBooking);
-                                markDirty();
-                              }}
-                              aria-label="Toggle online booking"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.onlineBooking ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.onlineBooking ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
 
-                          {/* SMS Reminders Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">SMS Reminders</div>
-                              <div className="text-xs text-gray-500">Send SMS confirmations & reminders</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={smsRemindersEntitled ? 'true' : 'false'}
-                              onClick={() => {
-                                setMarketingFeature('smsReminders', !smsRemindersEntitled);
-                                setSmsRemindersEnabled(!smsRemindersEntitled);
-                                markDirty();
-                              }}
-                              aria-label="Toggle SMS reminders"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                smsRemindersEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  smsRemindersEntitled ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Rewards Program Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Rewards Program</div>
-                              <div className="text-xs text-gray-500">Let this salon use the rewards system</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={rewardsEntitled ? 'true' : 'false'}
-                              onClick={() => {
-                                setMarketingFeature('rewards', !rewardsEntitled);
-                                setRewardsEnabled(!rewardsEntitled);
-                                markDirty();
-                              }}
-                              aria-label="Toggle rewards program"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                rewardsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  rewardsEntitled ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Referrals Program Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Referrals Program</div>
-                              <div className="text-xs text-gray-500">Allow clients to send referral offers to friends</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={referralsEntitled ? 'true' : 'false'}
-                              onClick={() => {
-                                setMarketingFeature('referrals', !referralsEntitled);
-                                markDirty();
-                              }}
-                              aria-label="Toggle referrals program"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                referralsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  referralsEntitled ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Public Profile Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Public Profile</div>
-                              <div className="text-xs text-gray-500">Show public profile / mini-site for this salon</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.profilePage ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, profilePage: !f.profilePage }));
-                                setProfilePageEnabled(!features.profilePage);
-                                markDirty();
-                              }}
-                              aria-label="Toggle public profile"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.profilePage ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.profilePage ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Booking Flow Customization Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Booking Flow Customization</div>
-                              <div className="text-xs text-gray-500">Allow drag-and-drop control of booking steps</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={bookingFlowCustomizationEnabled ? 'true' : 'false'}
-                              onClick={() => {
-                                setBookingFlowCustomizationEnabled(!bookingFlowCustomizationEnabled);
-                                markDirty();
-                              }}
-                              aria-label="Toggle booking flow customization"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                bookingFlowCustomizationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  bookingFlowCustomizationEnabled ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Premium Features Header */}
-                          <div className="border-t border-gray-200 pt-4">
-                            <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-amber-600">
-                              <span>★</span>
-                              {' '}
-                              Premium Features
-                            </div>
-                          </div>
-
-                          {/* Visibility Controls Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Visibility Controls</div>
-                              <div className="text-xs text-gray-500">Admin can control what staff sees (client info, prices, etc.)</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.visibilityControls ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, visibilityControls: !f.visibilityControls }));
-                                markDirty();
-                              }}
-                              aria-label="Toggle visibility controls"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.visibilityControls ? 'bg-amber-500' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.visibilityControls ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Multi-Location Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Multi-Location</div>
-                              <div className="text-xs text-gray-500">Support for multiple salon locations</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.multiLocation ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, multiLocation: !f.multiLocation }));
-                                markDirty();
-                              }}
-                              aria-label="Toggle multi-location"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.multiLocation ? 'bg-amber-500' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.multiLocation ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Advanced Analytics Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Advanced Analytics</div>
-                              <div className="text-xs text-gray-500">Detailed reports and business insights</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.advancedAnalytics ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, advancedAnalytics: !f.advancedAnalytics }));
-                                markDirty();
-                              }}
-                              aria-label="Toggle advanced analytics"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.advancedAnalytics ? 'bg-amber-500' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.advancedAnalytics ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Custom Branding Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Custom Branding</div>
-                              <div className="text-xs text-gray-500">Custom colors, logos, and styling</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.customBranding ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, customBranding: !f.customBranding }));
-                                markDirty();
-                              }}
-                              aria-label="Toggle custom branding"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.customBranding ? 'bg-amber-500' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.customBranding ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* API Access Toggle */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">API Access</div>
-                              <div className="text-xs text-gray-500">External integrations via API</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={features.apiAccess ? 'true' : 'false'}
-                              onClick={() => {
-                                setFeatures(f => ({ ...f, apiAccess: !f.apiAccess }));
-                                markDirty();
-                              }}
-                              aria-label="Toggle API access"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                features.apiAccess ? 'bg-amber-500' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  features.apiAccess ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          {/* Tier Preset Buttons */}
-                          <div className="border-t border-gray-200 pt-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                                Quick Apply Tier
+                            {/* Online Booking Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Online Booking</div>
+                                <div className="text-xs text-gray-500">Allow clients to book online</div>
                               </div>
-                              <div className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                                Current:
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.onlineBooking ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, onlineBooking: !f.onlineBooking }));
+                                  setOnlineBookingEnabled(!features.onlineBooking);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle online booking"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.onlineBooking ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.onlineBooking ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* SMS Reminders Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">SMS Reminders</div>
+                                <div className="text-xs text-gray-500">Send SMS confirmations & reminders</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={smsRemindersEntitled ? 'true' : 'false'}
+                                onClick={() => {
+                                  setMarketingFeature('smsReminders', !smsRemindersEntitled);
+                                  setSmsRemindersEnabled(!smsRemindersEntitled);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle SMS reminders"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  smsRemindersEntitled ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    smsRemindersEntitled ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Rewards Program Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Rewards Program</div>
+                                <div className="text-xs text-gray-500">Let this salon use the rewards system</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={rewardsEntitled ? 'true' : 'false'}
+                                onClick={() => {
+                                  setMarketingFeature('rewards', !rewardsEntitled);
+                                  setRewardsEnabled(!rewardsEntitled);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle rewards program"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  rewardsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    rewardsEntitled ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Referrals Program Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Referrals Program</div>
+                                <div className="text-xs text-gray-500">Allow clients to send referral offers to friends</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={referralsEntitled ? 'true' : 'false'}
+                                onClick={() => {
+                                  setMarketingFeature('referrals', !referralsEntitled);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle referrals program"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  referralsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    referralsEntitled ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Public Profile Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Public Profile</div>
+                                <div className="text-xs text-gray-500">Show public profile / mini-site for this salon</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.profilePage ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, profilePage: !f.profilePage }));
+                                  setProfilePageEnabled(!features.profilePage);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle public profile"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.profilePage ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.profilePage ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Booking Flow Customization Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Booking Flow Customization</div>
+                                <div className="text-xs text-gray-500">Allow drag-and-drop control of booking steps</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={bookingFlowCustomizationEnabled ? 'true' : 'false'}
+                                onClick={() => {
+                                  setBookingFlowCustomizationEnabled(!bookingFlowCustomizationEnabled);
+                                  markDirty();
+                                }}
+                                aria-label="Toggle booking flow customization"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  bookingFlowCustomizationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    bookingFlowCustomizationEnabled ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Premium Features Header */}
+                            <div className="border-t border-gray-200 pt-4">
+                              <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-amber-600">
+                                <span>★</span>
                                 {' '}
-                                {detectCurrentTier(features).charAt(0).toUpperCase() + detectCurrentTier(features).slice(1)}
+                                Premium Features
                               </div>
                             </div>
-                            <div className="flex gap-2">
+
+                            {/* Visibility Controls Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Visibility Controls</div>
+                                <div className="text-xs text-gray-500">Admin can control what staff sees (client info, prices, etc.)</div>
+                              </div>
                               <button
                                 type="button"
+                                role="switch"
+                                aria-checked={features.visibilityControls ? 'true' : 'false'}
                                 onClick={() => {
-                                  if (window.confirm('Apply Starter tier? This will MERGE with existing features.')) {
-                                    setFeatures(prev => ({ ...(prev ?? {}), ...STARTER_FEATURES }));
-                                    markDirty();
-                                  }
+                                  setFeatures(f => ({ ...f, visibilityControls: !f.visibilityControls }));
+                                  markDirty();
                                 }}
-                                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100"
+                                aria-label="Toggle visibility controls"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.visibilityControls ? 'bg-amber-500' : 'bg-gray-200'
+                                }`}
                               >
-                                Starter
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (window.confirm('Apply Pro tier? This will MERGE with existing features.')) {
-                                    setFeatures(prev => ({ ...(prev ?? {}), ...PRO_FEATURES }));
-                                    markDirty();
-                                  }
-                                }}
-                                className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
-                              >
-                                Pro
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (window.confirm('Apply Elite tier? This will MERGE with existing features.')) {
-                                    setFeatures(prev => ({ ...(prev ?? {}), ...ELITE_FEATURES }));
-                                    markDirty();
-                                  }
-                                }}
-                                className="flex-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
-                              >
-                                Elite
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.visibilityControls ? 'translate-x-5' : ''
+                                  }`}
+                                />
                               </button>
                             </div>
+
+                            {/* Multi-Location Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Multi-Location</div>
+                                <div className="text-xs text-gray-500">Support for multiple salon locations</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.multiLocation ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, multiLocation: !f.multiLocation }));
+                                  markDirty();
+                                }}
+                                aria-label="Toggle multi-location"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.multiLocation ? 'bg-amber-500' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.multiLocation ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Advanced Analytics Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Advanced Analytics</div>
+                                <div className="text-xs text-gray-500">Detailed reports and business insights</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.advancedAnalytics ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, advancedAnalytics: !f.advancedAnalytics }));
+                                  markDirty();
+                                }}
+                                aria-label="Toggle advanced analytics"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.advancedAnalytics ? 'bg-amber-500' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.advancedAnalytics ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Custom Branding Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">Custom Branding</div>
+                                <div className="text-xs text-gray-500">Custom colors, logos, and styling</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.customBranding ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, customBranding: !f.customBranding }));
+                                  markDirty();
+                                }}
+                                aria-label="Toggle custom branding"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.customBranding ? 'bg-amber-500' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.customBranding ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* API Access Toggle */}
+                            <div className="flex items-center justify-between py-2">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700">API Access</div>
+                                <div className="text-xs text-gray-500">External integrations via API</div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={features.apiAccess ? 'true' : 'false'}
+                                onClick={() => {
+                                  setFeatures(f => ({ ...f, apiAccess: !f.apiAccess }));
+                                  markDirty();
+                                }}
+                                aria-label="Toggle API access"
+                                className={`relative h-6 w-11 rounded-full transition-colors ${
+                                  features.apiAccess ? 'bg-amber-500' : 'bg-gray-200'
+                                }`}
+                              >
+                                <div
+                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                                    features.apiAccess ? 'translate-x-5' : ''
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {/* Tier Preset Buttons */}
+                            <div className="border-t border-gray-200 pt-4">
+                              <div className="mb-3 flex items-center justify-between">
+                                <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                  Quick Apply Tier
+                                </div>
+                                <div className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                                  Current:
+                                  {' '}
+                                  {detectCurrentTier(features).charAt(0).toUpperCase() + detectCurrentTier(features).slice(1)}
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm('Apply Starter tier? This will MERGE with existing features.')) {
+                                      setFeatures(prev => ({ ...(prev ?? {}), ...STARTER_FEATURES }));
+                                      markDirty();
+                                    }
+                                  }}
+                                  className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100"
+                                >
+                                  Starter
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm('Apply Pro tier? This will MERGE with existing features.')) {
+                                      setFeatures(prev => ({ ...(prev ?? {}), ...PRO_FEATURES }));
+                                      markDirty();
+                                    }
+                                  }}
+                                  className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+                                >
+                                  Pro
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm('Apply Elite tier? This will MERGE with existing features.')) {
+                                      setFeatures(prev => ({ ...(prev ?? {}), ...ELITE_FEATURES }));
+                                      markDirty();
+                                    }
+                                  }}
+                                  className="flex-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+                                >
+                                  Elite
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </CollapsibleSection>
+                        </CollapsibleSection>
+                      )}
 
                       {/* Billing & Programs Section (Step 21E) */}
                       <CollapsibleSection

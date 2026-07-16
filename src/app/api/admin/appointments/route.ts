@@ -15,6 +15,7 @@ import { requireActiveAdminSalon } from '@/libs/adminAuth';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getTechniciansBySalonId } from '@/libs/queries';
+import { getZonedDayBounds } from '@/libs/timeZone';
 import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, serviceSchema, technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -49,16 +50,6 @@ function parseStatuses(statusParam: string | undefined): string[] | null {
   return statuses;
 }
 
-function startOfUtcDay(dateStr: string): Date {
-  return new Date(`${dateStr}T00:00:00.000Z`);
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
-}
-
 export async function GET(request: Request): Promise<Response> {
   try {
     const { salon, error } = await requireActiveAdminSalon();
@@ -91,6 +82,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const { date, startDate, endDate, status, limit } = validated.data;
     const statuses = parseStatuses(status);
+    const bookingConfig = await getBookingConfigForSalon(salonId);
 
     // Build time window
     let start: Date;
@@ -98,14 +90,15 @@ export async function GET(request: Request): Promise<Response> {
     let orderBy = desc(appointmentSchema.startTime);
 
     if (date) {
-      start = startOfUtcDay(date);
-      endExclusive = addUtcDays(start, 1);
+      const bounds = getZonedDayBounds(date, bookingConfig.timezone);
+      start = bounds.startOfDay;
+      endExclusive = new Date(bounds.endOfDay.getTime() + 1);
       orderBy = asc(appointmentSchema.startTime);
     } else if (startDate) {
-      start = startOfUtcDay(startDate);
+      start = getZonedDayBounds(startDate, bookingConfig.timezone).startOfDay;
       if (endDate) {
-        const endDay = startOfUtcDay(endDate);
-        endExclusive = addUtcDays(endDay, 1);
+        const endBounds = getZonedDayBounds(endDate, bookingConfig.timezone);
+        endExclusive = new Date(endBounds.endOfDay.getTime() + 1);
       } else {
         endExclusive = new Date();
       }
@@ -127,7 +120,7 @@ export async function GET(request: Request): Promise<Response> {
       whereClauses.push(inArray(appointmentSchema.status, statuses));
     }
 
-    const [appointments, bookingConfig, technicians] = await Promise.all([
+    const [appointments, technicians] = await Promise.all([
       db
         .select({
           id: appointmentSchema.id,
@@ -148,7 +141,6 @@ export async function GET(request: Request): Promise<Response> {
         .where(and(...whereClauses))
         .orderBy(orderBy)
         .limit(limit),
-      getBookingConfigForSalon(salonId),
       getTechniciansBySalonId(salonId),
     ]);
 

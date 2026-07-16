@@ -16,6 +16,7 @@ import { NewAppointmentModal } from './NewAppointmentModal';
 
 type AppointmentsModalProps = {
   onClose: () => void;
+  initialAppointmentId?: string | null;
 };
 
 type AdminAppointmentsResponse = {
@@ -77,7 +78,7 @@ function patchAppointment(
   return appointments.map(appointment => appointment.id === updated.id ? updated : appointment);
 }
 
-export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
+export function AppointmentsModal({ onClose, initialAppointmentId = null }: AppointmentsModalProps) {
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [resources, setResources] = useState<CalendarResource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +86,13 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(15);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [rebookPrefill, setRebookPrefill] = useState<{
+    name: string | null;
+    phone: string;
+    email: string | null;
+    serviceId: string | null;
+    technicianId: string | null;
+  } | null>(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AppointmentManageDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -93,6 +101,12 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
   const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<ManageWarning[]>([]);
   const latestAppointmentsFetchIdRef = useRef(0);
+
+  useEffect(() => {
+    if (initialAppointmentId) {
+      setSelectedAppointmentId(initialAppointmentId);
+    }
+  }, [initialAppointmentId]);
 
   const fetchAppointments = useCallback(async () => {
     const fetchId = latestAppointmentsFetchIdRef.current + 1;
@@ -403,6 +417,33 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
     }
   }, [fetchDetail, selectedAppointmentId]);
 
+  const handleSimpleStatusChange = useCallback(async (status: 'confirmed') => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+    setDetailSaving(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw result.error ?? new Error('Unable to update appointment');
+      }
+      setAppointments(current => current.map(appointment => appointment.id === selectedAppointmentId ? { ...appointment, status } : appointment));
+      await fetchDetail(selectedAppointmentId);
+    } catch (statusError) {
+      setDetailError(typeof statusError === 'object' && statusError !== null && 'message' in statusError
+        ? String((statusError as { message?: unknown }).message)
+        : 'Unable to update appointment');
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [fetchDetail, selectedAppointmentId]);
+
   const handleCancelAppointment = useCallback(async (reason: string) => {
     if (!selectedAppointmentId) {
       return;
@@ -492,16 +533,36 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         onCancelAppointment={handleCancelAppointment}
         onMarkCompleted={handleCompleteAppointment}
         onStartAppointment={handleStartAppointment}
+        onConfirmAppointment={() => handleSimpleStatusChange('confirmed')}
+        onMarkNoShow={() => handleCancelAppointment('no_show')}
         onResendConfirmation={handleResendConfirmation}
+        onRebook={() => {
+          if (!detail) {
+            return;
+          }
+          setRebookPrefill({
+            name: detail.appointment.clientName,
+            phone: detail.appointment.clientPhone,
+            email: detail.appointment.clientEmail ?? null,
+            serviceId: detail.appointment.baseServiceId,
+            technicianId: detail.appointment.technicianId,
+          });
+          setSelectedAppointmentId(null);
+          setShowNewAppointmentModal(true);
+        }}
       />
 
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
-        onClose={() => setShowNewAppointmentModal(false)}
+        onClose={() => {
+          setShowNewAppointmentModal(false);
+          setRebookPrefill(null);
+        }}
         onSuccess={() => {
           void fetchAppointments();
         }}
         preselectedDate={selectedDate}
+        clientPrefill={rebookPrefill}
       />
     </div>
   );

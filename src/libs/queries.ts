@@ -1130,6 +1130,10 @@ export async function updateSalonClientStats(
     previousCompletedSpendCents: salonClient.totalSpent,
     nextCompletedSpendCents: totalSpentCents,
   });
+  const lastVisitAt = clientStats?.lastVisitAt ?? null;
+  const nextRebookDueAt = lastVisitAt && salonClient.rebookIntervalDays
+    ? new Date(lastVisitAt.getTime() + salonClient.rebookIntervalDays * 86_400_000)
+    : null;
 
   // Update the salon client with computed stats
   // Double-check salonId in WHERE clause for multi-tenant safety
@@ -1139,7 +1143,8 @@ export async function updateSalonClientStats(
       totalVisits: clientStats?.totalVisits ?? 0,
       totalSpent: clientStats?.totalSpent ?? 0,
       noShowCount: clientStats?.noShowCount ?? 0,
-      lastVisitAt: clientStats?.lastVisitAt ?? null,
+      lastVisitAt,
+      nextRebookDueAt,
       loyaltyPoints,
       updatedAt: new Date(),
     })

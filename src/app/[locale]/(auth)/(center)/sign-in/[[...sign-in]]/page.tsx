@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
-// Redirect Clerk sign-in to phone OTP admin login
+// Keep the legacy route working while directing owners to Clerk email/password.
 export default async function SignInPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
-  redirect(`/${locale}/admin-login`);
+  redirect(`/${locale}/owner-sign-in`);
 }

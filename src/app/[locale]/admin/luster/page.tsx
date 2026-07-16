@@ -4,7 +4,7 @@ import { ArrowLeft, BookOpen, CalendarDays, ExternalLink, MessageSquareText, Sho
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-type Health = { google: { status: string; email?: string; lastError?: string; inboundSyncEnabled?: boolean; inboundSyncedAt?: string | null; inboundSyncError?: string | null }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
+type Health = { availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean }; google: { status: string; email?: string; lastError?: string; inboundSyncEnabled?: boolean; inboundSyncedAt?: string | null; inboundSyncError?: string | null }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
 type CalendarOption = { id: string; summary: string; primary: boolean; accessRole: string };
 const RESOURCES = [
   { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
@@ -36,6 +36,9 @@ export default function LusterOwnerPage() {
     }
     if (googleResult === 'error') {
       return 'Google could not finish connecting. Return here and try again.';
+    }
+    if (googleResult === 'expired') {
+      return 'That Google connection link expired for your security. Start a fresh connection below.';
     }
     return '';
   });
@@ -138,59 +141,65 @@ export default function LusterOwnerPage() {
               </div>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-xs capitalize">{health?.google.status || 'loading'}</span>
             </div>
-            {health?.google.status === 'active'
+            {health?.availability.google === false
               ? (
-                  <div className="mt-5 space-y-4">
-                    <label className="block text-sm">
-                      Appointment calendar
-                      <select
-                        className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2"
-                        value={destinationCalendarId}
-                        onChange={(event) => {
-                          setDestinationCalendarId(event.target.value);
-                          setCalendarDirty(true);
-                        }}
-                      >
-                        {calendars.filter(calendar => ['owner', 'writer'].includes(calendar.accessRole)).map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>)}
-                      </select>
-                    </label>
-                    <fieldset>
-                      <legend className="text-sm font-medium">Calendars that prevent double-booking</legend>
-                      <div className="mt-2 space-y-2">
-                        {calendars.map(calendar => (
-                          <label key={calendar.id} className="flex gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={busyCalendarIds.includes(calendar.id)}
-                              onChange={(event) => {
-                                setBusyCalendarIds(current => event.target.checked ? [...new Set([...current, calendar.id])] : current.filter(id => id !== calendar.id));
-                                setCalendarDirty(true);
-                              }}
-                            />
-                            {calendar.summary}
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <button type="button" disabled={working === 'calendar' || !busyCalendarIds.length || !calendarDirty} onClick={saveCalendars} className="rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{working === 'calendar' ? 'Saving…' : calendarDirty ? 'Save blocking calendars' : 'Calendars saved'}</button>
-                    <div className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-950">
-                      <p className="font-semibold">
-                        Two-way appointment sync is
-                        {' '}
-                        {health.google.inboundSyncEnabled === false ? 'off' : 'on'}
-                      </p>
-                      <p className="mt-1 text-xs">Changes made in Google can take up to five minutes to appear in Luster. New personal Google events are treated as busy time, not client appointments.</p>
-                      {health.google.inboundSyncedAt && (
-                        <p className="mt-2 text-xs">
-                          Last checked:
-                          {' '}
-                          {new Date(health.google.inboundSyncedAt).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    Google Calendar is temporarily unavailable. Your Luster booking page and email confirmations still work normally.
                   </div>
                 )
-              : <a className="mt-5 inline-flex rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-900" href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug)}`}>Connect Google Calendar</a>}
+              : health?.google.status === 'active'
+                ? (
+                    <div className="mt-5 space-y-4">
+                      <label className="block text-sm">
+                        Appointment calendar
+                        <select
+                          className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2"
+                          value={destinationCalendarId}
+                          onChange={(event) => {
+                            setDestinationCalendarId(event.target.value);
+                            setCalendarDirty(true);
+                          }}
+                        >
+                          {calendars.filter(calendar => ['owner', 'writer'].includes(calendar.accessRole)).map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>)}
+                        </select>
+                      </label>
+                      <fieldset>
+                        <legend className="text-sm font-medium">Calendars that prevent double-booking</legend>
+                        <div className="mt-2 space-y-2">
+                          {calendars.map(calendar => (
+                            <label key={calendar.id} className="flex gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={busyCalendarIds.includes(calendar.id)}
+                                onChange={(event) => {
+                                  setBusyCalendarIds(current => event.target.checked ? [...new Set([...current, calendar.id])] : current.filter(id => id !== calendar.id));
+                                  setCalendarDirty(true);
+                                }}
+                              />
+                              {calendar.summary}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <button type="button" disabled={working === 'calendar' || !busyCalendarIds.length || !calendarDirty} onClick={saveCalendars} className="rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{working === 'calendar' ? 'Saving…' : calendarDirty ? 'Save blocking calendars' : 'Calendars saved'}</button>
+                      <div className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-950">
+                        <p className="font-semibold">
+                          Two-way appointment sync is
+                          {' '}
+                          {health.google.inboundSyncEnabled === false ? 'off' : 'on'}
+                        </p>
+                        <p className="mt-1 text-xs">Changes made in Google can take up to five minutes to appear in Luster. New personal Google events are treated as busy time, not client appointments.</p>
+                        {health.google.inboundSyncedAt && (
+                          <p className="mt-2 text-xs">
+                            Last checked:
+                            {' '}
+                            {new Date(health.google.inboundSyncedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                : <a className="mt-5 inline-flex rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-900" href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug)}`}>Connect Google Calendar</a>}
             {health?.google.lastError && <p className="mt-3 text-xs text-red-700">{health.google.lastError}</p>}
             {health?.google.inboundSyncError && (
               <p className="mt-3 text-xs text-red-700">
@@ -209,38 +218,44 @@ export default function LusterOwnerPage() {
               </div>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-xs capitalize">{health?.twilio.status || 'loading'}</span>
             </div>
-            {health?.twilio.status === 'active'
+            {health?.availability.twilio === false
               ? (
-                  <p className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800">
-                    Active sender:
-                    {health.twilio.phoneNumber}
-                  </p>
+                  <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
+                    Optional text reminders are not available yet. Luster will continue using email for confirmations and booking management.
+                  </div>
                 )
-              : health?.twilio.status === 'pending' || searchParams.get('twilio') === 'authorized'
+              : health?.twilio.status === 'active'
                 ? (
-                    <div className="mt-5 space-y-3">
-                      <label className="block text-sm">
-                        Canadian area code
-                        <input className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2" maxLength={3} value={areaCode} onChange={event => setAreaCode(event.target.value.replace(/\D/g, ''))} />
-                      </label>
-                      <button type="button" onClick={previewTwilio} disabled={working !== '' || areaCode.length !== 3} className="rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold">Check number and charge</button>
-                      {twilioPreview && (
-                        <div className="rounded-2xl bg-amber-50 p-4 text-sm">
-                          <p>
-                            Available:
-                            <strong>{twilioPreview.number.phone_number}</strong>
-                          </p>
-                          <p className="mt-1">
-                            Twilio monthly number charge:
-                            <strong>{twilioPreview.monthlyPrice ? `${twilioPreview.monthlyPrice} ${twilioPreview.currency}` : 'shown in your Twilio account'}</strong>
-                            , plus message usage.
-                          </p>
-                          <button type="button" onClick={provisionTwilio} className="mt-3 rounded-full bg-red-600 px-5 py-2.5 font-semibold text-white">Confirm and provision</button>
-                        </div>
-                      )}
-                    </div>
+                    <p className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800">
+                      Active sender:
+                      {health.twilio.phoneNumber}
+                    </p>
                   )
-                : <a className="mt-5 inline-flex rounded-full bg-red-600 px-5 py-2.5 text-sm font-semibold text-white" href={`/api/integrations/twilio/connect?salonSlug=${encodeURIComponent(salonSlug)}`}>Authorize Twilio</a>}
+                : health?.twilio.status === 'pending' || searchParams.get('twilio') === 'authorized'
+                  ? (
+                      <div className="mt-5 space-y-3">
+                        <label className="block text-sm">
+                          Canadian area code
+                          <input className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2" maxLength={3} value={areaCode} onChange={event => setAreaCode(event.target.value.replace(/\D/g, ''))} />
+                        </label>
+                        <button type="button" onClick={previewTwilio} disabled={working !== '' || areaCode.length !== 3} className="rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold">Check number and charge</button>
+                        {twilioPreview && (
+                          <div className="rounded-2xl bg-amber-50 p-4 text-sm">
+                            <p>
+                              Available:
+                              <strong>{twilioPreview.number.phone_number}</strong>
+                            </p>
+                            <p className="mt-1">
+                              Twilio monthly number charge:
+                              <strong>{twilioPreview.monthlyPrice ? `${twilioPreview.monthlyPrice} ${twilioPreview.currency}` : 'shown in your Twilio account'}</strong>
+                              , plus message usage.
+                            </p>
+                            <button type="button" onClick={provisionTwilio} className="mt-3 rounded-full bg-red-600 px-5 py-2.5 font-semibold text-white">Confirm and provision</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  : <a className="mt-5 inline-flex rounded-full bg-red-600 px-5 py-2.5 text-sm font-semibold text-white" href={`/api/integrations/twilio/connect?salonSlug=${encodeURIComponent(salonSlug)}`}>Authorize Twilio</a>}
             {health?.twilio.lastError && <p className="mt-3 text-xs text-red-700">{health.twilio.lastError}</p>}
             {health?.twilio.latestDeliveryError && (
               <p className="mt-3 text-xs text-red-700">

@@ -93,6 +93,7 @@ type BookConfirmClientProps = {
   rewardsEnabled?: boolean;
   /** Whether SMS reminders are enabled — hides "we'll text you" copy when false */
   smsEnabled?: boolean;
+  clientChangeCutoffHours?: number;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -741,6 +742,9 @@ const SuccessContent = ({
   smsEnabled,
   smsConsentGranted,
   showClientAccountActions,
+  manageUrl,
+  canonicalStartTime,
+  clientChangeCutoffHours,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -762,8 +766,21 @@ const SuccessContent = ({
   smsEnabled: boolean;
   smsConsentGranted: boolean;
   showClientAccountActions: boolean;
+  manageUrl: string | null;
+  canonicalStartTime: string | null;
+  clientChangeCutoffHours: number;
 }) => {
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
+  const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
+  const calendarEnd = calendarStart ? new Date(calendarStart.getTime() + totalDuration * 60 * 1000) : null;
+  const googleCalendarUrl = calendarStart && calendarEnd
+    ? `https://calendar.google.com/calendar/render?${new URLSearchParams({
+      action: 'TEMPLATE',
+      text: services.map(service => service.name).join(', ') || 'Nail appointment',
+      dates: `${calendarStart.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}/${calendarEnd.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}`,
+      details: 'Booked through Luster. Use your private confirmation link to reschedule or cancel.',
+    }).toString()}`
+    : null;
 
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
@@ -850,6 +867,21 @@ const SuccessContent = ({
             <RefreshCw className="size-5" />
             <span>Manage this appointment</span>
           </button>
+
+          {manageUrl && (
+            <div className="grid grid-cols-2 gap-3">
+              {googleCalendarUrl && (
+                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
+                  <Calendar className="size-4" />
+                  Google Calendar
+                </a>
+              )}
+              <a href={`${manageUrl}/calendar.ics`} className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
+                <Calendar className="size-4" />
+                Apple Calendar
+              </a>
+            </div>
+          )}
 
           <div className={`grid gap-3 ${directionsUrl && showClientAccountActions ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
             {directionsUrl && (
@@ -955,7 +987,11 @@ const SuccessContent = ({
             </p>
           )}
           <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-            You can change or cancel up to 24 hours before
+            You can change or cancel up to
+            {' '}
+            {clientChangeCutoffHours}
+            {' '}
+            hours before
           </p>
           {appointmentId && (
             <p className="font-body mt-2 text-[10px] text-[var(--n5-border)]">
@@ -1100,6 +1136,7 @@ export function BookConfirmClient({
   location,
   rewardsEnabled = true,
   smsEnabled = true,
+  clientChangeCutoffHours = 24,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1394,6 +1431,9 @@ export function BookConfirmClient({
           smsEnabled={smsEnabled}
           smsConsentGranted={smsConsent}
           showClientAccountActions={isLoggedIn}
+          manageUrl={manageUrl}
+          canonicalStartTime={canonicalStartTime}
+          clientChangeCutoffHours={clientChangeCutoffHours}
         />
         <NameCaptureModal
           isOpen={showNameModal}

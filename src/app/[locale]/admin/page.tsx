@@ -23,7 +23,10 @@ import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDas
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
-import { OwnerWorkspaceNav, type OwnerWorkspaceTab } from '@/components/admin/OwnerWorkspaceNav';
+import {
+  OwnerWorkspaceNav,
+  type OwnerWorkspaceTab,
+} from '@/components/admin/OwnerWorkspaceNav';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Main Page Component
@@ -71,7 +74,10 @@ function getEmptyAnalytics(): PartialAnalytics {
 // Period Navigation Helpers (stable references - outside component)
 // =============================================================================
 
-const PERIOD_PARAM_MAP: Record<TimePeriod, 'daily' | 'weekly' | 'monthly' | 'yearly'> = {
+const PERIOD_PARAM_MAP: Record<
+  TimePeriod,
+  'daily' | 'weekly' | 'monthly' | 'yearly'
+> = {
   Daily: 'daily',
   Weekly: 'weekly',
   Monthly: 'monthly',
@@ -189,7 +195,9 @@ function getEmptyDashboardData(): DashboardData {
   };
 }
 
-function mapAnalyticsModuleStatus(reason: ModuleReason | undefined): AnalyticsModuleStatus {
+function mapAnalyticsModuleStatus(
+  reason: ModuleReason | undefined,
+): AnalyticsModuleStatus {
   switch (reason) {
     case 'ENABLED':
       return 'enabled';
@@ -209,7 +217,8 @@ function AdminDashboardContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const locale = (params?.locale as string) || 'en';
-  const requestedSalonSlug = searchParams.get('salon')?.trim().toLowerCase() ?? null;
+  const requestedSalonSlug
+    = searchParams.get('salon')?.trim().toLowerCase() ?? null;
 
   // Admin auth state
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
@@ -218,15 +227,24 @@ function AdminDashboardContent() {
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
-  const [coreAppointments, setCoreAppointments] = useState<DashboardData['appointments']>(getEmptyDashboardData().appointments);
-  const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(null);
+  const [coreAppointments, setCoreAppointments] = useState<
+    DashboardData['appointments']
+  >(getEmptyDashboardData().appointments);
+  const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(null);
+  const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(
+    null,
+  );
   const [mounted, setMounted] = useState(false);
   const [, setLastUpdated] = useState<Date | null>(null);
-  const [analyticsModuleStatus, setAnalyticsModuleStatus] = useState<AnalyticsModuleStatus>('loading');
-  const [moduleReasons, setModuleReasons] = useState<Partial<Record<ModuleKey, ModuleReason>>>({});
+  const [analyticsModuleStatus, setAnalyticsModuleStatus]
+    = useState<AnalyticsModuleStatus>('loading');
+  const [moduleReasons, setModuleReasons] = useState<
+    Partial<Record<ModuleKey, ModuleReason>>
+  >({});
 
   // Analytics should never block rendering:
   // - Preserve last known-good analytics on transient failures
@@ -234,37 +252,52 @@ function AdminDashboardContent() {
   const lastGoodAnalyticsRef = useRef<PartialAnalytics>(getEmptyAnalytics());
   const latestFetchIdRef = useRef<string>('');
   const latestModuleRequestIdRef = useRef<string>('');
-  const analyticsModuleCacheRef = useRef<Record<string, Exclude<AnalyticsModuleStatus, 'loading' | 'error'>>>({});
-  const moduleReasonCacheRef = useRef<Record<string, Partial<Record<ModuleKey, ModuleReason>>>>({});
-  const latestResolvedModuleRef = useRef<{ salonSlug: string; status: AnalyticsModuleStatus } | null>(null);
+  const analyticsModuleCacheRef = useRef<
+    Record<string, Exclude<AnalyticsModuleStatus, 'loading' | 'error'>>
+  >({});
+  const moduleReasonCacheRef = useRef<
+    Record<string, Partial<Record<ModuleKey, ModuleReason>>>
+  >({});
+  const latestResolvedModuleRef = useRef<{
+    salonSlug: string;
+    status: AnalyticsModuleStatus;
+  } | null>(null);
 
   // Swipe page state
   const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
+  const [initialAppointmentId, setInitialAppointmentId] = useState<
+    string | null
+  >(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showFraudSignals, setShowFraudSignals] = useState(false);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [showWalkIn, setShowWalkIn] = useState(false);
-  const activeDashboardSalonSlug = adminUser?.impersonation?.salonSlug
+  const activeDashboardSalonSlug
+    = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
     ?? adminUser?.salons[0]?.slug
     ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
-    ? adminUser?.salons.find(
-      s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
-    ) ?? null
-    : adminUser?.salons[0] ?? null;
+    ? (adminUser?.salons.find(
+        s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
+      ) ?? null)
+    : (adminUser?.salons[0] ?? null);
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
 
   // Fraud signals - parent owns state
-  const [fraudSignals, setFraudSignals] = useState<import('@/components/admin/FraudSignalsModal').FraudSignal[]>([]);
+  const [fraudSignals, setFraudSignals] = useState<
+    import('@/components/admin/FraudSignalsModal').FraudSignal[]
+  >([]);
   const [fraudSignalsTotalCount, setFraudSignalsTotalCount] = useState(0); // Total from API (for pagination)
   const [fraudSignalsLoading, setFraudSignalsLoading] = useState(true);
-  const [fraudSignalsError, setFraudSignalsError] = useState<string | null>(null);
+  const [fraudSignalsError, setFraudSignalsError] = useState<string | null>(
+    null,
+  );
   // Badge count: use total from API, decrement optimistically on resolve
   const fraudSignalCount = fraudSignalsTotalCount;
 
@@ -289,9 +322,18 @@ function AdminDashboardContent() {
   }, []);
 
   // Navigation callbacks (stable via useCallback)
-  const onPrev = useCallback(() => setAnchorDate(a => shiftAnchor(a, timePeriod, -1)), [timePeriod]);
-  const onNext = useCallback(() => setAnchorDate(a => shiftAnchor(a, timePeriod, +1)), [timePeriod]);
-  const onToday = useCallback(() => setAnchorDate(getTodayYMD()), [getTodayYMD]);
+  const onPrev = useCallback(
+    () => setAnchorDate(a => shiftAnchor(a, timePeriod, -1)),
+    [timePeriod],
+  );
+  const onNext = useCallback(
+    () => setAnchorDate(a => shiftAnchor(a, timePeriod, +1)),
+    [timePeriod],
+  );
+  const onToday = useCallback(
+    () => setAnchorDate(getTodayYMD()),
+    [getTodayYMD],
+  );
 
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
@@ -308,29 +350,45 @@ function AdminDashboardContent() {
           if (data.user.impersonation?.isActive) {
             const lockedSlug = data.user.impersonation.salonSlug;
             if (requestedSalonSlug !== lockedSlug.toLowerCase()) {
-              router.replace(`/${locale}/admin?salon=${encodeURIComponent(lockedSlug)}`);
+              router.replace(
+                `/${locale}/admin?salon=${encodeURIComponent(lockedSlug)}`,
+              );
             }
             setShowSalonSelector(false);
           }
 
           // If admin has multiple salons and no salon selected, show selector
           const salonChoices = data.user.availableSalons ?? data.user.salons;
-          if (!data.user.impersonation?.isActive && salonChoices.length > 1 && !requestedSalonSlug) {
+          if (
+            !data.user.impersonation?.isActive
+            && salonChoices.length > 1
+            && !requestedSalonSlug
+          ) {
             setShowSalonSelector(true);
           }
 
           // Sync cookie with query param if different from current salon (only once).
           // Do not hard reload; the dashboard can already render against the requested slug.
-          if (!data.user.impersonation?.isActive && requestedSalonSlug && !hasSynced) {
+          if (
+            !data.user.impersonation?.isActive
+            && requestedSalonSlug
+            && !hasSynced
+          ) {
             setHasSynced(true);
-            const syncResponse = await fetch('/api/admin/auth/set-active-salon', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ salonSlug: requestedSalonSlug }),
-            });
+            const syncResponse = await fetch(
+              '/api/admin/auth/set-active-salon',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ salonSlug: requestedSalonSlug }),
+              },
+            );
             if (!syncResponse.ok) {
               const syncError = await syncResponse.json().catch(() => ({}));
-              setNonBlockingMessage(syncError.error || 'The selected salon could not be synced yet for admin actions.');
+              setNonBlockingMessage(
+                syncError.error
+                || 'The selected salon could not be synced yet for admin actions.',
+              );
             } else {
               router.refresh();
             }
@@ -366,91 +424,113 @@ function AdminDashboardContent() {
     setLastUpdated(null);
   }, []);
 
-  const resolveAnalyticsModuleAvailability = useCallback(async (options?: {
-    force?: boolean;
-  }): Promise<AnalyticsModuleStatus> => {
-    if (!activeDashboardSalonSlug) {
-      setAnalyticsModuleStatus('error');
-      resetAnalyticsPresentation();
-      setLoading(false);
-      return 'error';
-    }
-
-    const force = options?.force ?? false;
-    const cached = !force ? analyticsModuleCacheRef.current[activeDashboardSalonSlug] : undefined;
-    if (cached) {
-      setModuleReasons(moduleReasonCacheRef.current[activeDashboardSalonSlug] ?? {});
-      latestResolvedModuleRef.current = {
-        salonSlug: activeDashboardSalonSlug,
-        status: cached,
-      };
-      resetAnalyticsPresentation();
-      setNonBlockingMessage(null);
-      setAnalyticsModuleStatus(cached);
-      if (cached === 'enabled') {
-        setLoading(true);
-      } else {
+  const resolveAnalyticsModuleAvailability = useCallback(
+    async (options?: { force?: boolean }): Promise<AnalyticsModuleStatus> => {
+      if (!activeDashboardSalonSlug) {
+        setAnalyticsModuleStatus('error');
+        resetAnalyticsPresentation();
         setLoading(false);
-      }
-      return cached;
-    }
-
-    if (!force && latestResolvedModuleRef.current?.salonSlug === activeDashboardSalonSlug && latestResolvedModuleRef.current.status !== 'loading') {
-      return latestResolvedModuleRef.current.status;
-    }
-
-    const requestId = crypto.randomUUID();
-    latestModuleRequestIdRef.current = requestId;
-    setAnalyticsModuleStatus('loading');
-    setNonBlockingMessage(null);
-    setLoading(true);
-    resetAnalyticsPresentation();
-
-    try {
-      const response = await fetch(`/api/admin/settings/modules?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}`);
-      const body = await response.json().catch(() => null) as ModuleSettingsResponse | null;
-      if (!response.ok) {
-        throw new Error('Failed to load analytics module availability');
-      }
-
-      const nextStatus = mapAnalyticsModuleStatus(body?.data?.moduleReasons?.analyticsDashboard);
-      const nextModuleReasons = body?.data?.moduleReasons ?? {};
-
-      if (latestModuleRequestIdRef.current !== requestId) {
-        return nextStatus;
-      }
-
-      setAnalyticsModuleStatus(nextStatus);
-      setModuleReasons(nextModuleReasons);
-      moduleReasonCacheRef.current[activeDashboardSalonSlug] = nextModuleReasons;
-      latestResolvedModuleRef.current = {
-        salonSlug: activeDashboardSalonSlug,
-        status: nextStatus,
-      };
-      if (nextStatus === 'enabled' || nextStatus === 'module_disabled' || nextStatus === 'upgrade_required') {
-        analyticsModuleCacheRef.current[activeDashboardSalonSlug] = nextStatus;
-      }
-
-      if (nextStatus !== 'enabled') {
-        setLoading(false);
-      }
-
-      return nextStatus;
-    } catch {
-      if (latestModuleRequestIdRef.current !== requestId) {
         return 'error';
       }
 
-      setAnalyticsModuleStatus('error');
-      setModuleReasons({});
-      latestResolvedModuleRef.current = {
-        salonSlug: activeDashboardSalonSlug,
-        status: 'error',
-      };
-      setLoading(false);
-      return 'error';
-    }
-  }, [activeDashboardSalonSlug, resetAnalyticsPresentation]);
+      const force = options?.force ?? false;
+      const cached = !force
+        ? analyticsModuleCacheRef.current[activeDashboardSalonSlug]
+        : undefined;
+      if (cached) {
+        setModuleReasons(
+          moduleReasonCacheRef.current[activeDashboardSalonSlug] ?? {},
+        );
+        latestResolvedModuleRef.current = {
+          salonSlug: activeDashboardSalonSlug,
+          status: cached,
+        };
+        resetAnalyticsPresentation();
+        setNonBlockingMessage(null);
+        setAnalyticsModuleStatus(cached);
+        if (cached === 'enabled') {
+          setLoading(true);
+        } else {
+          setLoading(false);
+        }
+        return cached;
+      }
+
+      if (
+        !force
+        && latestResolvedModuleRef.current?.salonSlug
+        === activeDashboardSalonSlug
+        && latestResolvedModuleRef.current.status !== 'loading'
+      ) {
+        return latestResolvedModuleRef.current.status;
+      }
+
+      const requestId = crypto.randomUUID();
+      latestModuleRequestIdRef.current = requestId;
+      setAnalyticsModuleStatus('loading');
+      setNonBlockingMessage(null);
+      setLoading(true);
+      resetAnalyticsPresentation();
+
+      try {
+        const response = await fetch(
+          `/api/admin/settings/modules?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}`,
+        );
+        const body = (await response
+          .json()
+          .catch(() => null)) as ModuleSettingsResponse | null;
+        if (!response.ok) {
+          throw new Error('Failed to load analytics module availability');
+        }
+
+        const nextStatus = mapAnalyticsModuleStatus(
+          body?.data?.moduleReasons?.analyticsDashboard,
+        );
+        const nextModuleReasons = body?.data?.moduleReasons ?? {};
+
+        if (latestModuleRequestIdRef.current !== requestId) {
+          return nextStatus;
+        }
+
+        setAnalyticsModuleStatus(nextStatus);
+        setModuleReasons(nextModuleReasons);
+        moduleReasonCacheRef.current[activeDashboardSalonSlug]
+          = nextModuleReasons;
+        latestResolvedModuleRef.current = {
+          salonSlug: activeDashboardSalonSlug,
+          status: nextStatus,
+        };
+        if (
+          nextStatus === 'enabled'
+          || nextStatus === 'module_disabled'
+          || nextStatus === 'upgrade_required'
+        ) {
+          analyticsModuleCacheRef.current[activeDashboardSalonSlug]
+            = nextStatus;
+        }
+
+        if (nextStatus !== 'enabled') {
+          setLoading(false);
+        }
+
+        return nextStatus;
+      } catch {
+        if (latestModuleRequestIdRef.current !== requestId) {
+          return 'error';
+        }
+
+        setAnalyticsModuleStatus('error');
+        setModuleReasons({});
+        latestResolvedModuleRef.current = {
+          salonSlug: activeDashboardSalonSlug,
+          status: 'error',
+        };
+        setLoading(false);
+        return 'error';
+      }
+    },
+    [activeDashboardSalonSlug, resetAnalyticsPresentation],
+  );
 
   // Fetch fraud signals - parent owns this state
   const fetchFraudSignals = useCallback(async () => {
@@ -464,7 +544,9 @@ function AdminDashboardContent() {
       const result = await response.json();
       setFraudSignals(result.data.signals);
       // Use unresolvedCount from API for badge (accurate even with pagination)
-      setFraudSignalsTotalCount(result.data.unresolvedCount ?? result.data.signals.length);
+      setFraudSignalsTotalCount(
+        result.data.unresolvedCount ?? result.data.signals.length,
+      );
     } catch {
       setFraudSignalsError('Failed to load fraud signals');
     } finally {
@@ -473,212 +555,309 @@ function AdminDashboardContent() {
   }, []);
 
   // Fetch dashboard data from analytics API
-  const fetchData = useCallback(async (options?: { skipModuleCheck?: boolean }) => {
-    if (!activeDashboardSalonSlug || (!options?.skipModuleCheck && analyticsModuleStatus !== 'enabled')) {
-      return;
-    }
-
-    const requestId = crypto.randomUUID();
-    latestFetchIdRef.current = requestId;
-
-    try {
-      if (latestFetchIdRef.current === requestId) {
-        setError(null);
-        setNonBlockingMessage(null);
+  const fetchData = useCallback(
+    async (options?: { skipModuleCheck?: boolean }) => {
+      if (
+        !activeDashboardSalonSlug
+        || (!options?.skipModuleCheck && analyticsModuleStatus !== 'enabled')
+      ) {
+        return;
       }
 
-      // Fetch from analytics API (non-blocking - never throws)
-      let analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
-      let analyticsNonBlockingMessage: string | null = null;
+      const requestId = crypto.randomUUID();
+      latestFetchIdRef.current = requestId;
 
       try {
-        const period = PERIOD_PARAM_MAP[timePeriod];
-        const analyticsResponse = await fetch(`/api/admin/analytics?salonSlug=${activeDashboardSalonSlug}&period=${period}&anchor=${encodeURIComponent(anchorDate)}`);
-
-        const text = await analyticsResponse.text();
-        let parsed: any = null;
-        try {
-          parsed = text ? JSON.parse(text) : null;
-        } catch {
-          // Non-JSON body is fine; keep parsed as null
+        if (latestFetchIdRef.current === requestId) {
+          setError(null);
+          setNonBlockingMessage(null);
         }
 
-        if (analyticsResponse.ok) {
-          const candidate = parsed?.data ?? parsed;
-          if (candidate) {
-            analytics = candidate as AnalyticsResponse;
-            lastGoodAnalyticsRef.current = analytics;
-          } else {
-            // No usable data -> keep last good (or empty if first load)
-            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
-          }
-        } else {
-          // 401 is auth-critical: redirect to login and stop processing
-          if (analyticsResponse.status === 401) {
-            if (latestFetchIdRef.current === requestId) {
-              router.replace(`/${locale}/admin-login`);
-            }
-            return;
+        // Fetch from analytics API (non-blocking - never throws)
+        let analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+        let analyticsNonBlockingMessage: string | null = null;
+
+        try {
+          const period = PERIOD_PARAM_MAP[timePeriod];
+          const analyticsResponse = await fetch(
+            `/api/admin/analytics?salonSlug=${activeDashboardSalonSlug}&period=${period}&anchor=${encodeURIComponent(anchorDate)}`,
+          );
+
+          const text = await analyticsResponse.text();
+          let parsed: any = null;
+          try {
+            parsed = text ? JSON.parse(text) : null;
+          } catch {
+            // Non-JSON body is fine; keep parsed as null
           }
 
-          if (analyticsResponse.status === 403) {
-            const errorCode = parsed?.error?.code;
-            if (errorCode === 'MODULE_DISABLED' || errorCode === 'UPGRADE_REQUIRED') {
-              const nextStatus = errorCode === 'MODULE_DISABLED' ? 'module_disabled' : 'upgrade_required';
-              analyticsModuleCacheRef.current[activeDashboardSalonSlug] = nextStatus;
-              latestResolvedModuleRef.current = {
-                salonSlug: activeDashboardSalonSlug,
-                status: nextStatus,
-              };
-              setAnalyticsModuleStatus(nextStatus);
-              setNonBlockingMessage(null);
-              resetAnalyticsPresentation();
-              setLoading(false);
+          if (analyticsResponse.ok) {
+            const candidate = parsed?.data ?? parsed;
+            if (candidate) {
+              analytics = candidate as AnalyticsResponse;
+              lastGoodAnalyticsRef.current = analytics;
+            } else {
+              // No usable data -> keep last good (or empty if first load)
+              analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+            }
+          } else {
+            // 401 is auth-critical: redirect to login and stop processing
+            if (analyticsResponse.status === 401) {
+              if (latestFetchIdRef.current === requestId) {
+                router.replace(`/${locale}/admin-login`);
+              }
               return;
             }
 
-            analyticsNonBlockingMessage = null;
-            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
-          } else if (analyticsResponse.status === 404) {
-            analyticsNonBlockingMessage = null;
-            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
-          } else {
-            // Unexpected failures: still render (with last good), but log + mild banner
-            const errBody = parsed ?? (text ? text.slice(0, 500) : null);
-            console.error('[AdminDashboard] analytics failed', {
-              status: analyticsResponse.status,
-              errBody,
+            if (analyticsResponse.status === 403) {
+              const errorCode = parsed?.error?.code;
+              if (
+                errorCode === 'MODULE_DISABLED'
+                || errorCode === 'UPGRADE_REQUIRED'
+              ) {
+                const nextStatus
+                  = errorCode === 'MODULE_DISABLED'
+                    ? 'module_disabled'
+                    : 'upgrade_required';
+                analyticsModuleCacheRef.current[activeDashboardSalonSlug]
+                  = nextStatus;
+                latestResolvedModuleRef.current = {
+                  salonSlug: activeDashboardSalonSlug,
+                  status: nextStatus,
+                };
+                setAnalyticsModuleStatus(nextStatus);
+                setNonBlockingMessage(null);
+                resetAnalyticsPresentation();
+                setLoading(false);
+                return;
+              }
+
+              analyticsNonBlockingMessage = null;
+              analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+            } else if (analyticsResponse.status === 404) {
+              analyticsNonBlockingMessage = null;
+              analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+            } else {
+              // Unexpected failures: still render (with last good), but log + mild banner
+              const errBody = parsed ?? (text ? text.slice(0, 500) : null);
+              console.error('[AdminDashboard] analytics failed', {
+                status: analyticsResponse.status,
+                errBody,
+              });
+              analyticsNonBlockingMessage
+                = 'Some dashboard analytics are temporarily unavailable.';
+              analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+            }
+          }
+        } catch (e) {
+          // Network failure, JSON parse crash, etc.
+          console.error('[AdminDashboard] analytics request crashed', e);
+          analyticsNonBlockingMessage
+            = 'Some dashboard analytics are temporarily unavailable.';
+          analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
+        }
+
+        // Always set non-blocking message if there was one
+        if (latestFetchIdRef.current !== requestId) {
+          return;
+        }
+        setNonBlockingMessage(analyticsNonBlockingMessage);
+
+        // Generate availability slots from upcoming appointments
+        const slots: ('booked' | 'open')[] = [];
+        for (let i = 0; i < 16; i++) {
+          // More realistic: mark slots as booked based on upcoming count
+          const bookedRatio = analytics?.appointments?.upcoming
+            ? Math.min(analytics.appointments.upcoming / 8, 1)
+            : 0;
+          slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
+        }
+
+        const openCount = slots.filter(s => s === 'open').length;
+        const openSlotIndex = slots.findIndex(s => s === 'open');
+        let nextTime = null;
+        if (openSlotIndex !== -1) {
+          const baseHour = 9;
+          const slotHour = baseHour + Math.floor(openSlotIndex / 2);
+          const slotMinute = (openSlotIndex % 2) * 30;
+          const slotDate = new Date();
+          slotDate.setHours(slotHour, slotMinute, 0, 0);
+          if (slotDate > new Date()) {
+            nextTime = slotDate.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
             });
-            analyticsNonBlockingMessage = 'Some dashboard analytics are temporarily unavailable.';
-            analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
           }
         }
-      } catch (e) {
-        // Network failure, JSON parse crash, etc.
-        console.error('[AdminDashboard] analytics request crashed', e);
-        analyticsNonBlockingMessage = 'Some dashboard analytics are temporarily unavailable.';
-        analytics = lastGoodAnalyticsRef.current ?? getEmptyAnalytics();
-      }
 
-      // Always set non-blocking message if there was one
-      if (latestFetchIdRef.current !== requestId) {
-        return;
-      }
-      setNonBlockingMessage(analyticsNonBlockingMessage);
+        // Map staff data from API
+        const staffStatus = (analytics?.staff || [])
+          .slice(0, 3)
+          .map((tech: { name: string; appointmentCount: number }) => ({
+            name: tech.name.split(' ')[0] || tech.name,
+            status:
+              tech.appointmentCount > 0
+                ? 'busy'
+                : ('free' as 'busy' | 'free' | 'break'),
+            detail:
+              tech.appointmentCount > 0
+                ? `${tech.appointmentCount} appts`
+                : undefined,
+          }));
 
-      // Generate availability slots from upcoming appointments
-      const slots: ('booked' | 'open')[] = [];
-      for (let i = 0; i < 16; i++) {
-        // More realistic: mark slots as booked based on upcoming count
-        const bookedRatio = analytics?.appointments?.upcoming
-          ? Math.min(analytics.appointments.upcoming / 8, 1)
-          : 0;
-        slots.push(Math.random() < bookedRatio ? 'booked' : 'open');
-      }
+        // Always set data - even if analytics failed, use empty defaults
+        setData({
+          revenue: {
+            today: analytics?.revenue?.total ?? 0,
+            completed: analytics?.revenue?.completed ?? 0,
+            trend: analytics?.revenue?.trend ?? 0,
+          },
+          appointments: {
+            total: analytics?.appointments?.total ?? 0,
+            completed: analytics?.appointments?.completed ?? 0,
+            noShows: analytics?.appointments?.noShows ?? 0,
+            upcoming: analytics?.appointments?.upcoming ?? 0,
+          },
+          openSpots: {
+            count: openCount,
+            nextTime,
+            slots,
+          },
+          staff: staffStatus.length > 0 ? staffStatus : [],
+          badges: {
+            referrals: 0,
+            reviews: 0,
+            marketing: 0,
+            alerts: analytics?.appointments?.noShows ?? 0,
+          },
+        });
 
-      const openCount = slots.filter(s => s === 'open').length;
-      const openSlotIndex = slots.findIndex(s => s === 'open');
-      let nextTime = null;
-      if (openSlotIndex !== -1) {
-        const baseHour = 9;
-        const slotHour = baseHour + Math.floor(openSlotIndex / 2);
-        const slotMinute = (openSlotIndex % 2) * 30;
-        const slotDate = new Date();
-        slotDate.setHours(slotHour, slotMinute, 0, 0);
-        if (slotDate > new Date()) {
-          nextTime = slotDate.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          });
+        // Store analytics for widgets (always set, even if empty)
+        setAnalyticsData(analytics);
+        setLastUpdated(new Date());
+      } catch (err) {
+        // Only catch truly unexpected errors (shouldn't happen now, but safety net)
+        console.error('[AdminDashboard] unexpected error in fetchData', err);
+        // Don't set error banner - dashboard should still render with empty data
+      } finally {
+        if (latestFetchIdRef.current === requestId) {
+          setLoading(false);
         }
       }
-
-      // Map staff data from API
-      const staffStatus = (analytics?.staff || []).slice(0, 3).map((tech: { name: string; appointmentCount: number }) => ({
-        name: tech.name.split(' ')[0] || tech.name,
-        status: tech.appointmentCount > 0 ? 'busy' : 'free' as 'busy' | 'free' | 'break',
-        detail: tech.appointmentCount > 0 ? `${tech.appointmentCount} appts` : undefined,
-      }));
-
-      // Always set data - even if analytics failed, use empty defaults
-      setData({
-        revenue: {
-          today: analytics?.revenue?.total ?? 0,
-          completed: analytics?.revenue?.completed ?? 0,
-          trend: analytics?.revenue?.trend ?? 0,
-        },
-        appointments: {
-          total: analytics?.appointments?.total ?? 0,
-          completed: analytics?.appointments?.completed ?? 0,
-          noShows: analytics?.appointments?.noShows ?? 0,
-          upcoming: analytics?.appointments?.upcoming ?? 0,
-        },
-        openSpots: {
-          count: openCount,
-          nextTime,
-          slots,
-        },
-        staff: staffStatus.length > 0
-          ? staffStatus
-          : [],
-        badges: {
-          referrals: 0,
-          reviews: 0,
-          marketing: 0,
-          alerts: analytics?.appointments?.noShows ?? 0,
-        },
-      });
-
-      // Store analytics for widgets (always set, even if empty)
-      setAnalyticsData(analytics);
-      setLastUpdated(new Date());
-    } catch (err) {
-      // Only catch truly unexpected errors (shouldn't happen now, but safety net)
-      console.error('[AdminDashboard] unexpected error in fetchData', err);
-      // Don't set error banner - dashboard should still render with empty data
-    } finally {
-      if (latestFetchIdRef.current === requestId) {
-        setLoading(false);
-      }
-    }
-  }, [activeDashboardSalonSlug, timePeriod, anchorDate, locale, router, analyticsModuleStatus, resetAnalyticsPresentation]);
+    },
+    [
+      activeDashboardSalonSlug,
+      timePeriod,
+      anchorDate,
+      locale,
+      router,
+      analyticsModuleStatus,
+      resetAnalyticsPresentation,
+    ],
+  );
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!authLoading && adminUser && !showSalonSelector && activeDashboardSalonSlug) {
+    if (
+      !authLoading
+      && adminUser
+      && !showSalonSelector
+      && activeDashboardSalonSlug
+    ) {
       resolveAnalyticsModuleAvailability().catch(() => {
         setAnalyticsModuleStatus('error');
         setLoading(false);
       });
     }
-  }, [authLoading, adminUser, showSalonSelector, activeDashboardSalonSlug, resolveAnalyticsModuleAvailability]);
+  }, [
+    authLoading,
+    adminUser,
+    showSalonSelector,
+    activeDashboardSalonSlug,
+    resolveAnalyticsModuleAvailability,
+  ]);
+
+  useEffect(() => {
+    const handleFeatureUpdate = (event: StorageEvent) => {
+      if (
+        event.key !== 'luster:feature-access-updated'
+        || !event.newValue
+        || !activeDashboardSalonSlug
+      ) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(event.newValue) as {
+          salonSlug?: string | null;
+        };
+        if (
+          payload.salonSlug
+          && payload.salonSlug.toLowerCase()
+          !== activeDashboardSalonSlug.toLowerCase()
+        ) {
+          return;
+        }
+      } catch {
+        return;
+      }
+      delete analyticsModuleCacheRef.current[activeDashboardSalonSlug];
+      delete moduleReasonCacheRef.current[activeDashboardSalonSlug];
+      latestResolvedModuleRef.current = null;
+      void resolveAnalyticsModuleAvailability({ force: true });
+    };
+    window.addEventListener('storage', handleFeatureUpdate);
+    return () => window.removeEventListener('storage', handleFeatureUpdate);
+  }, [activeDashboardSalonSlug, resolveAnalyticsModuleAvailability]);
 
   // Core operational counts must load independently of the optional analytics entitlement.
   useEffect(() => {
-    if (authLoading || !adminUser || showSalonSelector || !activeDashboardSalonSlug) {
+    if (
+      authLoading
+      || !adminUser
+      || showSalonSelector
+      || !activeDashboardSalonSlug
+    ) {
       return;
     }
     const controller = new AbortController();
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    fetch(`/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,completed,no_show`, { signal: controller.signal })
-      .then(async response => response.ok ? response.json() : Promise.reject(new Error('Core appointments unavailable')))
+    fetch(
+      `/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,completed,no_show`,
+      { signal: controller.signal },
+    )
+      .then(async response =>
+        response.ok
+          ? response.json()
+          : Promise.reject(new Error('Core appointments unavailable')),
+      )
       .then((payload) => {
-        const appointments = (payload.data?.appointments ?? []) as Array<{ status: string; startTime: string }>;
+        const appointments = (payload.data?.appointments ?? []) as Array<{
+          status: string;
+          startTime: string;
+        }>;
         setCoreAppointments({
           total: appointments.length,
-          completed: appointments.filter(item => item.status === 'completed').length,
-          noShows: appointments.filter(item => item.status === 'no_show').length,
-          upcoming: appointments.filter(item => ['pending', 'confirmed', 'in_progress'].includes(item.status) && new Date(item.startTime) >= now).length,
+          completed: appointments.filter(item => item.status === 'completed')
+            .length,
+          noShows: appointments.filter(item => item.status === 'no_show')
+            .length,
+          upcoming: appointments.filter(
+            item =>
+              ['pending', 'confirmed', 'in_progress'].includes(item.status)
+              && new Date(item.startTime) >= now,
+          ).length,
         });
       })
       .catch((fetchError) => {
         if (fetchError instanceof Error && fetchError.name !== 'AbortError') {
-          setNonBlockingMessage('Today’s appointment count could not be refreshed. Your calendar and bookings are still available.');
+          setNonBlockingMessage(
+            'Today’s appointment count could not be refreshed. Your calendar and bookings are still available.',
+          );
         }
       });
     return () => controller.abort();
@@ -686,13 +865,24 @@ function AdminDashboardContent() {
 
   // Fetch analytics only when module availability is explicitly enabled
   useEffect(() => {
-    if (!authLoading && adminUser && !showSalonSelector && analyticsModuleStatus === 'enabled') {
+    if (
+      !authLoading
+      && adminUser
+      && !showSalonSelector
+      && analyticsModuleStatus === 'enabled'
+    ) {
       fetchData();
       const interval = setInterval(fetchData, 30000);
       return () => clearInterval(interval);
     }
     return undefined;
-  }, [authLoading, adminUser, showSalonSelector, analyticsModuleStatus, fetchData]);
+  }, [
+    authLoading,
+    adminUser,
+    showSalonSelector,
+    analyticsModuleStatus,
+    fetchData,
+  ]);
 
   useEffect(() => {
     if (!authLoading && adminUser && !showSalonSelector) {
@@ -712,7 +902,9 @@ function AdminDashboardContent() {
   // Handle app tile tap - all tiles now open modals
   const handleAppTap = (appId: AppId) => {
     if (appId === 'luster') {
-      router.push(`/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`);
+      router.push(
+        `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+      );
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
@@ -744,7 +936,9 @@ function AdminDashboardContent() {
   }, []);
 
   const handleRefreshAnalytics = useCallback(async () => {
-    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
+    const nextStatus = await resolveAnalyticsModuleAvailability({
+      force: true,
+    });
     if (nextStatus === 'enabled') {
       await fetchData({ skipModuleCheck: true });
     }
@@ -754,9 +948,19 @@ function AdminDashboardContent() {
     setShowScheduleCalendar(false);
     setActiveModal(null);
     setWorkspaceTab(tab);
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    const resetOwnerViewport = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    resetOwnerViewport();
+    // AppModal restores the page scroll position during its cleanup. Repeat the
+    // reset after React has unmounted it so bottom-navigation changes can never
+    // reopen a workspace at the old, blank scroll position.
+    window.requestAnimationFrame(() => {
+      resetOwnerViewport();
+      window.requestAnimationFrame(resetOwnerViewport);
+    });
     if (tab === 'calendar') {
       setShowScheduleCalendar(true);
       return;
@@ -773,6 +977,7 @@ function AdminDashboardContent() {
   // Close modal
   const handleCloseModal = () => {
     setActiveModal(null);
+    setInitialAppointmentId(null);
   };
 
   // 1) Auth check phase - never show dashboard UI here
@@ -791,7 +996,11 @@ function AdminDashboardContent() {
 
   // 3) Salon selector for admins with multiple salons (check before loading since fetchData waits for salon selection)
   const selectableSalons = adminUser.availableSalons ?? adminUser.salons;
-  if (!adminUser.impersonation?.isActive && showSalonSelector && selectableSalons.length > 1) {
+  if (
+    !adminUser.impersonation?.isActive
+    && showSalonSelector
+    && selectableSalons.length > 1
+  ) {
     return (
       <AdminSalonSelector
         salons={selectableSalons}
@@ -825,13 +1034,20 @@ function AdminDashboardContent() {
     marketing: data.badges.marketing,
     reviews: data.badges.reviews,
   };
-  const moduleIsEnabled = (module: ModuleKey) => moduleReasons[module] === 'ENABLED';
-  const marketingEnabled = moduleIsEnabled('smsReminders')
+  const moduleIsEnabled = (module: ModuleKey) =>
+    moduleReasons[module] === 'ENABLED';
+  const marketingEnabled
+    = moduleIsEnabled('smsReminders')
     || moduleIsEnabled('referrals')
     || moduleIsEnabled('rewards');
-  const staffToolsEnabled = moduleIsEnabled('scheduleOverrides')
-    || moduleIsEnabled('staffEarnings');
-  const hiddenAppIds: string[] = ['schedule', 'bookings', 'clients', 'services'];
+  const staffToolsEnabled
+    = moduleIsEnabled('scheduleOverrides') || moduleIsEnabled('staffEarnings');
+  const hiddenAppIds: string[] = [
+    'schedule',
+    'bookings',
+    'clients',
+    'services',
+  ];
   if (!moduleIsEnabled('analyticsDashboard')) {
     hiddenAppIds.push('analytics');
   }
@@ -857,47 +1073,57 @@ function AdminDashboardContent() {
     'bg-orange-100 text-orange-600',
   ];
 
-  const staffData = analyticsData?.staff?.slice(0, 5).map((tech, index) => ({
-    id: index + 1,
-    name: tech.name,
-    role: tech.role || 'Technician',
-    revenue: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(tech.revenue / 100),
-    avatarColor: avatarColors[index % avatarColors.length]!,
-  })) || [];
+  const staffData
+    = analyticsData?.staff?.slice(0, 5).map((tech, index) => ({
+      id: index + 1,
+      name: tech.name,
+      role: tech.role || 'Technician',
+      revenue: new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+      }).format(tech.revenue / 100),
+      avatarColor: avatarColors[index % avatarColors.length]!,
+    })) || [];
 
   // Utilization data - use real data from API
-  const utilization = analyticsData?.staff?.slice(0, 3).map(tech => ({
-    name: tech.name.substring(0, 3),
-    percent: tech.utilization,
-    color: tech.color,
-  })) || [];
+  const utilization
+    = analyticsData?.staff?.slice(0, 3).map(tech => ({
+      name: tech.name.substring(0, 3),
+      percent: tech.utilization,
+      color: tech.color,
+    })) || [];
 
   // Service mix data - use real data from API
-  const services = analyticsData?.services?.slice(0, 4).map(svc => ({
-    label: svc.label,
-    percent: svc.percent,
-    color: svc.color,
-  })) || [];
+  const services
+    = analyticsData?.services?.slice(0, 4).map(svc => ({
+      label: svc.label,
+      percent: svc.percent,
+      color: svc.color,
+    })) || [];
 
-  const analyticsUnavailableState = analyticsModuleStatus === 'module_disabled'
-    ? {
-        title: 'Analytics dashboard is turned off for this salon.',
-        description: 'Enable the analytics dashboard module in Settings to view performance and service mix here.',
-        tone: 'neutral' as const,
-      }
-    : analyticsModuleStatus === 'upgrade_required'
+  const analyticsUnavailableState
+    = analyticsModuleStatus === 'module_disabled'
       ? {
-          title: 'Analytics dashboard is not included for this salon.',
-          description: 'This salon does not currently have analytics dashboard access enabled.',
-          tone: 'warning' as const,
+          title: 'Analytics dashboard is turned off for this salon.',
+          description:
+            'Enable the analytics dashboard module in Settings to view performance and service mix here.',
+          tone: 'neutral' as const,
         }
-      : analyticsModuleStatus === 'error'
+      : analyticsModuleStatus === 'upgrade_required'
         ? {
-            title: 'Analytics availability could not be loaded right now.',
-            description: 'Pull to refresh and try again.',
+            title: 'Analytics dashboard is not included for this salon.',
+            description:
+              'This salon does not currently have analytics dashboard access enabled.',
             tone: 'warning' as const,
           }
-        : null;
+        : analyticsModuleStatus === 'error'
+          ? {
+              title: 'Analytics availability could not be loaded right now.',
+              description: 'Pull to refresh and try again.',
+              tone: 'warning' as const,
+            }
+          : null;
 
   return (
     <div
@@ -919,12 +1145,17 @@ function AdminDashboardContent() {
         <div className="mx-auto max-w-2xl px-5 pb-3 pt-4">
           <WorkspacePageHeader
             title="Luster Workspace"
-            subtitle={activeDashboardSalonName ? `Managing ${activeDashboardSalonName}` : 'Salon owner workspace'}
+            subtitle={
+              activeDashboardSalonName
+                ? `Managing ${activeDashboardSalonName}`
+                : 'Salon owner workspace'
+            }
             titleClassName="text-[28px] font-bold tracking-tight text-stone-950"
             subtitleClassName="text-[15px] text-stone-500"
             actions={(
               <>
-                {!adminUser.impersonation?.isActive && selectableSalons.length > 1 && (
+                {!adminUser.impersonation?.isActive
+                && selectableSalons.length > 1 && (
                   <button
                     type="button"
                     onClick={() => setShowSalonSelector(true)}
@@ -956,7 +1187,10 @@ function AdminDashboardContent() {
                   <LogOut size={16} />
                   <span>Log Out</span>
                 </button>
-                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm" title="Luster owner account">
+                <div
+                  className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm"
+                  title="Luster owner account"
+                >
                   {userInitial || <Sparkles size={16} />}
                 </div>
               </>
@@ -982,7 +1216,10 @@ function AdminDashboardContent() {
 
         {workspaceTab === 'more'
           ? (
-              <div className="min-h-[calc(100vh-140px)] pb-24" data-testid="owner-more-workspace">
+              <div
+                className="min-h-[calc(100vh-140px)] pb-24"
+                data-testid="owner-more-workspace"
+              >
                 <AppGrid
                   theme="apple"
                   badges={appBadges}
@@ -994,18 +1231,35 @@ function AdminDashboardContent() {
           : (
               <OwnerTodayWorkspace
                 salonSlug={activeDashboardSalonSlug || ''}
-                appointments={analyticsModuleStatus === 'enabled' ? data.appointments : coreAppointments}
+                appointments={
+                  analyticsModuleStatus === 'enabled'
+                    ? data.appointments
+                    : coreAppointments
+                }
                 analyticsTitle={analyticsUnavailableState?.title}
                 analyticsMessage={analyticsUnavailableState?.description}
-                onRefreshAnalytics={analyticsUnavailableState ? handleRefreshAnalytics : undefined}
+                onRefreshAnalytics={
+                  analyticsUnavailableState ? handleRefreshAnalytics : undefined
+                }
                 onQuickAction={handleQuickAction}
                 onOpenBookings={() => setActiveModal('bookings')}
                 onOpenCalendar={() => setShowScheduleCalendar(true)}
-                onOpenIntegrations={() => router.push(`/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`)}
+                onOpenIntegrations={() =>
+                  router.push(
+                    `/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`,
+                  )}
+                onOpenAppointment={(appointmentId) => {
+                  setInitialAppointmentId(appointmentId);
+                  setActiveModal('bookings');
+                }}
+                onOpenClients={() => setActiveModal('clients')}
               />
             )}
 
-        <OwnerWorkspaceNav active={workspaceTab} onSelect={handleWorkspaceTab} />
+        <OwnerWorkspaceNav
+          active={workspaceTab}
+          onSelect={handleWorkspaceTab}
+        />
       </div>
 
       <AdminModalHost
@@ -1013,6 +1267,7 @@ function AdminDashboardContent() {
         activeSalonSlug={activeDashboardSalonSlug}
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
+        initialAppointmentId={initialAppointmentId}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
         showFraudSignals={showFraudSignals}

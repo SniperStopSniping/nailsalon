@@ -51,6 +51,7 @@ type AdminModalHostProps = {
   activeSalonSlug: string | null;
   isFreeSolo: boolean;
   onCloseModal: () => void;
+  initialAppointmentId?: string | null;
   showNotifications: boolean;
   setShowNotifications: (value: boolean) => void;
   showFraudSignals: boolean;
@@ -75,6 +76,7 @@ export function AdminModalHost({
   activeSalonSlug,
   isFreeSolo,
   onCloseModal,
+  initialAppointmentId,
   showNotifications,
   setShowNotifications,
   showFraudSignals,
@@ -100,7 +102,7 @@ export function AdminModalHost({
         onClose={onCloseModal}
         allowDragToDismiss={false}
       >
-        <AppointmentsModal onClose={onCloseModal} />
+        <AppointmentsModal onClose={onCloseModal} initialAppointmentId={initialAppointmentId} />
       </AppModal>
 
       <AppModal

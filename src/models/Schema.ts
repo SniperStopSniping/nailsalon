@@ -281,6 +281,8 @@ export const serviceSchema = pgTable(
     price: integer('price').notNull(), // in cents
     priceDisplayText: text('price_display_text'),
     durationMinutes: integer('duration_minutes').notNull(),
+    preparationBufferMinutes: integer('preparation_buffer_minutes').default(0).notNull(),
+    cleanupBufferMinutes: integer('cleanup_buffer_minutes').default(0).notNull(),
     isIntroPrice: boolean('is_intro_price').default(false),
     introPriceLabel: text('intro_price_label'),
     introPriceExpiresAt: timestamp('intro_price_expires_at', { mode: 'date' }),
@@ -488,8 +490,8 @@ export const appointmentSchema = pgTable(
     salonClientId: text('salon_client_id').references(() => salonClientSchema.id, { onDelete: 'restrict' }),
 
     // Timing
-    startTime: timestamp('start_time', { mode: 'date' }).notNull(),
-    endTime: timestamp('end_time', { mode: 'date' }).notNull(),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
 
     // Status
     status: text('status').notNull().default('confirmed'),
@@ -518,7 +520,7 @@ export const appointmentSchema = pgTable(
     discountType: text('discount_type'),
     discountLabel: text('discount_label'),
     discountPercent: integer('discount_percent'),
-    discountAppliedAt: timestamp('discount_applied_at', { mode: 'date' }),
+    discountAppliedAt: timestamp('discount_applied_at', { mode: 'date', withTimezone: true }),
 
     // Additional
     notes: text('notes'),
@@ -530,15 +532,15 @@ export const appointmentSchema = pgTable(
     sameDayReminderChannel: text('same_day_reminder_channel'),
 
     // Lifecycle timestamps (for staff workflow)
-    startedAt: timestamp('started_at', { mode: 'date' }), // When tech starts the appointment
-    completedAt: timestamp('completed_at', { mode: 'date' }), // When appointment is finished
+    startedAt: timestamp('started_at', { mode: 'date', withTimezone: true }), // When tech starts the appointment
+    completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }), // When appointment is finished
 
     // Appointment locking (Step 16A - prevents edits once service starts)
-    lockedAt: timestamp('locked_at', { mode: 'date' }), // Set when canvas_state -> 'working'
+    lockedAt: timestamp('locked_at', { mode: 'date', withTimezone: true }), // Set when canvas_state -> 'working'
     lockedBy: text('locked_by'), // technician ID who locked it
 
     // Arrival tracking (Step 16A - grace window handling)
-    arrivedAt: timestamp('arrived_at', { mode: 'date' }),
+    arrivedAt: timestamp('arrived_at', { mode: 'date', withTimezone: true }),
     wasLate: boolean('was_late').default(false),
 
     // Staff private notes (Step 16A - only visible to assigned tech)
@@ -561,12 +563,12 @@ export const appointmentSchema = pgTable(
 
     // Post-appointment review follow-up (what the tech chose to send)
     reviewFollowupAction: text('review_followup_action'), // 'satisfaction_question' | 'google_review_link' | 'skipped' | 'already_reviewed'
-    reviewFollowupSentAt: timestamp('review_followup_sent_at', { mode: 'date' }),
+    reviewFollowupSentAt: timestamp('review_followup_sent_at', { mode: 'date', withTimezone: true }),
     reviewFollowupSentBy: text('review_followup_sent_by').references(() => technicianSchema.id),
 
     // Metadata
-    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'date' })
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
@@ -794,7 +796,7 @@ export const salonClientSchema = pgTable(
     lastContactAt: timestamp('last_contact_at', { mode: 'date', withTimezone: true }),
 
     // Computed stats (updated after each booking)
-    lastVisitAt: timestamp('last_visit_at', { mode: 'date' }),
+    lastVisitAt: timestamp('last_visit_at', { mode: 'date', withTimezone: true }),
     totalVisits: integer('total_visits').default(0),
     totalSpent: integer('total_spent').default(0), // in cents
     noShowCount: integer('no_show_count').default(0),
@@ -811,7 +813,7 @@ export const salonClientSchema = pgTable(
 
     // Late cancellation tracking (Step 16A - client accountability)
     lateCancelCount: integer('late_cancel_count').default(0),
-    lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date' }),
+    lastLateCancelAt: timestamp('last_late_cancel_at', { mode: 'date', withTimezone: true }),
 
     // Admin-only client flags (Step 16A - problem client management)
     adminFlags: jsonb('admin_flags').$type<{

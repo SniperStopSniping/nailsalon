@@ -133,8 +133,7 @@ export async function GET(): Promise<Response> {
   // 7. Resend configuration and authenticated sender-domain check
   // ---------------------------------------------------------------------------
   checks.resendEnv = Boolean(
-    process.env.RESEND_API_KEY
-    && process.env.RESEND_FROM_EMAIL,
+    process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL,
   );
   checks.resendVerified = checks.resendEnv
     ? await isResendSenderVerified()
@@ -173,26 +172,30 @@ export async function GET(): Promise<Response> {
     && process.env.OAUTH_STATE_SECRET,
   );
   const legacyGoogleCalendarConfigured = Boolean(
-    (process.env.GOOGLE_CALENDAR_ENABLED === 'true' || process.env.GOOGLE_CALENDAR_ENABLED === '1')
-    && process.env.GOOGLE_CALENDAR_ID
-    && process.env.GOOGLE_CALENDAR_CLIENT_EMAIL
-    && process.env.GOOGLE_CALENDAR_PRIVATE_KEY,
+    (process.env.GOOGLE_CALENDAR_ENABLED === 'true'
+      || process.env.GOOGLE_CALENDAR_ENABLED === '1')
+      && process.env.GOOGLE_CALENDAR_ID
+      && process.env.GOOGLE_CALENDAR_CLIENT_EMAIL
+      && process.env.GOOGLE_CALENDAR_PRIVATE_KEY,
   );
-  checks.googleCalendarEnv = googleOAuthConfigured || legacyGoogleCalendarConfigured;
+  checks.googleCalendarEnv
+    = googleOAuthConfigured || legacyGoogleCalendarConfigured;
 
   // ---------------------------------------------------------------------------
   // Determine overall status
   // ---------------------------------------------------------------------------
   // DB is critical - if it's down, we're degraded
   // Other services being down is acceptable (graceful degradation)
-  const hosted = Boolean(process.env.VERCEL_ENV)
+  const hosted
+    = Boolean(process.env.VERCEL_ENV)
     || process.env.APP_ENV === 'staging'
     || process.env.APP_ENV === 'production';
-  const criticalChecksPass = checks.db
+  const criticalChecksPass
+    = checks.db
     && checks.clerkEnv
     && checks.passwordAuthEnv
-    && checks.resendVerified
-    && (!hosted || checks.redis);
+    && (!hosted
+      || (checks.redis && checks.resendVerified && checks.googleCalendarEnv));
   const status: 'ok' | 'degraded' = criticalChecksPass ? 'ok' : 'degraded';
 
   const response: HealthResponse = {

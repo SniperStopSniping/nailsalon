@@ -365,6 +365,20 @@
       "when": 1784691200000,
       "tag": "0051_google_calendar_event_review",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784777600000,
+      "tag": "0052_timezone_safe_appointments",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1784864000000,
+      "tag": "0053_service_buffers",
+      "breakpoints": true
     }
   ]
 }

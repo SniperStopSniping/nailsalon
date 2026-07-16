@@ -21,7 +21,7 @@ type SuspendedBannerProps = {
 export function SuspendedBanner({
   message = 'Your salon account is temporarily suspended. New bookings and changes are disabled.',
   dismissible = false,
-  supportUrl = 'mailto:support@example.com',
+  supportUrl = 'mailto:support@islanailsalon.com',
 }: SuspendedBannerProps) {
   const [dismissed, setDismissed] = useState(false);
 
@@ -84,7 +84,7 @@ export function SuspendedBanner({
  */
 export function CancelledBanner({
   message = 'Your salon account has been cancelled. Please contact support to restore access.',
-  supportUrl = 'mailto:support@example.com',
+  supportUrl = 'mailto:support@islanailsalon.com',
 }: {
   message?: string;
   supportUrl?: string;

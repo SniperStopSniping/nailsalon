@@ -103,7 +103,7 @@ export function AppModal({
     return null;
   }
 
-  return createPortal((
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -119,7 +119,7 @@ export function AppModal({
 
           {/* Modal */}
           <motion.div
-            className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
+            className="fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -129,10 +129,18 @@ export function AppModal({
               stiffness: 300,
             }}
             drag={allowDragToDismiss ? 'y' : false}
-            dragConstraints={allowDragToDismiss ? { top: 0, bottom: 0 } : undefined}
-            dragElastic={allowDragToDismiss ? { top: 0, bottom: 0.5 } : undefined}
+            dragConstraints={
+              allowDragToDismiss ? { top: 0, bottom: 0 } : undefined
+            }
+            dragElastic={
+              allowDragToDismiss ? { top: 0, bottom: 0.5 } : undefined
+            }
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
-            style={{ touchAction: allowDragToDismiss ? 'pan-x' : 'auto' }}
+            style={{
+              touchAction: allowDragToDismiss ? 'pan-x' : 'auto',
+              top: 'max(env(safe-area-inset-top, 0px), 12px)',
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            }}
           >
             {/* Drag Handle */}
             <div className="flex cursor-grab justify-center pb-2 pt-3 active:cursor-grabbing">
@@ -155,8 +163,8 @@ export function AppModal({
           </motion.div>
         </>
       )}
-    </AnimatePresence>
-  ), document.body,
+    </AnimatePresence>,
+    document.body,
   );
 }
 

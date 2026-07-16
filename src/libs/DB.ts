@@ -26,6 +26,18 @@ type GlobalWithDb = typeof globalThis & {
 
 const globalForDb = globalThis as GlobalWithDb;
 
+function getPoolMax(): number {
+  const configured = Number.parseInt(process.env.DATABASE_POOL_MAX || '', 10);
+  if (Number.isInteger(configured) && configured >= 1 && configured <= 20) {
+    return configured;
+  }
+
+  // Each Vercel function instance owns its own pool. Keeping this deliberately
+  // small avoids exhausting a managed Postgres/Neon connection limit when the
+  // platform scales out horizontally.
+  return process.env.VERCEL_ENV ? 2 : 5;
+}
+
 // Initialize business configuration for PGlite in-memory database ONLY
 // This sets up the salon, services, and technicians (required for the app to work)
 // Note: NO appointments are created - all appointments come from real user bookings
@@ -148,13 +160,15 @@ if (Env.DATABASE_URL) {
     globalForDb.pgPool = new Pool({
       connectionString: Env.DATABASE_URL,
       // Pool configuration for resilience
-      max: 10, // Maximum connections in pool
-      idleTimeoutMillis: 30000, // Close idle connections after 30s
+      max: getPoolMax(),
+      idleTimeoutMillis: 10000,
       // Do not keep Vitest worker threads alive after their assertions finish.
       allowExitOnIdle: process.env.NODE_ENV === 'test',
       // Remote Neon cold starts can exceed 5s in local/staging-like environments.
       // Use a slightly longer connect window to reduce false startup/request failures.
       connectionTimeoutMillis: 15000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     });
 
     // Handle pool errors gracefully
