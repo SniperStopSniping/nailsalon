@@ -316,6 +316,48 @@
       "when": 1784086400000,
       "tag": "0044_luster_free_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784172800000,
+      "tag": "0045_repair_owner_signup",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784259200000,
+      "tag": "0046_google_calendar_two_way",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784345600000,
+      "tag": "0047_owner_multi_salon",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784432000000,
+      "tag": "0048_nail_tech_crm",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784518400000,
+      "tag": "0049_google_calendar_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784604800000,
+      "tag": "0050_owner_identity_relink",
+      "breakpoints": true
     }
   ]
 }

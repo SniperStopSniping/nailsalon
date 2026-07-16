@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ClientsModal } from './ClientsModal';
 
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -31,8 +32,6 @@ vi.mock('@/providers/SalonProvider', () => ({
     isAccessible: true,
   }),
 }));
-
-import { ClientsModal } from './ClientsModal';
 
 type ListClient = {
   id: string;
@@ -303,6 +302,7 @@ describe('ClientsModal', () => {
     await waitFor(() => {
       expect(getClientListCalls().some(([url]) => String(url).includes('search=zara') && String(url).includes('page=1'))).toBe(true);
     });
+
     expect(await screen.findByRole('button', { name: /zara bloom/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /nora vale/i })).not.toBeInTheDocument();
   });
@@ -434,6 +434,7 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
     expect(await screen.findByLabelText('Preferred artist')).toHaveValue('tech_1');
+
     fireEvent.change(screen.getByLabelText('Preferred artist'), { target: { value: 'tech_2' } });
     fireEvent.change(screen.getByLabelText('Private notes'), { target: { value: 'VIP chrome client' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save details' }));
@@ -445,11 +446,12 @@ describe('ClientsModal', () => {
     });
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url) === '/api/admin/clients/client_1' && init?.method === 'PATCH');
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual(expect.objectContaining({
       salonSlug: 'isla-nail-studio',
       notes: 'VIP chrome client',
       preferredTechnicianId: 'tech_2',
-    });
+    }));
 
     await waitFor(() => {
       expect(screen.getByLabelText('Private notes')).toHaveValue('VIP chrome client');
@@ -610,6 +612,7 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
     expect(await screen.findByLabelText('Problem client flag')).toBeInTheDocument();
+
     fireEvent.click(screen.getByLabelText('Problem client flag'));
     fireEvent.change(screen.getByLabelText('Problem client reason'), { target: { value: 'Aggressive behavior' } });
 
@@ -625,6 +628,7 @@ describe('ClientsModal', () => {
     });
 
     const putCall = fetchMock.mock.calls.find(([url, init]) => String(url) === '/api/admin/clients/client_1/flag' && init?.method === 'PUT');
+
     expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
       salonSlug: 'isla-nail-studio',
       isProblemClient: true,

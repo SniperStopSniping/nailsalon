@@ -9,6 +9,7 @@ import {
   updateSalonClient,
 } from '@/libs/queries';
 import {
+  appointmentPhotoSchema,
   appointmentSchema,
   appointmentServicesSchema,
   serviceSchema,
@@ -32,6 +33,15 @@ const updateSchema = z.object({
   email: z.string().email().optional().nullable(),
   preferredTechnicianId: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  sensitivities: z.string().max(2000).optional().nullable(),
+  nailPreferences: z.object({
+    shape: z.string().max(100).optional(),
+    length: z.string().max(100).optional(),
+    favoriteColors: z.string().max(500).optional(),
+    productsUsed: z.string().max(1000).optional(),
+  }).optional(),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+  rebookIntervalDays: z.number().int().min(1).max(365).optional().nullable(),
 });
 
 // =============================================================================
@@ -254,6 +264,17 @@ export async function GET(
       = client.totalVisits && client.totalVisits > 0
         ? Math.round((client.totalSpent ?? 0) / client.totalVisits)
         : 0;
+    const clientPhotos = await db.select({
+      id: appointmentPhotoSchema.id,
+      imageUrl: appointmentPhotoSchema.imageUrl,
+      thumbnailUrl: appointmentPhotoSchema.thumbnailUrl,
+      photoType: appointmentPhotoSchema.photoType,
+      caption: appointmentPhotoSchema.caption,
+      createdAt: appointmentPhotoSchema.createdAt,
+    }).from(appointmentPhotoSchema).where(and(
+      eq(appointmentPhotoSchema.salonId, salon.id),
+      eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
+    )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
 
     return Response.json({
       data: {
@@ -264,6 +285,12 @@ export async function GET(
           email: client.email,
           preferredTechnician,
           notes: client.notes,
+          sensitivities: client.sensitivities,
+          nailPreferences: client.nailPreferences ?? {},
+          tags: client.tags ?? [],
+          rebookIntervalDays: client.rebookIntervalDays,
+          nextRebookDueAt: client.nextRebookDueAt?.toISOString() ?? null,
+          lastContactAt: client.lastContactAt?.toISOString() ?? null,
           lastVisitAt: client.lastVisitAt?.toISOString() ?? null,
           totalVisits: client.totalVisits ?? 0,
           totalSpent: client.totalSpent ?? 0,
@@ -275,6 +302,10 @@ export async function GET(
         upcomingAppointments: upcomingAppointments.map(formatAppointment),
         pastAppointments: pastAppointments.map(formatAppointment),
         recentIssues: recentIssues.map(formatAppointment),
+        photos: clientPhotos.map(photo => ({
+          ...photo,
+          createdAt: photo.createdAt.toISOString(),
+        })),
       },
     });
   } catch (error) {
@@ -367,11 +398,19 @@ export async function PATCH(
     }
 
     // Update client
+    const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
+      ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
+      : updates.rebookIntervalDays === null ? null : undefined;
     const updatedClient = await updateSalonClient(salon.id, clientId, {
       fullName: updates.fullName,
       email: updates.email,
       preferredTechnicianId: updates.preferredTechnicianId,
       notes: updates.notes,
+      sensitivities: updates.sensitivities,
+      nailPreferences: updates.nailPreferences,
+      tags: updates.tags ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))] : undefined,
+      rebookIntervalDays: updates.rebookIntervalDays,
+      nextRebookDueAt,
     });
 
     if (!updatedClient) {
@@ -395,6 +434,11 @@ export async function PATCH(
           email: updatedClient.email,
           preferredTechnicianId: updatedClient.preferredTechnicianId,
           notes: updatedClient.notes,
+          sensitivities: updatedClient.sensitivities,
+          nailPreferences: updatedClient.nailPreferences ?? {},
+          tags: updatedClient.tags ?? [],
+          rebookIntervalDays: updatedClient.rebookIntervalDays,
+          nextRebookDueAt: updatedClient.nextRebookDueAt?.toISOString() ?? null,
           updatedAt: updatedClient.updatedAt.toISOString(),
         },
       },

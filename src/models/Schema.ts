@@ -781,6 +781,17 @@ export const salonClientSchema = pgTable(
       () => technicianSchema.id,
     ),
     notes: text('notes'), // internal staff notes
+    sensitivities: text('sensitivities'),
+    nailPreferences: jsonb('nail_preferences').$type<{
+      shape?: string;
+      length?: string;
+      favoriteColors?: string;
+      productsUsed?: string;
+    }>().default({}),
+    tags: jsonb('tags').$type<string[]>().default([]),
+    rebookIntervalDays: integer('rebook_interval_days'),
+    nextRebookDueAt: timestamp('next_rebook_due_at', { mode: 'date', withTimezone: true }),
+    lastContactAt: timestamp('last_contact_at', { mode: 'date', withTimezone: true }),
 
     // Computed stats (updated after each booking)
     lastVisitAt: timestamp('last_visit_at', { mode: 'date' }),
@@ -1309,6 +1320,9 @@ export const adminUserSchema = pgTable(
   table => ({
     phoneIdx: uniqueIndex('admin_user_phone_idx').on(table.phoneE164),
     emailIdx: uniqueIndex('admin_user_email_idx').on(table.email),
+    normalizedEmailIdx: uniqueIndex('admin_user_normalized_email_idx')
+      .on(sql`lower(${table.email})`)
+      .where(sql`${table.email} is not null`),
     clerkUserIdx: uniqueIndex('admin_user_clerk_user_idx').on(table.clerkUserId),
   }),
 );
@@ -1433,17 +1447,32 @@ export const salonSignupInviteSchema = pgTable(
     id: text('id').primaryKey(),
     tokenHash: text('token_hash').notNull().unique(),
     invitedEmail: text('invited_email').notNull(),
+    intent: text('intent').$type<'create_salon' | 'claim_existing'>().default('create_salon').notNull(),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'cascade' }),
     campaignSource: text('campaign_source'),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { mode: 'date', withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
     consumedByAdminId: text('consumed_by_admin_id').references(() => adminUserSchema.id),
+    resultSalonId: text('result_salon_id').references(() => salonSchema.id),
     createdByAdminId: text('created_by_admin_id').references(() => adminUserSchema.id),
+    emailDeliveryStatus: text('email_delivery_status').$type<'pending' | 'sent' | 'failed'>().default('pending').notNull(),
+    emailSentAt: timestamp('email_sent_at', { mode: 'date', withTimezone: true }),
+    emailDeliveryErrorCode: text('email_delivery_error_code'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
     tokenIdx: uniqueIndex('salon_signup_invite_token_idx').on(table.tokenHash),
     emailIdx: index('salon_signup_invite_email_idx').on(table.invitedEmail),
+    salonIdx: index('salon_signup_invite_salon_idx').on(table.salonId),
+    resultSalonIdx: index('salon_signup_invite_result_salon_idx').on(table.resultSalonId),
     expiresIdx: index('salon_signup_invite_expires_idx').on(table.expiresAt),
+    activeSalonIdx: uniqueIndex('salon_signup_invite_active_salon_idx')
+      .on(table.salonId)
+      .where(sql`${table.salonId} is not null and ${table.consumedAt} is null and ${table.revokedAt} is null`),
+    activeEmailIdx: uniqueIndex('salon_signup_invite_active_email_idx')
+      .on(table.invitedEmail)
+      .where(sql`${table.intent} = 'create_salon' and ${table.consumedAt} is null and ${table.revokedAt} is null`),
   }),
 );
 
@@ -1464,6 +1493,9 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
     tokenExpiresAt: timestamp('token_expires_at', { mode: 'date', withTimezone: true }),
     lastError: text('last_error'),
     lastCheckedAt: timestamp('last_checked_at', { mode: 'date', withTimezone: true }),
+    inboundSyncEnabled: boolean('inbound_sync_enabled').default(true).notNull(),
+    inboundSyncedAt: timestamp('inbound_synced_at', { mode: 'date', withTimezone: true }),
+    inboundSyncError: text('inbound_sync_error'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()
@@ -1472,6 +1504,26 @@ export const salonGoogleCalendarConnectionSchema = pgTable(
   },
   table => ({
     statusIdx: index('salon_google_calendar_status_idx').on(table.status),
+  }),
+);
+
+export const googleCalendarDraftSchema = pgTable(
+  'google_calendar_draft',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    googleEventId: text('google_event_id').notNull(),
+    title: text('title'),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
+    status: text('status').$type<'needs_details' | 'dismissed' | 'converted'>().default('needs_details').notNull(),
+    convertedAppointmentId: text('converted_appointment_id').references(() => appointmentSchema.id),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonEventIdx: uniqueIndex('google_calendar_draft_salon_event_idx').on(table.salonId, table.googleEventId),
+    salonStatusTimeIdx: index('google_calendar_draft_salon_status_time_idx').on(table.salonId, table.status, table.startTime),
   }),
 );
 
@@ -2289,11 +2341,19 @@ export const AUDIT_LOG_ACTIONS = [
   'super_admin_password_login_succeeded',
   'super_admin_password_login_failed',
   'test_invitation_created',
+  'signup_invitation_created',
+  'signup_invitation_resent',
+  'signup_invitation_delivery_attempted',
+  'signup_invitation_failed',
+  'salon_claim_invitation_created',
+  'salon_claim_completed',
+  'salon_claim_failed',
   'test_tool_action',
   'integration_health_checked',
   'impersonation_started',
   'impersonation_ended',
   'clerk_owner_linked',
+  'clerk_owner_relinked',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

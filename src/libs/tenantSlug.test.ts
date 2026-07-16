@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   getSalonSlugFromHostname,
@@ -6,11 +6,18 @@ import {
   getSalonSlugFromRouteParams,
   getSalonSlugFromSearchParams,
   isReservedSalonSlug,
+  isTenantSubdomainSlugEnabled,
   isValidSalonSlug,
   normalizeSalonSlug,
 } from './tenantSlug';
 
+const originalEnv = { ...process.env };
+
 describe('tenantSlug helpers', () => {
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
   it('normalizes slugs consistently', () => {
     expect(normalizeSalonSlug('  Luster  ')).toBe('luster');
     expect(normalizeSalonSlug('')).toBeNull();
@@ -51,5 +58,15 @@ describe('tenantSlug helpers', () => {
     expect(isValidSalonSlug('-isla')).toBe(false);
     expect(isValidSalonSlug('Isla Nails')).toBe(false);
     expect(isReservedSalonSlug('support')).toBe(true);
+    expect(isReservedSalonSlug('clerk')).toBe(true);
+    expect(isReservedSalonSlug('accounts')).toBe(true);
+  });
+
+  it('allows an individually verified tenant hostname during wildcard rollout', () => {
+    process.env.TENANT_SUBDOMAINS_ENABLED = 'false';
+    process.env.TENANT_SUBDOMAIN_ALLOWLIST = 'best,pilot-two';
+
+    expect(isTenantSubdomainSlugEnabled('best')).toBe(true);
+    expect(isTenantSubdomainSlugEnabled('unverified')).toBe(false);
   });
 });

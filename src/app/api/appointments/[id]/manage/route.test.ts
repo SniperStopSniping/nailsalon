@@ -160,6 +160,7 @@ describe('appointment manage route', () => {
       body: JSON.stringify({
         operation: 'move',
         startTime: '2026-03-29T15:00:00.000Z',
+        durationMinutes: 105,
       }),
     }), { params: { id: 'appt_1' } });
 
@@ -168,6 +169,7 @@ describe('appointment manage route', () => {
       appointmentId: 'appt_1',
       salonId: 'salon_1',
       operation: 'move',
+      durationMinutes: 105,
       canReassignTechnician: true,
     }));
   });

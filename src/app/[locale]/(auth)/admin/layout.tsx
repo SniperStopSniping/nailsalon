@@ -10,8 +10,8 @@ import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationB
  */
 
 export const metadata = {
-  title: 'Admin Dashboard',
-  description: 'Salon owner command center',
+  title: 'Luster Owner Workspace',
+  description: 'Bookings, clients, services, and salon growth tools by Luster',
 };
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -19,7 +19,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <div
       style={{
         minHeight: '100vh',
-        backgroundColor: '#f2f2f7', // iOS system grouped background
+        backgroundColor: '#f8f3f0',
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif',
       }}
     >

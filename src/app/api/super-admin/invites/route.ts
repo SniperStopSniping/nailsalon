@@ -11,6 +11,7 @@ import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
 import { formatPhoneE164, isValidPhone, requireSuperAdmin } from '@/libs/adminAuth';
+import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
 import {
@@ -45,6 +46,9 @@ export async function GET() {
   const guard = await requireSuperAdmin();
   if (!guard.ok) {
     return guard.response;
+  }
+  if (!isLegacyOtpAuthEnabled()) {
+    return NextResponse.json({ error: { code: 'LEGACY_OTP_DISABLED', message: 'Legacy phone invitations are disabled.' } }, { status: 410 });
   }
 
   try {
@@ -105,6 +109,9 @@ export async function POST(request: Request) {
   const guard = await requireSuperAdmin();
   if (!guard.ok) {
     return guard.response;
+  }
+  if (!isLegacyOtpAuthEnabled()) {
+    return NextResponse.json({ error: { code: 'LEGACY_OTP_DISABLED', message: 'Legacy phone invitations are disabled.' } }, { status: 410 });
   }
 
   const { admin } = guard;

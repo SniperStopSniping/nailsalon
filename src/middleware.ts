@@ -6,10 +6,12 @@ import {
 } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 
+import { getCanonicalAppOrigin } from './libs/publicUrl';
 import {
   ACTIVE_SALON_COOKIE,
   getSalonSlugFromHostname,
   getSalonSlugFromPathname,
+  isTenantSubdomainSlugEnabled,
   normalizeSalonSlug,
 } from './libs/tenantSlug';
 import { AllLocales, AppConfig } from './utils/AppConfig';
@@ -38,7 +40,11 @@ export default async function middleware(
   event: NextFetchEvent,
 ) {
   const requestedHost = request.headers.get('host') ?? request.nextUrl.hostname;
-  const hostnameSalonSlug = getSalonSlugFromHostname(requestedHost);
+  const candidateHostnameSalonSlug = getSalonSlugFromHostname(requestedHost);
+  const hostnameSalonSlug = candidateHostnameSalonSlug
+    && isTenantSubdomainSlugEnabled(candidateHostnameSalonSlug)
+    ? candidateHostnameSalonSlug
+    : null;
   const pathnameSalonSlug = getSalonSlugFromPathname(
     request.nextUrl.pathname,
     AllLocales,
@@ -72,6 +78,11 @@ export default async function middleware(
   const isDevMode = process.env.NODE_ENV !== 'production';
   const devRole = request.cookies.get('__dev_role_override')?.value;
   const p = request.nextUrl.pathname;
+  const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const clerkOptions = authorizedParties.length > 0 ? { authorizedParties } : undefined;
 
   // Wildcard tenant hosts share the same deployment. Public paths are rewritten
   // to the existing locale/slug route tree; APIs and owner/admin routes keep
@@ -85,13 +96,26 @@ export default async function middleware(
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'owner-sign-in'
-      || firstPublicSegment === 'owner-sign-up';
+      || firstPublicSegment === 'owner-sign-up'
+      || firstPublicSegment === 'owner'
+      || firstPublicSegment === 'join';
+
+    if (isOwnerPath) {
+      const canonicalUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, getCanonicalAppOrigin());
+      return finalizeResponse(NextResponse.redirect(canonicalUrl));
+    }
 
     if (!isOwnerPath && rawSegments[0] !== hostnameSalonSlug) {
       const rewriteUrl = request.nextUrl.clone();
       rewriteUrl.pathname = `/${locale}/${hostnameSalonSlug}${rawSegments.length ? `/${rawSegments.join('/')}` : ''}`;
       return finalizeResponse(NextResponse.rewrite(rewriteUrl));
     }
+  }
+
+  if (p === '/owner') {
+    return finalizeResponse(
+      NextResponse.redirect(new URL(`/${AppConfig.defaultLocale}/owner-sign-in`, request.url)),
+    );
   }
 
   if (isDevMode && devRole === 'super_admin') {
@@ -115,7 +139,7 @@ export default async function middleware(
 
   // Super-admin API routes need Clerk auth
   if (request.nextUrl.pathname.startsWith('/api/super-admin')) {
-    const response = await clerkMiddleware()(request, event);
+    const response = await clerkMiddleware(clerkOptions)(request, event);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
@@ -128,7 +152,7 @@ export default async function middleware(
     const response = await clerkMiddleware(async () => {
       // Just set up auth context, don't protect - route handlers check ownership
       return NextResponse.next();
-    })(request, event);
+    }, clerkOptions)(request, event);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
@@ -140,7 +164,7 @@ export default async function middleware(
   // Invitation pages are public, but their server component calls Clerk auth()
   // to continue already-signed-in owners into onboarding.
   if (isPublicClerkRoute(request)) {
-    const response = await clerkMiddleware(async (_auth, req) => intlMiddleware(req))(
+    const response = await clerkMiddleware(async (_auth, req) => intlMiddleware(req), clerkOptions)(
       request,
       event,
     );
@@ -170,7 +194,7 @@ export default async function middleware(
       });
 
       return intlMiddleware(req);
-    })(request, event);
+    }, clerkOptions)(request, event);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 

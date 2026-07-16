@@ -14,6 +14,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, User, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { useSalon } from '@/providers/SalonProvider';
+
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
 
@@ -155,6 +157,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   completed: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-300' },
   cancelled: { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-300' },
   no_show: { bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-300' },
+  external_busy: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-300' },
 };
 
 // Loading skeleton
@@ -240,6 +243,7 @@ type DayDetailPanelProps = {
 function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
   const dateStr = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const appointmentCountLabel = appointments.length === 1 ? 'appointment' : 'appointments';
 
   // Group appointments by technician
   const byTechnician = useMemo(() => {
@@ -290,22 +294,22 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
           <span>
             {appointments.length}
             {' '}
-            appointment
-            {appointments.length !== 1 ? 's' : ''}
+            {appointmentCountLabel}
           </span>
         </div>
       </div>
 
       {/* Content */}
       <div className="pb-safe overflow-y-auto p-5" style={{ maxHeight: 'calc(70vh - 100px)' }}>
-        {appointments.length === 0 ? (
+        {appointments.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
               <Calendar className="size-7 text-gray-400" />
             </div>
             <p className="text-sm font-medium text-gray-500">No appointments scheduled</p>
           </div>
-        ) : (
+        )}
+        {appointments.length > 0 && (
           <div className="space-y-6">
             {Object.entries(byTechnician).map(([techName, appts]) => (
               <div key={techName}>
@@ -398,6 +402,7 @@ function DayDetailPanel({ date, appointments, onClose }: DayDetailPanelProps) {
 
 // Main Component
 export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
+  const { salonSlug } = useSalon();
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -444,9 +449,18 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       const startStr = formatDateKey(dateRange.start);
       const endStr = formatDateKey(dateRange.end);
 
-      const response = await fetch(
-        `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`,
-      );
+      const externalRangeEnd = new Date(dateRange.end);
+      externalRangeEnd.setDate(externalRangeEnd.getDate() + 1);
+      const [response, googleResponse] = await Promise.all([
+        fetch(`/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`),
+        salonSlug
+          ? fetch(`/api/integrations/google/events?${new URLSearchParams({
+            salonSlug,
+            startTime: dateRange.start.toISOString(),
+            endTime: externalRangeEnd.toISOString(),
+          }).toString()}`).catch(() => null)
+          : Promise.resolve(null),
+      ]);
 
       if (!response.ok) {
         throw new Error('Failed to load appointments');
@@ -454,6 +468,8 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
 
       const result = await response.json();
       const rawAppointments = result.data?.appointments || [];
+      const googlePayload = googleResponse?.ok ? await googleResponse.json() : null;
+      const externalEvents = googlePayload?.data?.events || [];
 
       // Group appointments by date
       const dataMap = new Map<string, DaySummary>();
@@ -484,6 +500,26 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         }
       }
 
+      for (const event of externalEvents) {
+        const dateKey = formatDateKey(new Date(event.startTime));
+        const existing = dataMap.get(dateKey);
+        const summary: AppointmentSummary = {
+          id: `google:${event.id}`,
+          clientName: event.needsDetails ? (event.label || 'Google appointment') : 'Google Calendar',
+          startTime: event.startTime,
+          endTime: event.endTime,
+          services: [event.needsDetails ? 'Needs client & service details' : 'Busy time'],
+          technician: null,
+          status: event.needsDetails ? 'needs_details' : 'external_busy',
+        };
+        if (existing) {
+          existing.count++;
+          existing.appointments.push(summary);
+        } else {
+          dataMap.set(dateKey, { date: dateKey, count: 1, appointments: [summary] });
+        }
+      }
+
       setAppointmentData(dataMap);
     } catch (err) {
       console.error('Failed to fetch appointments:', err);
@@ -491,7 +527,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, salonSlug]);
 
   useEffect(() => {
     fetchAppointments();
@@ -683,6 +719,10 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           <div className="flex items-center gap-1.5">
             <div className="size-3 rounded bg-[#007AFF]" />
             <span>Selected</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="size-3 rounded border border-violet-300 bg-violet-50" />
+            <span>Google busy</span>
           </div>
         </div>
       </div>

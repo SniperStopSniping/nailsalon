@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET, POST } from './route';
+
 const { requireSuperAdmin, db, setSelectPlans } = vi.hoisted(() => {
   type Plan =
     | { type: 'count'; result: unknown[] }
@@ -52,8 +54,7 @@ vi.mock('@/libs/superAdmin', () => ({
 vi.mock('@/libs/DB', () => ({
   db,
 }));
-
-import { GET } from './route';
+vi.mock('server-only', () => ({}));
 
 describe('GET /api/super-admin/organizations', () => {
   beforeEach(() => {
@@ -81,5 +82,28 @@ describe('GET /api/super-admin/organizations', () => {
       total: 0,
       totalPages: 0,
     });
+  });
+});
+
+describe('POST /api/super-admin/organizations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireSuperAdmin.mockResolvedValue(null);
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+  });
+
+  it('rejects legacy phone-based salon creation before database or Twilio work', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const response = await POST(new Request('http://localhost/api/super-admin/organizations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(410);
+    expect(body.error.code).toBe('LEGACY_OTP_DISABLED');
+    expect(db.select).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

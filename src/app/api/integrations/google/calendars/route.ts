@@ -39,6 +39,14 @@ export async function PATCH(request: Request) {
   if (!ids.has(parsed.data.destinationCalendarId) || parsed.data.busyCalendarIds.some(id => !ids.has(id))) {
     return Response.json({ error: 'A selected calendar is not available to this Google account' }, { status: 400 });
   }
-  await db.update(salonGoogleCalendarConnectionSchema).set({ destinationCalendarId: parsed.data.destinationCalendarId, busyCalendarIds: parsed.data.busyCalendarIds, status: 'active', lastError: null }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id));
+  await db.update(salonGoogleCalendarConnectionSchema).set({
+    destinationCalendarId: parsed.data.destinationCalendarId,
+    busyCalendarIds: parsed.data.busyCalendarIds,
+    status: 'active',
+    lastError: null,
+    inboundSyncEnabled: true,
+    inboundSyncedAt: new Date(),
+    inboundSyncError: null,
+  }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id));
   return Response.json({ data: { saved: true } });
 }

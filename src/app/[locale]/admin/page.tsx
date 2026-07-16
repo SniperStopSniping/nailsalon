@@ -10,25 +10,27 @@
  * - iOS spring physics and animations
  */
 
-import { Bell, LogOut } from 'lucide-react';
+import { useClerk } from '@clerk/nextjs';
+import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
-import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
+import type { TimePeriod } from '@/components/admin/AnalyticsWidgets';
 import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
-import { PageIndicator, SwipeablePages } from '@/components/admin/SwipeablePages';
-import { StateCard } from '@/components/ui/state-card';
+import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
+import { OwnerWorkspaceNav, type OwnerWorkspaceTab } from '@/components/admin/OwnerWorkspaceNav';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Main Page Component
 // =============================================================================
 // Use shared type from admin types
 import type { AnalyticsResponse } from '@/types/admin';
+import type { ModuleKey } from '@/types/salonPolicy';
 
 // =============================================================================
 // Types
@@ -126,7 +128,10 @@ type AdminUser = {
     status?: string | null;
     role: string;
     freeSoloEnabled?: boolean;
+    publicUrl?: string;
+    bookingUrl?: string;
   }>;
+  availableSalons?: AdminUser['salons'];
 };
 
 type DashboardData = {
@@ -170,9 +175,7 @@ type ModuleReason = 'ENABLED' | 'MODULE_DISABLED' | 'UPGRADE_REQUIRED';
 
 type ModuleSettingsResponse = {
   data?: {
-    moduleReasons?: {
-      analyticsDashboard?: ModuleReason;
-    };
+    moduleReasons?: Partial<Record<ModuleKey, ModuleReason>>;
   };
 };
 
@@ -201,6 +204,7 @@ function mapAnalyticsModuleStatus(reason: ModuleReason | undefined): AnalyticsMo
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
+  const clerk = useClerk();
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -214,13 +218,15 @@ function AdminDashboardContent() {
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
+  const [coreAppointments, setCoreAppointments] = useState<DashboardData['appointments']>(getEmptyDashboardData().appointments);
   const [analyticsData, setAnalyticsData] = useState<PartialAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonBlockingMessage, setNonBlockingMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [, setLastUpdated] = useState<Date | null>(null);
   const [analyticsModuleStatus, setAnalyticsModuleStatus] = useState<AnalyticsModuleStatus>('loading');
+  const [moduleReasons, setModuleReasons] = useState<Partial<Record<ModuleKey, ModuleReason>>>({});
 
   // Analytics should never block rendering:
   // - Preserve last known-good analytics on transient failures
@@ -229,10 +235,11 @@ function AdminDashboardContent() {
   const latestFetchIdRef = useRef<string>('');
   const latestModuleRequestIdRef = useRef<string>('');
   const analyticsModuleCacheRef = useRef<Record<string, Exclude<AnalyticsModuleStatus, 'loading' | 'error'>>>({});
+  const moduleReasonCacheRef = useRef<Record<string, Partial<Record<ModuleKey, ModuleReason>>>>({});
   const latestResolvedModuleRef = useRef<{ salonSlug: string; status: AnalyticsModuleStatus } | null>(null);
 
   // Swipe page state
-  const [currentPage, setCurrentPage] = useState(0);
+  const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
@@ -244,9 +251,11 @@ function AdminDashboardContent() {
     ?? requestedSalonSlug
     ?? adminUser?.salons[0]?.slug
     ?? null;
-  const activeDashboardSalon = adminUser?.salons.find(
-    s => s.slug?.toLowerCase() === activeDashboardSalonSlug?.toLowerCase(),
-  ) ?? adminUser?.salons[0] ?? null;
+  const activeDashboardSalon = activeDashboardSalonSlug
+    ? adminUser?.salons.find(
+      s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
+    ) ?? null
+    : adminUser?.salons[0] ?? null;
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
@@ -305,7 +314,8 @@ function AdminDashboardContent() {
           }
 
           // If admin has multiple salons and no salon selected, show selector
-          if (!data.user.impersonation?.isActive && data.user.salons.length > 1 && !requestedSalonSlug) {
+          const salonChoices = data.user.availableSalons ?? data.user.salons;
+          if (!data.user.impersonation?.isActive && salonChoices.length > 1 && !requestedSalonSlug) {
             setShowSalonSelector(true);
           }
 
@@ -346,7 +356,7 @@ function AdminDashboardContent() {
     } catch {
       // Ignore
     }
-    router.push(`/${locale}/admin-login`);
+    await clerk.signOut({ redirectUrl: '/owner' });
   };
 
   const resetAnalyticsPresentation = useCallback(() => {
@@ -369,6 +379,7 @@ function AdminDashboardContent() {
     const force = options?.force ?? false;
     const cached = !force ? analyticsModuleCacheRef.current[activeDashboardSalonSlug] : undefined;
     if (cached) {
+      setModuleReasons(moduleReasonCacheRef.current[activeDashboardSalonSlug] ?? {});
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: cached,
@@ -403,12 +414,15 @@ function AdminDashboardContent() {
       }
 
       const nextStatus = mapAnalyticsModuleStatus(body?.data?.moduleReasons?.analyticsDashboard);
+      const nextModuleReasons = body?.data?.moduleReasons ?? {};
 
       if (latestModuleRequestIdRef.current !== requestId) {
         return nextStatus;
       }
 
       setAnalyticsModuleStatus(nextStatus);
+      setModuleReasons(nextModuleReasons);
+      moduleReasonCacheRef.current[activeDashboardSalonSlug] = nextModuleReasons;
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: nextStatus,
@@ -428,6 +442,7 @@ function AdminDashboardContent() {
       }
 
       setAnalyticsModuleStatus('error');
+      setModuleReasons({});
       latestResolvedModuleRef.current = {
         salonSlug: activeDashboardSalonSlug,
         status: 'error',
@@ -629,14 +644,6 @@ function AdminDashboardContent() {
     }
   }, [activeDashboardSalonSlug, timePeriod, anchorDate, locale, router, analyticsModuleStatus, resetAnalyticsPresentation]);
 
-  // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
-    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
-    if (nextStatus === 'enabled') {
-      await fetchData({ skipModuleCheck: true });
-    }
-  }, [fetchData, resolveAnalyticsModuleAvailability]);
-
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -649,6 +656,33 @@ function AdminDashboardContent() {
       });
     }
   }, [authLoading, adminUser, showSalonSelector, activeDashboardSalonSlug, resolveAnalyticsModuleAvailability]);
+
+  // Core operational counts must load independently of the optional analytics entitlement.
+  useEffect(() => {
+    if (authLoading || !adminUser || showSalonSelector || !activeDashboardSalonSlug) {
+      return;
+    }
+    const controller = new AbortController();
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    fetch(`/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,completed,no_show`, { signal: controller.signal })
+      .then(async response => response.ok ? response.json() : Promise.reject(new Error('Core appointments unavailable')))
+      .then((payload) => {
+        const appointments = (payload.data?.appointments ?? []) as Array<{ status: string; startTime: string }>;
+        setCoreAppointments({
+          total: appointments.length,
+          completed: appointments.filter(item => item.status === 'completed').length,
+          noShows: appointments.filter(item => item.status === 'no_show').length,
+          upcoming: appointments.filter(item => ['pending', 'confirmed', 'in_progress'].includes(item.status) && new Date(item.startTime) >= now).length,
+        });
+      })
+      .catch((fetchError) => {
+        if (fetchError instanceof Error && fetchError.name !== 'AbortError') {
+          setNonBlockingMessage('Today’s appointment count could not be refreshed. Your calendar and bookings are still available.');
+        }
+      });
+    return () => controller.abort();
+  }, [activeDashboardSalonSlug, adminUser, authLoading, showSalonSelector]);
 
   // Fetch analytics only when module availability is explicitly enabled
   useEffect(() => {
@@ -709,6 +743,31 @@ function AdminDashboardContent() {
     }
   }, []);
 
+  const handleRefreshAnalytics = useCallback(async () => {
+    const nextStatus = await resolveAnalyticsModuleAvailability({ force: true });
+    if (nextStatus === 'enabled') {
+      await fetchData({ skipModuleCheck: true });
+    }
+  }, [fetchData, resolveAnalyticsModuleAvailability]);
+
+  const handleWorkspaceTab = useCallback((tab: OwnerWorkspaceTab) => {
+    setWorkspaceTab(tab);
+    if (tab === 'calendar') {
+      setShowScheduleCalendar(true);
+      return;
+    }
+    if (tab === 'clients') {
+      setActiveModal('clients');
+      return;
+    }
+    if (tab === 'services') {
+      setActiveModal('services');
+      return;
+    }
+    setShowScheduleCalendar(false);
+    setActiveModal(null);
+  }, []);
+
   // Close modal
   const handleCloseModal = () => {
     setActiveModal(null);
@@ -729,10 +788,11 @@ function AdminDashboardContent() {
   }
 
   // 3) Salon selector for admins with multiple salons (check before loading since fetchData waits for salon selection)
-  if (!adminUser.impersonation?.isActive && showSalonSelector && adminUser.salons.length > 1) {
+  const selectableSalons = adminUser.availableSalons ?? adminUser.salons;
+  if (!adminUser.impersonation?.isActive && showSalonSelector && selectableSalons.length > 1) {
     return (
       <AdminSalonSelector
-        salons={adminUser.salons}
+        salons={selectableSalons}
         onSelect={(salon) => {
           router.push(`/${locale}/admin?salon=${salon.slug}`);
           setShowSalonSelector(false);
@@ -763,6 +823,28 @@ function AdminDashboardContent() {
     marketing: data.badges.marketing,
     reviews: data.badges.reviews,
   };
+  const moduleIsEnabled = (module: ModuleKey) => moduleReasons[module] === 'ENABLED';
+  const marketingEnabled = moduleIsEnabled('smsReminders')
+    || moduleIsEnabled('referrals')
+    || moduleIsEnabled('rewards');
+  const staffToolsEnabled = moduleIsEnabled('scheduleOverrides')
+    || moduleIsEnabled('staffEarnings');
+  const hiddenAppIds: string[] = ['schedule', 'bookings', 'clients', 'services'];
+  if (!moduleIsEnabled('analyticsDashboard')) {
+    hiddenAppIds.push('analytics');
+  }
+  if (!marketingEnabled) {
+    hiddenAppIds.push('marketing');
+  }
+  if (!moduleIsEnabled('rewards')) {
+    hiddenAppIds.push('rewards');
+  }
+  if (isFreeSolo) {
+    hiddenAppIds.push('reviews');
+  }
+  if (isFreeSolo && !staffToolsEnabled) {
+    hiddenAppIds.push('staff', 'staff-ops');
+  }
 
   // Staff data for analytics - use real data from API
   const avatarColors = [
@@ -817,7 +899,7 @@ function AdminDashboardContent() {
 
   return (
     <div
-      className="min-h-screen bg-[#F2F2F7] font-sans"
+      className="min-h-screen bg-[#F8F3F0] font-sans text-stone-950"
       style={{
         opacity: mounted ? 1 : 0,
         transform: mounted ? 'translateY(0)' : 'translateY(10px)',
@@ -833,20 +915,30 @@ function AdminDashboardContent() {
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
         {/* Header */}
-        <div className="px-5 py-3">
+        <div className="mx-auto max-w-2xl px-5 pb-3 pt-4">
           <WorkspacePageHeader
-            title="Dashboard"
-            subtitle={activeDashboardSalonName}
-            titleClassName="text-[28px] font-bold tracking-tight text-[#1C1C1E]"
-            subtitleClassName="text-[15px] text-[#8E8E93]"
+            title="Luster Workspace"
+            subtitle={activeDashboardSalonName ? `Managing ${activeDashboardSalonName}` : 'Salon owner workspace'}
+            titleClassName="text-[28px] font-bold tracking-tight text-stone-950"
+            subtitleClassName="text-[15px] text-stone-500"
             actions={(
               <>
+                {!adminUser.impersonation?.isActive && selectableSalons.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSalonSelector(true)}
+                    aria-label="Switch salon"
+                    className="flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
+                  >
+                    <Building2 size={19} />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
-                  className="relative flex size-9 items-center justify-center rounded-full bg-black/5 transition-colors active:bg-black/10"
+                  className="relative flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
                 >
-                  <Bell size={20} className="text-[#8E8E93]" />
+                  <Bell size={20} />
                   {notificationCount > 0 && (
                     <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
                       <span className="text-[11px] font-bold text-white">
@@ -863,8 +955,8 @@ function AdminDashboardContent() {
                   <LogOut size={16} />
                   <span>Log Out</span>
                 </button>
-                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-[#007AFF] to-[#5856D6] text-[15px] font-semibold text-white">
-                  {userInitial}
+                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm" title="Luster owner account">
+                  {userInitial || <Sparkles size={16} />}
                 </div>
               </>
             )}
@@ -887,65 +979,32 @@ function AdminDashboardContent() {
           </div>
         )}
 
-        {/* Swipeable Pages Container */}
-        <div className="h-[calc(100vh-140px)]">
-          <SwipeablePages
-            onPageChange={setCurrentPage}
-            initialPage={currentPage}
-            onRefresh={handleRefresh}
-            lastUpdated={lastUpdated}
-          >
-            {/* Page 1: Analytics Widgets */}
-            {analyticsUnavailableState
-              ? (
-                  <div className="px-5 py-4" data-testid="analytics-unavailable-state">
-                    <StateCard
-                      title={analyticsUnavailableState.title}
-                      description={analyticsUnavailableState.description}
-                      tone={analyticsUnavailableState.tone}
-                    />
-                  </div>
-                )
-              : (
-                  <AnalyticsWidgets
-                    appointments={data.appointments}
-                    revenue={data.revenue.today ?? 0}
-                    tips={analyticsData?.revenue?.tips ?? 0}
-                    revenueTrend={data.revenue.trend ?? 0}
-                    revenueSeries={analyticsData?.revenue?.series ?? []}
-                    staffData={staffData}
-                    utilization={utilization}
-                    services={services}
-                    onQuickAction={handleQuickAction}
-                    timePeriod={timePeriod}
-                    onTimePeriodChange={setTimePeriod}
-                    dateRange={analyticsData?.dateRange}
-                    anchorDate={anchorDate}
-                    onPrev={onPrev}
-                    onNext={onNext}
-                    onToday={onToday}
-                    onAnchorChange={setAnchorDate}
-                  />
-                )}
+        {workspaceTab === 'more'
+          ? (
+              <div className="min-h-[calc(100vh-140px)] pb-24" data-testid="owner-more-workspace">
+                <AppGrid
+                  theme="apple"
+                  badges={appBadges}
+                  onAppTap={handleAppTap}
+                  hiddenIds={hiddenAppIds}
+                />
+              </div>
+            )
+          : (
+              <OwnerTodayWorkspace
+                salonSlug={activeDashboardSalonSlug || ''}
+                appointments={analyticsModuleStatus === 'enabled' ? data.appointments : coreAppointments}
+                analyticsTitle={analyticsUnavailableState?.title}
+                analyticsMessage={analyticsUnavailableState?.description}
+                onRefreshAnalytics={analyticsUnavailableState ? handleRefreshAnalytics : undefined}
+                onQuickAction={handleQuickAction}
+                onOpenBookings={() => setActiveModal('bookings')}
+                onOpenCalendar={() => setShowScheduleCalendar(true)}
+                onOpenIntegrations={() => router.push(`/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`)}
+              />
+            )}
 
-            {/* Page 2: App Grid */}
-            <AppGrid
-              theme="apple"
-              badges={appBadges}
-              onAppTap={handleAppTap}
-              hiddenIds={isFreeSolo ? ['analytics', 'marketing', 'reviews', 'rewards', 'staff', 'staff-ops'] : []}
-            />
-          </SwipeablePages>
-        </div>
-
-        {/* Page Indicator */}
-        <div className="pb-safe fixed inset-x-0 bottom-0">
-          <PageIndicator
-            pageCount={2}
-            currentPage={currentPage}
-            onPageSelect={setCurrentPage}
-          />
-        </div>
+        <OwnerWorkspaceNav active={workspaceTab} onSelect={handleWorkspaceTab} />
       </div>
 
       <AdminModalHost

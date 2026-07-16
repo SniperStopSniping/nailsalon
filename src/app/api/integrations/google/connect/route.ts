@@ -20,8 +20,17 @@ export async function GET(request: Request) {
   if (error || !salon) {
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
-  if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_REDIRECT_URI) {
-    return Response.json({ error: 'Google OAuth is not configured' }, { status: 503 });
+  if (
+    !Env.GOOGLE_OAUTH_CLIENT_ID
+    || !Env.GOOGLE_OAUTH_CLIENT_SECRET
+    || !Env.GOOGLE_OAUTH_REDIRECT_URI
+    || !Env.INTEGRATION_ENCRYPTION_KEY
+    || !Env.OAUTH_STATE_SECRET
+  ) {
+    const returnUrl = new URL('/en/admin/luster', request.url);
+    returnUrl.searchParams.set('salon', salon.slug);
+    returnUrl.searchParams.set('google', 'not_configured');
+    return Response.redirect(returnUrl);
   }
   const state = signOAuthState({ provider: 'google', salonId: salon.id, salonSlug: salon.slug });
   const authorizationUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');

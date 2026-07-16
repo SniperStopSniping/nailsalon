@@ -2,7 +2,7 @@
  * Theme Definitions
  *
  * This module contains all available themes for the multi-tenant platform.
- * Currently contains the default "Nail Salon No.5" theme.
+ * Contains the default Luster salon theme.
  *
  * Future themes will be added here and registered in the `themes` object.
  * Each salon's themeKey in the database will map to a key in this registry.
@@ -11,14 +11,14 @@
 import type { EspressoTheme, EspressoTokens, Theme, ThemeRegistry } from './theme.types';
 
 /**
- * Nail Salon No.5 Theme
+ * Luster Nail Studio theme
  *
  * The default luxury spa aesthetic with warm golds and purple accents.
  * This is the original brand identity for the platform.
  */
 export const nailSalonNo5Theme: Theme = {
   key: 'nail-salon-no5',
-  name: 'Nail Salon No.5',
+  name: 'Luster Nail Studio',
   colors: {
     // Brand colors
     primary: '#f4b864', // Main gold

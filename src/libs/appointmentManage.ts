@@ -171,6 +171,7 @@ export type AppointmentCalendarEvent = {
 type MoveArgs = {
   loaded: LoadedManagedAppointment;
   startTime: Date;
+  durationMinutes?: number;
   technicianId?: string | null;
 };
 
@@ -705,7 +706,14 @@ export async function getAppointmentManageDetail(args: {
 async function mutateMove(args: MoveArgs): Promise<MutationResult> {
   ensureEditable(args.loaded.appointment);
   const requestedServices = toRequestedServices(args.loaded.appointmentServices);
-  const totalDurationMinutes = args.loaded.appointment.totalDurationMinutes;
+  const totalDurationMinutes = args.durationMinutes ?? args.loaded.appointment.totalDurationMinutes;
+  if (!Number.isInteger(totalDurationMinutes) || totalDurationMinutes < 15 || totalDurationMinutes > 480) {
+    throw new AppointmentManageError(
+      'INVALID_DURATION',
+      'Appointment duration must be between 15 and 480 minutes.',
+      400,
+    );
+  }
   const bufferMinutes = args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes;
   const normalizedStartTime = roundDownToSlot(args.startTime, args.loaded.slotIntervalMinutes);
   const validated = await validateTimeAndTechnician({
@@ -723,6 +731,7 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
       technicianId: validated.technician?.id ?? args.loaded.appointment.technicianId,
       startTime: validated.startTime,
       endTime: validated.endTime,
+      totalDurationMinutes,
       bufferMinutes,
       blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
       updatedAt: new Date(),
@@ -963,6 +972,7 @@ export async function runAppointmentManageMutation(args: {
   salonId: string;
   operation: ManageAction;
   startTime?: Date;
+  durationMinutes?: number;
   baseServiceId?: string;
   technicianId?: string | null;
   canReassignTechnician: boolean;
@@ -982,6 +992,7 @@ export async function runAppointmentManageMutation(args: {
       result = await mutateMove({
         loaded,
         startTime: args.startTime,
+        durationMinutes: args.durationMinutes,
         technicianId: args.technicianId,
       });
       break;
@@ -1034,4 +1045,11 @@ export async function runAppointmentManageMutation(args: {
     calendarEvent: buildCalendarEvent(reloaded),
     warnings: result.warnings,
   };
+}
+
+export async function getAppointmentCalendarEventForSync(
+  appointmentId: string,
+  salonId: string,
+): Promise<AppointmentCalendarEvent> {
+  return buildCalendarEvent(await loadManagedAppointment(appointmentId, salonId));
 }

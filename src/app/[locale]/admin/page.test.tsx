@@ -1,7 +1,8 @@
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-
-import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import AdminDashboardPage from './page';
 
 const {
   fetchMock,
@@ -11,6 +12,7 @@ const {
   searchParamGet,
   adminModalHostSpy,
   swipeablePagesSpy,
+  clerkSignOut,
 } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   routerReplace: vi.fn(),
@@ -19,6 +21,11 @@ const {
   searchParamGet: vi.fn<(key: string) => string | null>((key: string) => (key === 'salon' ? 'salon-b' : null)),
   adminModalHostSpy: vi.fn(),
   swipeablePagesSpy: vi.fn(),
+  clerkSignOut: vi.fn(),
+}));
+
+vi.mock('@clerk/nextjs', () => ({
+  useClerk: () => ({ signOut: clerkSignOut }),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -81,8 +88,6 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-import AdminDashboardPage from './page';
-
 describe('AdminDashboardPage', () => {
   it('syncs the selected salon without a hard reload and fetches analytics for the requested salon', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -106,6 +111,7 @@ describe('AdminDashboardPage', () => {
 
       if (url === '/api/admin/auth/set-active-salon') {
         expect(init?.method).toBe('POST');
+
         return new Response(JSON.stringify({ ok: true, salonSlug: 'salon-b' }), { status: 200 });
       }
 
@@ -173,6 +179,7 @@ describe('AdminDashboardPage', () => {
     const analyticsFetchIndex = fetchMock.mock.calls.findIndex(([url]) =>
       String(url).startsWith('/api/admin/analytics?salonSlug=salon-b&period=weekly&anchor='),
     );
+
     expect(moduleFetchIndex).toBeGreaterThan(-1);
     expect(analyticsFetchIndex).toBeGreaterThan(moduleFetchIndex);
 
@@ -318,12 +325,13 @@ describe('AdminDashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Pull to refresh and try again.')).toBeInTheDocument();
     });
+
     expect(fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith('/api/admin/analytics?'),
     )).toBe(false);
   });
 
-  it('caches module availability by salon slug and only revalidates on manual refresh', async () => {
+  it('caches module availability by salon slug while switching salons', async () => {
     let currentSalon = 'salon-b';
 
     searchParamGet.mockImplementation((key: string) => (key === 'salon' ? currentSalon : null));
@@ -402,20 +410,9 @@ describe('AdminDashboardPage', () => {
         String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
       )).toHaveLength(1);
     });
-
-    const swipeableProps = swipeablePagesSpy.mock.calls.at(-1)?.[0];
-    act(() => {
-      void swipeableProps.onRefresh();
-    });
-
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.filter(([url]) =>
-        String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
-      )).toHaveLength(2);
-    });
   });
 
-  it('downgrades to the disabled state when analytics returns a gated 403 and re-downgrades after a manual refresh retry', async () => {
+  it('downgrades to the disabled state when analytics returns a gated 403', async () => {
     let analyticsRequests = 0;
 
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
@@ -466,20 +463,6 @@ describe('AdminDashboardPage', () => {
       expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
     });
 
-    const analyticsRequestsBeforeRefresh = analyticsRequests;
-    expect(analyticsRequestsBeforeRefresh).toBeGreaterThan(0);
-
-    const swipeableProps = swipeablePagesSpy.mock.calls.at(-1)?.[0];
-    act(() => {
-      void swipeableProps.onRefresh();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Analytics dashboard is turned off for this salon.')).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
-      expect(analyticsRequests).toBe(analyticsRequestsBeforeRefresh + 1);
-    });
+    expect(analyticsRequests).toBeGreaterThan(0);
   });
 });

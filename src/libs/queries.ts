@@ -3,11 +3,11 @@ import 'server-only';
 import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import {
-  addOnSchema,
   type AddOn,
+  addOnSchema,
   type Appointment,
-  appointmentServicesSchema,
   appointmentSchema,
+  appointmentServicesSchema,
   type CancelReason,
   type Client,
   clientSchema,
@@ -497,9 +497,9 @@ export async function getAppointmentById(
     .where(
       salonId
         ? and(
-            eq(appointmentSchema.id, appointmentId),
-            eq(appointmentSchema.salonId, salonId),
-          )
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salonId),
+        )
         : eq(appointmentSchema.id, appointmentId),
     )
     .limit(1);
@@ -814,8 +814,8 @@ export async function upsertSalonClient(
         ...(email && { email }),
         updatedAt: new Date(),
       })
-        .where(eq(salonClientSchema.id, existingClient.id))
-        .returning();
+      .where(eq(salonClientSchema.id, existingClient.id))
+      .returning();
 
     return updated!;
   }
@@ -1043,7 +1043,7 @@ export async function getSalonClients(
 export async function updateSalonClient(
   salonId: string,
   salonClientId: string,
-  updates: Partial<Pick<SalonClient, 'fullName' | 'email' | 'preferredTechnicianId' | 'notes'>>,
+  updates: Partial<Pick<SalonClient, 'fullName' | 'email' | 'preferredTechnicianId' | 'notes' | 'sensitivities' | 'nailPreferences' | 'tags' | 'rebookIntervalDays' | 'nextRebookDueAt' | 'lastContactAt'>>,
 ): Promise<SalonClient | null> {
   const [updated] = await db
     .update(salonClientSchema)

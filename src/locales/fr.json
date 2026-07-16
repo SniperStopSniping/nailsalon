@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "SaaS Template - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "meta_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec React, TypeScript, Shadcn UI et Tailwind CSS."
+    "meta_title": "Luster — Réservation et CRM gratuits pour techniciennes en ongles",
+    "meta_description": "Réservations, gestion de clientes, synchronisation Google Agenda et outils de croissance pour les professionnelles des ongles."
   },
   "Navbar": {
     "sign_in": "Se connecter",
@@ -13,31 +13,31 @@
     "company": "Entreprise"
   },
   "Hero": {
-    "follow_twitter": "Suivez @Ixartz sur Twitter",
-    "title": "Le parfait <important>SaaS template</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec React, TypeScript, Shadcn UI et Tailwind CSS.",
-    "primary_button": "Démarrer",
-    "secondary_button": "Mettez une étoile sur GitHub"
+    "follow_twitter": "Réservation gratuite par Luster",
+    "title": "Un espace de réservation soigné <important>conçu pour les techniciennes en ongles</important>.",
+    "description": "Gérez les rendez-vous, les clientes, les services et Google Agenda dans un espace Luster simple.",
+    "primary_button": "Connexion propriétaire",
+    "secondary_button": "Prendre rendez-vous"
   },
   "Sponsors": {
     "title": "Sponsorisé par"
   },
   "Features": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Débloquer le plein potentiel du SaaS Template",
-    "section_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec React, TypeScript, Shadcn UI et Tailwind CSS.",
-    "feature1_title": "Node.js",
-    "feature2_title": "React",
-    "feature3_title": "Tailwind CSS",
-    "feature4_title": "TypeScript",
-    "feature5_title": "Shadcn UI",
-    "feature6_title": "ESLint",
-    "feature_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec React, TypeScript, Shadcn UI et Tailwind CSS."
+    "section_title": "Tout ce qu'il faut pour rester bien réservée",
+    "section_description": "Luster réunit les rendez-vous, les clientes, les services et les disponibilités.",
+    "feature1_title": "Réservation en ligne",
+    "feature2_title": "CRM clientes",
+    "feature3_title": "Google Agenda",
+    "feature4_title": "Services",
+    "feature5_title": "Rappels",
+    "feature6_title": "Aperçus du salon",
+    "feature_description": "Des outils de salon simples, conçus pour le quotidien des techniciennes en ongles."
   },
   "Pricing": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Débloquer le plein potentiel du SaaS Template",
-    "section_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec React, TypeScript, Shadcn UI et Tailwind CSS.",
+    "section_title": "Des outils de réservation gratuits pour les techniciennes indépendantes",
+    "section_description": "Gérez gratuitement vos réservations et vos clientes avec Luster.",
     "button_text": "Démarrer"
   },
   "PricingPlan": {
@@ -57,13 +57,13 @@
     "next_renew_date": "Votre abonnement sera renouvelé le {date}"
   },
   "FAQ": {
-    "question": "Lorem ipsum dolor sit amet, consectetur adipiscing elit?",
-    "answer": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam aliquam enim dui, id consequat turpis ullamcorper ac. Mauris id quam dolor. Nullam eu egestas turpis. Proin risus elit, sollicitudin in mi a, accumsan euismod turpis. In euismod mi sed diam tristique hendrerit."
+    "question": "Qu'est-ce qui est inclus avec Luster?",
+    "answer": "Chaque technicienne invitée reçoit la réservation en ligne, la gestion des clientes, les services, le calendrier et une connexion Google Agenda facultative."
   },
   "CTA": {
-    "title": "Vous êtes prêt?",
-    "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    "button_text": "Mettez une étoile sur GitHub"
+    "title": "Prête pour une journée de réservation plus soignée?",
+    "description": "Connectez-vous pour gérer votre espace salon Luster.",
+    "button_text": "Connexion propriétaire"
   },
   "Footer": {
     "product": "Produit",
@@ -94,16 +94,16 @@
     "settings": "Réglages"
   },
   "Dashboard": {
-    "meta_title": "Tableau de bord du SaaS Template",
-    "meta_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS."
+    "meta_title": "Espace Luster",
+    "meta_description": "Gérez les réservations, les clientes, les services et les intégrations de votre salon."
   },
   "DashboardIndex": {
-    "title_bar": "Tableau de bord",
-    "title_bar_description": "Bienvenue sur votre tableau de bord",
-    "message_state_title": "C'est parti",
-    "message_state_description": "Vous pouvez personnaliser cette page en modifiant le fichier dans <code>dashboard/page.tsx</code>",
-    "message_state_button": "Mettez une étoile sur GitHub",
-    "message_state_alternative": "Vous voulez plus de fonctionnalités et les dernières nouveautés de Next.js 16 ? Essayez <url></url>."
+    "title_bar": "Espace Luster",
+    "title_bar_description": "Gérez votre salon au même endroit",
+    "message_state_title": "Votre salon est prêt",
+    "message_state_description": "Ouvrez votre espace Luster pour gérer les rendez-vous, les clientes, les services et les intégrations.",
+    "message_state_button": "Ouvrir l'espace",
+    "message_state_alternative": "Besoin d'aide? Contactez l'assistance Luster à <url></url>."
   },
   "UserProfile": {
     "title_bar": "Profil utilisateur",

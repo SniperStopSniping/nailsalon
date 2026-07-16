@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Gift,
   History,
+  Mail,
   MapPin,
   Pause,
   Play,
@@ -40,6 +41,7 @@ import { AuditLogTable } from './AuditLogTable';
 import { DeleteSalonModal } from './DeleteSalonModal';
 import { LocationForm } from './LocationForm';
 import { ResetDataModal } from './ResetDataModal';
+import { SalonFeatureAccessManager } from './SalonFeatureAccessManager';
 import { UserSearchModal } from './UserSearchModal';
 
 type SalonDetail = {
@@ -79,6 +81,14 @@ type PendingInvite = {
   phoneE164: string;
   expiresAt: string;
   isExpired: boolean;
+};
+
+type ClaimInvite = {
+  id: string;
+  email: string;
+  expiresAt: string;
+  joinUrl: string;
+  emailDeliveryStatus: 'sent' | 'failed';
 };
 
 type AdminInfo = {
@@ -340,8 +350,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Invite owner form state
-  const [invitePhone, setInvitePhone] = useState('');
+  const [claimInvite, setClaimInvite] = useState<ClaimInvite | null>(null);
   const [invitingOwner, setInvitingOwner] = useState(false);
 
   // Form state
@@ -355,6 +364,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Feature entitlements state (JSONB - source of truth)
   // Initialize with Starter tier defaults
   const [features, setFeatures] = useState<SalonFeatures>({ ...STARTER_FEATURES });
+  const [featureSaveStatus, setFeatureSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [featureSaveError, setFeatureSaveError] = useState<string | null>(null);
 
   // Legacy feature toggles (kept for backward compatibility display)
   const [onlineBookingEnabled, setOnlineBookingEnabled] = useState(true);
@@ -376,7 +387,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     overview: true,
     plan: true,
-    features: true,
+    featureAccess: true,
+    features: false,
     billingPrograms: false,
     status: true,
     ownership: false,
@@ -500,6 +512,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
           internalNotes: internalNotes || null,
           // Feature entitlements (JSONB - source of truth)
           features,
+          syncFeatureModules: true,
           // Legacy feature toggles (kept for backward compatibility)
           onlineBookingEnabled,
           smsRemindersEnabled,
@@ -555,6 +568,41 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setJustSaved(false);
   };
 
+  const handleFeatureAccessChange = async (nextFeatures: SalonFeatures) => {
+    if (featureSaveStatus === 'saving') {
+      return;
+    }
+
+    const previousFeatures = features;
+    setFeatures(nextFeatures);
+    setFeatureSaveStatus('saving');
+    setFeatureSaveError(null);
+
+    try {
+      const response = await fetch(`/api/super-admin/organizations/${salonId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: nextFeatures,
+          syncFeatureModules: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Feature access could not be saved.');
+      }
+
+      setSalon(payload.salon);
+      setFeatures(payload.salon?.features ?? nextFeatures);
+      setFeatureSaveStatus('saved');
+      window.setTimeout(() => setFeatureSaveStatus('idle'), 1800);
+    } catch (saveError) {
+      setFeatures(previousFeatures);
+      setFeatureSaveError(saveError instanceof Error ? saveError.message : 'Feature access could not be saved.');
+      setFeatureSaveStatus('error');
+    }
+  };
+
   const smsRemindersEntitled = resolveEntitlement(features, 'marketing', 'smsReminders');
   const rewardsEntitled = resolveEntitlement(features, 'marketing', 'rewards');
   const referralsEntitled = resolveEntitlement(features, 'marketing', 'referrals');
@@ -591,9 +639,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     }
   };
 
-  // Invite new owner via phone
   const handleInviteOwner = async () => {
-    if (!invitePhone.trim()) {
+    if (!salon?.ownerEmail) {
       return;
     }
 
@@ -601,28 +648,38 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setError(null);
 
     try {
-      const response = await fetch('/api/super-admin/invites', {
+      const response = await fetch('/api/super-admin/signup-invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: invitePhone,
-          role: 'ADMIN',
-          salonSlug: salon?.slug,
-          membershipRole: 'owner',
+          email: salon.ownerEmail,
+          salonId,
+          campaignSource: 'legacy-salon-recovery',
         }),
       });
 
+      const data = await response.json().catch(() => null);
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to send invite');
+        throw new Error(data?.error?.message || data?.error || 'Failed to send invite');
       }
 
-      setInvitePhone('');
+      setClaimInvite(data.data);
       await fetchSalon();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setInvitingOwner(false);
+    }
+  };
+
+  const copyClaimInvite = async () => {
+    if (!claimInvite) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(claimInvite.joinUrl);
+    } catch {
+      setError('Could not copy the owner invitation link.');
     }
   };
 
@@ -993,6 +1050,21 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         </div>
                       </CollapsibleSection>
 
+                      <CollapsibleSection
+                        title="Features & Access"
+                        icon={<ToggleRight className="size-4" />}
+                        expanded={expandedSections.featureAccess ?? true}
+                        onToggle={() => toggleSection('featureAccess')}
+                      >
+                        <SalonFeatureAccessManager
+                          features={features}
+                          onChange={nextFeatures => void handleFeatureAccessChange(nextFeatures)}
+                          saving={featureSaveStatus === 'saving'}
+                          saveStatus={featureSaveStatus}
+                          error={featureSaveError}
+                        />
+                      </CollapsibleSection>
+
                       {/* Plan & Limits Section */}
                       <CollapsibleSection
                         title="Plan & Limits"
@@ -1068,9 +1140,9 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
 
                       {/* Features Section */}
                       <CollapsibleSection
-                        title="Features"
+                        title="Legacy feature settings"
                         icon={<ToggleRight className="size-4" />}
-                        expanded={expandedSections.features ?? true}
+                        expanded={expandedSections.features ?? false}
                         onToggle={() => toggleSection('features')}
                       >
                         <div className="space-y-4">
@@ -1708,53 +1780,66 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                                     </div>
                                   </div>
                                 )
-                              : pendingOwnerInvite
-                                ? (
-                                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                                      <div className="text-sm">
-                                        <span className="font-medium text-amber-800">Pending invite:</span>
-                                        {' '}
-                                        <span className="text-amber-700">{formatPhoneDisplay(pendingOwnerInvite.phoneE164)}</span>
-                                      </div>
-                                      {pendingOwnerInvite.isExpired && (
-                                        <div className="mt-1 text-xs text-red-600">Invite expired</div>
-                                      )}
-                                    </div>
-                                  )
-                                : (
-                                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
-                                      No owner assigned
-                                    </div>
-                                  )}
+                              : (
+                                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+                                    No Clerk owner assigned
+                                  </div>
+                                )}
                           </div>
 
                           {/* Invite Owner */}
                           {!owner && (
                             <div>
-                              <label htmlFor="ownerInvitePhone" className="mb-2 block text-sm font-medium text-gray-700">
-                                Invite Owner by Phone
-                              </label>
-                              <div className="flex gap-2">
-                                <input
-                                  id="ownerInvitePhone"
-                                  type="tel"
-                                  value={invitePhone}
-                                  onChange={e => setInvitePhone(e.target.value)}
-                                  placeholder="(416) 555-1234"
-                                  className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={handleInviteOwner}
-                                  disabled={invitingOwner || !invitePhone.trim()}
-                                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {invitingOwner ? 'Sending...' : 'Invite'}
-                                </button>
+                              <div className="mb-2 text-sm font-medium text-gray-700">
+                                Claim this salon by email
                               </div>
-                              <p className="mt-1 text-xs text-gray-500">
-                                They&apos;ll receive an SMS to log in as owner
-                              </p>
+                              {salon.ownerEmail
+                                ? (
+                                    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                                      <div className="flex items-center gap-2 text-sm text-indigo-950">
+                                        <Mail className="size-4" />
+                                        <span className="break-all">{salon.ownerEmail}</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={handleInviteOwner}
+                                        disabled={invitingOwner}
+                                        className="mt-3 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {invitingOwner ? 'Creating secure invite…' : 'Send owner claim invitation'}
+                                      </button>
+                                    </div>
+                                  )
+                                : (
+                                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                      Add a valid owner email to this salon before creating a claim invitation.
+                                    </p>
+                                  )}
+                              {claimInvite && (
+                                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900">
+                                  <p>
+                                    {claimInvite.emailDeliveryStatus === 'sent'
+                                      ? 'Invitation emailed.'
+                                      : 'Invitation created, but email delivery failed. Use the secure link below.'}
+                                  </p>
+                                  <p className="mt-2 break-all text-xs text-green-800">{claimInvite.joinUrl}</p>
+                                  <div className="mt-3 flex gap-2">
+                                    <button type="button" onClick={copyClaimInvite} className="inline-flex items-center gap-1 rounded border border-green-300 bg-white px-3 py-1.5 text-xs">
+                                      <Copy className="size-3.5" />
+                                      Copy link
+                                    </button>
+                                    <button type="button" onClick={() => window.open(claimInvite.joinUrl, '_blank', 'noopener,noreferrer')} className="inline-flex items-center gap-1 rounded border border-green-300 bg-white px-3 py-1.5 text-xs">
+                                      <ExternalLink className="size-3.5" />
+                                      Open link
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {pendingOwnerInvite && (
+                                <p className="mt-2 text-xs text-gray-500">
+                                  A legacy phone invitation exists but cannot authenticate while legacy OTP is disabled.
+                                </p>
+                              )}
                             </div>
                           )}
 
@@ -2008,7 +2093,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex w-full items-center justify-between px-4 py-3 ${headerBg} transition-colors hover:bg-opacity-80`}
+        className={`flex w-full items-center justify-between px-4 py-3 ${headerBg} transition-colors hover:brightness-95`}
       >
         <div className="flex items-center gap-2">
           <span className={iconColor}>{icon}</span>

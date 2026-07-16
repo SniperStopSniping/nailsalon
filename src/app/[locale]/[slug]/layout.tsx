@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { getCanonicalAppOrigin } from '@/libs/publicUrl';
 import { getResolvedSalon } from '@/libs/tenant';
 import type { SalonStatus } from '@/models/Schema';
 import { SalonProvider } from '@/providers/SalonProvider';
@@ -34,6 +35,8 @@ export default async function SlugTenantLayout({
             Free booking by
             {' '}
             <a href="https://luster.com" className="font-semibold text-stone-700 underline underline-offset-2">Luster</a>
+            <span className="mx-2">·</span>
+            <a href={`${getCanonicalAppOrigin()}/owner`} className="font-semibold text-stone-700 underline underline-offset-2">Salon owner login</a>
           </footer>
         )}
       </SalonProvider>
