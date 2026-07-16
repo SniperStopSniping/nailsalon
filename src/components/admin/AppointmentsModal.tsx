@@ -198,7 +198,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
 
     const start = new Date(args.startTime);
     const end = new Date(start.getTime() + (new Date(previous.endTime).getTime() - new Date(previous.startTime).getTime()));
-    setAppointments(current => current.map((appointment) => (
+    setAppointments(current => current.map(appointment => (
       appointment.id === args.appointmentId
         ? { ...appointment, startTime: start.toISOString(), endTime: end.toISOString() }
         : appointment
@@ -232,6 +232,30 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
       setAttemptedTimeLabel(formatAttemptedTime(args.startTime));
     }
   }, [appointments, applyMutationResult]);
+
+  const handleResendConfirmation = useCallback(async () => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+    setDetailSaving(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`/api/appointments/${selectedAppointmentId}/resend-confirmation`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw payload.error ?? new Error('Confirmation email could not be sent');
+      }
+      await fetchDetail(selectedAppointmentId);
+    } catch (emailError) {
+      setDetailError(
+        typeof emailError === 'object' && emailError !== null && 'message' in emailError
+          ? String((emailError as { message?: unknown }).message)
+          : 'Confirmation email could not be sent',
+      );
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [fetchDetail, selectedAppointmentId]);
 
   const runManageMutation = useCallback(async (
     appointmentId: string,
@@ -327,7 +351,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         throw result.error ?? new Error('Unable to start appointment');
       }
 
-      setAppointments(current => current.map((appointment) => (
+      setAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'in_progress', isLocked: true }
           : appointment
@@ -362,7 +386,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         throw result.error ?? new Error('Unable to complete appointment');
       }
 
-      setAppointments(current => current.map((appointment) => (
+      setAppointments(current => current.map(appointment => (
         appointment.id === selectedAppointmentId
           ? { ...appointment, status: 'completed', isLocked: true }
           : appointment
@@ -468,6 +492,7 @@ export function AppointmentsModal({ onClose }: AppointmentsModalProps) {
         onCancelAppointment={handleCancelAppointment}
         onMarkCompleted={handleCompleteAppointment}
         onStartAppointment={handleStartAppointment}
+        onResendConfirmation={handleResendConfirmation}
       />
 
       <NewAppointmentModal

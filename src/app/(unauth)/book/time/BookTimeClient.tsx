@@ -219,6 +219,7 @@ export function BookTimeClient({
   const [selectedDate, setSelectedDate] = useState<Date | null>(today);
   const [visibleSlots, setVisibleSlots] = useState<AvailabilitySlot[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
+  const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
 
@@ -332,6 +333,7 @@ export function BookTimeClient({
           : (data.visibleSlots || []).map((time: string) => ({ time, startTime: null }));
         setVisibleSlots(nextVisibleSlots);
         setBookedSlots(data.bookedSlots || []);
+        setAvailabilityBufferMinutes(Math.max(0, Number(data.blockedDurationMinutes || 0) - Number(data.visibleDurationMinutes || totalDuration)));
       } else {
         if (availabilityRequestIdRef.current !== requestId) {
           return;
@@ -816,6 +818,16 @@ export function BookTimeClient({
               />
             )}
 
+            {!loadingSlots && (
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-950">
+                Your service takes
+                {' '}
+                <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
+                {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
+                . Times marked unavailable overlap existing schedule time.
+              </div>
+            )}
+
             {/* Morning Times */}
             {morningSlots.length > 0 && !loadingSlots && (
               <div
@@ -872,7 +884,7 @@ export function BookTimeClient({
                         {formatTime12h(slot.time)}
                         {booked && (
                           <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            Booked
+                            Unavailable
                           </span>
                         )}
                       </button>
@@ -938,7 +950,7 @@ export function BookTimeClient({
                         {formatTime12h(slot.time)}
                         {booked && (
                           <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            Booked
+                            Unavailable
                           </span>
                         )}
                       </button>
@@ -978,7 +990,7 @@ export function BookTimeClient({
             ✨ No payment required to reserve
           </p>
           <p className="mt-0.5 text-xs text-neutral-400">
-            Free cancellation up to 24 hours before
+            Online changes follow this salon&apos;s cancellation policy
           </p>
         </div>
 

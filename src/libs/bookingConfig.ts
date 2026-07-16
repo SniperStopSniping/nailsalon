@@ -11,6 +11,7 @@ export const DEFAULT_BOOKING_CONFIG = {
   timezone: 'America/Toronto',
   introPriceDefaultLabel: null,
   firstVisitDiscountEnabled: false,
+  clientChangeCutoffHours: 24,
 } as const;
 
 export const bookingConfigSchema = z.object({
@@ -35,9 +36,18 @@ export const bookingConfigSchema = z.object({
   }, 'Invalid timezone'),
   introPriceDefaultLabel: z.string().trim().max(120).nullable().default(DEFAULT_BOOKING_CONFIG.introPriceDefaultLabel),
   firstVisitDiscountEnabled: z.boolean().default(DEFAULT_BOOKING_CONFIG.firstVisitDiscountEnabled),
+  clientChangeCutoffHours: z.number().int().min(0).max(168).default(DEFAULT_BOOKING_CONFIG.clientChangeCutoffHours),
 });
 
 export type BookingConfig = z.infer<typeof bookingConfigSchema>;
+
+export function getClientChangePolicy(startTime: Date, config: BookingConfig, now = new Date()) {
+  const cutoffAt = new Date(startTime.getTime() - config.clientChangeCutoffHours * 60 * 60 * 1000);
+  return {
+    cutoffAt,
+    canChange: config.clientChangeCutoffHours === 0 || now < cutoffAt,
+  };
+}
 
 export function resolveBookingConfigFromSettings(settings: SalonSettings | null | undefined): BookingConfig {
   const parsed = bookingConfigSchema.safeParse(settings?.booking ?? {});

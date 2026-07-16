@@ -323,7 +323,10 @@ export async function GET(request: Request): Promise<Response> {
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
       visibleSlots,
-      slots,
+      slots: slots.map(slot => ({
+        ...slot,
+        availability: blockedSlots.has(slot.time) ? 'schedule_conflict' : 'available',
+      })),
       bookedSlots,
       appointmentCount: bookedSlots.length,
     });

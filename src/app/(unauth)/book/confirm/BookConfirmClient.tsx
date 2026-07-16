@@ -399,7 +399,7 @@ const ExistingAppointmentState = ({
         tone="warning"
         icon={<Calendar className="mx-auto size-10 text-[var(--n5-warning)]" />}
         title="You already have a booking"
-        description="To avoid duplicate bookings, update or cancel your current appointment from your profile."
+        description="To avoid duplicate bookings, use the secure link from your confirmation email or request a fresh link."
         contentClassName="py-7"
       />
       <button
@@ -414,7 +414,7 @@ const ExistingAppointmentState = ({
           boxShadow: n5.shadowSm,
         }}
       >
-        Manage current appointment
+        Find my booking
       </button>
     </div>
   </div>
@@ -1342,10 +1342,7 @@ export function BookConfirmClient({
   if (hasExistingAppointment) {
     return (
       <ExistingAppointmentState
-        onViewProfile={() => router.push(appendSalonSlug(`/${locale}/profile`, salonSlug, {
-          routeSalonSlug,
-          locale,
-        }))}
+        onViewProfile={() => router.push(`/${locale}/${salonSlug}/find-booking`)}
       />
     );
   }
