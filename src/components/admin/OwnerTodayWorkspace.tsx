@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CalendarDays, ExternalLink, Link2, Settings2, Sparkles, Users } from 'lucide-react';
 
+import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
 
 type AppointmentGlance = {
@@ -58,6 +59,8 @@ export function OwnerTodayWorkspace({
       </section>
 
       <QuickActionsWidget onAction={onQuickAction} />
+
+      <GoogleEventReviewQueue salonSlug={salonSlug} />
 
       <section className="rounded-3xl border border-rose-100/80 bg-white p-5 shadow-[0_10px_30px_rgba(76,29,46,0.05)]">
         <h2 className="text-base font-semibold text-stone-950">Your booking page</h2>

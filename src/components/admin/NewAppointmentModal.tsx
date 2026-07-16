@@ -39,6 +39,15 @@ type NewAppointmentModalProps = {
   onClose: () => void;
   onSuccess?: () => void;
   preselectedDate?: Date;
+  googleEventPrefill?: {
+    id: string;
+    title: string | null;
+    startTime: string;
+    durationMinutes: number;
+    suggestedClient?: { fullName: string | null; phone: string; email: string | null } | null;
+    suggestedService?: { id: string; price: number } | null;
+    isReadOnly?: boolean;
+  } | null;
 };
 
 // Helper functions
@@ -51,8 +60,7 @@ function formatCurrency(cents: number): string {
 }
 
 function formatDateForInput(date: Date): string {
-  const result = date.toISOString().split('T')[0];
-  return result ?? '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 // Generate time slots from 8 AM to 8 PM in 30-minute increments
@@ -74,6 +82,7 @@ export function NewAppointmentModal({
   onClose,
   onSuccess,
   preselectedDate,
+  googleEventPrefill,
 }: NewAppointmentModalProps) {
   const { salonSlug } = useSalon();
 
@@ -84,6 +93,8 @@ export function NewAppointmentModal({
   const [selectedTime, setSelectedTime] = useState<string>('10:00');
   const [clientPhone, setClientPhone] = useState('');
   const [clientName, setClientName] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [priceOverride, setPriceOverride] = useState('');
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
 
@@ -98,6 +109,20 @@ export function NewAppointmentModal({
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !googleEventPrefill) {
+      return;
+    }
+    const start = new Date(googleEventPrefill.startTime);
+    setSelectedDate(formatDateForInput(start));
+    setSelectedTime(`${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`);
+    setClientName(googleEventPrefill.suggestedClient?.fullName || '');
+    setClientPhone((googleEventPrefill.suggestedClient?.phone || '').replace(/\D/g, '').slice(-10));
+    setClientEmail(googleEventPrefill.suggestedClient?.email || '');
+    setSelectedServiceIds(googleEventPrefill.suggestedService ? [googleEventPrefill.suggestedService.id] : []);
+    setPriceOverride(googleEventPrefill.suggestedService ? String(googleEventPrefill.suggestedService.price / 100) : '');
+  }, [googleEventPrefill, isOpen]);
 
   // Fetch technicians and services
   const fetchData = useCallback(async () => {
@@ -240,7 +265,12 @@ export function NewAppointmentModal({
           technicianId: selectedTechnicianId,
           clientPhone,
           clientName: clientName || undefined,
+          clientEmail: clientEmail || undefined,
           startTime: startTime.toISOString(),
+          googleEventReviewId: googleEventPrefill?.id,
+          priceCentsOverride: googleEventPrefill && priceOverride !== ''
+            ? Math.round(Number(priceOverride) * 100)
+            : undefined,
         }),
       });
 
@@ -291,7 +321,20 @@ export function NewAppointmentModal({
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">New Appointment</h2>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
+                {googleEventPrefill && (
+                  <p className="text-xs text-gray-500">
+                    {googleEventPrefill.title || 'Google Calendar event'}
+                    {' '}
+                    ·
+                    {' '}
+                    {googleEventPrefill.durationMinutes}
+                    {' '}
+                    min
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={onClose}
@@ -371,6 +414,18 @@ export function NewAppointmentModal({
                             </div>
                           )}
                         </div>
+
+                        <div>
+                          <label htmlFor="new-appt-client-email" className="mb-1.5 block text-sm font-medium text-gray-700">Email (optional)</label>
+                          <input
+                            id="new-appt-client-email"
+                            type="email"
+                            value={clientEmail}
+                            onChange={e => setClientEmail(e.target.value)}
+                            placeholder="client@example.com"
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
 
                       {/* Client Info */}
@@ -405,6 +460,21 @@ export function NewAppointmentModal({
                           />
                         </div>
                       </div>
+                      {googleEventPrefill && (
+                        <div>
+                          <label htmlFor="google-event-price" className="mb-1.5 block text-sm font-medium text-gray-700">Appointment price (CAD $)</label>
+                          <input
+                            id="google-event-price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={priceOverride}
+                            onChange={event => setPriceOverride(event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          {googleEventPrefill.isReadOnly && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
+                        </div>
+                      )}
 
                       {/* Technician Selection */}
                       <div className="relative">

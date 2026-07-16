@@ -10,11 +10,11 @@ import {
 } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
-import { listGoogleCalendarEventsForSalon } from '@/libs/googleCalendar';
+import { listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon } from '@/libs/googleCalendar';
 import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import {
   appointmentSchema,
-  googleCalendarDraftSchema,
+  googleCalendarEventSchema,
   salonGoogleCalendarConnectionSchema,
   salonSchema,
 } from '@/models/Schema';
@@ -107,6 +107,8 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
     .select({
       salonId: salonGoogleCalendarConnectionSchema.salonId,
       inboundSyncedAt: salonGoogleCalendarConnectionSchema.inboundSyncedAt,
+      destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId,
+      busyCalendarIds: salonGoogleCalendarConnectionSchema.busyCalendarIds,
     })
     .from(salonGoogleCalendarConnectionSchema)
     .where(and(
@@ -124,20 +126,12 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
     cancelledAppointments: 0,
     conflicts: 0,
     failedConnections: 0,
+    importedEvents: 0,
     importedDrafts: 0,
   };
 
   for (const connection of connections) {
     const checkpoint = new Date();
-    if (!connection.inboundSyncedAt) {
-      await db.update(salonGoogleCalendarConnectionSchema).set({
-        inboundSyncedAt: checkpoint,
-        inboundSyncError: null,
-      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, connection.salonId));
-      summary.initializedConnections += 1;
-      continue;
-    }
-
     try {
       const [salon] = await db.select({
         name: salonSchema.name,
@@ -148,49 +142,123 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
       }
       const timeZone = salon.settings?.booking?.timezone || 'America/Toronto';
 
-      const remoteEvents = await listGoogleCalendarEventsForSalon({
-        salonId: connection.salonId,
-        updatedMin: new Date(connection.inboundSyncedAt.getTime() - CURSOR_OVERLAP_MS),
-        includeDeleted: true,
-      });
-      const latestById = new Map(remoteEvents.map(event => [event.id, event]));
+      const calendarOptions = await listGoogleCalendarsForSalon(connection.salonId);
+      const accessRoles = new Map(calendarOptions.map(calendar => [calendar.id, calendar.accessRole]));
+      const primaryCalendarId = calendarOptions.find(calendar => calendar.primary)?.id;
+      const destinationCalendarId = connection.destinationCalendarId === 'primary'
+        ? primaryCalendarId || connection.destinationCalendarId
+        : connection.destinationCalendarId;
+      const busyCalendarIds = connection.busyCalendarIds.map(id => id === 'primary' ? primaryCalendarId || id : id);
+      const calendarIds = [...new Set([destinationCalendarId, ...busyCalendarIds])];
+      if (primaryCalendarId && (connection.destinationCalendarId === 'primary' || connection.busyCalendarIds.includes('primary'))) {
+        await db.update(salonGoogleCalendarConnectionSchema).set({
+          destinationCalendarId,
+          busyCalendarIds: [...new Set(busyCalendarIds)],
+        }).where(eq(salonGoogleCalendarConnectionSchema.salonId, connection.salonId));
+      }
+      const remoteEvents = await listGoogleCalendarEventsForSalon(connection.inboundSyncedAt
+        ? {
+            salonId: connection.salonId,
+            calendarIds,
+            updatedMin: new Date(connection.inboundSyncedAt.getTime() - CURSOR_OVERLAP_MS),
+            includeDeleted: true,
+          }
+        : {
+            salonId: connection.salonId,
+            calendarIds,
+            startTime: new Date(checkpoint.getTime() - 90 * 24 * 60 * 60 * 1000),
+            endTime: new Date(checkpoint.getTime() + 365 * 24 * 60 * 60 * 1000),
+            includeDeleted: false,
+          });
+      if (!connection.inboundSyncedAt) {
+        summary.initializedConnections += 1;
+      }
+      const latestById = new Map(remoteEvents.map(event => [`${event.calendarId}:${event.id}`, event]));
       summary.scannedEvents += latestById.size;
 
       for (const remoteEvent of latestById.values()) {
-        if (!remoteEvent.appointmentId && !remoteEvent.salonId) {
-          if (remoteEvent.status === 'cancelled') {
-            await db.update(googleCalendarDraftSchema).set({
-              status: 'dismissed',
-              updatedAt: new Date(),
-            }).where(and(
-              eq(googleCalendarDraftSchema.salonId, connection.salonId),
-              eq(googleCalendarDraftSchema.googleEventId, remoteEvent.id),
-            ));
-          } else if (remoteEvent.startTime && remoteEvent.endTime && remoteEvent.endTime > remoteEvent.startTime) {
-            await db.insert(googleCalendarDraftSchema).values({
-              id: `gcd_${crypto.randomUUID()}`,
-              salonId: connection.salonId,
-              googleEventId: remoteEvent.id,
+        const [storedEvent] = await db.select({
+          id: googleCalendarEventSchema.id,
+          appointmentId: googleCalendarEventSchema.appointmentId,
+          reviewStatus: googleCalendarEventSchema.reviewStatus,
+        }).from(googleCalendarEventSchema).where(and(
+          eq(googleCalendarEventSchema.salonId, connection.salonId),
+          eq(googleCalendarEventSchema.calendarId, remoteEvent.calendarId),
+          eq(googleCalendarEventSchema.googleEventId, remoteEvent.id),
+        )).limit(1);
+        const linkedAppointmentId = storedEvent && storedEvent.reviewStatus !== 'appointment'
+          ? storedEvent.appointmentId
+          : remoteEvent.salonId === connection.salonId
+            ? remoteEvent.appointmentId
+            : storedEvent?.appointmentId || null;
+        const sourceAccessRole = accessRoles.get(remoteEvent.calendarId) || 'reader';
+        const syncMode = ['owner', 'writer'].includes(sourceAccessRole) ? 'bidirectional' : 'inbound_only';
+
+        if (remoteEvent.status === 'cancelled') {
+          if (storedEvent) {
+            await db.update(googleCalendarEventSchema).set({
+              googleStatus: 'cancelled',
+              deletedAt: new Date(),
+              lastSyncedAt: new Date(),
+            }).where(eq(googleCalendarEventSchema.id, storedEvent.id));
+          }
+        } else if (remoteEvent.startTime && remoteEvent.endTime && remoteEvent.endTime > remoteEvent.startTime) {
+          const durationMinutes = Math.max(1, Math.round((remoteEvent.endTime.getTime() - remoteEvent.startTime.getTime()) / 60_000));
+          await db.insert(googleCalendarEventSchema).values({
+            id: storedEvent?.id || `gce_${crypto.randomUUID()}`,
+            salonId: connection.salonId,
+            calendarId: remoteEvent.calendarId,
+            googleEventId: remoteEvent.id,
+            recurringEventId: remoteEvent.recurringEventId,
+            appointmentId: linkedAppointmentId,
+            sourceAccessRole,
+            syncMode,
+            title: remoteEvent.summary,
+            description: remoteEvent.description,
+            location: remoteEvent.location,
+            startTime: remoteEvent.startTime,
+            endTime: remoteEvent.endTime,
+            durationMinutes,
+            isAllDay: remoteEvent.isAllDay,
+            transparency: remoteEvent.transparency,
+            googleStatus: remoteEvent.status,
+            reviewStatus: linkedAppointmentId
+              ? 'appointment'
+              : remoteEvent.endTime >= checkpoint ? 'needs_review' : 'reviewed',
+            googleUpdatedAt: remoteEvent.updatedAt,
+            lastSyncedAt: new Date(),
+            reviewedAt: linkedAppointmentId || remoteEvent.endTime < checkpoint ? new Date() : null,
+            deletedAt: null,
+          }).onConflictDoUpdate({
+            target: [googleCalendarEventSchema.salonId, googleCalendarEventSchema.calendarId, googleCalendarEventSchema.googleEventId],
+            set: {
+              recurringEventId: remoteEvent.recurringEventId,
+              appointmentId: linkedAppointmentId,
+              sourceAccessRole,
+              syncMode,
               title: remoteEvent.summary,
+              description: remoteEvent.description,
+              location: remoteEvent.location,
               startTime: remoteEvent.startTime,
               endTime: remoteEvent.endTime,
-              status: 'needs_details',
-            }).onConflictDoUpdate({
-              target: [googleCalendarDraftSchema.salonId, googleCalendarDraftSchema.googleEventId],
-              set: {
-                title: remoteEvent.summary,
-                startTime: remoteEvent.startTime,
-                endTime: remoteEvent.endTime,
-                updatedAt: new Date(),
-              },
-            });
-            summary.importedDrafts += 1;
-          }
+              durationMinutes,
+              isAllDay: remoteEvent.isAllDay,
+              transparency: remoteEvent.transparency,
+              googleStatus: remoteEvent.status,
+              googleUpdatedAt: remoteEvent.updatedAt,
+              lastSyncedAt: new Date(),
+              deletedAt: null,
+            },
+          });
+          summary.importedEvents += 1;
+          summary.importedDrafts += 1;
+        }
+        if (!linkedAppointmentId) {
           continue;
         }
         if (
-          !remoteEvent.appointmentId
-          || remoteEvent.salonId !== connection.salonId
+          remoteEvent.salonId
+          && remoteEvent.salonId !== connection.salonId
         ) {
           continue;
         }
@@ -204,7 +272,7 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
           clientName: appointmentSchema.clientName,
           notes: appointmentSchema.notes,
         }).from(appointmentSchema).where(and(
-          eq(appointmentSchema.id, remoteEvent.appointmentId),
+          eq(appointmentSchema.id, linkedAppointmentId),
           eq(appointmentSchema.salonId, connection.salonId),
         )).limit(1);
         if (!appointment || !ACTIVE_APPOINTMENT_STATUSES.includes(appointment.status as typeof ACTIVE_APPOINTMENT_STATUSES[number])) {

@@ -22,6 +22,7 @@ export default function LusterOwnerPage() {
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [destinationCalendarId, setDestinationCalendarId] = useState('primary');
   const [busyCalendarIds, setBusyCalendarIds] = useState<string[]>(['primary']);
+  const [calendarDirty, setCalendarDirty] = useState(false);
   const [areaCode, setAreaCode] = useState('416');
   const [twilioPreview, setTwilioPreview] = useState<{ number: { phone_number: string }; monthlyPrice: string | null; currency: string } | null>(null);
   const [working, setWorking] = useState('');
@@ -62,6 +63,7 @@ export default function LusterOwnerPage() {
         setCalendars(payload.data?.calendars || []);
         setDestinationCalendarId(payload.data?.selection?.destinationCalendarId || 'primary');
         setBusyCalendarIds(payload.data?.selection?.busyCalendarIds || ['primary']);
+        setCalendarDirty(false);
       }
     }
     void bootstrap();
@@ -71,7 +73,15 @@ export default function LusterOwnerPage() {
   async function saveCalendars() {
     setWorking('calendar');
     const response = await fetch('/api/integrations/google/calendars', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, destinationCalendarId, busyCalendarIds }) });
-    setMessage(response.ok ? 'Calendar choices saved.' : 'Calendar choices could not be saved.');
+    const payload = await response.json().catch(() => null);
+    if (response.ok) {
+      setDestinationCalendarId(payload.data?.selection?.destinationCalendarId || destinationCalendarId);
+      setBusyCalendarIds(payload.data?.selection?.busyCalendarIds || busyCalendarIds);
+      setCalendarDirty(false);
+      setMessage('Calendars saved. Busy Google events now prevent double-booking.');
+    } else {
+      setMessage(payload?.error || 'Calendar choices could not be saved. Reconnect Google Calendar and try again.');
+    }
     setWorking('');
   }
   async function previewTwilio() {
@@ -133,20 +143,36 @@ export default function LusterOwnerPage() {
                   <div className="mt-5 space-y-4">
                     <label className="block text-sm">
                       Appointment calendar
-                      <select className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2" value={destinationCalendarId} onChange={event => setDestinationCalendarId(event.target.value)}>{calendars.filter(calendar => ['owner', 'writer'].includes(calendar.accessRole)).map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>)}</select>
+                      <select
+                        className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2"
+                        value={destinationCalendarId}
+                        onChange={(event) => {
+                          setDestinationCalendarId(event.target.value);
+                          setCalendarDirty(true);
+                        }}
+                      >
+                        {calendars.filter(calendar => ['owner', 'writer'].includes(calendar.accessRole)).map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>)}
+                      </select>
                     </label>
                     <fieldset>
-                      <legend className="text-sm">Calendars that block booking</legend>
+                      <legend className="text-sm font-medium">Calendars that prevent double-booking</legend>
                       <div className="mt-2 space-y-2">
                         {calendars.map(calendar => (
                           <label key={calendar.id} className="flex gap-2 text-sm">
-                            <input type="checkbox" checked={busyCalendarIds.includes(calendar.id)} onChange={event => setBusyCalendarIds(current => event.target.checked ? [...new Set([...current, calendar.id])] : current.filter(id => id !== calendar.id))} />
+                            <input
+                              type="checkbox"
+                              checked={busyCalendarIds.includes(calendar.id)}
+                              onChange={(event) => {
+                                setBusyCalendarIds(current => event.target.checked ? [...new Set([...current, calendar.id])] : current.filter(id => id !== calendar.id));
+                                setCalendarDirty(true);
+                              }}
+                            />
                             {calendar.summary}
                           </label>
                         ))}
                       </div>
                     </fieldset>
-                    <button type="button" disabled={working === 'calendar' || !busyCalendarIds.length} onClick={saveCalendars} className="rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white">Save calendars</button>
+                    <button type="button" disabled={working === 'calendar' || !busyCalendarIds.length || !calendarDirty} onClick={saveCalendars} className="rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{working === 'calendar' ? 'Saving…' : calendarDirty ? 'Save blocking calendars' : 'Calendars saved'}</button>
                     <div className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-950">
                       <p className="font-semibold">
                         Two-way appointment sync is

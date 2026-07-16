@@ -139,6 +139,7 @@ describe('GET /api/appointments/availability', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(getGoogleCalendarBusyWindows).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon_1' }));
     expect(body.durationMinutes).toBe(90);
     expect(body.visibleSlots).not.toContain('17:00');
     expect(body.visibleSlots).not.toContain('17:30');

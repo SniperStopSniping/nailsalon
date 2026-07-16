@@ -751,7 +751,12 @@ function AdminDashboardContent() {
   }, [fetchData, resolveAnalyticsModuleAvailability]);
 
   const handleWorkspaceTab = useCallback((tab: OwnerWorkspaceTab) => {
+    setShowScheduleCalendar(false);
+    setActiveModal(null);
     setWorkspaceTab(tab);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     if (tab === 'calendar') {
       setShowScheduleCalendar(true);
       return;
@@ -762,10 +767,7 @@ function AdminDashboardContent() {
     }
     if (tab === 'services') {
       setActiveModal('services');
-      return;
     }
-    setShowScheduleCalendar(false);
-    setActiveModal(null);
   }, []);
 
   // Close modal
@@ -902,8 +904,7 @@ function AdminDashboardContent() {
       className="min-h-screen bg-[#F8F3F0] font-sans text-stone-950"
       style={{
         opacity: mounted ? 1 : 0,
-        transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-        transition: 'opacity 300ms ease-out, transform 300ms ease-out',
+        transition: 'opacity 300ms ease-out',
       }}
     >
       <AdminDashboardNoticeStack

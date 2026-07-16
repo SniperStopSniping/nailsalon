@@ -13,7 +13,8 @@
 
 import type { PanInfo } from 'framer-motion';
 import { AnimatePresence, motion, useAnimation } from 'framer-motion';
-import { type ReactNode, useCallback, useEffect } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 // Dismiss threshold in pixels
 const DISMISS_THRESHOLD = 100;
@@ -40,6 +41,11 @@ export function AppModal({
   allowDragToDismiss = true,
 }: AppModalProps) {
   const controls = useAnimation();
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   // Close on escape key
   useEffect(() => {
@@ -55,13 +61,26 @@ export function AppModal({
 
   // Lock body scroll when modal is open
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
+    if (!isOpen) {
+      return undefined;
     }
+    const scrollY = window.scrollY;
+    const previous = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+    };
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previous.overflow;
+      document.body.style.position = previous.position;
+      document.body.style.top = previous.top;
+      document.body.style.width = previous.width;
+      window.scrollTo(0, scrollY);
     };
   }, [isOpen]);
 
@@ -80,7 +99,11 @@ export function AppModal({
     [onClose, controls],
   );
 
-  return (
+  if (!portalReady) {
+    return null;
+  }
+
+  return createPortal((
     <AnimatePresence>
       {isOpen && (
         <>
@@ -133,6 +156,7 @@ export function AppModal({
         </>
       )}
     </AnimatePresence>
+  ), document.body,
   );
 }
 

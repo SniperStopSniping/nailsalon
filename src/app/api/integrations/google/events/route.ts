@@ -1,11 +1,10 @@
-import { and, eq, gte, lt } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { listExternalGoogleCalendarEvents } from '@/libs/googleCalendar';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
-import { googleCalendarDraftSchema } from '@/models/Schema';
+import { googleCalendarEventSchema } from '@/models/Schema';
 
 const querySchema = z.object({
   salonSlug: z.string().min(1),
@@ -32,35 +31,41 @@ export async function GET(request: Request) {
 
   try {
     await processGoogleCalendarInboundSync(1, salon.id);
-    const [events, drafts] = await Promise.all([
-      listExternalGoogleCalendarEvents({ salonId: salon.id, startTime, endTime }),
-      db.select({
-        id: googleCalendarDraftSchema.id,
-        googleEventId: googleCalendarDraftSchema.googleEventId,
-        title: googleCalendarDraftSchema.title,
-        startTime: googleCalendarDraftSchema.startTime,
-        endTime: googleCalendarDraftSchema.endTime,
-      }).from(googleCalendarDraftSchema).where(and(
-        eq(googleCalendarDraftSchema.salonId, salon.id),
-        eq(googleCalendarDraftSchema.status, 'needs_details'),
-        gte(googleCalendarDraftSchema.startTime, startTime),
-        lt(googleCalendarDraftSchema.startTime, endTime),
-      )),
-    ]);
-    const draftsByEventId = new Map(drafts.map(draft => [draft.googleEventId, draft]));
+    const events = await db.select({
+      id: googleCalendarEventSchema.id,
+      googleEventId: googleCalendarEventSchema.googleEventId,
+      calendarId: googleCalendarEventSchema.calendarId,
+      appointmentId: googleCalendarEventSchema.appointmentId,
+      title: googleCalendarEventSchema.title,
+      description: googleCalendarEventSchema.description,
+      location: googleCalendarEventSchema.location,
+      startTime: googleCalendarEventSchema.startTime,
+      endTime: googleCalendarEventSchema.endTime,
+      durationMinutes: googleCalendarEventSchema.durationMinutes,
+      isAllDay: googleCalendarEventSchema.isAllDay,
+      transparency: googleCalendarEventSchema.transparency,
+      reviewStatus: googleCalendarEventSchema.reviewStatus,
+      sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
+      syncMode: googleCalendarEventSchema.syncMode,
+      lastSyncedAt: googleCalendarEventSchema.lastSyncedAt,
+    }).from(googleCalendarEventSchema).where(and(
+      eq(googleCalendarEventSchema.salonId, salon.id),
+      isNull(googleCalendarEventSchema.deletedAt),
+      ne(googleCalendarEventSchema.syncMode, 'superseded'),
+      lt(googleCalendarEventSchema.startTime, endTime),
+      gt(googleCalendarEventSchema.endTime, startTime),
+    ));
     return Response.json({
       data: {
-        events: events.map((event) => {
-          const draft = draftsByEventId.get(event.id);
-          return {
-            id: event.id,
-            draftId: draft?.id ?? null,
-            startTime: event.startTime.toISOString(),
-            endTime: event.endTime.toISOString(),
-            label: draft?.title || (draft ? 'Google appointment needs details' : 'Google Calendar busy'),
-            needsDetails: Boolean(draft),
-          };
-        }),
+        events: events.map(event => ({
+          ...event,
+          startTime: event.startTime.toISOString(),
+          endTime: event.endTime.toISOString(),
+          lastSyncedAt: event.lastSyncedAt.toISOString(),
+          needsDetails: event.reviewStatus === 'needs_review',
+          isReadOnly: !['owner', 'writer'].includes(event.sourceAccessRole),
+          label: event.title || (event.transparency === 'free' ? 'Google free event' : 'Google busy time'),
+        })),
       },
     });
   } catch (cause) {
