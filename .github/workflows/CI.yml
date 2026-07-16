@@ -45,10 +45,15 @@ jobs:
           --health-retries 5
     env:
       REDIS_URL: redis://localhost:6379
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       E2E_SUPER_ADMIN_PHONE: ${{ secrets.E2E_SUPER_ADMIN_PHONE }}
       E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+      SUPER_ADMIN_AUTH_MODE: password
+      SUPER_ADMIN_TEST_LOGIN_ENABLED: true
+      ALLOW_STAGING_SUPER_ADMIN_PASSWORD: true
+      LEGACY_OTP_AUTH_ENABLED: false
       PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
 
     steps:
