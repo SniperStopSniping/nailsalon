@@ -9,6 +9,7 @@ const {
   selectResults,
   updateSet,
   listGoogleCalendarEventsForSalon,
+  listGoogleCalendarsForSalon,
   runAppointmentManageMutation,
   getAppointmentCalendarEventForSync,
   enqueueGoogleCalendarUpsert,
@@ -33,6 +34,7 @@ const {
     selectResults,
     updateSet,
     listGoogleCalendarEventsForSalon: vi.fn(),
+    listGoogleCalendarsForSalon: vi.fn(),
     runAppointmentManageMutation: vi.fn(),
     getAppointmentCalendarEventForSync: vi.fn(),
     enqueueGoogleCalendarUpsert: vi.fn(),
@@ -42,7 +44,7 @@ const {
 });
 
 vi.mock('@/libs/DB', () => ({ db }));
-vi.mock('@/libs/googleCalendar', () => ({ listGoogleCalendarEventsForSalon }));
+vi.mock('@/libs/googleCalendar', () => ({ listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon }));
 vi.mock('@/libs/appointmentManage', () => ({
   AppointmentManageError: class AppointmentManageError extends Error {
     code: string;
@@ -64,6 +66,8 @@ import { processGoogleCalendarInboundSync } from './googleCalendarInbound';
 const connection = {
   salonId: 'salon_1',
   inboundSyncedAt: new Date('2026-07-15T15:00:00.000Z'),
+  destinationCalendarId: 'calendar_1',
+  busyCalendarIds: ['calendar_1'],
 };
 
 const salon = {
@@ -87,17 +91,22 @@ describe('processGoogleCalendarInboundSync', () => {
     vi.clearAllMocks();
     selectResults.length = 0;
     listGoogleCalendarEventsForSalon.mockResolvedValue([]);
+    listGoogleCalendarsForSalon.mockResolvedValue([{ id: 'calendar_1', accessRole: 'owner' }]);
     runAppointmentManageMutation.mockResolvedValue({ appointment: {}, warnings: [] });
     sendTransactionalEmail.mockResolvedValue(true);
   });
 
-  it('initializes a new connection without importing old calendar history', async () => {
-    selectResults.push([{ salonId: 'salon_1', inboundSyncedAt: null }]);
+  it('initializes a bounded calendar import without flooding historical review', async () => {
+    selectResults.push([{ ...connection, inboundSyncedAt: null }], [salon]);
 
     const result = await processGoogleCalendarInboundSync();
 
     expect(result.initializedConnections).toBe(1);
-    expect(listGoogleCalendarEventsForSalon).not.toHaveBeenCalled();
+    expect(listGoogleCalendarEventsForSalon).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      startTime: expect.any(Date),
+      endTime: expect.any(Date),
+    }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       inboundSyncedAt: expect.any(Date),
       inboundSyncError: null,
@@ -105,12 +114,20 @@ describe('processGoogleCalendarInboundSync', () => {
   });
 
   it('moves and resizes a tenant appointment changed in Google Calendar', async () => {
-    selectResults.push([connection], [salon], [appointment]);
+    selectResults.push([connection], [salon], [], [appointment]);
     listGoogleCalendarEventsForSalon.mockResolvedValue([{
       id: 'google_1',
+      calendarId: 'calendar_1',
       appointmentId: 'appt_1',
       salonId: 'salon_1',
       status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
       startTime: new Date('2026-07-16T16:00:00.000Z'),
       endTime: new Date('2026-07-16T17:45:00.000Z'),
     }]);
@@ -137,14 +154,21 @@ describe('processGoogleCalendarInboundSync', () => {
     }));
   });
 
-  it('imports a new Google event as a tenant-scoped draft that needs details', async () => {
-    selectResults.push([connection], [salon]);
+  it('imports a current Google event separately from CRM appointments', async () => {
+    selectResults.push([connection], [salon], []);
     listGoogleCalendarEventsForSalon.mockResolvedValue([{
       id: 'google_external_1',
+      calendarId: 'calendar_1',
       appointmentId: null,
       salonId: null,
       status: 'confirmed',
       summary: 'Maya nails',
+      description: 'Bring colour sample',
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
       startTime: new Date('2026-07-16T16:00:00.000Z'),
       endTime: new Date('2026-07-16T17:30:00.000Z'),
     }]);
@@ -155,19 +179,28 @@ describe('processGoogleCalendarInboundSync', () => {
       salonId: 'salon_1',
       googleEventId: 'google_external_1',
       title: 'Maya nails',
-      status: 'needs_details',
+      reviewStatus: 'needs_review',
+      appointmentId: null,
     }));
-    expect(result.importedDrafts).toBe(1);
+    expect(result.importedEvents).toBe(1);
     expect(runAppointmentManageMutation).not.toHaveBeenCalled();
   });
 
   it('cancels a matching appointment when its connected Google event is deleted', async () => {
-    selectResults.push([connection], [salon], [appointment]);
+    selectResults.push([connection], [salon], [{ id: 'gce_1', appointmentId: 'appt_1', reviewStatus: 'appointment' }], [appointment]);
     listGoogleCalendarEventsForSalon.mockResolvedValue([{
       id: 'google_1',
+      calendarId: 'calendar_1',
       appointmentId: 'appt_1',
       salonId: 'salon_1',
       status: 'cancelled',
+      summary: null,
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date(),
       startTime: null,
       endTime: null,
     }]);
@@ -186,12 +219,20 @@ describe('processGoogleCalendarInboundSync', () => {
   });
 
   it('ignores an event whose private salon marker does not match the connection', async () => {
-    selectResults.push([connection], [salon]);
+    selectResults.push([connection], [salon], []);
     listGoogleCalendarEventsForSalon.mockResolvedValue([{
       id: 'google_1',
+      calendarId: 'calendar_1',
       appointmentId: 'appt_1',
       salonId: 'salon_2',
       status: 'confirmed',
+      summary: null,
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date(),
       startTime: new Date(),
       endTime: new Date(),
     }]);

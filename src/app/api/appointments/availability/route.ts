@@ -228,6 +228,7 @@ export async function GET(request: Request): Promise<Response> {
       excludedAppointmentId: originalAppointmentId,
     });
     const googleBusyWindows = await getGoogleCalendarBusyWindows({
+      salonId: salon.id,
       startTime: startOfDay,
       endTime: endOfDay,
       timeZone: bookingConfig.timezone,

@@ -163,6 +163,7 @@ export async function GET(request: Request): Promise<Response> {
         },
         meta: {
           slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+          timeZone: bookingConfig.timezone,
         },
       }, { status: 200 });
     }
@@ -212,6 +213,7 @@ export async function GET(request: Request): Promise<Response> {
       },
       meta: {
         slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+        timeZone: bookingConfig.timezone,
       },
     }, { status: 200 });
   } catch (err) {

@@ -1527,6 +1527,62 @@ export const googleCalendarDraftSchema = pgTable(
   }),
 );
 
+// GoogleCalendarEvent - provider-owned calendar time kept separate from CRM appointments.
+export const googleCalendarEventSchema = pgTable(
+  'google_calendar_event',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    calendarId: text('calendar_id').notNull(),
+    googleEventId: text('google_event_id').notNull(),
+    recurringEventId: text('recurring_event_id'),
+    appointmentId: text('appointment_id').references(() => appointmentSchema.id, { onDelete: 'set null' }),
+    sourceAccessRole: text('source_access_role').default('reader').notNull(),
+    syncMode: text('sync_mode').$type<'inbound_only' | 'bidirectional' | 'superseded'>().default('inbound_only').notNull(),
+    title: text('title'),
+    description: text('description'),
+    location: text('location'),
+    startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    isAllDay: boolean('is_all_day').default(false).notNull(),
+    transparency: text('transparency').$type<'busy' | 'free'>().default('busy').notNull(),
+    googleStatus: text('google_status').default('confirmed').notNull(),
+    reviewStatus: text('review_status').$type<'needs_review' | 'reviewed' | 'appointment'>().default('needs_review').notNull(),
+    googleUpdatedAt: timestamp('google_updated_at', { mode: 'date', withTimezone: true }),
+    lastSyncedAt: timestamp('last_synced_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    reviewedAt: timestamp('reviewed_at', { mode: 'date', withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
+    supersededByEventId: text('superseded_by_event_id'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonCalendarEventIdx: uniqueIndex('google_calendar_event_tenant_provider_idx').on(table.salonId, table.calendarId, table.googleEventId),
+    salonReviewTimeIdx: index('google_calendar_event_review_time_idx').on(table.salonId, table.reviewStatus, table.startTime),
+    salonTimeIdx: index('google_calendar_event_salon_time_idx').on(table.salonId, table.startTime, table.endTime),
+    appointmentIdx: index('google_calendar_event_appointment_idx').on(table.appointmentId),
+  }),
+);
+
+// Exact-title review memory for future suggestions. The title itself is never duplicated here.
+export const googleEventReviewPatternSchema = pgTable(
+  'google_event_review_pattern',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    titleFingerprint: text('title_fingerprint').notNull(),
+    lastDecision: text('last_decision').$type<'busy_time' | 'free_event' | 'appointment'>().notNull(),
+    decisionCount: integer('decision_count').default(1).notNull(),
+    lastDecisionAt: timestamp('last_decision_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    salonPatternIdx: uniqueIndex('google_event_review_pattern_tenant_title_idx').on(table.salonId, table.titleFingerprint),
+  }),
+);
+
 export const salonTwilioConnectionSchema = pgTable(
   'salon_twilio_connection',
   {

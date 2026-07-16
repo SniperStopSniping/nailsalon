@@ -7,7 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { decryptIntegrationSecret } from '@/libs/lusterSecurity';
-import { appointmentSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
+import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -77,8 +77,14 @@ type GoogleCalendarEventResponse = {
 
 export type GoogleCalendarRemoteEvent = {
   id: string;
+  calendarId: string;
   status: string;
   summary: string | null;
+  description: string | null;
+  location: string | null;
+  recurringEventId: string | null;
+  transparency: 'busy' | 'free';
+  isAllDay: boolean;
   startTime: Date | null;
   endTime: Date | null;
   updatedAt: Date | null;
@@ -91,6 +97,10 @@ type GoogleCalendarEventListResponse = {
     id?: string;
     status?: string;
     summary?: string;
+    description?: string;
+    location?: string;
+    recurringEventId?: string;
+    transparency?: string;
     updated?: string;
     start?: { dateTime?: string; date?: string };
     end?: { dateTime?: string; date?: string };
@@ -312,6 +322,7 @@ function parseGoogleEventDate(value?: { dateTime?: string; date?: string }): Dat
 
 export async function listGoogleCalendarEventsForSalon(args: {
   salonId: string;
+  calendarIds?: string[];
   startTime?: Date;
   endTime?: Date;
   updatedMin?: Date;
@@ -323,61 +334,72 @@ export async function listGoogleCalendarEventsForSalon(args: {
   }
 
   const events: GoogleCalendarRemoteEvent[] = [];
-  let pageToken: string | undefined;
-  do {
-    const search = new URLSearchParams({
-      singleEvents: 'true',
-      showDeleted: args.includeDeleted ? 'true' : 'false',
-      maxResults: '2500',
-    });
-    if (args.updatedMin) {
-      search.set('updatedMin', args.updatedMin.toISOString());
-    } else {
-      if (args.startTime) {
-        search.set('timeMin', args.startTime.toISOString());
-      }
-      if (args.endTime) {
-        search.set('timeMax', args.endTime.toISOString());
-      }
-    }
-    if (pageToken) {
-      search.set('pageToken', pageToken);
-    }
-
-    const data = await googleCalendarFetchWithContext<GoogleCalendarEventListResponse>(
-      context,
-      `/calendars/${encodeURIComponent(context.calendarId)}/events?${search.toString()}`,
-      { method: 'GET' },
-    );
-    for (const item of data.items ?? []) {
-      if (!item.id) {
-        continue;
-      }
-      const privateProperties = item.extendedProperties?.private;
-      events.push({
-        id: item.id,
-        status: item.status || 'confirmed',
-        summary: item.summary?.trim() || null,
-        startTime: parseGoogleEventDate(item.start),
-        endTime: parseGoogleEventDate(item.end),
-        updatedAt: item.updated ? new Date(item.updated) : null,
-        appointmentId: privateProperties?.appointmentId || null,
-        salonId: privateProperties?.salonId || null,
+  const calendarIds = [...new Set(args.calendarIds?.length ? args.calendarIds : [context.calendarId])];
+  for (const calendarId of calendarIds) {
+    let pageToken: string | undefined;
+    do {
+      const search = new URLSearchParams({
+        singleEvents: 'true',
+        showDeleted: args.includeDeleted ? 'true' : 'false',
+        maxResults: '2500',
       });
-    }
-    pageToken = data.nextPageToken;
-  } while (pageToken);
+      if (args.updatedMin) {
+        search.set('updatedMin', args.updatedMin.toISOString());
+      } else {
+        if (args.startTime) {
+          search.set('timeMin', args.startTime.toISOString());
+        }
+        if (args.endTime) {
+          search.set('timeMax', args.endTime.toISOString());
+        }
+      }
+      if (pageToken) {
+        search.set('pageToken', pageToken);
+      }
+
+      const data = await googleCalendarFetchWithContext<GoogleCalendarEventListResponse>(
+        context,
+        `/calendars/${encodeURIComponent(calendarId)}/events?${search.toString()}`,
+        { method: 'GET' },
+      );
+      for (const item of data.items ?? []) {
+        if (!item.id) {
+          continue;
+        }
+        const privateProperties = item.extendedProperties?.private;
+        events.push({
+          id: item.id,
+          calendarId,
+          status: item.status || 'confirmed',
+          summary: item.summary?.trim() || null,
+          description: item.description?.trim() || null,
+          location: item.location?.trim() || null,
+          recurringEventId: item.recurringEventId || null,
+          transparency: item.transparency === 'transparent' ? 'free' : 'busy',
+          isAllDay: Boolean(item.start?.date && !item.start?.dateTime),
+          startTime: parseGoogleEventDate(item.start),
+          endTime: parseGoogleEventDate(item.end),
+          updatedAt: item.updated ? new Date(item.updated) : null,
+          appointmentId: privateProperties?.appointmentId || null,
+          salonId: privateProperties?.salonId || null,
+        });
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+  }
 
   return events;
 }
 
 export async function listExternalGoogleCalendarEvents(args: {
   salonId: string;
+  calendarIds?: string[];
   startTime: Date;
   endTime: Date;
-}): Promise<Array<{ id: string; startTime: Date; endTime: Date }>> {
+}): Promise<Array<GoogleCalendarRemoteEvent & { startTime: Date; endTime: Date }>> {
   const events = await listGoogleCalendarEventsForSalon({
     salonId: args.salonId,
+    calendarIds: args.calendarIds,
     startTime: args.startTime,
     endTime: args.endTime,
   });
@@ -386,7 +408,7 @@ export async function listExternalGoogleCalendarEvents(args: {
     && !event.appointmentId
     && event.startTime
     && event.endTime
-      ? [{ id: event.id, startTime: event.startTime, endTime: event.endTime }]
+      ? [{ ...event, startTime: event.startTime, endTime: event.endTime }]
       : []
   ));
 }
@@ -565,11 +587,33 @@ export async function hasGoogleCalendarConflict(args: {
   return isBusyWindowConflict(args.startTime, args.endTime, busyWindows);
 }
 
+async function applyLinkedEventCalendar(context: GoogleCalendarRequestContext, salonId: string, appointmentId: string): Promise<boolean> {
+  const [event] = await db.select({
+    calendarId: googleCalendarEventSchema.calendarId,
+    sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
+    syncMode: googleCalendarEventSchema.syncMode,
+  }).from(googleCalendarEventSchema).where(and(
+    eq(googleCalendarEventSchema.salonId, salonId),
+    eq(googleCalendarEventSchema.appointmentId, appointmentId),
+  )).limit(1);
+  if (!event) {
+    return true;
+  }
+  if (event.syncMode === 'inbound_only' || !['owner', 'writer'].includes(event.sourceAccessRole)) {
+    return false;
+  }
+  context.calendarId = event.calendarId;
+  return true;
+}
+
 export async function syncGoogleCalendarEventForAppointment(
   input: GoogleCalendarAppointmentEventInput,
 ): Promise<GoogleCalendarSyncResult> {
   const context = await getGoogleCalendarRequestContext(input.salonId);
   if (!context) {
+    return { status: 'disabled' };
+  }
+  if (!await applyLinkedEventCalendar(context, input.salonId, input.appointmentId)) {
     return { status: 'disabled' };
   }
 
@@ -647,6 +691,9 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
 }): Promise<GoogleCalendarSyncResult> {
   const context = await getGoogleCalendarRequestContext(args.salonId);
   if (!context || !args.googleCalendarEventId) {
+    return { status: 'disabled' };
+  }
+  if (!await applyLinkedEventCalendar(context, args.salonId, args.appointmentId)) {
     return { status: 'disabled' };
   }
 
