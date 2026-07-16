@@ -218,6 +218,39 @@ describe('GET /api/appointments/availability', () => {
     expect(body.bookedSlots).not.toContain('11:00');
   });
 
+  it('blocks every start whose service and buffer would overlap a 7:15 PM appointment', async () => {
+    getTechnicianById.mockResolvedValue({
+      id: 'tech_1',
+      weeklySchedule: { friday: { start: '09:00', end: '23:00' } },
+      enabledServiceIds: [],
+      serviceIds: [],
+      specialties: [],
+      primaryLocationId: null,
+    });
+    selectResults.push(
+      [],
+      [],
+      [],
+      [{
+        id: 'appt_715',
+        technicianId: 'tech_1',
+        startTime: new Date('2026-03-13T23:15:00.000Z'),
+        endTime: new Date('2026-03-14T00:45:00.000Z'),
+      }],
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=90'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.blockedDurationMinutes).toBe(100);
+    expect(body.bookedSlots).toEqual(expect.arrayContaining(['17:45', '18:00', '18:15', '18:30', '18:45', '19:00', '19:15']));
+    expect(body.bookedSlots).not.toContain('17:30');
+    expect(body.slots.find((slot: { time: string }) => slot.time === '17:45')).toMatchObject({ availability: 'schedule_conflict' });
+  });
+
   it('only considers technicians who can actually perform the requested services', async () => {
     getTechniciansBySalonId.mockResolvedValue([
       {

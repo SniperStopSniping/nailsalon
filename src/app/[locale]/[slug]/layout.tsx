@@ -36,6 +36,8 @@ export default async function SlugTenantLayout({
             {' '}
             <a href="https://luster.com" className="font-semibold text-stone-700 underline underline-offset-2">Luster</a>
             <span className="mx-2">·</span>
+            <a href={`/${params.locale}/${params.slug}/find-booking`} className="font-semibold text-stone-700 underline underline-offset-2">Find my booking</a>
+            <span className="mx-2">·</span>
             <a href={`${getCanonicalAppOrigin()}/owner`} className="font-semibold text-stone-700 underline underline-offset-2">Salon owner login</a>
           </footer>
         )}

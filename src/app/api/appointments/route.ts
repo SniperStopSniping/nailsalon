@@ -14,7 +14,7 @@ import {
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
@@ -894,6 +894,12 @@ export async function POST(request: Request): Promise<Response> {
             },
           } satisfies ErrorResponse,
           { status: 400 },
+        );
+      }
+      if (actorRole === 'guest' && !getClientChangePolicy(originalAppointment.startTime, bookingConfig).canChange) {
+        return Response.json(
+          { error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } } satisfies ErrorResponse,
+          { status: 409 },
         );
       }
     }
@@ -1829,6 +1835,8 @@ export async function POST(request: Request): Promise<Response> {
     const confirmationEmail = normalizedClientEmail ?? originalAppointment?.clientEmail ?? null;
     if (confirmationEmail) {
       await sendCustomerBookingConfirmationEmail({
+        salonId: salon.id,
+        appointmentId: appointment.id,
         to: confirmationEmail,
         salonName: salon.name,
         clientName: clientName ?? 'Guest',

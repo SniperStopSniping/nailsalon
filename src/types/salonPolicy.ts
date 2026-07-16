@@ -202,6 +202,7 @@ export type SalonSettings = {
     timezone?: string;
     introPriceDefaultLabel?: string | null;
     firstVisitDiscountEnabled?: boolean;
+    clientChangeCutoffHours?: number;
   };
   notifications?: {
     newBooking?: {

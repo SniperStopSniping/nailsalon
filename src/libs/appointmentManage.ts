@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import {
@@ -21,6 +21,7 @@ import {
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  notificationDeliverySchema,
   salonLocationSchema,
   salonSchema,
   type Service,
@@ -98,6 +99,7 @@ export type AppointmentManageDetail = {
     salonId: string;
     salonSlug: string;
     clientName: string | null;
+    clientEmail?: string | null;
     clientPhone: string;
     technicianId: string | null;
     locationId: string | null;
@@ -147,6 +149,12 @@ export type AppointmentManageDetail = {
   }>;
   permissions: ManagePermissions;
   warnings: ManageWarning[];
+  confirmationDelivery?: {
+    status: string;
+    errorCode: string | null;
+    retryable: boolean | null;
+    updatedAt: string;
+  } | null;
 };
 
 export type AppointmentCalendarEvent = {
@@ -640,6 +648,16 @@ export async function getAppointmentManageDetail(args: {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
+  const [confirmationDelivery] = await db.select({
+    status: notificationDeliverySchema.status,
+    errorCode: notificationDeliverySchema.errorCode,
+    retryable: notificationDeliverySchema.retryable,
+    updatedAt: notificationDeliverySchema.updatedAt,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, args.salonId),
+    eq(notificationDeliverySchema.appointmentId, args.appointmentId),
+    eq(notificationDeliverySchema.channel, 'email'),
+  )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(1);
 
   return {
     appointment: {
@@ -647,6 +665,7 @@ export async function getAppointmentManageDetail(args: {
       salonId: loaded.appointment.salonId,
       salonSlug: args.salonSlug,
       clientName: loaded.appointment.clientName,
+      clientEmail: loaded.appointment.clientEmail,
       clientPhone: loaded.appointment.clientPhone,
       technicianId: loaded.appointment.technicianId,
       locationId: loaded.appointment.locationId,
@@ -700,6 +719,9 @@ export async function getAppointmentManageDetail(args: {
       })),
     permissions,
     warnings: [],
+    confirmationDelivery: confirmationDelivery
+      ? { ...confirmationDelivery, updatedAt: confirmationDelivery.updatedAt.toISOString() }
+      : null,
   };
 }
 

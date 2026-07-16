@@ -541,6 +541,7 @@ type BookingConfigFormState = {
   timezone: string;
   introPriceDefaultLabel: string;
   firstVisitDiscountEnabled: boolean;
+  clientChangeCutoffHours: number;
 };
 
 type BookingNotificationChannel = 'sms' | 'email' | 'both';
@@ -821,6 +822,7 @@ export function SettingsModal({
     timezone: 'America/Toronto',
     introPriceDefaultLabel: '',
     firstVisitDiscountEnabled: false,
+    clientChangeCutoffHours: 24,
   });
   const [bookingNotificationsSaving, setBookingNotificationsSaving] = useState(false);
   const [bookingNotificationsSaved, setBookingNotificationsSaved] = useState(false);
@@ -936,6 +938,7 @@ export function SettingsModal({
           timezone: data.bookingConfig?.timezone ?? 'America/Toronto',
           introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
           firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? false,
+          clientChangeCutoffHours: data.bookingConfig?.clientChangeCutoffHours ?? 24,
         });
         setBookingNotificationsForm({
           newBooking: {
@@ -1009,6 +1012,7 @@ export function SettingsModal({
             timezone: bookingConfigForm.timezone.trim(),
             introPriceDefaultLabel: bookingConfigForm.introPriceDefaultLabel.trim() || null,
             firstVisitDiscountEnabled: bookingConfigForm.firstVisitDiscountEnabled,
+            clientChangeCutoffHours: bookingConfigForm.clientChangeCutoffHours,
           },
         }),
       });
@@ -1025,6 +1029,7 @@ export function SettingsModal({
         timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
         introPriceDefaultLabel: data.bookingConfig?.introPriceDefaultLabel ?? '',
         firstVisitDiscountEnabled: data.bookingConfig?.firstVisitDiscountEnabled ?? bookingConfigForm.firstVisitDiscountEnabled,
+        clientChangeCutoffHours: data.bookingConfig?.clientChangeCutoffHours ?? bookingConfigForm.clientChangeCutoffHours,
       });
       setBookingConfigSaved(true);
       router.refresh();
@@ -1333,6 +1338,26 @@ export function SettingsModal({
                           <option key={option} value={option}>{option}</option>
                         ))}
                       </select>
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Client change cutoff</span>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={0}
+                          max={168}
+                          step={1}
+                          value={bookingConfigForm.clientChangeCutoffHours}
+                          onChange={event => setBookingConfigForm(prev => ({
+                            ...prev,
+                            clientChangeCutoffHours: Math.max(0, Math.min(168, Number.parseInt(event.target.value || '0', 10) || 0)),
+                          }))}
+                          className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">hours</span>
+                      </div>
+                      <span className="text-xs text-gray-500">Clients contact you inside this window. Use 0 to allow changes anytime.</span>
                     </label>
 
                     <label className="flex flex-col gap-1">
