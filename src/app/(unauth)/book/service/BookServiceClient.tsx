@@ -960,6 +960,7 @@ export function BookServiceClient({
                               <button
                                 key={`featured-${service.id}`}
                                 type="button"
+                                disabled={!isHydrated}
                                 onClick={() => handleServiceSelection(service)}
                                 data-testid={`featured-service-card-${service.id}`}
                                 className={`relative shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
@@ -1036,6 +1037,7 @@ export function BookServiceClient({
                         <button
                           key={category}
                           type="button"
+                          disabled={!isHydrated}
                           onClick={() => {
                             if (category !== selectedCategory) {
                               setSelectedCategory(category);
@@ -1076,6 +1078,7 @@ export function BookServiceClient({
                               <button
                                 key={service.id}
                                 type="button"
+                                disabled={!isHydrated}
                                 onClick={() => handleServiceSelection(service)}
                                 data-testid={`service-card-${service.id}`}
                                 data-selected={isSelected ? 'true' : 'false'}
