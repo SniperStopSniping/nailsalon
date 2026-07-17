@@ -282,4 +282,51 @@ describe('NewAppointmentModal Google conversion session', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('defaults the conversion to the primary technician while keeping it editable', async () => {
+    render(<NewAppointmentModal {...modalProps()} />);
+    await waitForForm();
+
+    // The primary technician is preselected once the list loads…
+    await waitFor(() => {
+      expect(screen.getByText('Test Technician')).toBeInTheDocument();
+    });
+
+    // …and rides along on the conversion request.
+    fireEvent.change(screen.getByLabelText('Phone Number *'), { target: { value: '4165550198' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+
+    await waitFor(() => expect(postCalls()).toHaveLength(1));
+
+    const body = JSON.parse(String((postCalls()[0]![1] as RequestInit).body));
+
+    expect(body.technicianId).toBe('tech_1');
+    expect(body.googleEventReviewId).toBe('google_event_1');
+  });
+
+  it('rotates the idempotency key after a failed submit so retry is a fresh request', async () => {
+    installDefaultFetch(async () => jsonResponse({
+      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
+    }, 500));
+    render(<NewAppointmentModal {...modalProps()} />);
+    await waitForForm();
+
+    fireEvent.change(screen.getByLabelText('Phone Number *'), { target: { value: '4165550198' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+
+    await screen.findByText('Something went wrong');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry conversion' }));
+
+    await waitFor(() => expect(postCalls()).toHaveLength(2));
+
+    const keyOf = (call: unknown[]) =>
+      ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'];
+    const firstKey = keyOf(postCalls()[0]!);
+    const secondKey = keyOf(postCalls()[1]!);
+
+    expect(firstKey).toBeTruthy();
+    expect(secondKey).toBeTruthy();
+    expect(secondKey).not.toBe(firstKey);
+  });
 });

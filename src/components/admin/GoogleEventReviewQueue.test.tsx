@@ -8,12 +8,22 @@ const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
 }));
 
-vi.mock('framer-motion', () => ({
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  motion: new Proxy({}, {
-    get: () => (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
-  }),
-}));
+vi.mock('framer-motion', () => {
+  // Cache per tag: a fresh component type on every property access would make
+  // React remount the subtree on each render, wiping typed form state.
+  const motionCache = new Map<string, (props: React.HTMLAttributes<HTMLDivElement>) => React.ReactElement>();
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: new Proxy({}, {
+      get: (_, tag: string) => {
+        if (!motionCache.has(tag)) {
+          motionCache.set(tag, (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />);
+        }
+        return motionCache.get(tag);
+      },
+    }),
+  };
+});
 
 vi.mock('@/providers/SalonProvider', () => ({
   useSalon: () => ({ salonSlug: 'test-salon' }),

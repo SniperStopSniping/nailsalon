@@ -83,6 +83,19 @@ end
 `;
 
 /**
+ * Lua script for atomic lock release: delete only if we still own it.
+ * Used to free the booking lock when a request fails, so an immediate
+ * same-key retry does not sit behind the full lock TTL.
+ */
+export const DEL_IF_OWNER_LUA = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+else
+  return 0
+end
+`;
+
+/**
  * Get rate limit max from feature flags.
  * This allows runtime configuration via environment variables.
  */

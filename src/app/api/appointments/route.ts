@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   BOOKING_LOCK_MS,
   BOOKING_POLL_WINDOW_MS,
+  DEL_IF_OWNER_LUA,
   EXTEND_IF_OWNER_LUA,
   getBookingIdempotencyKey,
   getBookingLockKey,
@@ -379,6 +380,15 @@ async function loadAppointmentDetailMaps(appointmentIds: string[]): Promise<Appo
 // =============================================================================
 
 export async function POST(request: Request): Promise<Response> {
+  // Booking-lock state lives outside the try so the finally can release the
+  // lock when a request fails: without this, any failed attempt held the
+  // lock for its full TTL and a same-key retry sat in the poll loop until
+  // it returned BOOKING_IN_PROGRESS.
+  let lockKey: string | null = null;
+  let lockOwnerToken: string | null = null;
+  let ownsLock = false; // Track if we successfully acquired and still own the lock
+  let bookingSucceeded = false;
+
   try {
     // 1. Parse and validate request body
     const body = await request.json();
@@ -595,10 +605,7 @@ export async function POST(request: Request): Promise<Response> {
     let idempotencyCacheKey: string | null = null;
     let requestBodyHash: string | null = null;
     let redisAvailable = false;
-    let lockKey: string | null = null;
-    let lockOwnerToken: string | null = null;
     let idempotencyEnabled = false; // Master flag - if false, skip ALL idempotency codepaths
-    let ownsLock = false; // Track if we successfully acquired and still own the lock
 
     // Check Redis availability ONCE upfront - if down, skip idempotency entirely
     if (idempotencyKey && redis) {
@@ -1129,6 +1136,14 @@ export async function POST(request: Request): Promise<Response> {
       ? [technician]
       : await getTechniciansBySalonId(salon.id);
 
+    // Google-event conversions import an appointment that already exists on
+    // the salon's calendar, so the SOFT availability gate (weekly hours,
+    // service assignments, buffers, location hours) must not block them.
+    // Hard double-book protection still applies: lockTechnicianAndAssertSlotFree
+    // and the active-slot unique index reject a genuine overlap with an
+    // active CRM appointment.
+    const bypassAvailabilityGate = Boolean(googleReviewEvent);
+
     if (normalizedBaseServiceId) {
       candidateTechnicians = candidateTechnicians.filter(tech =>
         getPublicTechnicianCompatibility({
@@ -1166,26 +1181,28 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (technician) {
-      const decision = canTechnicianTakeAppointment({
-        startTime,
-        endTime: blockedEndTime,
-        weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
-        override: initialPolicy.overridesByTechnician.get(technician.id),
-        isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
-        blockedSlots: initialPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
-        requestedServices: services,
-        capabilityMode,
-        enabledServiceIds: technician.enabledServiceIds ?? [],
-        specialties: technician.specialties ?? [],
-        locationId: validatedLocationId,
-        primaryLocationId: technician.primaryLocationId ?? null,
-        locationBusinessHours: validatedLocation?.businessHours ?? null,
-        existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
-        excludedAppointmentId: normalizedOriginalApptId,
-        bufferMinutes: 0,
-      });
+      const decision = bypassAvailabilityGate
+        ? null
+        : canTechnicianTakeAppointment({
+          startTime,
+          endTime: blockedEndTime,
+          weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+          override: initialPolicy.overridesByTechnician.get(technician.id),
+          isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
+          blockedSlots: initialPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+          requestedServices: services,
+          capabilityMode,
+          enabledServiceIds: technician.enabledServiceIds ?? [],
+          specialties: technician.specialties ?? [],
+          locationId: validatedLocationId,
+          primaryLocationId: technician.primaryLocationId ?? null,
+          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+          excludedAppointmentId: normalizedOriginalApptId,
+          bufferMinutes: 0,
+        });
 
-      if (!decision.available) {
+      if (decision && !decision.available) {
         const message = decision.reason === 'time_conflict'
           ? 'This time slot is no longer available. Please select a different time.'
           : 'Selected technician is unavailable at this time. Please choose another slot.';
@@ -1198,6 +1215,23 @@ export async function POST(request: Request): Promise<Response> {
             },
           } satisfies ErrorResponse,
           { status: decision.reason === 'time_conflict' ? 409 : 400 },
+        );
+      }
+    } else if (bypassAvailabilityGate) {
+      // Conversion without an explicit technician: assign the salon's
+      // primary technician instead of failing the whole import. The admin
+      // can reassign afterwards from the appointment sheet.
+      technician = candidateTechnicians[0] ?? null;
+
+      if (!technician) {
+        return Response.json(
+          {
+            error: {
+              code: 'NO_AVAILABLE_TECHNICIAN',
+              message: 'Add a technician to the salon before converting Google events.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
         );
       }
     } else {
@@ -1334,7 +1368,9 @@ export async function POST(request: Request): Promise<Response> {
       excludedAppointmentId: normalizedOriginalApptId,
     });
 
-    if (!normalizedTechnicianId) {
+    // Conversions keep the technician resolved in the initial pass — the
+    // soft-availability re-check below is for client-facing bookings only.
+    if (!normalizedTechnicianId && !bypassAvailabilityGate) {
       technician = candidateTechnicians.find((tech) => {
         const decision = canTechnicianTakeAppointment({
           startTime,
@@ -1371,49 +1407,51 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const finalDecision = canTechnicianTakeAppointment({
-      startTime,
-      endTime: blockedEndTime,
-      weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
-      override: finalPolicy.overridesByTechnician.get(technician.id),
-      isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(technician.id),
-      blockedSlots: finalPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
-      requestedServices: services,
-      capabilityMode,
-      enabledServiceIds: technician.enabledServiceIds ?? [],
-      specialties: technician.specialties ?? [],
-      locationId: validatedLocationId,
-      primaryLocationId: technician.primaryLocationId ?? null,
-      locationBusinessHours: validatedLocation?.businessHours ?? null,
-      existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
-      excludedAppointmentId: normalizedOriginalApptId,
-      bufferMinutes: 0,
-    });
+    if (!bypassAvailabilityGate) {
+      const finalDecision = canTechnicianTakeAppointment({
+        startTime,
+        endTime: blockedEndTime,
+        weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+        override: finalPolicy.overridesByTechnician.get(technician.id),
+        isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(technician.id),
+        blockedSlots: finalPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+        requestedServices: services,
+        capabilityMode,
+        enabledServiceIds: technician.enabledServiceIds ?? [],
+        specialties: technician.specialties ?? [],
+        locationId: validatedLocationId,
+        primaryLocationId: technician.primaryLocationId ?? null,
+        locationBusinessHours: validatedLocation?.businessHours ?? null,
+        existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+        excludedAppointmentId: normalizedOriginalApptId,
+        bufferMinutes: 0,
+      });
 
-    if (!finalDecision.available) {
-      const requestedSpecificTechnician = Boolean(normalizedTechnicianId);
-      const errorCode = finalDecision.reason === 'time_conflict'
-        ? 'TIME_CONFLICT'
-        : requestedSpecificTechnician
-          ? 'OUTSIDE_SCHEDULE'
-          : 'NO_AVAILABLE_TECHNICIAN';
-      const status = finalDecision.reason === 'time_conflict'
-        ? 409
-        : requestedSpecificTechnician
-          ? 400
-          : 409;
+      if (!finalDecision.available) {
+        const requestedSpecificTechnician = Boolean(normalizedTechnicianId);
+        const errorCode = finalDecision.reason === 'time_conflict'
+          ? 'TIME_CONFLICT'
+          : requestedSpecificTechnician
+            ? 'OUTSIDE_SCHEDULE'
+            : 'NO_AVAILABLE_TECHNICIAN';
+        const status = finalDecision.reason === 'time_conflict'
+          ? 409
+          : requestedSpecificTechnician
+            ? 400
+            : 409;
 
-      return Response.json(
-        {
-          error: {
-            code: errorCode,
-            message: finalDecision.reason === 'time_conflict'
-              ? 'This time slot is no longer available. Please select a different time.'
-              : 'Selected technician is unavailable at this time. Please choose another slot.',
-          },
-        } satisfies ErrorResponse,
-        { status },
-      );
+        return Response.json(
+          {
+            error: {
+              code: errorCode,
+              message: finalDecision.reason === 'time_conflict'
+                ? 'This time slot is no longer available. Please select a different time.'
+                : 'Selected technician is unavailable at this time. Please choose another slot.',
+            },
+          } satisfies ErrorResponse,
+          { status },
+        );
+      }
     }
 
     try {
@@ -2198,6 +2236,7 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     // 13. Return response (same object that was cached, if caching was enabled)
+    bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
     if (error instanceof Error && isCampaignFailureCode(error.message)) {
@@ -2231,6 +2270,18 @@ export async function POST(request: Request): Promise<Response> {
       } satisfies ErrorResponse,
       { status: 500 },
     );
+  } finally {
+    // A failed booking must not hold the idempotency lock for its full TTL:
+    // release it (only if still owned) so an immediate retry can proceed.
+    // Successful bookings keep the lock — the cached 201 answers replays.
+    if (!bookingSucceeded && ownsLock && lockKey && lockOwnerToken && redis) {
+      try {
+        await redis.eval(DEL_IF_OWNER_LUA, 1, lockKey, lockOwnerToken);
+      } catch (releaseError) {
+        // TTL remains the backstop if Redis hiccups here.
+        console.warn('[Idempotency] Failed to release booking lock:', releaseError);
+      }
+    }
   }
 }
 
