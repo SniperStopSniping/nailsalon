@@ -124,4 +124,158 @@ describe('AppointmentQuickEditSheet', () => {
       }));
     });
   });
+
+  it('cancels through a confirmation dialog with consequences, reason, and internal note', async () => {
+    const onCancelAppointment = vi.fn(async () => {});
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={onCancelAppointment}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-cancel'));
+
+    // Nothing is cancelled until the dialog confirms.
+    expect(onCancelAppointment).not.toHaveBeenCalled();
+    expect(screen.getByText(/frees the time slot/i)).toBeInTheDocument();
+    expect(screen.getByText(/stops reminder messages/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('cancel-reason-rescheduled'));
+    fireEvent.change(screen.getByTestId('appointment-cancel-note'), { target: { value: 'Client moving to Friday' } });
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => {
+      expect(onCancelAppointment).toHaveBeenCalledWith({
+        reason: 'rescheduled',
+        internalNote: 'Client moving to Friday',
+      });
+    });
+  });
+
+  it('marks no-show through a confirmation dialog instead of window.confirm', async () => {
+    const onMarkNoShow = vi.fn(async () => {});
+    const confirmSpy = vi.spyOn(window, 'confirm');
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onMarkNoShow={onMarkNoShow}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-no-show'));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => expect(onMarkNoShow).toHaveBeenCalledTimes(1));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('blocks backdrop dismissal while edits are unsaved', () => {
+    const onClose = vi.fn();
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={onClose}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    // Make the form dirty, then click the backdrop.
+    fireEvent.change(screen.getByLabelText('Service'), { target: { value: 'svc_2' } });
+    fireEvent.click(screen.getAllByRole('presentation')[0]!);
+
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The explicit close button still works.
+    fireEvent.click(screen.getByTestId('appointment-sheet-close'));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a complete-anyway decision when no after photo exists', () => {
+    const onResolvePhotoDecision = vi.fn();
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        completionNeedsPhotoDecision
+        onResolvePhotoDecision={onResolvePhotoDecision}
+      />,
+    );
+
+    expect(screen.getByText('No after photo uploaded')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    expect(onResolvePhotoDecision).toHaveBeenCalledWith(true);
+  });
+
+  it('shows the failure reason and a Try again action when detail cannot load', () => {
+    const onRetryLoad = vi.fn();
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={null}
+        loading={false}
+        saving={false}
+        actionError="Failed to load appointment details. Check your connection and try again."
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onRetryLoad={onRetryLoad}
+      />,
+    );
+
+    expect(screen.getByText(/check your connection/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-retry-load'));
+
+    expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
 });
