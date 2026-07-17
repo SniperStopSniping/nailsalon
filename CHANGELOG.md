@@ -1,3 +1,23 @@
+# [1.7.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.6.1...v1.7.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* booking flow error recovery, salon timezone, contact preservation ([9b9c7b9](https://github.com/SniperStopSniping/nailsalon/commit/9b9c7b9d756424f4206e336ccba4bf480cebe891))
+* mobile modal drag-vs-scroll, layout, and body scroll lock ([9d340dc](https://github.com/SniperStopSniping/nailsalon/commit/9d340dc78fe941c20800f9b6d1e7a2a828d151a0))
+* prevent double-booking with database constraints and transaction guard ([9531b9b](https://github.com/SniperStopSniping/nailsalon/commit/9531b9b739e97b381381ecfb57adcb30c260fd7b))
+* split multi-statement migrations for PGlite compatibility ([8210ca4](https://github.com/SniperStopSniping/nailsalon/commit/8210ca4e43a4d099704fbc697354974e27bd7512))
+* stop cross-salon client identity disclosure in staff phone lookup ([ee23d24](https://github.com/SniperStopSniping/nailsalon/commit/ee23d24ce7c070df01a033e7358abb5c748ebf20))
+* unify appointment status with canvas state and repair no-show tracking ([e83a6ef](https://github.com/SniperStopSniping/nailsalon/commit/e83a6ef54a4fd428b1822a0828597a9fc5cb3fc2))
+* validated timezone picker, category visibility hint, remove dead modal ([56e708f](https://github.com/SniperStopSniping/nailsalon/commit/56e708f2b89ed5fa0b6e69ed3716457e5e7f3a1d))
+
+
+### Features
+
+* calendar overlap layout, visible now-line, and focused Today screen ([ea8aa61](https://github.com/SniperStopSniping/nailsalon/commit/ea8aa61b6fd5d78ae38b4641075d72273a4ec270))
+* require an explicit blocking-calendar choice for Google Calendar readiness ([09b54a9](https://github.com/SniperStopSniping/nailsalon/commit/09b54a9b4d2f21d980a882702371c385a746df5e))
+* surface client sensitivities and next-up marker on today's schedule ([71847bb](https://github.com/SniperStopSniping/nailsalon/commit/71847bb63980dcfb92efc06a7de7dbacbeee00ac))
+
 ## [1.6.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.6.0...v1.6.1) (2026-07-16)
 
 
