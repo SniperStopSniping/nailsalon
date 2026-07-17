@@ -25,7 +25,7 @@ function formatOffer(discountType: 'percent' | 'fixed', value: number): string {
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ token: string }> },
+  { params }: { params: { token: string } | Promise<{ token: string }> },
 ): Promise<Response> {
   // Public, unauthenticated endpoint: throttle per IP before any DB work.
   // A legitimate client opens a campaign link at most a few times.
@@ -35,7 +35,7 @@ export async function GET(
   }
 
   const [parsedParams, parsedQuery] = await Promise.all([
-    params.then(value => paramsSchema.safeParse(value)),
+    Promise.resolve(params).then(value => paramsSchema.safeParse(value)),
     Promise.resolve(querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams.entries()))),
   ]);
   if (!parsedParams.success || !parsedQuery.success) {

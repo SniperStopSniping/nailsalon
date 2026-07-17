@@ -66,6 +66,17 @@ describe('GET /api/public/retention-campaigns/[token]', () => {
     expect(response.status).toBe(404);
   });
 
+  it('accepts the plain params object supplied by the production Next runtime', async () => {
+    selectRows.push([]);
+
+    const response = await GET(
+      new Request(`http://localhost/api/public/retention-campaigns/${token}?salonSlug=salon-a`),
+      { params: { token } },
+    );
+
+    expect(response.status).toBe(404);
+  });
+
   it('returns a client-safe offer without exposing the client id or token hash', async () => {
     selectRows.push([{
       id: 'campaign_1',
