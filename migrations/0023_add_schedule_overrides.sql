@@ -18,16 +18,21 @@ CREATE TABLE IF NOT EXISTS "technician_schedule_override" (
     "type" = 'off' OR ("start_time" IS NOT NULL AND "end_time" IS NOT NULL)
   )
 );
+--> statement-breakpoint
+
 
 -- One override per technician per day
 CREATE UNIQUE INDEX IF NOT EXISTS "schedule_override_tech_date_idx" 
   ON "technician_schedule_override"("technician_id", "date");
+--> statement-breakpoint
+
 
 -- For querying all overrides in a salon
 CREATE INDEX IF NOT EXISTS "schedule_override_salon_idx" 
   ON "technician_schedule_override"("salon_id");
+--> statement-breakpoint
+
 
 -- For efficient date range queries
 CREATE INDEX IF NOT EXISTS "schedule_override_date_idx" 
   ON "technician_schedule_override"("technician_id", "date");
-

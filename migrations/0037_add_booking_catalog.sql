@@ -12,6 +12,8 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 DO $$
 BEGIN
@@ -24,6 +26,8 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 DO $$
 BEGIN
@@ -31,6 +35,8 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 DO $$
 BEGIN
@@ -38,10 +44,14 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 ALTER TABLE "service"
   ALTER COLUMN "category" TYPE "service_category"
   USING "category"::"service_category";
+--> statement-breakpoint
+
 
 ALTER TABLE "service"
   ADD COLUMN IF NOT EXISTS "description_items" jsonb,
@@ -51,9 +61,15 @@ ALTER TABLE "service"
   ADD COLUMN IF NOT EXISTS "intro_price_label" text,
   ADD COLUMN IF NOT EXISTS "intro_price_expires_at" timestamp,
   ADD COLUMN IF NOT EXISTS "booking_questions" jsonb;
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "service_salon_slug_idx" ON "service" ("salon_id", "slug");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "service_active_category_idx" ON "service" ("salon_id", "is_active", "category");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "add_on" (
   "id" text PRIMARY KEY,
@@ -73,9 +89,15 @@ CREATE TABLE IF NOT EXISTS "add_on" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "add_on_salon_slug_idx" ON "add_on" ("salon_id", "slug");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "add_on_active_category_idx" ON "add_on" ("salon_id", "is_active", "category");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "service_add_on" (
   "id" text PRIMARY KEY,
@@ -90,10 +112,18 @@ CREATE TABLE IF NOT EXISTS "service_add_on" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "service_add_on_salon_idx" ON "service_add_on" ("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "service_add_on_service_idx" ON "service_add_on" ("service_id");
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "service_add_on_unique_idx" ON "service_add_on" ("service_id", "add_on_id");
+--> statement-breakpoint
+
 
 ALTER TABLE "appointment"
   ADD COLUMN IF NOT EXISTS "base_price_cents" integer,
@@ -102,6 +132,8 @@ ALTER TABLE "appointment"
   ADD COLUMN IF NOT EXISTS "add_ons_duration_minutes" integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS "buffer_minutes" integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS "blocked_duration_minutes" integer;
+--> statement-breakpoint
+
 
 ALTER TABLE "appointment_services"
   ADD COLUMN IF NOT EXISTS "name_snapshot" text,
@@ -110,6 +142,8 @@ ALTER TABLE "appointment_services"
   ADD COLUMN IF NOT EXISTS "duration_minutes_snapshot" integer,
   ADD COLUMN IF NOT EXISTS "price_display_text_snapshot" text,
   ADD COLUMN IF NOT EXISTS "resolved_intro_price_label_snapshot" text;
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "appointment_add_on" (
   "id" text PRIMARY KEY,
@@ -125,6 +159,10 @@ CREATE TABLE IF NOT EXISTS "appointment_add_on" (
   "line_duration_minutes_snapshot" integer NOT NULL,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "appointment_add_on_appointment_idx" ON "appointment_add_on" ("appointment_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "appointment_add_on_add_on_idx" ON "appointment_add_on" ("add_on_id");

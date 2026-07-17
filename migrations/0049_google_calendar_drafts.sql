@@ -10,8 +10,12 @@ CREATE TABLE IF NOT EXISTS "google_calendar_draft" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "google_calendar_draft_salon_event_idx"
   ON "google_calendar_draft" ("salon_id", "google_event_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "google_calendar_draft_salon_status_time_idx"
   ON "google_calendar_draft" ("salon_id", "status", "start_time");

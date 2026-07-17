@@ -18,6 +18,8 @@ SELECT
   "updated_at",
   now() AS "backed_up_at"
 FROM "appointment";
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "luster_migration_backup_0052_client_times" AS
 SELECT
@@ -26,6 +28,8 @@ SELECT
   "last_late_cancel_at",
   now() AS "backed_up_at"
 FROM "salon_client";
+--> statement-breakpoint
+
 
 ALTER TABLE "appointment"
   ALTER COLUMN "start_time" TYPE timestamp with time zone USING "start_time" AT TIME ZONE 'UTC',
@@ -38,6 +42,8 @@ ALTER TABLE "appointment"
   ALTER COLUMN "review_followup_sent_at" TYPE timestamp with time zone USING "review_followup_sent_at" AT TIME ZONE 'UTC',
   ALTER COLUMN "created_at" TYPE timestamp with time zone USING "created_at" AT TIME ZONE 'UTC',
   ALTER COLUMN "updated_at" TYPE timestamp with time zone USING "updated_at" AT TIME ZONE 'UTC';
+--> statement-breakpoint
+
 
 -- CRM visit timestamps are appointment-derived instants and need the same
 -- semantics so rebooking dates remain stable outside a UTC process.

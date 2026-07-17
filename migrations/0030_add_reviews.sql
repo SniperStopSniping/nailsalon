@@ -2,6 +2,8 @@
 
 -- Add reviewsEnabled toggle to salon (default true)
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "reviews_enabled" BOOLEAN DEFAULT true;
+--> statement-breakpoint
+
 
 -- Create reviews table with proper identity references
 CREATE TABLE IF NOT EXISTS "review" (
@@ -18,10 +20,20 @@ CREATE TABLE IF NOT EXISTS "review" (
   "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
   "updated_at" TIMESTAMP DEFAULT NOW() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS "review_salon_idx" ON "review"("salon_id");
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "review_appointment_idx" ON "review"("appointment_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "review_technician_idx" ON "review"("technician_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "review_salon_client_idx" ON "review"("salon_client_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "review_rating_idx" ON "review"("salon_id", "rating");
