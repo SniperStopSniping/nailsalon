@@ -51,6 +51,9 @@ type AppointmentSummary = {
   reviewStatus?: string;
   googleEventReviewId?: string;
   isReadOnly?: boolean;
+  description?: string | null;
+  location?: string | null;
+  sourceVersion?: string | null;
   timeZone?: string;
 };
 
@@ -707,6 +710,9 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           reviewStatus: event.reviewStatus,
           googleEventReviewId: event.id,
           isReadOnly: event.isReadOnly,
+          description: event.description,
+          location: event.location,
+          sourceVersion: event.lastSyncedAt,
           timeZone: salonTimeZone,
         };
         if (existing) {
@@ -728,6 +734,26 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           });
         }
       }
+
+      setGoogleEventPrefill((active) => {
+        if (!active?.googleEventReviewId) {
+          return active;
+        }
+        const refreshed = externalEvents.find((event: { id: string }) => event.id === active.googleEventReviewId);
+        if (!refreshed) {
+          return active;
+        }
+        return {
+          ...active,
+          clientName: refreshed.label || active.clientName,
+          startTime: refreshed.startTime,
+          endTime: refreshed.endTime,
+          isReadOnly: refreshed.isReadOnly,
+          description: refreshed.description,
+          location: refreshed.location,
+          sourceVersion: refreshed.lastSyncedAt,
+        };
+      });
 
       setAppointmentData(dataMap);
     } catch (err) {
@@ -1061,6 +1087,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
                 id: googleEventPrefill.googleEventReviewId!,
                 title: googleEventPrefill.clientName,
                 startTime: googleEventPrefill.startTime,
+                endTime: googleEventPrefill.endTime,
                 durationMinutes: Math.max(
                   1,
                   Math.round(
@@ -1069,6 +1096,9 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
                       / 60_000,
                   ),
                 ),
+                description: googleEventPrefill.description,
+                location: googleEventPrefill.location,
+                sourceVersion: googleEventPrefill.sourceVersion,
                 isReadOnly: googleEventPrefill.isReadOnly,
               }
             : null

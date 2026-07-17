@@ -14,7 +14,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, Check, ChevronDown, Clock, Loader2, Phone, Plus, Search, User, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
@@ -34,20 +34,30 @@ type Service = {
   category: string | null;
 };
 
+export type GoogleEventSourceStatus = 'available' | 'deleted' | 'inaccessible' | 'converted';
+
+export type GoogleEventPrefill = {
+  id: string;
+  title: string | null;
+  startTime: string;
+  endTime?: string;
+  durationMinutes: number;
+  description?: string | null;
+  location?: string | null;
+  sourceVersion?: string | null;
+  suggestedClient?: { fullName: string | null; phone: string; email: string | null } | null;
+  suggestedService?: { id: string; price: number } | null;
+  isReadOnly?: boolean;
+};
+
 type NewAppointmentModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
   preselectedDate?: Date;
-  googleEventPrefill?: {
-    id: string;
-    title: string | null;
-    startTime: string;
-    durationMinutes: number;
-    suggestedClient?: { fullName: string | null; phone: string; email: string | null } | null;
-    suggestedService?: { id: string; price: number } | null;
-    isReadOnly?: boolean;
-  } | null;
+  googleEventPrefill?: GoogleEventPrefill | null;
+  googleEventSourceStatus?: GoogleEventSourceStatus;
+  onRefreshGoogleEvent?: () => void;
   clientPrefill?: {
     name: string | null;
     phone: string;
@@ -70,6 +80,24 @@ function formatDateForInput(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function googleEventFingerprint(event: GoogleEventPrefill): string {
+  return JSON.stringify({
+    title: event.title,
+    startTime: event.startTime,
+    endTime: event.endTime ?? null,
+    durationMinutes: event.durationMinutes,
+    description: event.description ?? null,
+    location: event.location ?? null,
+    sourceVersion: event.sourceVersion ?? null,
+    isReadOnly: Boolean(event.isReadOnly),
+  });
+}
+
+function createIdempotencyKey(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `appointment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 // Generate time slots from 8 AM to 8 PM in 30-minute increments
 function generateTimeSlots(): string[] {
   const slots: string[] = [];
@@ -90,6 +118,8 @@ export function NewAppointmentModal({
   onSuccess,
   preselectedDate,
   googleEventPrefill,
+  googleEventSourceStatus = 'available',
+  onRefreshGoogleEvent,
   clientPrefill,
 }: NewAppointmentModalProps) {
   const { salonSlug } = useSalon();
@@ -103,6 +133,8 @@ export function NewAppointmentModal({
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [priceOverride, setPriceOverride] = useState('');
+  const [durationOverride, setDurationOverride] = useState('');
+  const [notes, setNotes] = useState('');
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
 
@@ -119,6 +151,14 @@ export function NewAppointmentModal({
   const [serviceSearch, setServiceSearch] = useState('');
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
+  const [sourceChanged, setSourceChanged] = useState(false);
+  const [submitFailed, setSubmitFailed] = useState(false);
+  const [submissionSourceStatus, setSubmissionSourceStatus] = useState<GoogleEventSourceStatus | null>(null);
+
+  const activeGoogleSessionIdRef = useRef<string | null>(null);
+  const sourceFingerprintRef = useRef<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const submittingRef = useRef(false);
 
   const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
 
@@ -126,6 +166,12 @@ export function NewAppointmentModal({
     if (!isOpen || !googleEventPrefill) {
       return;
     }
+    if (activeGoogleSessionIdRef.current === googleEventPrefill.id) {
+      return;
+    }
+    activeGoogleSessionIdRef.current = googleEventPrefill.id;
+    sourceFingerprintRef.current = googleEventFingerprint(googleEventPrefill);
+    idempotencyKeyRef.current = createIdempotencyKey();
     const start = new Date(googleEventPrefill.startTime);
     setSelectedDate(formatDateForInput(start));
     setSelectedTime(`${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`);
@@ -134,7 +180,28 @@ export function NewAppointmentModal({
     setClientEmail(googleEventPrefill.suggestedClient?.email || '');
     setSelectedServiceIds(googleEventPrefill.suggestedService ? [googleEventPrefill.suggestedService.id] : []);
     setPriceOverride(googleEventPrefill.suggestedService ? String(googleEventPrefill.suggestedService.price / 100) : '');
+    setDurationOverride(String(googleEventPrefill.durationMinutes));
+    setNotes('');
+    setSourceChanged(false);
+    setSubmissionSourceStatus(null);
+    setSubmitFailed(false);
   }, [googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !googleEventPrefill || activeGoogleSessionIdRef.current !== googleEventPrefill.id) {
+      return;
+    }
+    const nextFingerprint = googleEventFingerprint(googleEventPrefill);
+    if (sourceFingerprintRef.current && sourceFingerprintRef.current !== nextFingerprint) {
+      setSourceChanged(true);
+    }
+  }, [googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && !idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = createIdempotencyKey();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !clientPrefill) {
@@ -174,8 +241,7 @@ export function NewAppointmentModal({
 
       setTechnicians(techData.data?.technicians || []);
       setServices(servicesData.data?.services || []);
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
+    } catch {
       setError('Failed to load form data');
     } finally {
       setLoading(false);
@@ -258,10 +324,19 @@ export function NewAppointmentModal({
       setClientName('');
       setClientEmail('');
       setPriceOverride('');
+      setDurationOverride('');
+      setNotes('');
       setSelectedTechnicianId(null);
       setSelectedServiceIds([]);
       setError(null);
       setServiceSearch('');
+      setSourceChanged(false);
+      setSubmitFailed(false);
+      setSubmissionSourceStatus(null);
+      activeGoogleSessionIdRef.current = null;
+      sourceFingerprintRef.current = null;
+      idempotencyKeyRef.current = null;
+      submittingRef.current = false;
     }
   }, [isOpen]);
 
@@ -323,6 +398,10 @@ export function NewAppointmentModal({
 
   // Handle form submission
   const handleSubmit = async () => {
+    if (submittingRef.current) {
+      return;
+    }
+
     // Validation
     if (!clientPhone || clientPhone.length !== 10) {
       setError('Please enter a valid 10-digit phone number');
@@ -332,20 +411,34 @@ export function NewAppointmentModal({
       setError('Please select at least one service');
       return;
     }
+    const parsedDurationOverride = Number(durationOverride);
+    if (googleEventPrefill && (!Number.isInteger(parsedDurationOverride) || parsedDurationOverride < 1 || parsedDurationOverride > 1440)) {
+      setError('Please enter a duration between 1 and 1440 minutes');
+      return;
+    }
+
+    if (googleEventPrefill && (submissionSourceStatus || googleEventSourceStatus) !== 'available') {
+      return;
+    }
 
     try {
+      submittingRef.current = true;
       setSubmitting(true);
       setError(null);
+      setSubmitFailed(false);
 
       // Build start time ISO string
       const [year, month, day] = selectedDate.split('-').map(Number);
       const [hours, minutes] = selectedTime.split(':').map(Number);
       const startTime = new Date(year!, month! - 1, day, hours, minutes);
+      const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey();
+      idempotencyKeyRef.current = idempotencyKey;
 
       const response = await fetch('/api/appointments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({
           salonSlug,
@@ -356,6 +449,8 @@ export function NewAppointmentModal({
           clientEmail: clientEmail || undefined,
           startTime: startTime.toISOString(),
           googleEventReviewId: googleEventPrefill?.id,
+          durationMinutesOverride: googleEventPrefill ? parsedDurationOverride : undefined,
+          notes: googleEventPrefill ? notes.trim() || undefined : undefined,
           priceCentsOverride: googleEventPrefill && priceOverride !== ''
             ? Math.round(Number(priceOverride) * 100)
             : undefined,
@@ -365,6 +460,14 @@ export function NewAppointmentModal({
       const result = await response.json();
 
       if (!response.ok) {
+        if (result.error?.code === 'GOOGLE_EVENT_NOT_FOUND') {
+          setSubmissionSourceStatus('inaccessible');
+        } else if (result.error?.code === 'GOOGLE_EVENT_ALREADY_CONVERTED') {
+          setSubmissionSourceStatus('converted');
+        } else if (result.error?.code === 'GOOGLE_EVENT_TIME_CHANGED') {
+          setSourceChanged(true);
+          onRefreshGoogleEvent?.();
+        }
         throw new Error(result.error?.message || 'Failed to create appointment');
       }
 
@@ -375,14 +478,29 @@ export function NewAppointmentModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      console.error('Failed to create appointment:', err);
       setError(err instanceof Error ? err.message : 'Failed to create appointment');
+      setSubmitFailed(true);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
+  const applyLatestGoogleTiming = () => {
+    if (!googleEventPrefill) {
+      return;
+    }
+    const start = new Date(googleEventPrefill.startTime);
+    setSelectedDate(formatDateForInput(start));
+    setSelectedTime(`${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`);
+    setDurationOverride(String(googleEventPrefill.durationMinutes));
+    sourceFingerprintRef.current = googleEventFingerprint(googleEventPrefill);
+    setSourceChanged(false);
+    setError(null);
+  };
+
   const selectedTechnician = technicians.find(t => t.id === selectedTechnicianId);
+  const effectiveSourceStatus = submissionSourceStatus ?? googleEventSourceStatus;
 
   if (!isOpen) {
     return null;
@@ -398,7 +516,8 @@ export function NewAppointmentModal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={onClose}
+            data-testid="appointment-modal-backdrop"
+            onClick={googleEventPrefill ? undefined : onClose}
           />
 
           {/* Modal */}
@@ -407,13 +526,16 @@ export function NewAppointmentModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-4 inset-y-[10%] z-50 mx-auto flex max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="fixed inset-x-4 inset-y-[10%] z-50 mx-auto flex max-w-lg touch-pan-y flex-col overflow-hidden overscroll-contain rounded-2xl bg-white shadow-2xl"
             onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-appointment-modal-title"
           >
             {/* Header */}
             <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
+                <h2 id="new-appointment-modal-title" className="text-lg font-semibold text-gray-900">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
                 {googleEventPrefill && (
                   <p className="text-xs text-gray-500">
                     {googleEventPrefill.title || 'Google Calendar event'}
@@ -454,6 +576,39 @@ export function NewAppointmentModal({
                         </div>
                       )}
 
+                      {googleEventPrefill && effectiveSourceStatus !== 'available' && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="google-event-unavailable">
+                          <p className="text-sm font-semibold text-amber-900">
+                            {effectiveSourceStatus === 'converted'
+                              ? 'This Google event was already converted in another session.'
+                              : effectiveSourceStatus === 'deleted'
+                                ? 'This Google event was deleted while you were editing.'
+                                : 'This Google event is no longer accessible.'}
+                          </p>
+                          <p className="mt-1 text-xs text-amber-800">Your entries are still here. Acknowledge this message when you are ready to close them.</p>
+                          <button type="button" onClick={onClose} className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white">
+                            Acknowledge and close
+                          </button>
+                        </div>
+                      )}
+
+                      {googleEventPrefill && sourceChanged && effectiveSourceStatus === 'available' && (
+                        <div className="rounded-lg border border-blue-300 bg-blue-50 p-3" role="status" data-testid="google-event-changed-warning">
+                          <p className="text-sm font-semibold text-blue-900">Google changed this event while you were editing.</p>
+                          <p className="mt-1 text-xs text-blue-800">
+                            Latest timing:
+                            {' '}
+                            {new Date(googleEventPrefill.startTime).toLocaleString()}
+                            {' · '}
+                            {googleEventPrefill.durationMinutes}
+                            {' min. Your client, service, price, and notes were not changed.'}
+                          </p>
+                          <button type="button" onClick={applyLatestGoogleTiming} className="mt-3 rounded-lg bg-blue-800 px-3 py-2 text-xs font-semibold text-white">
+                            Use latest Google timing
+                          </button>
+                        </div>
+                      )}
+
                       {draftRestored && !error && (
                         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
                           Your saved appointment draft was restored.
@@ -484,6 +639,7 @@ export function NewAppointmentModal({
                           </p>
                           <button
                             type="button"
+                            aria-label="Appointment time"
                             onClick={() => setShowTimeDropdown(!showTimeDropdown)}
                             className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
                           >
@@ -559,18 +715,47 @@ export function NewAppointmentModal({
                         </div>
                       </div>
                       {googleEventPrefill && (
-                        <div>
-                          <label htmlFor="google-event-price" className="mb-1.5 block text-sm font-medium text-gray-700">Appointment price (CAD $)</label>
-                          <input
-                            id="google-event-price"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={priceOverride}
-                            onChange={event => setPriceOverride(event.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                          {googleEventPrefill.isReadOnly && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label htmlFor="google-event-price" className="mb-1.5 block text-sm font-medium text-gray-700">Appointment price (CAD $)</label>
+                              <input
+                                id="google-event-price"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={priceOverride}
+                                onChange={event => setPriceOverride(event.target.value)}
+                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor="google-event-duration" className="mb-1.5 block text-sm font-medium text-gray-700">Duration (minutes)</label>
+                              <input
+                                id="google-event-duration"
+                                type="number"
+                                min="1"
+                                max="1440"
+                                step="1"
+                                value={durationOverride}
+                                onChange={event => setDurationOverride(event.target.value)}
+                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label htmlFor="google-event-notes" className="mb-1.5 block text-sm font-medium text-gray-700">Notes (optional)</label>
+                            <textarea
+                              id="google-event-notes"
+                              value={notes}
+                              maxLength={2000}
+                              rows={3}
+                              onChange={event => setNotes(event.target.value)}
+                              placeholder="Private appointment notes"
+                              className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                          {googleEventPrefill.isReadOnly && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
                         </div>
                       )}
 
@@ -671,6 +856,7 @@ export function NewAppointmentModal({
                                     <button
                                       key={service.id}
                                       type="button"
+                                      aria-pressed={isSelected}
                                       onClick={() => toggleService(service.id)}
                                       className={`
                                     flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-all
@@ -733,7 +919,7 @@ export function NewAppointmentModal({
                     {selectedServices.length !== 1 ? 's' : ''}
                     {' '}
                     ·
-                    {formatDuration(totalDuration)}
+                    {formatDuration(googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : totalDuration)}
                   </div>
                   <div className="text-lg font-semibold text-gray-900">
                     {formatCurrency(totalPrice)}
@@ -753,7 +939,7 @@ export function NewAppointmentModal({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10}
+                  disabled={submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {submitting
@@ -766,7 +952,7 @@ export function NewAppointmentModal({
                     : (
                         <>
                           <Plus className="size-4" />
-                          Create Appointment
+                          {submitFailed && googleEventPrefill ? 'Retry conversion' : 'Create Appointment'}
                         </>
                       )}
                 </button>
