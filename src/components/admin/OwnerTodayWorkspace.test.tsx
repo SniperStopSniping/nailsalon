@@ -77,7 +77,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
               {
                 clientId: 'client_bob',
                 clientName: 'Bob',
-                phone: '+14373705050',
+                phone: '+12025550101',
                 stage: 'rebook',
                 dueAt: '2026-06-01T12:00:00.000Z',
                 lastVisitAt: '2026-05-10T12:00:00.000Z',
@@ -86,7 +86,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
               {
                 clientId: 'client_bob',
                 clientName: 'Bob',
-                phone: '+14373705050',
+                phone: '+12025550101',
                 stage: 'promo_8w',
                 dueAt: '2026-07-05T12:00:00.000Z',
                 lastVisitAt: '2026-05-10T12:00:00.000Z',
@@ -129,7 +129,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
               appointmentId: 'appt_123',
               clientId: 'client_ada',
               clientName: 'Ada',
-              phone: '+14165550100',
+              phone: '+12025550102',
               startTime: '2026-07-18T14:00:00.000Z',
               endTime: '2026-07-18T15:00:00.000Z',
               dueAt: '2026-07-17T14:00:00.000Z',
@@ -169,7 +169,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
             retention: [{
               clientId: 'client_ada',
               clientName: 'Ada',
-              phone: '+14165550100',
+              phone: '+12025550102',
               stage: 'rebook',
               dueAt: '2026-07-17T12:00:00.000Z',
               lastVisitAt: '2026-06-20T12:00:00.000Z',
