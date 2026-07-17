@@ -6,6 +6,7 @@ import {
 } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 
+import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
 import {
   ACTIVE_SALON_COOKIE,
@@ -143,12 +144,13 @@ export default async function middleware(
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
-  // Admin API routes need Clerk auth - run clerkMiddleware to set up auth context
-  // but don't block - the route handlers will check auth themselves
-  if (request.nextUrl.pathname.startsWith('/api/admin')
-    || request.nextUrl.pathname.startsWith('/api/salon/services')
-    || request.nextUrl.pathname.startsWith('/api/onboarding')
-    || request.nextUrl.pathname.startsWith('/api/integrations')) {
+  // Routes whose handlers authenticate owners via Clerk-backed guards need
+  // clerkMiddleware to set up auth context — but never block here; the route
+  // handlers check auth themselves. This includes /api/appointments: without
+  // Clerk context, owners could load the admin dashboard yet not manage
+  // appointments or convert Google events (auth() throws → admin resolves
+  // to null on exactly those routes).
+  if (apiPathNeedsClerkContext(request.nextUrl.pathname)) {
     const response = await clerkMiddleware(async () => {
       // Just set up auth context, don't protect - route handlers check ownership
       return NextResponse.next();
