@@ -1,3 +1,17 @@
+# [1.9.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.8.0...v1.9.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* **appointments:** verified salon hint for multi-salon admin management ([ec0e3a0](https://github.com/SniperStopSniping/nailsalon/commit/ec0e3a0e268c315941d7bcfa9762e8780b79db74))
+
+
+### Features
+
+* **appointments:** shared useAppointmentActions hook + ConfirmDialog ([dbd3fef](https://github.com/SniperStopSniping/nailsalon/commit/dbd3fef24f9273b7b3aa343c19ed94249b860d0a))
+* **calendar:** manage CRM appointments from the day detail panel ([2b52102](https://github.com/SniperStopSniping/nailsalon/commit/2b5210297d522e6f4fddaad63e29a97cdf774f11))
+* **clients:** manage, change, cancel, and book appointments from the client profile ([69732a2](https://github.com/SniperStopSniping/nailsalon/commit/69732a2b058f0a4490010dd030bf7c5ece35c248))
+
 # [1.8.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.7.1...v1.8.0) (2026-07-17)
 
 
