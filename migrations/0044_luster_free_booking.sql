@@ -2,16 +2,36 @@
 -- consent history, and tenant-scoped Google/Twilio integrations.
 
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "publication_status" text DEFAULT 'published' NOT NULL;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "published_at" timestamp;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "slug_locked_at" timestamp;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "onboarding_completed_at" timestamp;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "free_solo_enabled" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "invitation_source" text;
+--> statement-breakpoint
+
 
 ALTER TABLE "appointment" ADD COLUMN IF NOT EXISTS "client_email" text;
+--> statement-breakpoint
+
 ALTER TABLE "admin_user" ADD COLUMN IF NOT EXISTS "clerk_user_id" text;
+--> statement-breakpoint
+
 ALTER TABLE "admin_user" ADD COLUMN IF NOT EXISTS "email_verified_at" timestamp;
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "admin_user_clerk_user_idx" ON "admin_user" ("clerk_user_id");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "salon_signup_invite" (
   "id" text PRIMARY KEY NOT NULL,
@@ -24,9 +44,17 @@ CREATE TABLE IF NOT EXISTS "salon_signup_invite" (
   "created_by_admin_id" text REFERENCES "admin_user"("id"),
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_signup_invite_token_idx" ON "salon_signup_invite" ("token_hash");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_signup_invite_email_idx" ON "salon_signup_invite" ("invited_email");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_signup_invite_expires_idx" ON "salon_signup_invite" ("expires_at");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "salon_google_calendar_connection" (
   "salon_id" text PRIMARY KEY NOT NULL REFERENCES "salon"("id") ON DELETE cascade,
@@ -44,7 +72,11 @@ CREATE TABLE IF NOT EXISTS "salon_google_calendar_connection" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_google_calendar_status_idx" ON "salon_google_calendar_connection" ("status");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "salon_twilio_connection" (
   "salon_id" text PRIMARY KEY NOT NULL REFERENCES "salon"("id") ON DELETE cascade,
@@ -57,8 +89,14 @@ CREATE TABLE IF NOT EXISTS "salon_twilio_connection" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_twilio_account_idx" ON "salon_twilio_connection" ("connect_account_sid");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_twilio_status_idx" ON "salon_twilio_connection" ("status");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "communication_consent" (
   "id" text PRIMARY KEY NOT NULL,
@@ -74,8 +112,12 @@ CREATE TABLE IF NOT EXISTS "communication_consent" (
   "metadata" jsonb,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "communication_consent_salon_recipient_idx"
   ON "communication_consent" ("salon_id", "recipient", "channel", "purpose");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "appointment_access_token" (
   "id" text PRIMARY KEY NOT NULL,
@@ -86,9 +128,17 @@ CREATE TABLE IF NOT EXISTS "appointment_access_token" (
   "revoked_at" timestamp with time zone,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "appointment_access_token_hash_idx" ON "appointment_access_token" ("token_hash");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "appointment_access_token_appointment_idx" ON "appointment_access_token" ("salon_id", "appointment_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "appointment_access_token_expires_idx" ON "appointment_access_token" ("expires_at");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "integration_outbox" (
   "id" text PRIMARY KEY NOT NULL,
@@ -106,9 +156,17 @@ CREATE TABLE IF NOT EXISTS "integration_outbox" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "integration_outbox_dedupe_idx" ON "integration_outbox" ("dedupe_key");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "integration_outbox_pending_idx" ON "integration_outbox" ("provider", "status", "available_at");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "integration_outbox_salon_idx" ON "integration_outbox" ("salon_id");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "notification_delivery" (
   "id" text PRIMARY KEY NOT NULL,
@@ -125,5 +183,9 @@ CREATE TABLE IF NOT EXISTS "notification_delivery" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "notification_delivery_dedupe_idx" ON "notification_delivery" ("dedupe_key");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "notification_delivery_salon_idx" ON "notification_delivery" ("salon_id", "channel", "status");

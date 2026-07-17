@@ -37,6 +37,7 @@
     "db:seed:isla-daniela-rating": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-rating.ts",
     "db:seed:e2e": "NODE_ENV=development dotenv -c development -- tsx scripts/seed-e2e-fixtures.ts",
     "db:backfill-salon-client-id": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-appointment-salon-client-id.ts",
+    "db:verify:booking-constraints": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-booking-constraints.ts",
     "db:verify:appointment-discount-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-appointment-discount-schema.ts",
     "db:verify-fraud-schema": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-fraud-schema.ts",
     "db:smoke-test-fraud": "NODE_ENV=development dotenv -c development -- tsx scripts/smoke-test-fraud-system.ts",

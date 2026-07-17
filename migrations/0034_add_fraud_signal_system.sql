@@ -14,16 +14,22 @@
 -- Phase 1: Add nullable column (to allow migration without downtime)
 ALTER TABLE appointment
 ADD COLUMN IF NOT EXISTS salon_client_id TEXT REFERENCES salon_client(id) ON DELETE RESTRICT;
+--> statement-breakpoint
+
 
 -- Basic composite index for salonClientId lookups
 CREATE INDEX IF NOT EXISTS appointment_salon_client_idx
 ON appointment (salon_id, salon_client_id);
+--> statement-breakpoint
+
 
 -- Partial index for fraud queries (ONLY index needed for fraud - most efficient)
 -- Covers frequency and velocity checks: completed + paid + completed_at window
 CREATE INDEX IF NOT EXISTS appt_fraud_lookup_idx
 ON appointment (salon_id, salon_client_id, completed_at)
 WHERE status = 'completed' AND payment_status = 'paid';
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 2. Create fraud signal enums
@@ -38,6 +44,8 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 -- Severity enum
 DO $$ BEGIN
@@ -49,6 +57,8 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 3. Create fraud_signal table
@@ -68,6 +78,8 @@ CREATE TABLE IF NOT EXISTS fraud_signal (
   resolution_note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 4. Create fraud_signal indexes
@@ -76,35 +88,54 @@ CREATE TABLE IF NOT EXISTS fraud_signal (
 -- Basic indexes for common lookups
 CREATE INDEX IF NOT EXISTS fraud_signal_salon_idx
 ON fraud_signal (salon_id);
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS fraud_signal_client_idx
 ON fraud_signal (salon_client_id);
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS fraud_signal_appointment_idx
 ON fraud_signal (appointment_id);
+--> statement-breakpoint
+
 
 -- UNIQUE constraint: one signal per type per appointment
 -- This prevents duplicate signals for the same event
 CREATE UNIQUE INDEX IF NOT EXISTS fraud_signal_appt_type_unique
 ON fraud_signal (appointment_id, type);
+--> statement-breakpoint
+
 
 -- Partial index for unresolved signals (most common query)
 -- Orders by (created_at DESC, id DESC) for stable pagination
 CREATE INDEX IF NOT EXISTS fraud_signal_unresolved_idx
 ON fraud_signal (salon_id, created_at DESC, id DESC)
 WHERE resolved_at IS NULL;
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 5. Comments for documentation
 -- =============================================================================
 
 COMMENT ON TABLE fraud_signal IS 'Non-blocking fraud detection flags for human review. Created on appointment completion.';
-COMMENT ON COLUMN fraud_signal.salon_client_id IS 'Stable client identity - never use phone for joins';
-COMMENT ON COLUMN fraud_signal.type IS 'HIGH_APPOINTMENT_FREQUENCY (3+ in 7d or 5+ in 14d) or HIGH_REWARD_VELOCITY (5000+ points in 7d)';
-COMMENT ON COLUMN fraud_signal.severity IS 'LOW/MEDIUM/HIGH - determined by thresholds in AppConfig';
-COMMENT ON COLUMN fraud_signal.resolved_at IS 'NULL = unresolved. Set when owner marks as reviewed.';
-COMMENT ON COLUMN fraud_signal.resolved_by IS 'Admin user ID who resolved the signal (from session)';
+--> statement-breakpoint
 
+COMMENT ON COLUMN fraud_signal.salon_client_id IS 'Stable client identity - never use phone for joins';
+--> statement-breakpoint
+
+COMMENT ON COLUMN fraud_signal.type IS 'HIGH_APPOINTMENT_FREQUENCY (3+ in 7d or 5+ in 14d) or HIGH_REWARD_VELOCITY (5000+ points in 7d)';
+--> statement-breakpoint
+
+COMMENT ON COLUMN fraud_signal.severity IS 'LOW/MEDIUM/HIGH - determined by thresholds in AppConfig';
+--> statement-breakpoint
+
+COMMENT ON COLUMN fraud_signal.resolved_at IS 'NULL = unresolved. Set when owner marks as reviewed.';
+--> statement-breakpoint
+
+COMMENT ON COLUMN fraud_signal.resolved_by IS 'Admin user ID who resolved the signal (from session)';
 -- =============================================================================
 -- NOTE: After backfill, run this to make salon_client_id NOT NULL:
 -- ALTER TABLE appointment ALTER COLUMN salon_client_id SET NOT NULL;

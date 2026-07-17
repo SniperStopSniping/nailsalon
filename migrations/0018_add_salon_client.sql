@@ -19,15 +19,27 @@ CREATE TABLE IF NOT EXISTS "salon_client" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Unique constraint: one profile per global client per salon
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_client_salon_client_idx" ON "salon_client" ("salon_id", "client_id");
+--> statement-breakpoint
+
 
 -- Unique constraint: one profile per phone per salon
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_client_salon_phone_idx" ON "salon_client" ("salon_id", "phone");
+--> statement-breakpoint
+
 
 -- Search and filter indexes
 CREATE INDEX IF NOT EXISTS "salon_client_salon_idx" ON "salon_client" ("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_client_phone_idx" ON "salon_client" ("phone");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_client_email_idx" ON "salon_client" ("salon_id", "email");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "salon_client_last_visit_idx" ON "salon_client" ("salon_id", "last_visit_at");

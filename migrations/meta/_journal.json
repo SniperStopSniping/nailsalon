@@ -379,6 +379,13 @@
       "when": 1784864000000,
       "tag": "0053_service_buffers",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1784910000000,
+      "tag": "0054_prevent_double_booking",
+      "breakpoints": true
     }
   ]
 }

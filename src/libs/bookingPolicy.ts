@@ -609,7 +609,10 @@ export async function loadBookingPolicy(args: {
     inArray(appointmentSchema.technicianId, technicianIds),
     gte(appointmentSchema.startTime, startOfDay),
     lt(appointmentSchema.startTime, endOfDay),
-    inArray(appointmentSchema.status, ['pending', 'confirmed']),
+    // in_progress still occupies the technician (e.g. long services started
+    // early); keep in sync with BLOCKING_APPOINTMENT_STATUSES in
+    // bookingConflictGuard.ts and the 0054 migration predicate.
+    inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
   ];
 
   if (excludedAppointmentId) {

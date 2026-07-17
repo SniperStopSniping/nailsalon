@@ -7,6 +7,8 @@ ALTER TABLE "salon_signup_invite"
   ADD COLUMN IF NOT EXISTS "email_delivery_status" text DEFAULT 'pending' NOT NULL,
   ADD COLUMN IF NOT EXISTS "email_sent_at" timestamp with time zone,
   ADD COLUMN IF NOT EXISTS "email_delivery_error_code" text;
+--> statement-breakpoint
+
 
 DO $$
 BEGIN
@@ -35,12 +37,18 @@ BEGIN
       );
   END IF;
 END $$;
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "salon_signup_invite_salon_idx"
   ON "salon_signup_invite" ("salon_id");
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_signup_invite_active_salon_idx"
   ON "salon_signup_invite" ("salon_id")
   WHERE "salon_id" IS NOT NULL AND "consumed_at" IS NULL AND "revoked_at" IS NULL;
+--> statement-breakpoint
+
 CREATE UNIQUE INDEX IF NOT EXISTS "salon_signup_invite_active_email_idx"
   ON "salon_signup_invite" ("invited_email")
   WHERE "intent" = 'create_salon' AND "consumed_at" IS NULL AND "revoked_at" IS NULL;

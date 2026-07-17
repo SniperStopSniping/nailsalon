@@ -15,6 +15,11 @@ import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import {
+  isSlotConstraintViolation,
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
+} from '@/libs/bookingConflictGuard';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
@@ -1370,6 +1375,40 @@ export async function POST(request: Request): Promise<Response> {
     if (originalAppointment && normalizedOriginalApptId) {
       try {
         const transactionalResult = await db.transaction(async (tx) => {
+          // Cancel the original first so the replacement can occupy the same or
+          // an overlapping window without tripping the double-booking
+          // constraints. Atomic within this transaction: a failure below rolls
+          // the cancellation back, and other sessions never observe a gap.
+          const [cancelledOriginal] = await tx
+            .update(appointmentSchema)
+            .set({
+              status: 'cancelled',
+              cancelReason: 'rescheduled',
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(appointmentSchema.id, normalizedOriginalApptId),
+                eq(appointmentSchema.salonId, salon.id),
+                inArray(appointmentSchema.status, ['pending', 'confirmed']),
+              ),
+            )
+            .returning();
+
+          if (!cancelledOriginal) {
+            throw new Error('RESCHEDULE_CONFLICT');
+          }
+
+          if (technician) {
+            await lockTechnicianAndAssertSlotFree(tx, {
+              salonId: salon.id,
+              technicianId: technician.id,
+              startTime,
+              blockedEndTime,
+              excludedAppointmentId: normalizedOriginalApptId,
+            });
+          }
+
           const [createdAppointment] = await tx
             .insert(appointmentSchema)
             .values({
@@ -1474,26 +1513,6 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
 
-          const [cancelledOriginal] = await tx
-            .update(appointmentSchema)
-            .set({
-              status: 'cancelled',
-              cancelReason: 'rescheduled',
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(appointmentSchema.id, normalizedOriginalApptId),
-                eq(appointmentSchema.salonId, salon.id),
-                inArray(appointmentSchema.status, ['pending', 'confirmed']),
-              ),
-            )
-            .returning();
-
-          if (!cancelledOriginal) {
-            throw new Error('RESCHEDULE_CONFLICT');
-          }
-
           return {
             appointment: createdAppointment,
             appointmentServices: insertedServices,
@@ -1517,142 +1536,182 @@ export async function POST(request: Request): Promise<Response> {
           );
         }
 
+        if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
+          return Response.json(
+            {
+              error: {
+                code: 'TIME_CONFLICT',
+                message: 'This time slot is no longer available. Please select a different time.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
+
         throw error;
       }
     } else {
-      const transactionalResult = await db.transaction(async (tx) => {
-        const [createdAppointment] = await tx
-          .insert(appointmentSchema)
-          .values({
-            id: appointmentId,
-            salonId: salon.id,
-            technicianId: technician?.id ?? null,
-            locationId: validatedLocationId,
-            clientPhone: salonClient.phone,
-            clientName,
-            clientEmail: normalizedClientEmail,
-            salonClientId: salonClient.id,
-            googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
-            startTime,
-            endTime,
-            status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
-            totalPrice,
-            totalDurationMinutes,
-            basePriceCents,
-            addOnsPriceCents,
-            baseDurationMinutes,
-            addOnsDurationMinutes,
-            bufferMinutes,
-            blockedDurationMinutes,
-            subtotalBeforeDiscountCents,
-            discountAmountCents,
-            discountType: appointmentDiscountType,
-            discountLabel: appointmentDiscountLabel,
-            discountPercent: appointmentDiscountPercent,
-            discountAppliedAt,
-          })
-          .returning();
+      try {
+        const transactionalResult = await db.transaction(async (tx) => {
+          if (technician) {
+            // Re-validate the slot against committed bookings while holding a
+            // per-technician advisory lock, so two concurrent requests for the
+            // same slot serialize here and exactly one succeeds.
+            await lockTechnicianAndAssertSlotFree(tx, {
+              salonId: salon.id,
+              technicianId: technician.id,
+              startTime,
+              blockedEndTime,
+            });
+          }
 
-        if (!createdAppointment) {
-          throw new Error('Failed to create appointment');
-        }
-
-        await tx.insert(appointmentAccessTokenSchema).values({
-          id: crypto.randomUUID(),
-          salonId: salon.id,
-          appointmentId: createdAppointment.id,
-          tokenHash: managementCapability.tokenHash,
-          expiresAt: capabilityExpiresAt,
-        });
-        if (data.smsConsent?.granted) {
-          await tx.insert(communicationConsentSchema).values({
-            id: crypto.randomUUID(),
-            salonId: salon.id,
-            recipient: salonClient.phone,
-            channel: 'sms',
-            purpose: 'appointment_transactional',
-            status: 'granted',
-            wordingVersion: data.smsConsent.wordingVersion,
-            source: 'public_booking',
-            grantedAt: new Date(),
-            metadata: { appointmentId: createdAppointment.id },
-          });
-        }
-
-        const insertedServices: AppointmentService[] = [];
-        for (const service of services) {
-          const [apptService] = await tx
-            .insert(appointmentServicesSchema)
+          const [createdAppointment] = await tx
+            .insert(appointmentSchema)
             .values({
-              id: `apptSvc_${crypto.randomUUID()}`,
-              appointmentId: createdAppointment.id,
-              serviceId: service.id,
-              priceAtBooking: service.price,
-              durationAtBooking: service.durationMinutes,
-              nameSnapshot: service.name,
-              categorySnapshot: service.category,
-              priceCentsSnapshot: service.price,
-              durationMinutesSnapshot: service.durationMinutes,
-              priceDisplayTextSnapshot: service.priceDisplayText ?? null,
-              resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+              id: appointmentId,
+              salonId: salon.id,
+              technicianId: technician?.id ?? null,
+              locationId: validatedLocationId,
+              clientPhone: salonClient.phone,
+              clientName,
+              clientEmail: normalizedClientEmail,
+              salonClientId: salonClient.id,
+              googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
+              startTime,
+              endTime,
+              status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+              totalPrice,
+              totalDurationMinutes,
+              basePriceCents,
+              addOnsPriceCents,
+              baseDurationMinutes,
+              addOnsDurationMinutes,
+              bufferMinutes,
+              blockedDurationMinutes,
+              subtotalBeforeDiscountCents,
+              discountAmountCents,
+              discountType: appointmentDiscountType,
+              discountLabel: appointmentDiscountLabel,
+              discountPercent: appointmentDiscountPercent,
+              discountAppliedAt,
             })
             .returning();
 
-          if (apptService) {
-            insertedServices.push(apptService);
+          if (!createdAppointment) {
+            throw new Error('Failed to create appointment');
           }
-        }
 
-        const insertedAddOns: typeof appointmentAddOns = [];
-        for (const addOn of selectedAddOnsForBooking) {
-          await tx.insert(appointmentAddOnSchema).values({
-            id: `apptAddon_${crypto.randomUUID()}`,
+          await tx.insert(appointmentAccessTokenSchema).values({
+            id: crypto.randomUUID(),
+            salonId: salon.id,
             appointmentId: createdAppointment.id,
-            addOnId: addOn.addOnId,
-            quantitySnapshot: addOn.quantity,
-            nameSnapshot: addOn.name,
-            categorySnapshot: addOn.category,
-            pricingTypeSnapshot: addOn.pricingType,
-            unitPriceCentsSnapshot: addOn.unitPriceCents,
-            durationMinutesSnapshot: addOn.unitDurationMinutes,
-            lineTotalCentsSnapshot: addOn.lineTotalCents,
-            lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+            tokenHash: managementCapability.tokenHash,
+            expiresAt: capabilityExpiresAt,
           });
-
-          insertedAddOns.push({
-            id: addOn.addOnId,
-            name: addOn.name,
-            quantity: addOn.quantity,
-            lineTotalCents: addOn.lineTotalCents,
-            lineDurationMinutes: addOn.lineDurationMinutes,
-          });
-        }
-
-        if (googleReviewEvent) {
-          const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
-            appointmentId: createdAppointment.id,
-            reviewStatus: 'appointment',
-            reviewedAt: new Date(),
-          }).where(and(
-            eq(googleCalendarEventSchema.id, googleReviewEvent.id),
-            eq(googleCalendarEventSchema.salonId, salon.id),
-            isNull(googleCalendarEventSchema.appointmentId),
-          )).returning();
-          if (!claimedEvent) {
-            throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
+          if (data.smsConsent?.granted) {
+            await tx.insert(communicationConsentSchema).values({
+              id: crypto.randomUUID(),
+              salonId: salon.id,
+              recipient: salonClient.phone,
+              channel: 'sms',
+              purpose: 'appointment_transactional',
+              status: 'granted',
+              wordingVersion: data.smsConsent.wordingVersion,
+              source: 'public_booking',
+              grantedAt: new Date(),
+              metadata: { appointmentId: createdAppointment.id },
+            });
           }
+
+          const insertedServices: AppointmentService[] = [];
+          for (const service of services) {
+            const [apptService] = await tx
+              .insert(appointmentServicesSchema)
+              .values({
+                id: `apptSvc_${crypto.randomUUID()}`,
+                appointmentId: createdAppointment.id,
+                serviceId: service.id,
+                priceAtBooking: service.price,
+                durationAtBooking: service.durationMinutes,
+                nameSnapshot: service.name,
+                categorySnapshot: service.category,
+                priceCentsSnapshot: service.price,
+                durationMinutesSnapshot: service.durationMinutes,
+                priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+                resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+              })
+              .returning();
+
+            if (apptService) {
+              insertedServices.push(apptService);
+            }
+          }
+
+          const insertedAddOns: typeof appointmentAddOns = [];
+          for (const addOn of selectedAddOnsForBooking) {
+            await tx.insert(appointmentAddOnSchema).values({
+              id: `apptAddon_${crypto.randomUUID()}`,
+              appointmentId: createdAppointment.id,
+              addOnId: addOn.addOnId,
+              quantitySnapshot: addOn.quantity,
+              nameSnapshot: addOn.name,
+              categorySnapshot: addOn.category,
+              pricingTypeSnapshot: addOn.pricingType,
+              unitPriceCentsSnapshot: addOn.unitPriceCents,
+              durationMinutesSnapshot: addOn.unitDurationMinutes,
+              lineTotalCentsSnapshot: addOn.lineTotalCents,
+              lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+            });
+
+            insertedAddOns.push({
+              id: addOn.addOnId,
+              name: addOn.name,
+              quantity: addOn.quantity,
+              lineTotalCents: addOn.lineTotalCents,
+              lineDurationMinutes: addOn.lineDurationMinutes,
+            });
+          }
+
+          if (googleReviewEvent) {
+            const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
+              appointmentId: createdAppointment.id,
+              reviewStatus: 'appointment',
+              reviewedAt: new Date(),
+            }).where(and(
+              eq(googleCalendarEventSchema.id, googleReviewEvent.id),
+              eq(googleCalendarEventSchema.salonId, salon.id),
+              isNull(googleCalendarEventSchema.appointmentId),
+            )).returning();
+            if (!claimedEvent) {
+              throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
+            }
+          }
+
+          return {
+            appointment: createdAppointment,
+            appointmentServices: insertedServices,
+            appointmentAddOns: insertedAddOns,
+          };
+        });
+
+        appointment = transactionalResult.appointment;
+        appointmentServices = transactionalResult.appointmentServices;
+        appointmentAddOns = transactionalResult.appointmentAddOns;
+      } catch (error) {
+        if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
+          return Response.json(
+            {
+              error: {
+                code: 'TIME_CONFLICT',
+                message: 'This time slot is no longer available. Please select a different time.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
         }
 
-        return {
-          appointment: createdAppointment,
-          appointmentServices: insertedServices,
-          appointmentAddOns: insertedAddOns,
-        };
-      });
-
-      appointment = transactionalResult.appointment;
-      appointmentServices = transactionalResult.appointmentServices;
-      appointmentAddOns = transactionalResult.appointmentAddOns;
+        throw error;
+      }
     }
 
     if (googleReviewEvent) {

@@ -155,6 +155,11 @@ describe('processGoogleCalendarInboundSync', () => {
   });
 
   it('imports a current Google event separately from CRM appointments', async () => {
+    // Relative dates: the import path marks events ending before "now" as
+    // already reviewed, so a hardcoded date would rot into a false failure.
+    const upcomingStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const upcomingEnd = new Date(upcomingStart.getTime() + 90 * 60 * 1000);
+
     selectResults.push([connection], [salon], []);
     listGoogleCalendarEventsForSalon.mockResolvedValue([{
       id: 'google_external_1',
@@ -168,9 +173,9 @@ describe('processGoogleCalendarInboundSync', () => {
       recurringEventId: null,
       transparency: 'busy',
       isAllDay: false,
-      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
-      startTime: new Date('2026-07-16T16:00:00.000Z'),
-      endTime: new Date('2026-07-16T17:30:00.000Z'),
+      updatedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      startTime: upcomingStart,
+      endTime: upcomingEnd,
     }]);
 
     const result = await processGoogleCalendarInboundSync();

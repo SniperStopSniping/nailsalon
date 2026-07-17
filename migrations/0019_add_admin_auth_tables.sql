@@ -10,8 +10,12 @@ CREATE TABLE IF NOT EXISTS "admin_user" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "admin_user_phone_idx" ON "admin_user" ("phone_e164");
+--> statement-breakpoint
+
 
 -- Admin Session - Server-side sessions for admin auth
 CREATE TABLE IF NOT EXISTS "admin_session" (
@@ -21,9 +25,15 @@ CREATE TABLE IF NOT EXISTS "admin_session" (
   "last_seen_at" timestamp,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "admin_session_admin_idx" ON "admin_session" ("admin_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "admin_session_expires_idx" ON "admin_session" ("expires_at");
+--> statement-breakpoint
+
 
 -- Admin Invite - Invites for admin access (invite-only system)
 CREATE TABLE IF NOT EXISTS "admin_invite" (
@@ -41,10 +51,18 @@ CREATE TABLE IF NOT EXISTS "admin_invite" (
     (role = 'ADMIN' AND salon_id IS NOT NULL)
   )
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "admin_invite_phone_idx" ON "admin_invite" ("phone_e164");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "admin_invite_expires_idx" ON "admin_invite" ("expires_at");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "admin_invite_phone_used_idx" ON "admin_invite" ("phone_e164", "used_at");
+--> statement-breakpoint
+
 
 -- Admin Salon Membership - Which admins can access which salons
 CREATE TABLE IF NOT EXISTS "admin_salon_membership" (
@@ -54,5 +72,7 @@ CREATE TABLE IF NOT EXISTS "admin_salon_membership" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   PRIMARY KEY ("admin_id", "salon_id")
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "admin_membership_salon_idx" ON "admin_salon_membership" ("salon_id");
