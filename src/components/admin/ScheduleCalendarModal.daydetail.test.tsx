@@ -150,8 +150,10 @@ describe('ScheduleCalendarModal day detail', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/manage?salonSlug=test-salon');
     });
 
-    // The day panel hides while the sheet is open.
-    expect(screen.queryByTestId('day-detail-appointment-appt_1')).not.toBeInTheDocument();
+    // The day panel hides while the sheet is open (AnimatePresence exits async).
+    await waitFor(() => {
+      expect(screen.queryByTestId('day-detail-appointment-appt_1')).not.toBeInTheDocument();
+    });
   });
 
   it('keeps Google events non-tappable with only the convert action', async () => {

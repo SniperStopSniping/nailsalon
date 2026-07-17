@@ -739,6 +739,7 @@ describe('ClientsModal', () => {
       fireEvent.click(await screen.findByTestId('client-appointment-change-appt_upcoming'));
 
       expect(await screen.findByTestId('appointment-quick-edit-sheet')).toBeInTheDocument();
+
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_upcoming/manage?salonSlug=isla-nail-studio');
       });
