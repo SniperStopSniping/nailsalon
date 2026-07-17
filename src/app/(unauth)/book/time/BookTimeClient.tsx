@@ -211,6 +211,7 @@ export function BookTimeClient({
   const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
+  const campaignToken = searchParams.get('campaign') || '';
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
@@ -650,6 +651,7 @@ export function BookTimeClient({
       locationId,
       originalAppointmentId,
       manageToken,
+      campaignToken,
     }, {
       routeSalonSlug,
       locale,
@@ -670,6 +672,7 @@ export function BookTimeClient({
         locationId,
         originalAppointmentId,
         manageToken,
+        campaignToken,
       }, {
         routeSalonSlug,
         locale,

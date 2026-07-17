@@ -55,6 +55,12 @@ import {
   normalizePhone,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
+import {
+  calculateRetentionDiscount,
+  type CampaignValidationFailureCode,
+  hashRetentionCampaignToken,
+  validateRetentionCampaign,
+} from '@/libs/retentionCampaigns';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   sendBookingConfirmationToClient,
@@ -72,9 +78,12 @@ import {
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  clientCommunicationSchema,
   communicationConsentSchema,
   googleCalendarEventSchema,
   referralSchema,
+  retentionCampaignRedemptionSchema,
+  retentionCampaignSchema,
   rewardSchema,
   salonSchema,
   type Service,
@@ -188,6 +197,7 @@ const createAppointmentSchema = z.object({
   priceCentsOverride: z.number().int().min(0).max(1_000_000).optional(),
   durationMinutesOverride: z.number().int().min(1).max(1440).optional(),
   notes: z.string().trim().max(2000).optional(),
+  campaignToken: z.string().trim().min(32).max(200).regex(/^[\w-]+$/).optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -238,6 +248,60 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+function campaignFailureResponse(code: CampaignValidationFailureCode): Response {
+  const status = code === 'CAMPAIGN_EXPIRED' || code === 'PROMOTION_DISABLED'
+    ? 410
+    : code === 'CLIENT_MISMATCH'
+      ? 403
+      : 409;
+  const message = code === 'CAMPAIGN_EXPIRED' || code === 'PROMOTION_DISABLED'
+    ? 'This promotion is no longer available.'
+    : code === 'CAMPAIGN_REDEEMED'
+      ? 'This promotion has already been used.'
+      : code === 'CLIENT_MISMATCH'
+        ? 'This promotion was prepared for a different client.'
+        : 'This promotion does not apply to the selected service.';
+
+  return Response.json({ error: { code, message } } satisfies ErrorResponse, { status });
+}
+
+function isCampaignFailureCode(value: string): value is CampaignValidationFailureCode {
+  return [
+    'CAMPAIGN_EXPIRED',
+    'CAMPAIGN_REDEEMED',
+    'CLIENT_MISMATCH',
+    'NO_ELIGIBLE_SERVICE',
+    'PROMOTION_DISABLED',
+  ].includes(value);
+}
+
+async function markLatestRetentionOutreachConverted(args: {
+  salonId: string;
+  salonClientId: string;
+  appointmentId: string;
+}): Promise<void> {
+  const convertedAt = new Date();
+  await db.execute(sql`
+    WITH latest_eligible AS (
+      SELECT id
+      FROM ${clientCommunicationSchema}
+      WHERE ${clientCommunicationSchema.salonId} = ${args.salonId}
+        AND ${clientCommunicationSchema.salonClientId} = ${args.salonClientId}
+        AND ${clientCommunicationSchema.kind} IN ('rebook', 'promo_6w', 'promo_8w')
+        AND ${clientCommunicationSchema.status} IN ('prepared', 'marked_sent', 'snoozed')
+      ORDER BY ${clientCommunicationSchema.createdAt} DESC
+      LIMIT 1
+    )
+    UPDATE ${clientCommunicationSchema}
+    SET status = 'converted',
+        converted_at = ${convertedAt},
+        updated_at = ${convertedAt},
+        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ resultingAppointmentId: args.appointmentId })}::jsonb
+    WHERE ${clientCommunicationSchema.id} IN (SELECT id FROM latest_eligible)
+      AND ${clientCommunicationSchema.salonId} = ${args.salonId}
+  `);
+}
 
 type AppointmentDetailMaps = {
   servicesByAppointmentId: Map<string, Array<{ name: string }>>;
@@ -355,6 +419,19 @@ export async function POST(request: Request): Promise<Response> {
     const normalizedSelectedAddOns = data.selectedAddOns ?? [];
     const normalizedLegacyServiceIds = data.serviceIds ?? [];
     const normalizedNotes = data.notes?.trim() || null;
+    const normalizedCampaignToken = data.campaignToken?.trim() || null;
+
+    if (
+      normalizedCampaignToken
+      && (normalizedOriginalApptId || data.manageToken || data.googleEventReviewId)
+    ) {
+      return Response.json({
+        error: {
+          code: 'CAMPAIGN_FLOW_INVALID',
+          message: 'Retention promotions can only be used for a new public booking.',
+        },
+      } satisfies ErrorResponse, { status: 400 });
+    }
 
     // Validate raw startTime early. If appointmentDate/appointmentTime are provided,
     // the server will recompute the final instant from the salon timezone after
@@ -554,6 +631,9 @@ export async function POST(request: Request): Promise<Response> {
           priceCentsOverride: data.priceCentsOverride ?? null,
           durationMinutesOverride: data.durationMinutesOverride ?? null,
           notes: normalizedNotes,
+          campaignTokenHash: normalizedCampaignToken
+            ? hashRetentionCampaignToken(normalizedCampaignToken)
+            : null,
         }))
         .digest('hex')
         .substring(0, 16); // Short hash is sufficient
@@ -776,6 +856,37 @@ export async function POST(request: Request): Promise<Response> {
 
     subtotalBeforeDiscountCents = totalPrice;
 
+    let retentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
+    if (normalizedCampaignToken) {
+      const [campaign] = await db
+        .select()
+        .from(retentionCampaignSchema)
+        .where(and(
+          eq(retentionCampaignSchema.salonId, salon.id),
+          eq(retentionCampaignSchema.tokenHash, hashRetentionCampaignToken(normalizedCampaignToken)),
+        ))
+        .limit(1);
+      if (!campaign) {
+        return Response.json({
+          error: { code: 'CAMPAIGN_NOT_FOUND', message: 'This promotion link was not found for this salon.' },
+        } satisfies ErrorResponse, { status: 404 });
+      }
+
+      const validation = validateRetentionCampaign({
+        promotion: campaign.promotionSnapshot,
+        expiresAt: campaign.expiresAt,
+        redeemedAt: campaign.redeemedAt,
+        singleUse: campaign.singleUse,
+        campaignClientId: campaign.salonClientId,
+        bookingClientId: campaign.salonClientId,
+        serviceIds: services.map(service => service.id),
+      });
+      if (!validation.valid) {
+        return campaignFailureResponse(validation.code);
+      }
+      retentionCampaign = campaign;
+    }
+
     // 4. Validate technician (if provided) belongs to salon
     // Uses normalizedTechnicianId which has already converted "any"/""/whitespace to null
     let technician = null;
@@ -943,7 +1054,7 @@ export async function POST(request: Request): Promise<Response> {
       preserveFirstVisitDiscount: originalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
     });
 
-    const appliedReward = automaticDiscount.kind === 'reward' ? automaticDiscount.reward : null;
+    let appliedReward = automaticDiscount.kind === 'reward' ? automaticDiscount.reward : null;
     totalPrice = automaticDiscount.finalTotalCents;
     discountAmountCents = automaticDiscount.discountAmountCents;
 
@@ -1371,6 +1482,42 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    if (retentionCampaign) {
+      const campaignValidation = validateRetentionCampaign({
+        promotion: retentionCampaign.promotionSnapshot,
+        expiresAt: retentionCampaign.expiresAt,
+        redeemedAt: retentionCampaign.redeemedAt,
+        singleUse: retentionCampaign.singleUse,
+        campaignClientId: retentionCampaign.salonClientId,
+        bookingClientId: salonClient.id,
+        serviceIds: services.map(service => service.id),
+      });
+      if (!campaignValidation.valid) {
+        return campaignFailureResponse(campaignValidation.code);
+      }
+
+      const campaignDiscount = calculateRetentionDiscount({
+        promotion: retentionCampaign.promotionSnapshot,
+        services: services.map(service => ({ id: service.id, priceCents: service.price })),
+      });
+      if (campaignDiscount.discountAmountCents <= 0) {
+        return campaignFailureResponse('NO_ELIGIBLE_SERVICE');
+      }
+
+      // Retention promotions do not stack with rewards or the first-visit
+      // offer. A reward remains active for a later visit instead of being
+      // consumed silently by this booking.
+      appliedReward = null;
+      discountAmountCents = campaignDiscount.discountAmountCents;
+      totalPrice = Math.max(0, subtotalBeforeDiscountCents - discountAmountCents);
+      appointmentDiscountType = `retention_${retentionCampaign.stage}`;
+      appointmentDiscountLabel = retentionCampaign.promotionSnapshot.name;
+      appointmentDiscountPercent = retentionCampaign.promotionSnapshot.discountType === 'percent'
+        ? retentionCampaign.promotionSnapshot.value
+        : null;
+      discountAppliedAt = new Date();
+    }
+
     // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
     const managementCapability = createOpaqueToken();
@@ -1580,6 +1727,36 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
 
+          let lockedRetentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
+          if (retentionCampaign) {
+            const [lockedCampaign] = await tx
+              .select()
+              .from(retentionCampaignSchema)
+              .where(and(
+                eq(retentionCampaignSchema.id, retentionCampaign.id),
+                eq(retentionCampaignSchema.salonId, salon.id),
+              ))
+              .for('update')
+              .limit(1);
+
+            if (!lockedCampaign) {
+              throw new Error('CAMPAIGN_NOT_FOUND');
+            }
+            const lockedValidation = validateRetentionCampaign({
+              promotion: lockedCampaign.promotionSnapshot,
+              expiresAt: lockedCampaign.expiresAt,
+              redeemedAt: lockedCampaign.redeemedAt,
+              singleUse: lockedCampaign.singleUse,
+              campaignClientId: lockedCampaign.salonClientId,
+              bookingClientId: salonClient.id,
+              serviceIds: services.map(service => service.id),
+            });
+            if (!lockedValidation.valid) {
+              throw new Error(lockedValidation.code);
+            }
+            lockedRetentionCampaign = lockedCampaign;
+          }
+
           const [createdAppointment] = await tx
             .insert(appointmentSchema)
             .values({
@@ -1703,6 +1880,49 @@ export async function POST(request: Request): Promise<Response> {
             }
           }
 
+          if (lockedRetentionCampaign) {
+            const [redeemedCampaign] = await tx
+              .update(retentionCampaignSchema)
+              .set({
+                redeemedAt: new Date(),
+                redeemedAppointmentId: createdAppointment.id,
+                updatedAt: new Date(),
+              })
+              .where(and(
+                eq(retentionCampaignSchema.id, lockedRetentionCampaign.id),
+                eq(retentionCampaignSchema.salonId, salon.id),
+                lockedRetentionCampaign.singleUse
+                  ? isNull(retentionCampaignSchema.redeemedAt)
+                  : undefined,
+              ))
+              .returning();
+            if (!redeemedCampaign) {
+              throw new Error('CAMPAIGN_REDEEMED');
+            }
+
+            await tx.insert(retentionCampaignRedemptionSchema).values({
+              id: `campaign_redemption_${crypto.randomUUID()}`,
+              salonId: salon.id,
+              campaignId: lockedRetentionCampaign.id,
+              appointmentId: createdAppointment.id,
+              discountAmountCents,
+            });
+
+            if (lockedRetentionCampaign.communicationId) {
+              await tx
+                .update(clientCommunicationSchema)
+                .set({
+                  status: 'converted',
+                  convertedAt: new Date(),
+                  updatedAt: new Date(),
+                })
+                .where(and(
+                  eq(clientCommunicationSchema.id, lockedRetentionCampaign.communicationId),
+                  eq(clientCommunicationSchema.salonId, salon.id),
+                ));
+            }
+          }
+
           return {
             appointment: createdAppointment,
             appointmentServices: insertedServices,
@@ -1736,6 +1956,18 @@ export async function POST(request: Request): Promise<Response> {
         title: googleReviewEvent.title,
         decision: 'appointment',
       });
+    }
+
+    try {
+      await markLatestRetentionOutreachConverted({
+        salonId: salon.id,
+        salonClientId: salonClient.id,
+        appointmentId: appointment.id,
+      });
+    } catch (conversionError) {
+      // The appointment is already committed. Timeline enrichment must never
+      // turn a successful booking into a 500 that encourages a duplicate retry.
+      console.error('[Retention] Failed to convert latest outreach after booking:', conversionError);
     }
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
@@ -1968,6 +2200,14 @@ export async function POST(request: Request): Promise<Response> {
     // 13. Return response (same object that was cached, if caching was enabled)
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && isCampaignFailureCode(error.message)) {
+      return campaignFailureResponse(error.message);
+    }
+    if (error instanceof Error && error.message === 'CAMPAIGN_NOT_FOUND') {
+      return Response.json({
+        error: { code: 'CAMPAIGN_NOT_FOUND', message: 'This promotion link was not found for this salon.' },
+      } satisfies ErrorResponse, { status: 404 });
+    }
     if (error instanceof Error && error.message === 'GOOGLE_EVENT_ALREADY_CONVERTED') {
       return Response.json(
         {

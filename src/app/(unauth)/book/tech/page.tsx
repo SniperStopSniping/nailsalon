@@ -30,6 +30,8 @@ export default async function BookTechPage({
     locationId?: string;
     salonSlug?: string;
     originalAppointmentId?: string;
+    manageToken?: string;
+    campaign?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -68,6 +70,8 @@ export default async function BookTechPage({
       locationId: searchParams.locationId ?? null,
       techId: null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -87,6 +91,8 @@ export default async function BookTechPage({
       selectedAddOns,
       locationId: searchParams.locationId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -146,6 +152,8 @@ export default async function BookTechPage({
       locationId: resolvedLocationId,
       techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,

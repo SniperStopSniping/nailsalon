@@ -137,6 +137,16 @@
 }
 
 @layer utilities {
+  .service-page-viewport {
+    min-height: 100vh;
+  }
+
+  @supports (min-height: 100dvh) {
+    .service-page-viewport {
+      min-height: 100dvh;
+    }
+  }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;

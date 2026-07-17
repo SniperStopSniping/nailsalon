@@ -60,6 +60,61 @@ describe('useAppointmentActions', () => {
     await waitFor(() => expect(result.current.detail).toBeNull());
   });
 
+  it('pins every appointment action endpoint to the selected salon', async () => {
+    const { result } = await renderOpenHook({ salonSlug: 'salon-a' });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/manage?salonSlug=salon-a');
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      data: { detail: DETAIL, calendarEvent: { id: 'appt_1' } },
+    }));
+    await act(async () => result.current.moveToNextAvailable());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    queueDetailFetch();
+    await act(async () => result.current.startAppointment());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    queueDetailFetch();
+    await act(async () => result.current.completeAppointment());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    queueDetailFetch();
+    await act(async () => result.current.confirmAppointment());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    queueDetailFetch();
+    await act(async () => result.current.resendConfirmation());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    await act(async () => result.current.cancelAppointment({ reason: 'client_request' }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1/manage?salonSlug=salon-a',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1/complete?salonSlug=salon-a',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1/complete?salonSlug=salon-a',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1?salonSlug=salon-a',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1/resend-confirmation?salonSlug=salon-a',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/appointments/appt_1/cancel?salonSlug=salon-a',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+  });
+
   it('surfaces a friendly error with retry state when the detail fetch fails', async () => {
     const { result } = renderHook(() => useAppointmentActions());
     fetchMock.mockRejectedValueOnce(new Error('network down'));

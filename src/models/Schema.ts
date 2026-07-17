@@ -855,6 +855,174 @@ export const salonClientSchema = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// Retention assistant settings - one durable configuration row per salon
+// -----------------------------------------------------------------------------
+export const salonRetentionSettingsSchema = pgTable(
+  'salon_retention_settings',
+  {
+    salonId: text('salon_id')
+      .primaryKey()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    defaultRebookDays: integer('default_rebook_days').notNull().default(21),
+    reminderLeadHours: integer('reminder_lead_hours').notNull().default(24),
+    googleReviewUrl: text('google_review_url'),
+    parkingInstructions: text('parking_instructions'),
+    sixWeekPromotion: jsonb('six_week_promotion')
+      .$type<import('@/types/retention').RetentionPromotionSettings>()
+      .notNull()
+      .default({
+        enabled: false,
+        name: 'We miss you',
+        discountType: 'percent',
+        value: 0,
+        eligibleServiceIds: [],
+        expiryDays: 14,
+        code: null,
+        messageTemplate: 'Hi {firstName}, we miss you at {salonName}! Enjoy {offer} when you book by {expiry}: {bookingLink}',
+        singleUse: true,
+      }),
+    eightWeekPromotion: jsonb('eight_week_promotion')
+      .$type<import('@/types/retention').RetentionPromotionSettings>()
+      .notNull()
+      .default({
+        enabled: false,
+        name: 'Come back soon',
+        discountType: 'percent',
+        value: 0,
+        eligibleServiceIds: [],
+        expiryDays: 14,
+        code: null,
+        messageTemplate: 'Hi {firstName}, we would love to see you again at {salonName}. Enjoy {offer} when you book by {expiry}: {bookingLink}',
+        singleUse: true,
+      }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+);
+
+// -----------------------------------------------------------------------------
+// Client communication - honest, salon-scoped outreach history and queue state
+// -----------------------------------------------------------------------------
+export const clientCommunicationSchema = pgTable(
+  'client_communication',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    appointmentId: text('appointment_id').references(() => appointmentSchema.id, { onDelete: 'set null' }),
+    kind: text('kind').notNull(),
+    status: text('status').notNull().default('prepared'),
+    dueAt: timestamp('due_at', { mode: 'date', withTimezone: true }),
+    snoozedUntil: timestamp('snoozed_until', { mode: 'date', withTimezone: true }),
+    messageSnapshot: text('message_snapshot'),
+    metadata: jsonb('metadata').$type<import('@/types/retention').ClientCommunicationMetadata>().default({}),
+    preparedAt: timestamp('prepared_at', { mode: 'date', withTimezone: true }),
+    markedSentAt: timestamp('marked_sent_at', { mode: 'date', withTimezone: true }),
+    dismissedAt: timestamp('dismissed_at', { mode: 'date', withTimezone: true }),
+    convertedAt: timestamp('converted_at', { mode: 'date', withTimezone: true }),
+    actorAdminId: text('actor_admin_id'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonClientCreatedIdx: index('client_communication_salon_client_created_idx').on(
+      table.salonId,
+      table.salonClientId,
+      table.createdAt,
+    ),
+    appointmentIdx: index('client_communication_appointment_idx').on(
+      table.salonId,
+      table.appointmentId,
+    ),
+    queueIdx: index('client_communication_queue_idx').on(
+      table.salonId,
+      table.kind,
+      table.status,
+      table.snoozedUntil,
+    ),
+    // Mirrors migrations/0055: at most one prepared/snoozed retention stage
+    // per client. Declared here too so PGlite-backed tests enforce the same
+    // invariant production does. (Migrations are hand-authored SQL — keep the
+    // two definitions in sync.)
+    activeRetentionUnique: uniqueIndex('client_communication_active_retention_unique')
+      .on(table.salonId, table.salonClientId)
+      .where(sql`"kind" IN ('rebook', 'promo_6w', 'promo_8w') AND "status" IN ('prepared', 'snoozed')`),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// Retention campaign - stores only a hash of the client-facing opaque token
+// -----------------------------------------------------------------------------
+export const retentionCampaignSchema = pgTable(
+  'retention_campaign',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    communicationId: text('communication_id').references(() => clientCommunicationSchema.id, { onDelete: 'set null' }),
+    tokenHash: text('token_hash').notNull(),
+    stage: text('stage').notNull(),
+    promotionSnapshot: jsonb('promotion_snapshot')
+      .$type<import('@/types/retention').RetentionPromotionSettings>()
+      .notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    singleUse: boolean('single_use').notNull().default(true),
+    redeemedAt: timestamp('redeemed_at', { mode: 'date', withTimezone: true }),
+    redeemedAppointmentId: text('redeemed_appointment_id').references(() => appointmentSchema.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    tokenHashIdx: uniqueIndex('retention_campaign_token_hash_idx').on(table.tokenHash),
+    salonClientIdx: index('retention_campaign_salon_client_idx').on(
+      table.salonId,
+      table.salonClientId,
+      table.createdAt,
+    ),
+    redeemedAppointmentIdx: index('retention_campaign_redeemed_appointment_idx').on(table.redeemedAppointmentId),
+  }),
+);
+
+export const retentionCampaignRedemptionSchema = pgTable(
+  'retention_campaign_redemption',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => retentionCampaignSchema.id, { onDelete: 'cascade' }),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    discountAmountCents: integer('discount_amount_cents').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    campaignIdx: index('retention_campaign_redemption_campaign_idx').on(table.campaignId, table.createdAt),
+    appointmentIdx: uniqueIndex('retention_campaign_redemption_appointment_idx').on(table.appointmentId),
+  }),
+);
+
+// -----------------------------------------------------------------------------
 // Referral - Track referrals sent by clients (link-based flow)
 // -----------------------------------------------------------------------------
 export const referralSchema = pgTable(
@@ -1724,6 +1892,15 @@ export type NewClient = typeof clientSchema.$inferInsert;
 
 export type SalonClient = typeof salonClientSchema.$inferSelect;
 export type NewSalonClient = typeof salonClientSchema.$inferInsert;
+
+export type SalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferSelect;
+export type NewSalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferInsert;
+export type ClientCommunication = typeof clientCommunicationSchema.$inferSelect;
+export type NewClientCommunication = typeof clientCommunicationSchema.$inferInsert;
+export type RetentionCampaign = typeof retentionCampaignSchema.$inferSelect;
+export type NewRetentionCampaign = typeof retentionCampaignSchema.$inferInsert;
+export type RetentionCampaignRedemption = typeof retentionCampaignRedemptionSchema.$inferSelect;
+export type NewRetentionCampaignRedemption = typeof retentionCampaignRedemptionSchema.$inferInsert;
 
 export type Salon = typeof salonSchema.$inferSelect;
 export type NewSalon = typeof salonSchema.$inferInsert;

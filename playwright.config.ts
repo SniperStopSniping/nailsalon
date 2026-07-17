@@ -107,6 +107,14 @@ export default defineConfig({
       name: 'chromium',
       use: chromiumUse,
       dependencies: ['setup'],
+      grepInvert: /@mobile-safari/,
+    },
+    {
+      name: 'mobile-webkit',
+      testMatch: /mobile-booking-footer\.e2e\.ts/,
+      grep: /@mobile-safari/,
+      use: { ...devices['iPhone 13'] },
+      dependencies: ['setup'],
     },
     ...(process.env.CI
       ? [
@@ -114,6 +122,7 @@ export default defineConfig({
             name: 'firefox',
             use: { ...devices['Desktop Firefox'] },
             dependencies: ['setup'],
+            grepInvert: /@mobile-(?:chrome|safari)/,
           },
         ]
       : []),

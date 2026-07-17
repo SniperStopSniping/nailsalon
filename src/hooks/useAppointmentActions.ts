@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { CalendarAppointment } from '@/components/appointments/AppointmentsDayView';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
+import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 
 export type AppointmentMutationResult = {
   detail: AppointmentManageDetail;
@@ -140,6 +141,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailError(null);
     setAttemptedTimeLabel(null);
     onMutationApplied?.(result);
+    notifyAppointmentDataChanged();
   }, [onMutationApplied]);
 
   const runManageMutation = useCallback(async (
@@ -240,6 +242,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       }
 
       onOptimisticStatus?.(selectedAppointmentId, 'in_progress');
+      notifyAppointmentDataChanged();
       await fetchDetail(selectedAppointmentId);
     } catch (startError) {
       setDetailError(errorMessage(startError, 'Unable to start appointment'));
@@ -277,6 +280,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       }
 
       onOptimisticStatus?.(selectedAppointmentId, 'completed');
+      notifyAppointmentDataChanged();
       await fetchDetail(selectedAppointmentId);
     } catch (completeError) {
       setDetailError(errorMessage(completeError, 'Unable to complete appointment'));
@@ -306,6 +310,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
         throw result.error ?? new Error('Unable to update appointment');
       }
       onOptimisticStatus?.(selectedAppointmentId, 'confirmed');
+      notifyAppointmentDataChanged();
       await fetchDetail(selectedAppointmentId);
     } catch (statusError) {
       setDetailError(errorMessage(statusError, 'Unable to update appointment'));
@@ -344,6 +349,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
         // the appointment is already terminal, treat it as done.
         if (errorCode(result?.error) === 'INVALID_STATE') {
           onCancelled?.(selectedAppointmentId, targetStatus);
+          notifyAppointmentDataChanged();
           setSelectedAppointmentId(null);
           return;
         }
@@ -351,6 +357,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       }
 
       onCancelled?.(selectedAppointmentId, targetStatus);
+      notifyAppointmentDataChanged();
       setSelectedAppointmentId(null);
     } catch (cancelError) {
       setDetailError(errorMessage(cancelError, 'Unable to cancel appointment'));

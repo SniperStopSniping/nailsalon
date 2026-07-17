@@ -1,8 +1,6 @@
-import type { LocalePrefix } from 'node_modules/next-intl/dist/types/src/routing/types';
-
 import { BILLING_INTERVAL, type PricingPlan } from '@/types/Subscription';
 
-const localePrefix: LocalePrefix = 'as-needed';
+const localePrefix = 'as-needed' as const;
 
 export const AppConfig = {
   name: 'Luster',

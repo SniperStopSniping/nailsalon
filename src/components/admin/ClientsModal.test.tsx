@@ -195,7 +195,7 @@ function buildDetailResponse(overrides?: Partial<{
         status: 'confirmed',
         totalPrice: 9500,
         technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null },
-        services: [{ name: 'Gel Fill', price: 9500 }],
+        services: [{ id: 'svc_gel_fill', name: 'Gel Fill', price: 9500 }],
         notes: 'French finish',
       }],
       pastAppointments: overrides?.pastAppointments ?? [{
@@ -205,7 +205,7 @@ function buildDetailResponse(overrides?: Partial<{
         status: 'completed',
         totalPrice: 8200,
         technician: { id: 'tech_2', name: 'Mila', avatarUrl: null },
-        services: [{ name: 'Classic Pedicure', price: 8200 }],
+        services: [{ id: 'svc_pedicure', name: 'Classic Pedicure', price: 8200 }],
         notes: null,
       }],
       recentIssues: overrides?.recentIssues ?? [{
@@ -215,7 +215,7 @@ function buildDetailResponse(overrides?: Partial<{
         status: 'no_show',
         totalPrice: 0,
         technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null },
-        services: [{ name: 'Builder Gel Fill', price: 9900 }],
+        services: [{ id: 'svc_builder_fill', name: 'Builder Gel Fill', price: 9900 }],
         notes: 'Did not arrive',
       }],
     },
@@ -372,6 +372,45 @@ describe('ClientsModal', () => {
 
     expect(await screen.findByRole('button', { name: /zara bloom/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /nora vale/i })).not.toBeInTheDocument();
+  });
+
+  it('opens an exact client from a dashboard notification even when they are not on the first list page', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_dashboard?salonSlug=isla-nail-studio') {
+        return new Response(JSON.stringify(buildDetailResponse({
+          client: {
+            id: 'client_dashboard',
+            fullName: 'Dashboard Lead',
+            phone: '4165559999',
+            email: 'lead@example.com',
+          },
+          upcomingAppointments: [],
+          pastAppointments: [],
+          recentIssues: [],
+        })), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} initialClientId="client_dashboard" />);
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Lead' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/clients/client_dashboard?salonSlug=isla-nail-studio',
+      { cache: 'no-store' },
+    );
   });
 
   it('loads real client detail, separates completed history from recent issues, and reuses cached detail on reopen', async () => {
@@ -781,6 +820,8 @@ describe('ClientsModal', () => {
         name: 'Ava Thompson',
         phone: '1111111111',
         email: 'ava@example.com',
+        serviceId: 'svc_pedicure',
+        technicianId: 'tech_2',
       }));
     });
   });

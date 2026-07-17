@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- CLI seeding script; console output is its UI */
 import 'dotenv/config';
 
 import { and, eq } from 'drizzle-orm';
@@ -53,6 +54,14 @@ async function main() {
     if (!salon) {
       throw new Error(`Salon ${salonSlug} was not found. Run npm run db:seed first or point E2E_SALON_SLUG at an existing salon.`);
     }
+
+    // The core e2e suite assumes the free-Luster profile (e2eConfig.freeSolo
+    // defaults to true): the public footer and auto tech-skip only render for
+    // free-solo salons, so make sure the fixture salon actually is one.
+    await db
+      .update(salonSchema)
+      .set({ freeSoloEnabled: true, publicationStatus: 'published' })
+      .where(eq(salonSchema.id, salon.id));
 
     const [technician] = await db
       .select({
