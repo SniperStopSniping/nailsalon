@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Settings2,
   Sparkles,
+  TriangleAlert,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ type TodayData = {
     totalDurationMinutes: number;
     technicianName: string | null;
     services: string[];
+    clientSensitivities?: string | null;
   }>;
   dueClients: Array<{
     id: string;
@@ -274,6 +276,11 @@ export function OwnerTodayWorkspace({
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-stone-950">
                             {appointment.clientName || 'Guest client'}
+                            {appointment.id === nextAppointmentId && (
+                              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wide text-white">
+                                Next
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-stone-500">
                             {appointment.services.join(', ')}
@@ -281,6 +288,14 @@ export function OwnerTodayWorkspace({
                               ? ` · ${appointment.technicianName}`
                               : ''}
                           </p>
+                          {appointment.clientSensitivities && (
+                            <p className="mt-1 flex items-start gap-1 text-xs font-medium text-amber-800">
+                              <TriangleAlert size={13} className="mt-0.5 shrink-0" />
+                              <span className="line-clamp-2">
+                                {appointment.clientSensitivities}
+                              </span>
+                            </p>
+                          )}
                         </div>
                         <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
                           {formatAppointmentStatus(appointment.status)}

@@ -900,6 +900,19 @@ function ClientDetail({
                     </label>
 
                     <label className="block">
+                      <span className="mb-1.5 block text-[12px] font-semibold uppercase text-amber-700">Sensitivities & allergies</span>
+                      <textarea
+                        aria-label="Sensitivities and allergies"
+                        value={sensitivitiesDraft}
+                        onChange={event => setSensitivitiesDraft(event.target.value)}
+                        rows={3}
+                        placeholder="Allergies, product reactions, damaged nails, removal care..."
+                        className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                      />
+                      <span className="mt-1 block text-[11px] text-[#8E8E93]">Shown to the tech on today’s schedule before every appointment.</span>
+                    </label>
+
+                    <label className="mt-3 block">
                       <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Private notes</span>
                       <textarea
                         aria-label="Private notes"
@@ -930,11 +943,6 @@ function ClientDetail({
                     <label className="mt-3 block">
                       <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Products used</span>
                       <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                    </label>
-
-                    <label className="mt-3 block">
-                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Sensitivities & nail notes</span>
-                      <textarea value={sensitivitiesDraft} onChange={event => setSensitivitiesDraft(event.target.value)} rows={3} placeholder="Known sensitivities, damaged nails, removal care..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
                     </label>
 
                     <div className="mt-3 grid grid-cols-2 gap-3">
