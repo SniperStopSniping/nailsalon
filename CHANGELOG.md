@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.0...v1.10.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* handle retention campaign route params ([9c3eaca](https://github.com/SniperStopSniping/nailsalon/commit/9c3eaca8676397233c2f6f3117e117fcb4abdbba))
+
 # [1.10.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.9.1...v1.10.0) (2026-07-17)
 
 
