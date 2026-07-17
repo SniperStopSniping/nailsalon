@@ -6,6 +6,28 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:e2e:local"],
       "port": 3101
+    },
+    {
+      "name": "dev-pglite",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "cross-env",
+        "HOST=localhost",
+        "PORT=3101",
+        "DATABASE_URL=",
+        "REDIS_URL=",
+        "TWILIO_ACCOUNT_SID=",
+        "TWILIO_AUTH_TOKEN=",
+        "TWILIO_VERIFY_SERVICE_SID=",
+        "TWILIO_PHONE_NUMBER=",
+        "next",
+        "dev",
+        "--hostname",
+        "localhost",
+        "--port",
+        "3101"
+      ],
+      "port": 3101
     }
   ]
 }
