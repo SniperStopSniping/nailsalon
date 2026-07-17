@@ -43,6 +43,10 @@ vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
 }));
 
+vi.mock('@/libs/bookingConfig', () => ({
+  getBookingConfigForSalon: vi.fn(async () => ({ timezone: 'America/Toronto' })),
+}));
+
 vi.mock('@/libs/salonStatus', () => ({
   buildTenantRedirectPath,
   checkFeatureEnabled,

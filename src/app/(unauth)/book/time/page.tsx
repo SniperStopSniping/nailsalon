@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
@@ -206,6 +207,8 @@ export default async function BookTimePage({
     ? await getLocationById(resolvedLocationId, salon.id)
     : primaryLocation;
 
+  const bookingConfig = await getBookingConfigForSalon(salon.id);
+
   const services = resolvedTechnicianContext.resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
@@ -238,6 +241,7 @@ export default async function BookTimePage({
           technician={technician}
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
+          salonTimeZone={bookingConfig.timezone}
         />
       </Suspense>
     </PublicSalonPageShell>
