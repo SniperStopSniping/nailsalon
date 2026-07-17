@@ -192,7 +192,9 @@ describe('POST /api/public/appointments/recovery', () => {
       deliveryId: 'delivery_9',
       errorCode: 'RESEND_HTTP_500',
     });
+
     const logged = JSON.stringify([...loggerWarn.mock.calls, ...loggerError.mock.calls]);
+
     expect(logged).not.toContain('onfile@example.com');
   });
 

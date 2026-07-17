@@ -125,7 +125,9 @@ describe('sendBookingRecoveryEmail', () => {
 
     expect(result).toEqual({ ok: true, deduped: true, deliveryId: null });
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+
     const tokenInserts = state.insertedValues.filter(entry => entry.table === appointmentAccessTokenSchema);
+
     expect(tokenInserts).toHaveLength(0);
   });
 
@@ -136,7 +138,9 @@ describe('sendBookingRecoveryEmail', () => {
 
     expect(result.ok).toBe(true);
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+
     const message = state.sendTransactionalEmailDetailed.mock.calls[0]![0] as { to: string; subject: string; text: string; html: string };
+
     expect(message.to).toBe('onfile@example.com');
     expect(message.subject).toContain('Test Salon');
     expect(message.text).toContain('Gel Manicure');
@@ -147,6 +151,7 @@ describe('sendBookingRecoveryEmail', () => {
     expect(message.html).toContain('Gel Manicure');
 
     const deliveryUpdates = state.updates.filter(update => update.table === notificationDeliverySchema);
+
     expect(deliveryUpdates).toHaveLength(1);
     expect(deliveryUpdates[0]!.set).toMatchObject({ status: 'sent', retryable: false });
   });
@@ -161,18 +166,25 @@ describe('sendBookingRecoveryEmail', () => {
     expect(result.errorCode).toBe('RESEND_HTTP_500');
 
     const deliveryUpdates = state.updates.filter(update => update.table === notificationDeliverySchema);
+
     expect(deliveryUpdates[0]!.set).toMatchObject({ status: 'failed', retryable: true, errorCode: 'RESEND_HTTP_500' });
 
     const tokenUpdates = state.updates.filter(update => update.table === appointmentAccessTokenSchema);
+
     expect(tokenUpdates).toHaveLength(1);
     expect(tokenUpdates[0]!.set.revokedAt).toBeInstanceOf(Date);
 
     const outboxInserts = state.insertedValues.filter(entry => entry.table === integrationOutboxSchema);
+
     expect(outboxInserts).toHaveLength(1);
+
     const outboxRow = outboxInserts[0]!.values as { operation: string; payload: unknown; dedupeKey: string };
+
     expect(outboxRow.operation).toBe('retry_booking_recovery');
     expect(outboxRow.payload).toEqual({ deliveryId: expect.any(String), appointmentIds: ['appt_1'] });
+
     const serialized = JSON.stringify(outboxRow);
+
     expect(serialized).not.toContain('onfile@example.com');
     expect(serialized).not.toContain('opaque-token-value');
   });
@@ -208,7 +220,9 @@ describe('retryBookingRecoveryEmail', () => {
 
     expect(result).toEqual({ ok: true });
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({ to: 'fresh@example.com' }));
+
     const deliveryUpdates = state.updates.filter(update => update.table === notificationDeliverySchema);
+
     expect(deliveryUpdates[0]!.set).toMatchObject({ status: 'sent', retryable: false });
   });
 
@@ -224,6 +238,7 @@ describe('retryBookingRecoveryEmail', () => {
       .rejects.toThrow('RESEND_HTTP_429');
 
     const tokenUpdates = state.updates.filter(update => update.table === appointmentAccessTokenSchema);
+
     expect(tokenUpdates).toHaveLength(1);
   });
 });

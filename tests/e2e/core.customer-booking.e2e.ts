@@ -104,7 +104,9 @@ test('duplicate booking offers recovery options and a server-verified retry path
     if (appPathPattern('/book/tech').test(page.url())) {
       await page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') }).click();
     }
+
     await expect(page).toHaveURL(appPathPattern('/book/time'));
+
     const timeStepUrl = new URL(page.url());
     const technicianId = timeStepUrl.searchParams.get('techId');
     await selectBookableSlotFromApi(page, {
@@ -114,6 +116,7 @@ test('duplicate booking offers recovery options and a server-verified retry path
       locationId: timeStepUrl.searchParams.get('locationId'),
       selectedAddOns: timeStepUrl.searchParams.get('selectedAddOns'),
     });
+
     await expect(page).toHaveURL(appPathPattern('/book/confirm'));
   }
 
@@ -153,10 +156,12 @@ test('duplicate booking offers recovery options and a server-verified retry path
 
   // Self-serve link recovery from the options screen.
   await page.getByTestId('existing-appointment-send-link').click();
+
   await expect(page.getByTestId('existing-appointment-sent')).toContainText('Request received');
 
   // Editing contact info returns to the form with details preserved.
   await page.getByTestId('existing-appointment-edit-contact').click();
+
   await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
   await expect(page.getByLabel('Customer phone')).toHaveValue(phone);
 

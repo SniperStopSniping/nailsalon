@@ -332,6 +332,7 @@ describe('POST /api/appointments booking policy', () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+
     // Anti-enumeration: the body must not leak the existing appointment's
     // id or schedule to a caller who only knows a phone number.
     const serialized = JSON.stringify(body);

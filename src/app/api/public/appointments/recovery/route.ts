@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
-import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
 import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
+import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
 import { logger } from '@/libs/Logger';
 import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { getSalonBySlug } from '@/libs/queries';
