@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.1...v1.10.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **google-events:** let conversions through the availability gate and make retry work ([05eabd7](https://github.com/SniperStopSniping/nailsalon/commit/05eabd7ed566307647686d8bf5a8d091a18bcec7))
+
 ## [1.10.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.0...v1.10.1) (2026-07-17)
 
 
