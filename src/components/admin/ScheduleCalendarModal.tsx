@@ -23,6 +23,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { useSalon } from '@/providers/SalonProvider';
 
@@ -324,6 +326,7 @@ type DayDetailPanelProps = {
   appointments: AppointmentSummary[];
   onClose: () => void;
   onConvertGoogleEvent: (appointment: AppointmentSummary) => void;
+  onSelectAppointment: (appointmentId: string) => void;
 };
 
 function DayDetailPanel({
@@ -331,6 +334,7 @@ function DayDetailPanel({
   appointments,
   onClose,
   onConvertGoogleEvent,
+  onSelectAppointment,
 }: DayDetailPanelProps) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
   const dateStr = date.toLocaleDateString('en-US', {
@@ -446,6 +450,7 @@ function DayDetailPanel({
                   {appts.map((appt, idx) => {
                     const statusColors
                       = STATUS_COLORS[appt.status] ?? STATUS_COLORS.confirmed!;
+                    const isCrmAppointment = appt.source !== 'google';
 
                     return (
                       <motion.div
@@ -453,8 +458,21 @@ function DayDetailPanel({
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
+                        data-testid={isCrmAppointment ? `day-detail-appointment-${appt.id}` : `day-detail-google-${appt.id}`}
+                        role={isCrmAppointment ? 'button' : undefined}
+                        tabIndex={isCrmAppointment ? 0 : undefined}
+                        onClick={isCrmAppointment ? () => onSelectAppointment(appt.id) : undefined}
+                        onKeyDown={isCrmAppointment
+                          ? (event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                onSelectAppointment(appt.id);
+                              }
+                            }
+                          : undefined}
                         className={`
                           rounded-xl border p-3
+                          ${isCrmAppointment ? 'min-h-11 cursor-pointer text-left transition-transform active:scale-[0.99]' : ''}
                           ${statusColors!.bg} ${statusColors!.border}
                         `}
                       >
@@ -552,6 +570,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
   const [googleEventPrefill, setGoogleEventPrefill]
     = useState<AppointmentSummary | null>(null);
+  const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
   const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
@@ -767,6 +786,20 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   useEffect(() => {
     fetchAppointments();
   }, [fetchAppointments]);
+
+  // Shared appointment-management actions: any change refreshes the visible
+  // range so day counts and the day panel stay consistent.
+  const actions = useAppointmentActions({
+    onMutationApplied: () => {
+      fetchAppointments();
+    },
+    onCancelled: () => {
+      fetchAppointments();
+    },
+    onOptimisticStatus: () => {
+      fetchAppointments();
+    },
+  });
 
   // Navigation handlers
   const handlePrev = () => {
@@ -1042,7 +1075,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       {portalReady
       && createPortal(
         <AnimatePresence>
-          {selectedDate && !showNewAppointmentModal && (
+          {selectedDate && !showNewAppointmentModal && !actions.selectedAppointmentId && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
@@ -1060,6 +1093,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
                     setGoogleEventPrefill(appointment);
                     setShowNewAppointmentModal(true);
                   }}
+                  onSelectAppointment={actions.openAppointment}
                 />
               </div>
             </>
@@ -1068,18 +1102,58 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         document.body,
       )}
 
+      <AppointmentQuickEditSheet
+        isOpen={Boolean(actions.selectedAppointmentId)}
+        onClose={actions.closeAppointment}
+        detail={actions.detail}
+        loading={actions.detailLoading}
+        saving={actions.detailSaving}
+        actionError={actions.detailError}
+        attemptedTimeLabel={actions.attemptedTimeLabel}
+        warnings={actions.warnings}
+        onSaveEdits={actions.saveEdits}
+        onMoveToNextAvailable={actions.moveToNextAvailable}
+        onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
+        onMarkCompleted={() => actions.completeAppointment()}
+        onStartAppointment={actions.startAppointment}
+        onConfirmAppointment={actions.confirmAppointment}
+        onMarkNoShow={actions.markNoShow}
+        onResendConfirmation={actions.resendConfirmation}
+        completionNeedsPhotoDecision={actions.completionNeedsPhotoDecision}
+        onResolvePhotoDecision={(skip) => {
+          if (skip) {
+            void actions.completeAppointment({ skipPhotoValidation: true });
+          } else {
+            actions.dismissPhotoDecision();
+          }
+        }}
+        onRetryLoad={() => void actions.refreshDetail()}
+        onRebook={() => {
+          const prefill = actions.buildRebookPrefill();
+          if (!prefill) {
+            return;
+          }
+          setRebookPrefill(prefill);
+          actions.closeAppointment();
+          setShowNewAppointmentModal(true);
+        }}
+      />
+
       {/* New Appointment Modal */}
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
         onClose={() => {
           setShowNewAppointmentModal(false);
           setGoogleEventPrefill(null);
+          setRebookPrefill(null);
         }}
         onSuccess={() => {
           // Refresh appointments after creating a new one
           fetchAppointments();
           setGoogleEventPrefill(null);
+          setRebookPrefill(null);
         }}
+        clientPrefill={rebookPrefill}
         preselectedDate={selectedDate || new Date()}
         googleEventPrefill={
           googleEventPrefill
