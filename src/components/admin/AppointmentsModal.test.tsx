@@ -33,10 +33,11 @@ describe('AppointmentsModal', () => {
     render(<AppointmentsModal onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('No appointments scheduled')).toBeInTheDocument();
+      // The empty note renders inline above the (still visible) time grid.
+      expect(screen.getByText(/No appointments scheduled/)).toBeInTheDocument();
     });
 
-    expect(screen.getByText('You are clear for the selected day.')).toBeInTheDocument();
+    expect(screen.getByText(/You are clear for the selected day/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/search appointments/i)).not.toBeInTheDocument();
   });
 });

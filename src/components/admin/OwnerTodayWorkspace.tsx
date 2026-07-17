@@ -177,18 +177,11 @@ export function OwnerTodayWorkspace({
       className="mx-auto max-w-2xl space-y-4 px-5 pb-28 pt-3"
       data-testid="owner-today-workspace"
     >
-      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#4C1D2E] via-[#8B1538] to-[#D6A34A] p-5 text-white shadow-[0_18px_45px_rgba(76,29,46,0.18)]">
-        <div className="absolute -right-8 -top-10 size-32 rounded-full bg-white/10 blur-sm" />
-        <Sparkles className="relative text-amber-200" size={22} />
-        <p className="relative mt-4 text-xs font-semibold uppercase tracking-[0.22em] text-rose-100">
-          Luster for nail techs
-        </p>
-        <h2 className="relative mt-1 text-2xl font-semibold tracking-tight">
-          Your day, polished.
-        </h2>
-        <p className="relative mt-2 max-w-md text-sm text-rose-50/90">
-          Bookings, clients, services, Calendar sync, and salon growth tools in
-          one place.
+      {/* Slim brand banner: the schedule is the hero, not the marketing. */}
+      <section className="flex items-center gap-2.5 overflow-hidden rounded-2xl bg-gradient-to-r from-[#4C1D2E] via-[#8B1538] to-[#D6A34A] px-4 py-2.5 text-white">
+        <Sparkles className="shrink-0 text-amber-200" size={16} />
+        <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-rose-50">
+          Luster · Your day, polished
         </p>
       </section>
       <section className="grid grid-cols-2 gap-3">
@@ -261,7 +254,7 @@ export function OwnerTodayWorkspace({
                         key={appointment.id}
                         type="button"
                         onClick={() => onOpenAppointment(appointment.id)}
-                        className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-rose-50/50 ${appointment.id === nextAppointmentId ? 'bg-amber-50/60' : ''}`}
+                        className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-rose-50/50 ${appointment.id === nextAppointmentId ? 'bg-amber-50/60' : ''} ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
                       >
                         <div className="w-16 shrink-0">
                           <p className="text-sm font-semibold text-rose-900">
