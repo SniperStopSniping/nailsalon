@@ -288,9 +288,9 @@ function AdminDashboardContent() {
   const [showWalkIn, setShowWalkIn] = useState(false);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
-      ?? requestedSalonSlug
-      ?? adminUser?.salons[0]?.slug
-      ?? null;
+    ?? requestedSalonSlug
+    ?? adminUser?.salons[0]?.slug
+    ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
     ? (adminUser?.salons.find(
         s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),

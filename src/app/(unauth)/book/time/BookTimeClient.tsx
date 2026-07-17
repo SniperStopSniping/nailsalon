@@ -342,15 +342,15 @@ export function BookTimeClient({
         setAvailabilityError(null);
         const nextVisibleSlots: AvailabilitySlot[] = Array.isArray(data.slots)
           ? data.slots
-              .filter((slot: unknown): slot is AvailabilitySlot =>
-                typeof slot === 'object'
-                && slot !== null
-                && typeof (slot as AvailabilitySlot).time === 'string',
-              )
-              .map((slot: AvailabilitySlot) => ({
-                time: slot.time,
-                startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
-              }))
+            .filter((slot: unknown): slot is AvailabilitySlot =>
+              typeof slot === 'object'
+              && slot !== null
+              && typeof (slot as AvailabilitySlot).time === 'string',
+            )
+            .map((slot: AvailabilitySlot) => ({
+              time: slot.time,
+              startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
+            }))
           : (data.visibleSlots || []).map((time: string) => ({ time, startTime: null }));
         setVisibleSlots(nextVisibleSlots);
         setBookedSlots(data.bookedSlots || []);

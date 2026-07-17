@@ -495,10 +495,10 @@ export async function POST(request: Request): Promise<Response> {
     const requestedTime = data.appointmentTime?.trim() || null;
     const parsedStartTime = requestedDate && requestedTime
       ? zonedTimeToUtc({
-          date: requestedDate,
-          time: requestedTime,
-          timeZone: bookingConfig.timezone,
-        })
+        date: requestedDate,
+        time: requestedTime,
+        timeZone: bookingConfig.timezone,
+      })
       : rawParsedStartTime;
     const canonicalStartTime = parsedStartTime.toISOString();
 
@@ -997,9 +997,9 @@ export async function POST(request: Request): Promise<Response> {
 
       const guestOwnsOriginal = actorRole === 'guest' && data.manageToken
         ? Boolean(await verifyAppointmentAccessToken(data.manageToken, {
-            appointmentId: originalAppointment.id,
-            salonId: salon.id,
-          }))
+          appointmentId: originalAppointment.id,
+          salonId: salon.id,
+        }))
         : false;
 
       if ((actorRole === 'client' && !clientOwnsOriginal) || (actorRole === 'guest' && !guestOwnsOriginal)) {

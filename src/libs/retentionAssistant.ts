@@ -469,7 +469,7 @@ export function buildAppointmentReminderQueue(args: {
     const client = (appointment.salonClientId
       ? clients.get(appointment.salonClientId)
       : undefined)
-    ?? clientsByPhone.get(normalizeRetentionPhone(appointment.clientPhone));
+      ?? clientsByPhone.get(normalizeRetentionPhone(appointment.clientPhone));
     if (!client || client.isBlocked) {
       return [];
     }

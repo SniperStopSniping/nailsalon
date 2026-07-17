@@ -167,9 +167,9 @@ export async function GET(request: Request): Promise<Response> {
 
   const history = parsed.data.clientId
     ? communicationRows
-        .filter(row => row.salonClientId === parsed.data.clientId)
-        .slice(0, 100)
-        .map(serializeCommunication)
+      .filter(row => row.salonClientId === parsed.data.clientId)
+      .slice(0, 100)
+      .map(serializeCommunication)
     : [];
 
   return Response.json({

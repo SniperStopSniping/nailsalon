@@ -253,11 +253,11 @@ export function BookServiceClient({
   const initialCategory = initialSelectedService?.category ?? services[0]?.category ?? 'manicure';
   const initialSelectedAddOns = initialBaseServiceId
     ? buildDefaultSelectedAddOns(
-        initialBaseServiceId,
-        serviceAddOnRules,
-        addOns,
-        urlSelectedAddOns,
-      )
+      initialBaseServiceId,
+      serviceAddOnRules,
+      addOns,
+      urlSelectedAddOns,
+    )
     : [];
 
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
@@ -511,8 +511,8 @@ export function BookServiceClient({
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
   const selectedRules = selectedBaseServiceId
     ? serviceAddOnRules
-        .filter(rule => rule.serviceId === selectedBaseServiceId)
-        .sort((a, b) => a.displayOrder - b.displayOrder)
+      .filter(rule => rule.serviceId === selectedBaseServiceId)
+      .sort((a, b) => a.displayOrder - b.displayOrder)
     : [];
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
   const selectedAddOnsById = new Map(selectedAddOnsState.map(item => [item.addOnId, item.quantity ?? 1]));
@@ -539,12 +539,12 @@ export function BookServiceClient({
   );
   const compatiblePreviewTechnicians = selectedService
     ? locationCompatiblePreviewTechnicians.filter(technician =>
-        getPublicTechnicianCompatibility({
-          selectionMode: 'base-service',
-          technician,
-          requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
-        }).bookable,
-      )
+      getPublicTechnicianCompatibility({
+        selectionMode: 'base-service',
+        technician,
+        requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
+      }).bookable,
+    )
     : [];
   const hasSingleTechnicianSalonPreview = !selectedService && locationCompatiblePreviewTechnicians.length === 1;
   const soleCompatiblePreviewTechnician = compatiblePreviewTechnicians.length === 1
@@ -663,9 +663,9 @@ export function BookServiceClient({
   const serviceRows = buildServiceRows(filteredServices);
   const soleCompatiblePreviewRating = soleCompatiblePreviewTechnician
     ? getPublicTechnicianRatingDisplay({
-        rating: soleCompatiblePreviewTechnician.rating,
-        reviewCount: soleCompatiblePreviewTechnician.reviewCount,
-      })
+      rating: soleCompatiblePreviewTechnician.rating,
+      reviewCount: soleCompatiblePreviewTechnician.reviewCount,
+    })
     : null;
   const effectiveContinueTechnicianId = shouldPreviewAutoSkipTech
     ? soleCompatiblePreviewTechnician?.id ?? null

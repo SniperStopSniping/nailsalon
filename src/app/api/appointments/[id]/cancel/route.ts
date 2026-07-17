@@ -312,30 +312,30 @@ export async function PATCH(
           }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
-                salon: {
-                  id: salon.id,
-                  name: salon.name,
-                  ownerName: salon.ownerName,
-                  ownerPhone: salon.ownerPhone,
-                  ownerEmail: salon.ownerEmail,
-                  features: (salon.features as SalonFeatures | null | undefined) ?? null,
-                  settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-                },
-                technician: technician
-                  ? {
-                      id: technician.id,
-                      name: technician.name,
-                      phone: technician.phone,
-                      email: technician.email,
-                    }
-                  : null,
-                appointmentId,
-                clientName: appointment.clientName || 'Guest',
-                clientPhone: appointment.clientPhone,
-                services: serviceNames,
-                startTime: appointment.startTime.toISOString(),
-                cancelReason: validated.data.cancelReason,
-              })
+              salon: {
+                id: salon.id,
+                name: salon.name,
+                ownerName: salon.ownerName,
+                ownerPhone: salon.ownerPhone,
+                ownerEmail: salon.ownerEmail,
+                features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+              },
+              technician: technician
+                ? {
+                    id: technician.id,
+                    name: technician.name,
+                    phone: technician.phone,
+                    email: technician.email,
+                  }
+                : null,
+              appointmentId,
+              clientName: appointment.clientName || 'Guest',
+              clientPhone: appointment.clientPhone,
+              services: serviceNames,
+              startTime: appointment.startTime.toISOString(),
+              cancelReason: validated.data.cancelReason,
+            })
             : Promise.resolve(),
         ]);
 
