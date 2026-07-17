@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.7.0...v1.7.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* preserve Google event conversion sessions ([cae3770](https://github.com/SniperStopSniping/nailsalon/commit/cae37705f650c3512133142e010543f2a022fa83))
+
 # [1.7.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.6.1...v1.7.0) (2026-07-17)
 
 
