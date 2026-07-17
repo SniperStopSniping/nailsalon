@@ -75,11 +75,14 @@ const {
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve([])),
+        where: vi.fn(() => Object.assign(Promise.resolve([]), {
+          limit: vi.fn(async () => []),
+        })),
       })),
     })),
     insert: vi.fn(),
     update: vi.fn(),
+    execute: vi.fn(async () => undefined),
     transaction: vi.fn(),
   },
 }));
@@ -607,9 +610,7 @@ describe('POST /api/appointments booking policy', () => {
             })),
           })),
         update: vi.fn()
-          .mockImplementationOnce(() => ({
-            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-          }))
+          // Reschedules cancel the original first, then revoke its tokens.
           .mockImplementationOnce(() => ({
             set: vi.fn(() => ({
               where: vi.fn(() => ({
@@ -623,7 +624,18 @@ describe('POST /api/appointments booking policy', () => {
                 }),
               })),
             })),
+          }))
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
+        execute: vi.fn(async () => undefined),
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => []),
+            })),
+          })),
+        })),
       };
 
       const result = await callback(tx as never);
@@ -719,16 +731,26 @@ describe('POST /api/appointments booking policy', () => {
             })),
           })),
         update: vi.fn()
-          .mockImplementationOnce(() => ({
-            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-          }))
+          // Cancel-first: the original is no longer active, so the update
+          // returns no row and the transaction aborts before any insert.
           .mockImplementationOnce(() => ({
             set: vi.fn(() => ({
               where: vi.fn(() => ({
                 returning: vi.fn(async () => []),
               })),
             })),
+          }))
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
+        execute: vi.fn(async () => undefined),
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => []),
+            })),
+          })),
+        })),
       };
 
       const result = await callback(tx as never);

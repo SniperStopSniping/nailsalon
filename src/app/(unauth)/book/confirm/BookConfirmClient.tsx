@@ -458,6 +458,51 @@ const ErrorState = ({
   </div>
 );
 
+// Deliberately simple: enough to catch typos like "a@" without rejecting
+// unusual-but-valid addresses. The server re-validates.
+const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]{2,}$/.test(value.trim());
+
+// Per-tab persistence for guest contact details (name/email/phone only — no
+// booking data). Cleared on successful booking; sessionStorage dies with the tab.
+const GUEST_CONTACT_STORAGE_KEY = 'luster_booking_contact';
+
+/**
+ * Slot-taken state: another client got the time first. The selections are
+ * still in the URL and the contact details are kept in sessionStorage, so
+ * going back lands on the time step with everything preserved.
+ */
+const SlotTakenState = ({
+  onPickAnotherTime,
+}: {
+  onPickAnotherTime: () => void;
+}) => (
+  <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
+    <div className="w-full max-w-md space-y-3">
+      <StateCard
+        tone="error"
+        icon={<AlertCircle className="mx-auto size-10 text-[var(--n5-error)]" />}
+        title="That time was just booked"
+        description="Someone else reserved this time while you were confirming. Your service selection is saved — pick another time to finish booking."
+        contentClassName="py-7"
+      />
+      <button
+        type="button"
+        onClick={() => {
+          triggerHaptic('select');
+          onPickAnotherTime();
+        }}
+        className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+        style={{
+          borderRadius: n5.radiusMd,
+          boxShadow: n5.shadowSm,
+        }}
+      >
+        Choose another time
+      </button>
+    </div>
+  </div>
+);
+
 /**
  * Review State - explicit submit before writing booking
  */
@@ -484,6 +529,7 @@ const ConfirmContent = ({
   guestPhone,
   smsConsent,
   smsEnabled,
+  bookingError,
   onGuestNameChange,
   onGuestEmailChange,
   onGuestPhoneChange,
@@ -511,6 +557,7 @@ const ConfirmContent = ({
   guestPhone: string;
   smsConsent: boolean;
   smsEnabled: boolean;
+  bookingError?: string | null;
   onGuestNameChange: (value: string) => void;
   onGuestEmailChange: (value: string) => void;
   onGuestPhoneChange: (value: string) => void;
@@ -667,13 +714,24 @@ const ConfirmContent = ({
           )}
         </SectionCard>
 
+        {bookingError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {bookingError}
+            {' '}
+            Your details below are saved — you can try again.
+          </div>
+        )}
+
         <button
           type="button"
           onClick={() => {
             triggerHaptic('confirm');
             onConfirm();
           }}
-          disabled={isSubmitting || !guestName.trim() || !guestEmail.includes('@') || guestPhone.replace(/\D/g, '').length < 10}
+          disabled={isSubmitting || !guestName.trim() || !isLikelyEmail(guestEmail) || guestPhone.replace(/\D/g, '').length < 10}
           className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             borderRadius: n5.radiusMd,
@@ -1172,6 +1230,7 @@ export function BookConfirmClient({
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [slotTaken, setSlotTaken] = useState(false);
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
@@ -1187,6 +1246,36 @@ export function BookConfirmClient({
       setGuestPhone(current => current || sessionPhone || '');
     }
   }, [clientEmail, clientName, isLoggedIn, sessionPhone]);
+
+  // Contact details survive navigation and recoverable errors within this tab,
+  // so a failed attempt or a trip back to the time step never re-asks for them.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(GUEST_CONTACT_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as { name?: string; email?: string; phone?: string };
+        setGuestName(current => current || saved.name || '');
+        setGuestEmail(current => current || saved.email || '');
+        setGuestPhone(current => current || saved.phone || '');
+      }
+    } catch {
+      // Storage unavailable (private mode etc.) — degrade silently.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!guestName && !guestEmail && !guestPhone) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(
+        GUEST_CONTACT_STORAGE_KEY,
+        JSON.stringify({ name: guestName, email: guestEmail, phone: guestPhone }),
+      );
+    } catch {
+      // Storage unavailable — degrade silently.
+    }
+  }, [guestName, guestEmail, guestPhone]);
 
   const bookingInitiatedRef = useRef(false);
   // Stable idempotency key for this booking session - prevents double-submit
@@ -1259,12 +1348,18 @@ export function BookConfirmClient({
           body: responseText.slice(0, 2000),
         });
 
+        // A failed attempt may be retried with edited details or a new time;
+        // a fresh idempotency key keeps the retry from being rejected as a
+        // key reuse with a different payload.
+        idempotencyKeyRef.current = crypto.randomUUID();
+
         // Try to parse as JSON for error message
         let errorData;
         try {
           errorData = JSON.parse(responseText);
         } catch {
-          throw new Error(`Server error (${response.status}): ${responseText.slice(0, 200)}`);
+          // Never surface raw server output (HTML error pages, stack traces).
+          throw new Error('Something went wrong on our end while confirming your appointment. Please try again in a moment.');
         }
 
         if (errorData.error?.code === 'EXISTING_APPOINTMENT') {
@@ -1274,13 +1369,24 @@ export function BookConfirmClient({
           return;
         }
 
-        throw new Error(errorData.error?.message || `Failed to create booking (${response.status})`);
+        if (errorData.error?.code === 'TIME_CONFLICT' || errorData.error?.code === 'NO_AVAILABLE_TECHNICIAN') {
+          setSlotTaken(true);
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        throw new Error(errorData.error?.message || `We couldn't confirm this booking (code ${response.status}). Please try again.`);
       }
 
       const data = await response.json();
       setAppointmentId(data.data.appointmentId || data.data.appointment.id);
       setManageUrl(data.data.manageUrl || null);
       setBookingComplete(true);
+      try {
+        sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
+      } catch {
+        // Storage unavailable — nothing to clear.
+      }
 
       // Trigger confetti
       setTimeout(() => {
@@ -1384,12 +1490,12 @@ export function BookConfirmClient({
     );
   }
 
-  // Generic error
-  if (bookingError) {
+  // Another client took the slot: selections stay in the URL and contact
+  // details stay in sessionStorage, so going back is lossless.
+  if (slotTaken) {
     return (
-      <ErrorState
-        message={bookingError}
-        onGoBack={() => router.back()}
+      <SlotTakenState
+        onPickAnotherTime={() => router.back()}
       />
     );
   }
@@ -1480,6 +1586,7 @@ export function BookConfirmClient({
       guestPhone={guestPhone}
       smsConsent={smsConsent}
       smsEnabled={smsEnabled}
+      bookingError={bookingError}
       onGuestNameChange={setGuestName}
       onGuestEmailChange={setGuestEmail}
       onGuestPhoneChange={setGuestPhone}

@@ -242,7 +242,9 @@ function buildPermissions(
     canMove: !terminal && !isLocked,
     canChangeService: !terminal && !isLocked,
     canCancel: !terminal,
-    canMarkCompleted: !terminal && appointment.status !== 'completed',
+    // Must match the complete endpoint, which only accepts confirmed or
+    // in_progress — a pending appointment showed the action but the call failed.
+    canMarkCompleted: ['confirmed', 'in_progress'].includes(appointment.status),
     canStart: appointment.status === 'confirmed' && !appointment.lockedAt,
     canConfirm: appointment.status === 'pending' && !appointment.lockedAt,
     canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status),

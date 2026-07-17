@@ -52,9 +52,13 @@ export async function GET(request: Request) {
         totalPrice: appointmentSchema.totalPrice,
         totalDurationMinutes: appointmentSchema.totalDurationMinutes,
         technicianName: technicianSchema.name,
+        // Sensitivities/allergies must be visible before the appointment
+        // without opening the client record.
+        clientSensitivities: salonClientSchema.sensitivities,
       })
       .from(appointmentSchema)
       .leftJoin(technicianSchema, and(eq(appointmentSchema.technicianId, technicianSchema.id), eq(technicianSchema.salonId, salon.id)))
+      .leftJoin(salonClientSchema, and(eq(appointmentSchema.salonClientId, salonClientSchema.id), eq(salonClientSchema.salonId, salon.id)))
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),

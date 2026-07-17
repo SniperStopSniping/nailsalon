@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -501,7 +502,7 @@ function DayDetailPanel({
                             ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
                           `}
                           >
-                            {appt.status.replace('_', ' ')}
+                            {formatAppointmentStatus(appt.status)}
                           </span>
                           <span className="text-xs text-gray-400">
                             {formatTime(appt.startTime, appt.timeZone)}

@@ -10,6 +10,41 @@ import {
   salonTwilioConnectionSchema,
 } from '@/models/Schema';
 
+/**
+ * Google Calendar readiness for a salon:
+ * - `not_connected`     — no OAuth connection exists (optional integration).
+ * - `reconnect_required`— authorization was revoked or the token is invalid.
+ * - `attention_required`— connected but the last provider call failed
+ *                         (e.g. a selected calendar was deleted or lost access).
+ * - `setup_incomplete`  — OAuth is connected but the owner has not yet saved
+ *                         at least one calendar that prevents double-booking.
+ *                         Availability still blocks on the primary calendar as
+ *                         a safety floor, but setup must be finished.
+ * - `ready`             — connected with at least one saved blocking calendar.
+ */
+export type GoogleCalendarReadiness
+  = | 'not_connected'
+  | 'reconnect_required'
+  | 'attention_required'
+  | 'setup_incomplete'
+  | 'ready';
+
+export function resolveGoogleReadiness(
+  status: string,
+  busyCalendarIds: string[] | null | undefined,
+): GoogleCalendarReadiness {
+  if (status === 'reconnect_required') {
+    return 'reconnect_required';
+  }
+  if ((busyCalendarIds?.length ?? 0) === 0) {
+    return 'setup_incomplete';
+  }
+  if (status === 'degraded') {
+    return 'attention_required';
+  }
+  return 'ready';
+}
+
 export async function getSalonIntegrationHealth(salonId: string) {
   const [[google], [twilio], [latestSmsFailure], [pending], [failed]] = await Promise.all([
     db
@@ -17,6 +52,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
         status: salonGoogleCalendarConnectionSchema.status,
         email: salonGoogleCalendarConnectionSchema.googleEmail,
         lastError: salonGoogleCalendarConnectionSchema.lastError,
+        busyCalendarIds: salonGoogleCalendarConnectionSchema.busyCalendarIds,
         inboundSyncEnabled: salonGoogleCalendarConnectionSchema.inboundSyncEnabled,
         inboundSyncedAt: salonGoogleCalendarConnectionSchema.inboundSyncedAt,
         inboundSyncError: salonGoogleCalendarConnectionSchema.inboundSyncError,
@@ -102,6 +138,8 @@ export async function getSalonIntegrationHealth(salonId: string) {
           inboundSyncedAt: google.inboundSyncedAt,
           inboundSyncError: google.inboundSyncError,
           reconnectRequired: google.status === 'reconnect_required',
+          blockingCalendarCount: google.busyCalendarIds?.length ?? 0,
+          readiness: resolveGoogleReadiness(google.status, google.busyCalendarIds),
         }
       : {
           status: 'disconnected',
@@ -111,6 +149,8 @@ export async function getSalonIntegrationHealth(salonId: string) {
           inboundSyncedAt: null,
           inboundSyncError: null,
           reconnectRequired: false,
+          blockingCalendarCount: 0,
+          readiness: 'not_connected' as GoogleCalendarReadiness,
         },
     twilio: twilio
       ? {

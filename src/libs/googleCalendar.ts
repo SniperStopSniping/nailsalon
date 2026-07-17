@@ -270,6 +270,10 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
       return {
         accessToken: data.access_token,
         calendarId: connection.destinationCalendarId,
+        // Safety floor: while setup is incomplete (no saved blocking
+        // calendars), availability still blocks on the primary calendar so a
+        // connected salon can never be silently double-booked. Readiness
+        // reporting (integrationHealth) treats this state as setup_incomplete.
         busyCalendarIds: connection.busyCalendarIds.length ? connection.busyCalendarIds : ['primary'],
         connectionType: 'oauth',
       };

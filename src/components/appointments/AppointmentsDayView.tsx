@@ -2,12 +2,12 @@
 
 import {
   DndContext,
+  type DragEndEvent,
   PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
@@ -121,6 +121,57 @@ function getAppointmentHeight(startIso: string, endIso: string) {
   return Math.max(hours * HOUR_HEIGHT - 4, 44);
 }
 
+type OverlapLayout = { leftPct: number; widthPct: number };
+
+/**
+ * Side-by-side layout for overlapping appointments in one column: groups
+ * transitively-overlapping appointments into clusters and splits the column
+ * width between them, so no block ever hides another.
+ */
+function computeOverlapLayout(appointments: CalendarAppointment[]): Map<string, OverlapLayout> {
+  const layout = new Map<string, OverlapLayout>();
+  const sorted = [...appointments].sort((a, b) =>
+    new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      || new Date(b.endTime).getTime() - new Date(a.endTime).getTime());
+
+  let cluster: Array<{ id: string; column: number }> = [];
+  let columnEnds: number[] = [];
+  let clusterEnd = Number.NEGATIVE_INFINITY;
+
+  const flush = () => {
+    const columnCount = Math.max(columnEnds.length, 1);
+    for (const item of cluster) {
+      layout.set(item.id, {
+        leftPct: (item.column / columnCount) * 100,
+        widthPct: 100 / columnCount,
+      });
+    }
+    cluster = [];
+    columnEnds = [];
+    clusterEnd = Number.NEGATIVE_INFINITY;
+  };
+
+  for (const appointment of sorted) {
+    const start = new Date(appointment.startTime).getTime();
+    const end = new Date(appointment.endTime).getTime();
+    if (cluster.length > 0 && start >= clusterEnd) {
+      flush();
+    }
+    let column = columnEnds.findIndex(columnEnd => columnEnd <= start);
+    if (column === -1) {
+      column = columnEnds.length;
+      columnEnds.push(end);
+    } else {
+      columnEnds[column] = end;
+    }
+    cluster.push({ id: appointment.id, column });
+    clusterEnd = Math.max(clusterEnd, end);
+  }
+  flush();
+
+  return layout;
+}
+
 function buildSlots(slotIntervalMinutes: number) {
   const slots: string[] = [];
   for (let hour = START_HOUR; hour <= END_HOUR; hour++) {
@@ -185,11 +236,13 @@ function DraggableAppointment({
   resourceId,
   onOpen,
   allowDrag,
+  overlapLayout,
 }: {
   appointment: CalendarAppointment;
   resourceId: string;
   onOpen: () => void;
   allowDrag: boolean;
+  overlapLayout?: OverlapLayout;
 }) {
   const {
     attributes,
@@ -219,9 +272,11 @@ function DraggableAppointment({
       style={{
         top: getAppointmentTop(appointment.startTime),
         height: getAppointmentHeight(appointment.startTime, appointment.endTime),
+        left: overlapLayout ? `calc(${overlapLayout.leftPct}% + 4px)` : undefined,
+        width: overlapLayout ? `calc(${overlapLayout.widthPct}% - 8px)` : undefined,
         transform: CSS.Translate.toString(transform),
       }}
-      className={`absolute inset-x-2 rounded-xl border-l-[3px] px-3 py-2 text-left shadow-sm transition-shadow hover:shadow-md ${STATUS_COLORS[appointment.status] ?? STATUS_COLORS.confirmed} ${isDragging ? 'z-20 opacity-80 shadow-xl' : 'z-10'}`}
+      className={`absolute rounded-xl border-l-[3px] px-3 py-2 text-left shadow-sm transition-shadow hover:shadow-md ${overlapLayout ? '' : 'inset-x-2'} ${STATUS_COLORS[appointment.status] ?? STATUS_COLORS.confirmed} ${isDragging ? 'z-20 opacity-80 shadow-xl' : 'z-10'}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -242,9 +297,12 @@ function DraggableAppointment({
           <div
             {...attributes}
             {...listeners}
-            onClick={(event) => event.stopPropagation()}
+            role="button"
+            tabIndex={0}
+            onClick={event => event.stopPropagation()}
+            onKeyDown={event => event.stopPropagation()}
             data-testid={`appointment-drag-handle-${appointment.id}`}
-            className="mt-0.5 flex size-11 items-center justify-center rounded-xl bg-white/70 text-gray-500 touch-none"
+            className="mt-0.5 flex size-11 touch-none items-center justify-center rounded-xl bg-white/70 text-gray-500"
             aria-label="Drag appointment"
           >
             <GripVertical className="size-4" />
@@ -318,6 +376,14 @@ export function AppointmentsDayView({
     return grouped;
   }, [dayAppointments, resourcesToRender]);
 
+  const overlapLayouts = useMemo(() => {
+    const layouts = new Map<string, Map<string, OverlapLayout>>();
+    for (const [resourceId, resourceAppointments] of appointmentsByResource) {
+      layouts.set(resourceId, computeOverlapLayout(resourceAppointments));
+    }
+    return layouts;
+  }, [appointmentsByResource]);
+
   const handleDragEnd = (event: DragEndEvent) => {
     const overId = event.over?.id;
     if (!overId || typeof overId !== 'string') {
@@ -368,6 +434,13 @@ export function AppointmentsDayView({
             </button>
             <button
               type="button"
+              onClick={() => onSelectedDateChange(new Date())}
+              className="rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600"
+            >
+              Today
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 const next = new Date(selectedDate);
                 next.setDate(selectedDate.getDate() + 7);
@@ -406,119 +479,125 @@ export function AppointmentsDayView({
         </div>
       </div>
 
-      {loading ? (
-        <div className="p-4">
-          <AsyncStatePanel
-            loading
-            title="Loading appointments"
-            description="Pulling the latest day schedule."
-          />
-        </div>
-      ) : error ? (
-        <div className="p-4">
-          <AsyncStatePanel
-            tone="error"
-            title="Unable to load appointments"
-            description={error}
-            action={(
-              <Button type="button" variant="brandSoft" size="pillSm" onClick={onRetry}>
-                Try again
-              </Button>
-            )}
-          />
-        </div>
-      ) : (
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {dayAppointments.length === 0 && (
+      {loading
+        ? (
+            <div className="p-4">
+              <AsyncStatePanel
+                loading
+                title="Loading appointments"
+                description="Pulling the latest day schedule."
+              />
+            </div>
+          )
+        : error
+          ? (
               <div className="p-4">
                 <AsyncStatePanel
-                  title={emptyTitle}
-                  description={emptyDescription}
+                  tone="error"
+                  title="Unable to load appointments"
+                  description={error}
+                  action={(
+                    <Button type="button" variant="brandSoft" size="pillSm" onClick={onRetry}>
+                      Try again
+                    </Button>
+                  )}
                 />
               </div>
-            )}
-
-            <div className="min-w-max px-4 pb-24 pt-3">
-              <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: `64px repeat(${resourcesToRender.length}, minmax(220px, 1fr))` }}
-              >
-                <div />
-                {resourcesToRender.map(resource => (
-                  <div
-                    key={resource.id}
-                    data-testid={`calendar-resource-${resource.id}`}
-                    className="sticky top-0 z-20 rounded-2xl border border-gray-100 bg-white/95 px-3 py-2 text-left backdrop-blur"
-                  >
-                    <div className="text-xs font-medium uppercase tracking-[0.08em] text-gray-400">
-                      {resourceLabel}
+            )
+          : (
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {dayAppointments.length === 0 && (
+                    <div className="px-4 pt-3">
+                      <p className="rounded-xl bg-gray-50 px-4 py-2.5 text-center text-xs text-gray-500">
+                        {emptyTitle}
+                        {' — '}
+                        {emptyDescription}
+                      </p>
                     </div>
-                    <div className="truncate text-sm font-semibold text-gray-900">{resource.label}</div>
-                  </div>
-                ))}
+                  )}
 
-                <div className="relative">
-                  {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
-                    const hour = START_HOUR + index;
-                    return (
-                      <div key={hour} className="h-24 pr-3 text-right text-[11px] font-medium text-gray-400">
-                        {formatHour(hour)}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {resourcesToRender.map(resource => (
-                  <div key={resource.id} className="relative rounded-2xl border border-gray-100 bg-white">
-                    <div className="relative">
-                      {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => (
-                        <div key={index} className="h-24 border-t border-gray-100 first:border-t-0">
-                          <div className="h-12 border-b border-dashed border-gray-50" />
+                  <div className="min-w-max px-4 pb-24 pt-3">
+                    <div
+                      className="grid gap-3"
+                      style={{ gridTemplateColumns: `64px repeat(${resourcesToRender.length}, minmax(220px, 1fr))` }}
+                    >
+                      <div />
+                      {resourcesToRender.map(resource => (
+                        <div
+                          key={resource.id}
+                          data-testid={`calendar-resource-${resource.id}`}
+                          className="sticky top-0 z-20 rounded-2xl border border-gray-100 bg-white/95 px-3 py-2 text-left backdrop-blur"
+                        >
+                          <div className="text-xs font-medium uppercase tracking-[0.08em] text-gray-400">
+                            {resourceLabel}
+                          </div>
+                          <div className="truncate text-sm font-semibold text-gray-900">{resource.label}</div>
                         </div>
                       ))}
 
-                      <div className="absolute inset-0">
-                        {slots.map((slot) => (
-                          <DroppableSlot
-                            key={`${resource.id}-${slot}`}
-                            id={buildSlotId(resource.id, selectedDate, slot)}
-                            testId={buildSlotTestId(resource.id, selectedDate, slot)}
-                            height={HOUR_HEIGHT * (slotIntervalMinutes / 60)}
-                          />
-                        ))}
+                      <div className="relative">
+                        {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
+                          const hour = START_HOUR + index;
+                          return (
+                            <div key={hour} className="h-24 pr-3 text-right text-[11px] font-medium text-gray-400">
+                              {formatHour(hour)}
+                            </div>
+                          );
+                        })}
                       </div>
 
-                      {typeof currentTimeTop === 'number' && currentTimeTop >= 0 && currentTimeTop <= ((END_HOUR - START_HOUR) * HOUR_HEIGHT) && (
-                        <div
-                          className="pointer-events-none absolute inset-x-0 z-0"
-                          style={{ top: currentTimeTop }}
-                        >
-                          <div className="relative h-[2px] bg-red-500">
-                            <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
+                      {resourcesToRender.map(resource => (
+                        <div key={resource.id} className="relative rounded-2xl border border-gray-100 bg-white">
+                          <div className="relative">
+                            {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => (
+                              <div key={index} className="h-24 border-t border-gray-100 first:border-t-0">
+                                <div className="h-12 border-b border-dashed border-gray-50" />
+                              </div>
+                            ))}
+
+                            <div className="absolute inset-0">
+                              {slots.map(slot => (
+                                <DroppableSlot
+                                  key={`${resource.id}-${slot}`}
+                                  id={buildSlotId(resource.id, selectedDate, slot)}
+                                  testId={buildSlotTestId(resource.id, selectedDate, slot)}
+                                  height={HOUR_HEIGHT * (slotIntervalMinutes / 60)}
+                                />
+                              ))}
+                            </div>
+
+                            {typeof currentTimeTop === 'number' && currentTimeTop >= 0 && currentTimeTop <= ((END_HOUR - START_HOUR) * HOUR_HEIGHT) && (
+                              <div
+                                className="pointer-events-none absolute inset-x-0 z-30"
+                                style={{ top: currentTimeTop }}
+                              >
+                                <div className="relative h-[2px] bg-red-500">
+                                  <div className="absolute -left-1.5 -top-1 size-2 rounded-full bg-red-500" />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="absolute inset-0">
+                              {(appointmentsByResource.get(resource.id) ?? []).map(appointment => (
+                                <DraggableAppointment
+                                  key={appointment.id}
+                                  appointment={appointment}
+                                  resourceId={resource.id}
+                                  allowDrag={allowDrag && !appointment.isLocked && !['completed', 'cancelled', 'no_show'].includes(appointment.status)}
+                                  onOpen={() => onAppointmentSelect(appointment.id)}
+                                  overlapLayout={overlapLayouts.get(resource.id)?.get(appointment.id)}
+                                />
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      )}
-
-                      <div className="absolute inset-0">
-                        {(appointmentsByResource.get(resource.id) ?? []).map((appointment) => (
-                          <DraggableAppointment
-                            key={appointment.id}
-                            appointment={appointment}
-                            resourceId={resource.id}
-                            allowDrag={allowDrag && !appointment.isLocked && !['completed', 'cancelled', 'no_show'].includes(appointment.status)}
-                            onOpen={() => onAppointmentSelect(appointment.id)}
-                          />
-                        ))}
-                      </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </DndContext>
-      )}
+                </div>
+              </DndContext>
+            )}
     </div>
   );
 }

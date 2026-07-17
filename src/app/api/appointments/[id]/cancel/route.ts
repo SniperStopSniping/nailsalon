@@ -105,13 +105,18 @@ export async function PATCH(
       );
     }
 
-    // 4. Update appointment to cancelled
+    // 4. Update the appointment. A no-show is its own terminal status —
+    // writing it as "cancelled" made every no-show metric read zero.
+    // canvas_state is kept in sync so the staff flow sees the same outcome.
     const now = new Date();
+    const resolvedStatus = validated.data.cancelReason === 'no_show' ? 'no_show' : 'cancelled';
 
     await db
       .update(appointmentSchema)
       .set({
-        status: 'cancelled',
+        status: resolvedStatus,
+        canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
+        canvasStateUpdatedAt: now,
         cancelReason: validated.data.cancelReason,
         notes: validated.data.notes || appointment.notes,
         updatedAt: now,
@@ -200,8 +205,10 @@ export async function PATCH(
       googleCalendarEventId: appointment.googleCalendarEventId,
     });
 
-    // 6. Send cancellation notifications after data updates succeed
-    if (validated.data.cancelReason !== 'rescheduled') {
+    // 6. Send cancellation notifications after data updates succeed.
+    // No-shows are excluded: telling a client who missed their appointment
+    // that it "was cancelled" is confusing — a follow-up is a separate flow.
+    if (validated.data.cancelReason !== 'rescheduled' && validated.data.cancelReason !== 'no_show') {
       const [salon, technician, serviceNames] = await Promise.all([
         getSalonById(appointment.salonId),
         appointment.technicianId
@@ -251,7 +258,7 @@ export async function PATCH(
       data: {
         appointment: {
           id: appointmentId,
-          status: 'cancelled',
+          status: resolvedStatus,
           cancelReason: validated.data.cancelReason,
           cancelledAt: now,
         },
@@ -266,7 +273,6 @@ export async function PATCH(
         error: {
           code: 'INTERNAL_ERROR',
           message: 'Failed to cancel appointment',
-          details: error instanceof Error ? error.message : 'Unknown error',
         },
       } satisfies ErrorResponse,
       { status: 500 },

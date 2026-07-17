@@ -42,6 +42,7 @@ type BookTimeClientProps = {
   technician: TechnicianSummary;
   technicianSelectionSource?: 'explicit' | 'auto' | null;
   bookingFlow: BookingStep[];
+  salonTimeZone?: string;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -110,22 +111,44 @@ const formatTime12h = (time: string) => {
   return `${hour12}:${minute} ${ampm}`;
 };
 
-// Toronto timezone constant
-const TORONTO_TIMEZONE = 'America/Toronto';
+// Fallback when the salon has no configured timezone.
+const DEFAULT_SALON_TIMEZONE = 'America/Toronto';
 
-// Get current date/time in Toronto timezone
-const getTorontoNow = () => {
-  const now = new Date();
-  // Get Toronto time components
-  const torontoString = now.toLocaleString('en-US', { timeZone: TORONTO_TIMEZONE });
-  return new Date(torontoString);
+// Current wall-clock time in the salon's timezone, represented as a local
+// Date so it can be compared against the calendar's local Date values.
+const getSalonNow = (timeZone: string) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? 0);
+  return new Date(get('year'), get('month') - 1, get('day'), get('hour') === 24 ? 0 : get('hour'), get('minute'), get('second'));
 };
 
-// Get today's date at midnight in Toronto timezone
-const getTorontoToday = () => {
-  const torontoNow = getTorontoNow();
-  torontoNow.setHours(0, 0, 0, 0);
-  return torontoNow;
+// Today's date at midnight in the salon's timezone.
+const getSalonToday = (timeZone: string) => {
+  const salonNow = getSalonNow(timeZone);
+  salonNow.setHours(0, 0, 0, 0);
+  return salonNow;
+};
+
+// Short human label for the salon timezone, e.g. "EDT" or "GMT-5".
+const getTimeZoneLabel = (timeZone: string) => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'short',
+    }).formatToParts(new Date());
+    return parts.find(part => part.type === 'timeZoneName')?.value ?? timeZone;
+  } catch {
+    return timeZone;
+  }
 };
 
 // Filter out past time slots as a client-side fallback. The API is the source of
@@ -133,18 +156,19 @@ const getTorontoToday = () => {
 const filterPastTimeSlots = (
   slotTimes: string[],
   date: Date | null,
+  timeZone: string,
 ) => {
   if (!date) {
     return slotTimes;
   }
 
-  const torontoNow = getTorontoNow();
-  const torontoToday = getTorontoToday();
+  const salonNow = getSalonNow(timeZone);
+  const salonToday = getSalonToday(timeZone);
 
-  // Check if selected date is today in Toronto timezone
+  // Check if selected date is today in the salon's timezone
   const selectedDateMidnight = new Date(date);
   selectedDateMidnight.setHours(0, 0, 0, 0);
-  const isToday = selectedDateMidnight.toDateString() === torontoToday.toDateString();
+  const isToday = selectedDateMidnight.toDateString() === salonToday.toDateString();
 
   if (!isToday) {
     return slotTimes;
@@ -154,7 +178,7 @@ const filterPastTimeSlots = (
     const [hours, minutes] = slotTimeValue.split(':').map(Number);
     const slotTime = new Date(selectedDateMidnight);
     slotTime.setHours(hours || 0, minutes || 0, 0, 0);
-    return slotTime > torontoNow;
+    return slotTime > salonNow;
   });
 };
 
@@ -167,6 +191,7 @@ export function BookTimeClient({
   technician,
   technicianSelectionSource = null,
   bookingFlow,
+  salonTimeZone = DEFAULT_SALON_TIMEZONE,
 }: BookTimeClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -210,8 +235,8 @@ export function BookTimeClient({
     ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
   ].join(' + ');
 
-  // Use Toronto timezone for "today"
-  const today = getTorontoToday();
+  // "Today" is defined by the salon's timezone, not the visitor's device.
+  const today = getSalonToday(salonTimeZone);
 
   const [mounted, setMounted] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -436,13 +461,13 @@ export function BookTimeClient({
 
     const selectedDateMidnight = new Date(selectedDate);
     selectedDateMidnight.setHours(0, 0, 0, 0);
-    const todayMidnight = getTorontoToday();
+    const todayMidnight = getSalonToday(salonTimeZone);
 
     if (selectedDateMidnight.toDateString() !== todayMidnight.toDateString()) {
       return;
     }
 
-    if (filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate).length > 0) {
+    if (filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate, salonTimeZone).length > 0) {
       return;
     }
 
@@ -452,7 +477,7 @@ export function BookTimeClient({
     setSelectedDate(tomorrow);
     setCurrentMonth(tomorrow.getMonth());
     setCurrentYear(tomorrow.getFullYear());
-  }, [availabilityError, loadingSlots, mounted, selectedDate, visibleSlots]);
+  }, [availabilityError, loadingSlots, mounted, salonTimeZone, selectedDate, visibleSlots]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -517,7 +542,7 @@ export function BookTimeClient({
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
-  const availableTimeSet = new Set(filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate));
+  const availableTimeSet = new Set(filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate, salonTimeZone));
   const availableTimeSlots = toDisplaySlots(visibleSlots.filter(slot => availableTimeSet.has(slot.time)));
   const morningSlots = availableTimeSlots.filter(s => s.period === 'morning');
   const afternoonSlots = availableTimeSlots.filter(s => s.period === 'afternoon');
@@ -697,6 +722,10 @@ export function BookTimeClient({
 
         <p className="mb-4 text-center text-xs font-medium text-neutral-500">
           Same-day bookings need 2 hours notice.
+          {' '}
+          All times are shown in salon time (
+          {getTimeZoneLabel(salonTimeZone)}
+          ).
         </p>
 
         {/* Calendar Card */}

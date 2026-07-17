@@ -407,11 +407,11 @@ export function NewAppointmentModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-4 inset-y-[10%] z-50 mx-auto max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="fixed inset-x-4 inset-y-[10%] z-50 mx-auto flex max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
                 {googleEventPrefill && (
@@ -436,8 +436,9 @@ export function NewAppointmentModal({
               </button>
             </div>
 
-            {/* Content */}
-            <div className="h-[calc(100%-140px)] overflow-y-auto bg-white p-5">
+            {/* Content — flex sizing, so a taller header (e.g. Google-event
+                prefill subtitle) can never clip the body or footer. */}
+            <div className="min-h-0 flex-1 overflow-y-auto bg-white p-5">
               {loading
                 ? (
                     <div className="flex items-center justify-center py-20">
@@ -721,7 +722,7 @@ export function NewAppointmentModal({
             </div>
 
             {/* Footer */}
-            <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
+            <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-5 py-4">
               {/* Summary */}
               {selectedServices.length > 0 && (
                 <div className="mb-4 flex items-center justify-between text-sm">

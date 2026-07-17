@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
+import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { themeVars } from '@/theme';
 
 type AppointmentQuickEditSheetProps = {
@@ -222,7 +223,7 @@ export function AppointmentQuickEditSheet({
                           <div>
                             <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Status</div>
                             <div className="text-sm font-medium text-neutral-700">
-                              {detail.appointment.status.replace('_', ' ')}
+                              {formatAppointmentStatus(detail.appointment.status)}
                             </div>
                           </div>
                           <div className="text-right">

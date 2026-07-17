@@ -538,6 +538,11 @@ function AddServiceDialog({
             <option value="hands">Hands</option>
             <option value="feet">Feet</option>
           </select>
+          {['hands', 'feet'].includes(category) && (
+            <span className="mt-1.5 block text-xs font-medium text-amber-700">
+              Heads up: services in this category don’t show on your public booking page.
+            </span>
+          )}
         </label>
 
         <label className="block">

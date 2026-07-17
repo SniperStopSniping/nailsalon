@@ -1,5 +1,6 @@
 import type {
   AppointmentArtifacts,
+  AppointmentState,
   EffectivePolicy,
   PhotoRequirementMode,
   Transition,
@@ -50,4 +51,31 @@ export function canTransition(args: {
   }
 
   return { allowed: false, reason: 'invalid_transition' };
+}
+
+/**
+ * Legacy `status` value implied by a Canvas Flow state, or null when the
+ * canvas state carries no status change (e.g. `waiting`, which spans both
+ * pending and confirmed appointments).
+ *
+ * Every write that changes one of the two columns must keep the other in
+ * sync; the owner dashboard, availability engine, and analytics read
+ * `status`, while the staff flow reads `canvas_state`.
+ */
+export function canvasStateToLegacyStatus(
+  state: AppointmentState,
+): 'in_progress' | 'completed' | 'cancelled' | 'no_show' | null {
+  switch (state) {
+    case 'working':
+    case 'wrap_up':
+      return 'in_progress';
+    case 'complete':
+      return 'completed';
+    case 'cancelled':
+      return 'cancelled';
+    case 'no_show':
+      return 'no_show';
+    default:
+      return null;
+  }
 }

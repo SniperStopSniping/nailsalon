@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Settings2,
   Sparkles,
+  TriangleAlert,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
+import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 
 type AppointmentGlance = {
   total: number;
@@ -39,6 +41,7 @@ type TodayData = {
     totalDurationMinutes: number;
     technicianName: string | null;
     services: string[];
+    clientSensitivities?: string | null;
   }>;
   dueClients: Array<{
     id: string;
@@ -54,6 +57,7 @@ type TodayData = {
   integrationHealth: {
     google: {
       status: string;
+      readiness?: string;
       reconnectRequired?: boolean;
       inboundSyncError?: string | null;
     };
@@ -135,6 +139,7 @@ export function OwnerTodayWorkspace({
   );
   const integrationNeedsAttention = Boolean(
     today?.integrationHealth.google.reconnectRequired
+    || today?.integrationHealth.google.readiness === 'setup_incomplete'
     || today?.integrationHealth.google.inboundSyncError
     || today?.integrationHealth.calendarOutbox.failed,
   );
@@ -172,18 +177,11 @@ export function OwnerTodayWorkspace({
       className="mx-auto max-w-2xl space-y-4 px-5 pb-28 pt-3"
       data-testid="owner-today-workspace"
     >
-      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#4C1D2E] via-[#8B1538] to-[#D6A34A] p-5 text-white shadow-[0_18px_45px_rgba(76,29,46,0.18)]">
-        <div className="absolute -right-8 -top-10 size-32 rounded-full bg-white/10 blur-sm" />
-        <Sparkles className="relative text-amber-200" size={22} />
-        <p className="relative mt-4 text-xs font-semibold uppercase tracking-[0.22em] text-rose-100">
-          Luster for nail techs
-        </p>
-        <h2 className="relative mt-1 text-2xl font-semibold tracking-tight">
-          Your day, polished.
-        </h2>
-        <p className="relative mt-2 max-w-md text-sm text-rose-50/90">
-          Bookings, clients, services, Calendar sync, and salon growth tools in
-          one place.
+      {/* Slim brand banner: the schedule is the hero, not the marketing. */}
+      <section className="flex items-center gap-2.5 overflow-hidden rounded-2xl bg-gradient-to-r from-[#4C1D2E] via-[#8B1538] to-[#D6A34A] px-4 py-2.5 text-white">
+        <Sparkles className="shrink-0 text-amber-200" size={16} />
+        <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-rose-50">
+          Luster · Your day, polished
         </p>
       </section>
       <section className="grid grid-cols-2 gap-3">
@@ -256,7 +254,7 @@ export function OwnerTodayWorkspace({
                         key={appointment.id}
                         type="button"
                         onClick={() => onOpenAppointment(appointment.id)}
-                        className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-rose-50/50 ${appointment.id === nextAppointmentId ? 'bg-amber-50/60' : ''}`}
+                        className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-rose-50/50 ${appointment.id === nextAppointmentId ? 'bg-amber-50/60' : ''} ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
                       >
                         <div className="w-16 shrink-0">
                           <p className="text-sm font-semibold text-rose-900">
@@ -271,6 +269,11 @@ export function OwnerTodayWorkspace({
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-stone-950">
                             {appointment.clientName || 'Guest client'}
+                            {appointment.id === nextAppointmentId && (
+                              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wide text-white">
+                                Next
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-stone-500">
                             {appointment.services.join(', ')}
@@ -278,9 +281,17 @@ export function OwnerTodayWorkspace({
                               ? ` · ${appointment.technicianName}`
                               : ''}
                           </p>
+                          {appointment.clientSensitivities && (
+                            <p className="mt-1 flex items-start gap-1 text-xs font-medium text-amber-800">
+                              <TriangleAlert size={13} className="mt-0.5 shrink-0" />
+                              <span className="line-clamp-2">
+                                {appointment.clientSensitivities}
+                              </span>
+                            </p>
+                          )}
                         </div>
-                        <span className="rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold capitalize text-stone-600">
-                          {appointment.status.replace('_', ' ')}
+                        <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
+                          {formatAppointmentStatus(appointment.status)}
                         </span>
                         <ChevronRight size={16} className="shrink-0 text-stone-300" />
                       </button>
@@ -387,7 +398,11 @@ export function OwnerTodayWorkspace({
                     className="flex w-full items-center gap-3 rounded-2xl bg-stone-100 p-3 text-left text-sm text-stone-800"
                   >
                     <Settings2 size={18} />
-                    <span className="flex-1">Google Calendar needs attention</span>
+                    <span className="flex-1">
+                      {today?.integrationHealth.google.readiness === 'setup_incomplete'
+                        ? 'Finish Google Calendar setup — pick your blocking calendars'
+                        : 'Google Calendar needs attention'}
+                    </span>
                     <ChevronRight size={15} />
                   </button>
                 )}

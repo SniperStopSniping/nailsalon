@@ -117,13 +117,6 @@ export async function GET(
       `1${normalizedPhone}`,
     ];
 
-    // Get client basic info
-    const [client] = await db
-      .select()
-      .from(clientSchema)
-      .where(inArray(clientSchema.phone, phoneVariants))
-      .limit(1);
-
     // Google review flag lives on the per-salon client record
     const [salonClientRow] = await db
       .select({ hasGoogleReview: salonClientSchema.hasGoogleReview })
@@ -133,6 +126,18 @@ export async function GET(
         inArray(salonClientSchema.phone, phoneVariants),
       ))
       .limit(1);
+
+    // Tenant isolation: the global client record (name, member-since) is only
+    // exposed when this phone number has a relationship with THIS salon.
+    // An unscoped lookup let staff of any salon read another salon's client
+    // name by typing their phone number.
+    const [client] = salonClientRow
+      ? await db
+        .select()
+        .from(clientSchema)
+        .where(inArray(clientSchema.phone, phoneVariants))
+        .limit(1)
+      : [undefined];
 
     // Get client preferences for this salon
     const [preferences] = await db
