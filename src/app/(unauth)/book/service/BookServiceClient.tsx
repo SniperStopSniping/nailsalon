@@ -272,6 +272,35 @@ export function BookServiceClient({
     setMounted(true);
   }, []);
 
+  // iOS Chrome can leave fixed elements attached to the layout viewport while
+  // its bottom toolbar changes the visible viewport. Keep a CSS offset in sync
+  // with that gap. Safari is deliberately excluded because it already places
+  // fixed elements against its visual viewport correctly.
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    const isIosChrome = /CriOS/i.test(window.navigator.userAgent);
+
+    if (!isIosChrome || !visualViewport) {
+      return undefined;
+    }
+
+    const updateViewportBottom = () => {
+      const viewportBottom = visualViewport.offsetTop + visualViewport.height;
+      const bottomInset = Math.max(0, window.innerHeight - viewportBottom);
+      document.documentElement.style.setProperty('--ios-chrome-viewport-bottom', `${bottomInset}px`);
+    };
+
+    updateViewportBottom();
+    visualViewport.addEventListener('resize', updateViewportBottom);
+    visualViewport.addEventListener('scroll', updateViewportBottom);
+
+    return () => {
+      visualViewport.removeEventListener('resize', updateViewportBottom);
+      visualViewport.removeEventListener('scroll', updateViewportBottom);
+      document.documentElement.style.removeProperty('--ios-chrome-viewport-bottom');
+    };
+  }, []);
+
   useEffect(() => {
     if (!isHydrated || hasAppliedHydratedBookingStateRef.current || hasUserChangedSelectionRef.current) {
       return;
@@ -689,7 +718,7 @@ export function BookServiceClient({
 
   return (
     <div
-      className="min-h-screen"
+      className="service-page-viewport"
       style={{
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
@@ -1297,7 +1326,8 @@ export function BookServiceClient({
         {selectedService && (
           <div
             data-testid="service-sticky-spacer"
-            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
+            aria-hidden="true"
+            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))' }}
           />
         )}
       </div>
@@ -1308,7 +1338,8 @@ export function BookServiceClient({
           className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
           style={{
             animation: 'slideUp 0.3s ease-out',
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}
         >
           <style jsx>

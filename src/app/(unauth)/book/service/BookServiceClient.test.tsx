@@ -649,6 +649,13 @@ describe('BookServiceClient', () => {
       'supports-[backdrop-filter]:bg-white/82',
     );
     expect(screen.getByTestId('service-sticky-spacer')).toBeInTheDocument();
+    expect(screen.getByTestId('service-sticky-spacer')).toHaveStyle({
+      height: 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))',
+    });
+    expect(stickyBar).toHaveStyle({
+      bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+    });
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveClass('text-[9px]');
     expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
@@ -658,6 +665,52 @@ describe('BookServiceClient', () => {
     expect(selectedCard.querySelector('svg')).toBeNull();
     expect(selectedCard.getAttribute('style')).not.toContain('outline');
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('keeps footer clearance aligned with the changing iPhone Chrome visual viewport', () => {
+    const originalInnerHeight = window.innerHeight;
+    const listeners = new Map<string, EventListener>();
+    const visualViewport = {
+      height: 700,
+      offsetTop: 0,
+      addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+    };
+
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone) CriOS/126.0 Mobile/15E148 Safari/604.1',
+    });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: visualViewport });
+
+    const { unmount } = render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    expect(document.documentElement).toHaveStyle('--ios-chrome-viewport-bottom: 144px');
+    expect(screen.getByTestId('service-sticky-spacer')).toHaveStyle({
+      height: 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))',
+    });
+
+    visualViewport.height = 780;
+    listeners.get('resize')?.(new Event('resize'));
+
+    expect(document.documentElement).toHaveStyle('--ios-chrome-viewport-bottom: 64px');
+
+    unmount();
+
+    expect(document.documentElement.style.getPropertyValue('--ios-chrome-viewport-bottom')).toBe('');
+
+    Reflect.deleteProperty(window.navigator, 'userAgent');
+    Reflect.deleteProperty(window, 'visualViewport');
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalInnerHeight });
   });
 
   it('clears the selection and hides service-dependent UI when the selected service is tapped again', async () => {
