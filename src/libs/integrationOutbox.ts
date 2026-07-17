@@ -152,6 +152,26 @@ export async function processIntegrationOutbox(limit = 50) {
           deliveryId: payload.deliveryId,
         });
         result = { status: 'synced' as const };
+      } else if (
+        job.provider === 'email'
+        && job.operation === 'retry_booking_recovery'
+      ) {
+        const payload = job.payload as {
+          deliveryId?: string;
+          appointmentIds?: string[];
+        };
+        if (!payload.deliveryId || !payload.appointmentIds?.length) {
+          throw new Error('INVALID_BOOKING_RECOVERY_RETRY');
+        }
+        const { retryBookingRecoveryEmail } = await import(
+          '@/libs/bookingRecoveryEmail'
+        );
+        await retryBookingRecoveryEmail({
+          salonId: job.salonId,
+          deliveryId: payload.deliveryId,
+          appointmentIds: payload.appointmentIds,
+        });
+        result = { status: 'synced' as const };
       } else if (job.operation === 'delete_event') {
         const payload = job.payload as {
           googleCalendarEventId?: string | null;

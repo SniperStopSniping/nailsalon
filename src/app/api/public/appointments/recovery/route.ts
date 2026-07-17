@@ -1,106 +1,114 @@
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
+import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
-import { db } from '@/libs/DB';
-import { sendTransactionalEmailDetailed } from '@/libs/email';
-import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { logger } from '@/libs/Logger';
+import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { getSalonBySlug } from '@/libs/queries';
 import { getClientIp } from '@/libs/rateLimit';
-import { appointmentAccessTokenSchema, appointmentSchema, notificationDeliverySchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
 const schema = z.object({
   salonSlug: z.string().trim().min(1).max(100),
-  email: z.string().trim().email().max(320).transform(value => value.toLowerCase()),
+  email: z.string().trim().email().max(320).transform(value => value.toLowerCase()).optional(),
+  phone: z.string().trim().max(32).optional(),
 });
 
-const genericResponse = () => Response.json({ data: { accepted: true, message: 'If upcoming bookings match that email, a secure link will arrive shortly.' } }, { status: 202 });
-const escapeHtml = (value: string) => value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
+// The response is intentionally identical for every outcome (no match,
+// rate-limited, provider failure, unknown salon) so this endpoint can never
+// be used to enumerate which contacts hold appointments. The copy is honest:
+// it promises an email only if a match is found, and only to the contact on
+// file.
+const genericResponse = () => Response.json({
+  data: {
+    accepted: true,
+    message: 'If we find a matching appointment, we\'ll email its secure management link to the contact on file within a few minutes.',
+  },
+}, { status: 202 });
 
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return genericResponse();
   }
+
+  const email = parsed.data.email;
+  const normalizedPhone = parsed.data.phone && isValidPhone(parsed.data.phone)
+    ? normalizePhone(parsed.data.phone)
+    : undefined;
+  if (!email && !normalizedPhone) {
+    return genericResponse();
+  }
+
   const salon = await getSalonBySlug(parsed.data.salonSlug);
   if (!salon) {
     return genericResponse();
   }
+
   try {
-    if (!await checkBookingRecoveryRateLimit(getClientIp(request), salon.id, parsed.data.email)) {
+    if (!await checkBookingRecoveryRateLimit(getClientIp(request), salon.id, email ?? normalizedPhone!)) {
       return genericResponse();
     }
   } catch {
     return Response.json({ error: { code: 'RECOVERY_TEMPORARILY_UNAVAILABLE', message: 'Booking recovery is temporarily unavailable. Please try again shortly.' } }, { status: 503 });
   }
 
-  const appointments = await db.select({
-    id: appointmentSchema.id,
-    endTime: appointmentSchema.endTime,
-  }).from(appointmentSchema).where(and(
-    eq(appointmentSchema.salonId, salon.id),
-    eq(appointmentSchema.clientEmail, parsed.data.email),
-    inArray(appointmentSchema.status, ['pending', 'confirmed']),
-    gt(appointmentSchema.endTime, new Date()),
-  )).orderBy(asc(appointmentSchema.startTime)).limit(10);
-
-  if (!appointments.length) {
-    return genericResponse();
-  }
-
-  const links: string[] = [];
-  const issuedTokenHashes: string[] = [];
-  for (const appointment of appointments) {
-    const capability = createOpaqueToken();
-    await db.insert(appointmentAccessTokenSchema).values({
-      id: crypto.randomUUID(),
+  try {
+    // Read-only with respect to appointments: recovery never creates,
+    // modifies, or deletes appointment rows.
+    const appointments = await getActiveAppointmentsForContact({
       salonId: salon.id,
-      appointmentId: appointment.id,
-      tokenHash: capability.tokenHash,
-      expiresAt: new Date(appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
+      email,
+      phone: normalizedPhone,
+      horizon: 'recovery',
     });
-    const active = await db.select({ id: appointmentAccessTokenSchema.id }).from(appointmentAccessTokenSchema).where(and(
-      eq(appointmentAccessTokenSchema.salonId, salon.id),
-      eq(appointmentAccessTokenSchema.appointmentId, appointment.id),
-      isNull(appointmentAccessTokenSchema.revokedAt),
-    )).orderBy(asc(appointmentAccessTokenSchema.createdAt));
-    if (active.length > 3) {
-      await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(inArray(appointmentAccessTokenSchema.id, active.slice(0, -3).map(row => row.id)));
+    if (!appointments.length) {
+      return genericResponse();
     }
-    links.push(buildSalonTenantPublicUrl(`/manage/${capability.token}`, { slug: salon.slug, customDomain: salon.customDomain }));
-    issuedTokenHashes.push(capability.tokenHash);
+
+    // Send only to the address stored on the appointment — never to an
+    // entered address that merely phone-matched. (When matched by email the
+    // two are equal by definition.)
+    const recipientEmail = appointments.find(appointment => appointment.clientEmail)?.clientEmail;
+    if (!recipientEmail) {
+      logger.warn({ event: 'booking_recovery_no_email_on_file', salonId: salon.id, appointmentId: appointments[0]!.id });
+      return genericResponse();
+    }
+    const recipientAppointments = appointments.filter(
+      appointment => !appointment.clientEmail || appointment.clientEmail.toLowerCase() === recipientEmail.toLowerCase(),
+    );
+
+    const result = await sendBookingRecoveryEmail({
+      salon: {
+        id: salon.id,
+        slug: salon.slug,
+        name: salon.name,
+        customDomain: salon.customDomain,
+        settings: salon.settings,
+      },
+      appointments: recipientAppointments.map(appointment => ({
+        id: appointment.id,
+        startTime: appointment.startTime,
+        endTime: appointment.endTime,
+      })),
+      recipientEmail,
+    });
+    if (!result.ok) {
+      logger.warn({
+        event: 'booking_recovery_send_failed',
+        salonId: salon.id,
+        deliveryId: result.deliveryId,
+        errorCode: result.errorCode,
+      });
+    }
+  } catch (error) {
+    // Only constant-style codes are logged — never raw error text, which
+    // could embed contact details or query parameters.
+    const code = error instanceof Error && /^[A-Z0-9_]{1,80}$/.test(error.message) ? error.message : 'UNEXPECTED';
+    logger.error({ event: 'booking_recovery_unexpected_error', salonId: salon.id, errorCode: code });
   }
 
-  const text = [`Your upcoming ${salon.name} booking${links.length === 1 ? '' : 's'}:`, ...links.map((link, index) => `${index + 1}. ${link}`), '', 'These private links let you view, reschedule, or cancel.'].join('\n\n');
-  const deliveryId = crypto.randomUUID();
-  await db.insert(notificationDeliverySchema).values({
-    id: deliveryId,
-    salonId: salon.id,
-    channel: 'email',
-    purpose: 'booking_recovery',
-    dedupeKey: `email:booking-recovery:${deliveryId}`,
-    status: 'queued',
-  });
-  const result = await sendTransactionalEmailDetailed({
-    to: parsed.data.email,
-    subject: `${salon.name} booking access`,
-    text,
-    html: `<p>Your upcoming ${escapeHtml(salon.name)} booking${links.length === 1 ? '' : 's'}:</p>${links.map((link, index) => `<p><a href="${escapeHtml(link)}">Manage booking ${index + 1}</a></p>`).join('')}<p>Keep these private links secure.</p>`,
-  });
-  await db.update(notificationDeliverySchema).set({
-    status: result.ok ? 'sent' : 'failed',
-    providerMessageId: result.providerMessageId,
-    errorCode: result.errorCode,
-    retryable: false,
-  }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salon.id)));
-  if (!result.ok && issuedTokenHashes.length) {
-    await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
-      eq(appointmentAccessTokenSchema.salonId, salon.id),
-      inArray(appointmentAccessTokenSchema.tokenHash, issuedTokenHashes),
-    ));
-  }
   return genericResponse();
 }

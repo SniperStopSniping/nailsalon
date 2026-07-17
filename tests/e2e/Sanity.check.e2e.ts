@@ -83,8 +83,10 @@ test.describe('Sanity', () => {
       await expect(
         page.getByRole('heading', { name: /find my booking/i }),
       ).toBeVisible();
+      await expect(page.getByLabel('Booking email')).toBeVisible();
+      await expect(page.getByLabel('Mobile phone')).toBeVisible();
       await expect(
-        page.getByRole('button', { name: /email my booking links/i }),
+        page.getByRole('button', { name: /email my booking link/i }),
       ).toBeVisible();
     });
   });

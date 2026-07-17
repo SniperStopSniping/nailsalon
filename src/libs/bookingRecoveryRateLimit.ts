@@ -6,7 +6,7 @@ import { hashOpaqueToken } from '@/libs/lusterSecurity';
 
 const WINDOW_SECONDS = 15 * 60;
 const IP_LIMIT = 10;
-const EMAIL_LIMIT = 3;
+const IDENTITY_LIMIT = 3;
 const memory = new Map<string, { count: number; expiresAt: number }>();
 
 const incrementScript = `
@@ -26,21 +26,26 @@ function memoryIncrement(key: string) {
   return current.count;
 }
 
-export async function checkBookingRecoveryRateLimit(ip: string, salonId: string, email: string) {
+/**
+ * @param identity - the normalized email if the requester provided one,
+ *   otherwise the normalized phone. Hashed before keying, so no PII is
+ *   stored in Redis either way.
+ */
+export async function checkBookingRecoveryRateLimit(ip: string, salonId: string, identity: string) {
   const ipKey = `luster:booking-recovery:ip:${hashRateLimitIdentifier(ip || 'unknown')}`;
-  const emailKey = `luster:booking-recovery:email:${salonId}:${hashOpaqueToken(email)}`;
+  const identityKey = `luster:booking-recovery:identity:${salonId}:${hashOpaqueToken(identity)}`;
   if (!redis) {
     if (isHostedDeployment()) {
       throw new Error('RECOVERY_RATE_LIMIT_UNAVAILABLE');
     }
-    return memoryIncrement(ipKey) <= IP_LIMIT && memoryIncrement(emailKey) <= EMAIL_LIMIT;
+    return memoryIncrement(ipKey) <= IP_LIMIT && memoryIncrement(identityKey) <= IDENTITY_LIMIT;
   }
   try {
-    const [ipResult, emailResult] = await Promise.all([
+    const [ipResult, identityResult] = await Promise.all([
       redis.eval(incrementScript, 1, ipKey, WINDOW_SECONDS) as Promise<[number, number]>,
-      redis.eval(incrementScript, 1, emailKey, WINDOW_SECONDS) as Promise<[number, number]>,
+      redis.eval(incrementScript, 1, identityKey, WINDOW_SECONDS) as Promise<[number, number]>,
     ]);
-    return Number(ipResult[0]) <= IP_LIMIT && Number(emailResult[0]) <= EMAIL_LIMIT;
+    return Number(ipResult[0]) <= IP_LIMIT && Number(identityResult[0]) <= IDENTITY_LIMIT;
   } catch {
     if (isHostedDeployment()) {
       throw new Error('RECOVERY_RATE_LIMIT_UNAVAILABLE');

@@ -32,6 +32,8 @@ import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
 
+import { ExistingAppointmentOptions } from './ExistingAppointmentOptions';
+
 // --- Types ---
 
 export type ServiceSummary = {
@@ -94,6 +96,8 @@ type BookConfirmClientProps = {
   /** Whether SMS reminders are enabled — hides "we'll text you" copy when false */
   smsEnabled?: boolean;
   clientChangeCutoffHours?: number;
+  /** Salon phone for the "Call the salon" escape hatch on the duplicate-booking screen */
+  salonPhone?: string | null;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -383,41 +387,6 @@ const LoadingState = () => (
         Confirming your appointment
       </motion.p>
     </motion.div>
-  </div>
-);
-
-/**
- * Already Has Appointment State - Premium Design
- */
-const ExistingAppointmentState = ({
-  onViewProfile,
-}: {
-  onViewProfile: () => void;
-}) => (
-  <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
-    <div className="w-full max-w-md space-y-3">
-      <StateCard
-        tone="warning"
-        icon={<Calendar className="mx-auto size-10 text-[var(--n5-warning)]" />}
-        title="You already have a booking"
-        description="To avoid duplicate bookings, use the secure link from your confirmation email or request a fresh link."
-        contentClassName="py-7"
-      />
-      <button
-        type="button"
-        onClick={() => {
-          triggerHaptic('select');
-          onViewProfile();
-        }}
-        className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
-        style={{
-          borderRadius: n5.radiusMd,
-          boxShadow: n5.shadowSm,
-        }}
-      >
-        Find my booking
-      </button>
-    </div>
   </div>
 );
 
@@ -1195,6 +1164,7 @@ export function BookConfirmClient({
   rewardsEnabled = true,
   smsEnabled = true,
   clientChangeCutoffHours = 24,
+  salonPhone = null,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1481,11 +1451,35 @@ export function BookConfirmClient({
     return <LoadingState />;
   }
 
-  // Existing appointment error
+  // Existing appointment error: the server (never browser state) confirmed an
+  // active appointment for this phone. Offer every path forward instead of a
+  // dead end.
   if (hasExistingAppointment) {
     return (
-      <ExistingAppointmentState
-        onViewProfile={() => router.push(`/${locale}/${salonSlug}/find-booking`)}
+      <ExistingAppointmentOptions
+        salonSlug={salonSlug}
+        guestEmail={guestEmail}
+        guestPhone={guestPhone}
+        salonPhone={salonPhone}
+        onManageBooking={() => {
+          if (manageToken) {
+            router.push(`/${locale}/${salonSlug}/manage/${manageToken}`);
+            return;
+          }
+          router.push(`/${locale}/${salonSlug}/find-booking`);
+        }}
+        onEditContact={() => {
+          setHasExistingAppointment(false);
+          setBookingError('You already have a booking under that phone number. Update your contact details below, then confirm again.');
+        }}
+        onRetryBooking={() => {
+          // The server re-verifies on every attempt; if the appointment was
+          // cancelled meanwhile, this proceeds and the success path clears the
+          // stored contact details.
+          setHasExistingAppointment(false);
+          setBookingError(null);
+          void createBooking();
+        }}
       />
     );
   }

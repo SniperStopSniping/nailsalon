@@ -310,6 +310,40 @@ describe('POST /api/appointments booking policy', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it('returns a 409 without any appointment details when an active booking exists', async () => {
+    getActiveAppointmentsForClient.mockResolvedValue([{
+      id: 'appt_existing',
+      startTime: new Date('2099-03-14T15:00:00.000Z'),
+    }]);
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T17:00:00.000Z',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+
+    // Anti-enumeration: the body must not leak the existing appointment's
+    // id or schedule to a caller who only knows a phone number.
+    const serialized = JSON.stringify(body);
+
+    expect(serialized).not.toContain('existingAppointmentId');
+    expect(serialized).not.toContain('existingAppointmentDate');
+    expect(serialized).not.toContain('appt_existing');
+    expect(serialized).not.toContain('2099-03-14');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
   it('passes requested services and location constraints into any-tech assignment', async () => {
     requireClientApiSession.mockResolvedValue({
       ok: false,
