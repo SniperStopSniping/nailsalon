@@ -1,3 +1,10 @@
+## [1.10.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.2...v1.10.3) (2026-07-17)
+
+
+### Bug Fixes
+
+* **google-events:** other Google events no longer block a conversion ([d707cfa](https://github.com/SniperStopSniping/nailsalon/commit/d707cfa36b2b81c9c2337e6c6014b63505de35fc))
+
 ## [1.10.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.1...v1.10.2) (2026-07-17)
 
 
