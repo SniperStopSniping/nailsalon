@@ -101,4 +101,30 @@ describe('requireAppointmentManagerAccess salon hint', () => {
     expect(getSalonBySlug).not.toHaveBeenCalled();
     expect(requireActiveAdminSalon).toHaveBeenCalled();
   });
+
+  it('reports 401, not a role error, when admin auth is missing and only a client cookie exists', async () => {
+    // Regression for the production bug where an owner's stray client-session
+    // cookie masked a missing Clerk context as "Only salon staff or admins
+    // can manage this appointment" (403) instead of an auth failure.
+    requireActiveAdminSalon.mockResolvedValue({
+      salon: null,
+      admin: null,
+      error: new Response(null, { status: 401 }),
+    });
+    getClientSession.mockResolvedValue({ phone: '4165551234', sessionId: 'client_session_1' });
+    // The phone-variant lookup finds someone else's appointment.
+    appointmentQueue.push([{ ...APPOINTMENT, salonId: 'salon_active', clientPhone: '4165551234' }]);
+
+    const access = await requireAppointmentManagerAccess('appt_1');
+
+    expect(access.ok).toBe(false);
+
+    if (!access.ok) {
+      expect(access.response.status).toBe(401);
+
+      const body = await access.response.json();
+
+      expect(body.error.code).toBe('UNAUTHORIZED');
+    }
+  });
 });

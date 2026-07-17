@@ -349,6 +349,8 @@ async function requireAppointmentAccessInternal(
     authFailure = activeAdminContext.error;
   }
 
+  const adminAuthMissing = activeAdminContext.error?.status === 401;
+
   const clientSession = await getClientSession();
   if (clientSession) {
     const appointment = await loadAppointmentForClient(
@@ -376,13 +378,24 @@ async function requireAppointmentAccessInternal(
       };
     }
 
-    forbidden ??= errorResponse(
-      403,
-      'FORBIDDEN',
-      options.allowClient
-        ? options.clientForbiddenMessage ?? 'You can only access your own appointments'
-        : options.wrongRoleMessage ?? 'Only salon staff or admins can access this appointment',
-    );
+    if (!options.allowClient && adminAuthMissing) {
+      // A stray client-session cookie must not mask a missing staff/admin
+      // login as a role problem: surface it as an authentication failure so
+      // the caller knows to sign in (and auth regressions stay visible).
+      authFailure ??= errorResponse(
+        401,
+        'UNAUTHORIZED',
+        'Sign in as salon staff or an admin to manage this appointment.',
+      );
+    } else {
+      forbidden ??= errorResponse(
+        403,
+        'FORBIDDEN',
+        options.allowClient
+          ? options.clientForbiddenMessage ?? 'You can only access your own appointments'
+          : options.wrongRoleMessage ?? 'Only salon staff or admins can access this appointment',
+      );
+    }
   }
 
   return {
