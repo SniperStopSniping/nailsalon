@@ -56,6 +56,31 @@ type SectionProps = {
   children: ReactNode;
 };
 
+/**
+ * IANA timezones for the salon-timezone picker, America/* first (this
+ * product's audience), always including the currently stored value so a
+ * legacy/nonstandard setting is never silently changed by opening settings.
+ */
+function getTimeZoneOptions(currentValue: string): string[] {
+  let zones: string[] = [];
+  try {
+    zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  } catch {
+    zones = [];
+  }
+  if (zones.length === 0) {
+    zones = ['America/Toronto', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Vancouver'];
+  }
+  const ordered = [
+    ...zones.filter(zone => zone.startsWith('America/')),
+    ...zones.filter(zone => !zone.startsWith('America/')),
+  ];
+  if (currentValue && !ordered.includes(currentValue)) {
+    ordered.unshift(currentValue);
+  }
+  return ordered;
+}
+
 function Section({ title, footer, children }: SectionProps) {
   return (
     <div className="mb-6">
@@ -1597,17 +1622,21 @@ export function SettingsModal({
                       <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                         Timezone
                       </span>
-                      <input
-                        type="text"
+                      {/* A typo here silently shifts every booking slot, so the
+                          value is picked from the IANA list instead of typed. */}
+                      <select
                         value={bookingConfigForm.timezone}
                         onChange={event =>
                           setBookingConfigForm(prev => ({
                             ...prev,
                             timezone: event.target.value,
                           }))}
-                        className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                        placeholder="America/Toronto"
-                      />
+                        className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                      >
+                        {getTimeZoneOptions(bookingConfigForm.timezone).map(zone => (
+                          <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
                     </label>
 
                     <label className="flex flex-col gap-1 sm:col-span-2">
