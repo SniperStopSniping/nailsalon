@@ -55,6 +55,7 @@ type TodayData = {
   integrationHealth: {
     google: {
       status: string;
+      readiness?: string;
       reconnectRequired?: boolean;
       inboundSyncError?: string | null;
     };
@@ -136,6 +137,7 @@ export function OwnerTodayWorkspace({
   );
   const integrationNeedsAttention = Boolean(
     today?.integrationHealth.google.reconnectRequired
+    || today?.integrationHealth.google.readiness === 'setup_incomplete'
     || today?.integrationHealth.google.inboundSyncError
     || today?.integrationHealth.calendarOutbox.failed,
   );
@@ -388,7 +390,11 @@ export function OwnerTodayWorkspace({
                     className="flex w-full items-center gap-3 rounded-2xl bg-stone-100 p-3 text-left text-sm text-stone-800"
                   >
                     <Settings2 size={18} />
-                    <span className="flex-1">Google Calendar needs attention</span>
+                    <span className="flex-1">
+                      {today?.integrationHealth.google.readiness === 'setup_incomplete'
+                        ? 'Finish Google Calendar setup — pick your blocking calendars'
+                        : 'Google Calendar needs attention'}
+                    </span>
                     <ChevronRight size={15} />
                   </button>
                 )}

@@ -27,8 +27,14 @@ const {
 
 vi.mock('server-only', () => ({}));
 
+vi.mock('@/libs/lusterSecurity', () => ({
+  decryptIntegrationSecret: vi.fn(() => 'refresh_token_plain'),
+}));
+
 vi.mock('@/libs/Env', () => ({
   Env: {
+    GOOGLE_OAUTH_CLIENT_ID: 'oauth-client-id',
+    GOOGLE_OAUTH_CLIENT_SECRET: 'oauth-client-secret',
     GOOGLE_CALENDAR_ENABLED: 'true',
     GOOGLE_CALENDAR_ID: 'primary@example.com',
     GOOGLE_CALENDAR_CLIENT_EMAIL: 'calendar-bot@example.iam.gserviceaccount.com',
@@ -107,6 +113,34 @@ describe('googleCalendar', () => {
       'https://www.googleapis.com/calendar/v3/freeBusy',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('still blocks on the primary calendar while calendar setup is incomplete', async () => {
+    // A connected salon with no saved blocking calendars (setup_incomplete)
+    // must never be silently double-bookable: the safety floor consults the
+    // primary calendar until the owner confirms a selection.
+    const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+    query.limit.mockResolvedValueOnce([{
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary',
+      busyCalendarIds: [],
+      tokenExpiresAt: new Date(Date.now() + 3_600_000),
+    }]);
+
+    await getGoogleCalendarBusyWindows({
+      salonId: 'salon_1',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    });
+
+    const freeBusyCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/freeBusy'));
+
+    expect(freeBusyCall).toBeTruthy();
+    expect(JSON.parse((freeBusyCall![1] as RequestInit).body as string).items).toEqual([{ id: 'primary' }]);
   });
 
   it('creates calendar events and records the synced event id', async () => {

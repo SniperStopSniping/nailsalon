@@ -47,7 +47,11 @@ export async function GET(request: Request) {
       encryptedRefreshToken: encrypted.ciphertext,
       encryptionKeyVersion: encrypted.keyVersion,
       destinationCalendarId: 'primary',
-      busyCalendarIds: ['primary'],
+      // New connections start with no confirmed blocking calendars: the owner
+      // must explicitly choose them before the integration reports ready.
+      // Until then, availability still blocks on the primary calendar as a
+      // safety floor (see getGoogleCalendarRequestContext).
+      busyCalendarIds: [],
       scopes: token.scope?.split(' ') || [],
       status: 'active',
       tokenExpiresAt: new Date(Date.now() + (token.expires_in ?? 3600) * 1000),

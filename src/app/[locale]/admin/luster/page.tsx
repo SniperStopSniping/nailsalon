@@ -4,7 +4,16 @@ import { ArrowLeft, BookOpen, CalendarDays, ExternalLink, MessageSquareText, Sho
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-type Health = { availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean }; google: { status: string; email?: string; lastError?: string; inboundSyncEnabled?: boolean; inboundSyncedAt?: string | null; inboundSyncError?: string | null }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
+type GoogleReadiness = 'not_connected' | 'reconnect_required' | 'attention_required' | 'setup_incomplete' | 'ready';
+type Health = { availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean }; google: { status: string; readiness?: GoogleReadiness; blockingCalendarCount?: number; email?: string; lastError?: string; inboundSyncEnabled?: boolean; inboundSyncedAt?: string | null; inboundSyncError?: string | null }; twilio: { status: string; phoneNumber?: string; lastError?: string; latestDeliveryError?: { errorCode?: string; errorMessage?: string; createdAt: string } | null } };
+
+const GOOGLE_READINESS_LABELS: Record<GoogleReadiness, string> = {
+  not_connected: 'Not connected',
+  reconnect_required: 'Reconnect required',
+  attention_required: 'Needs attention',
+  setup_incomplete: 'Setup incomplete',
+  ready: 'Ready',
+};
 type CalendarOption = { id: string; summary: string; primary: boolean; accessRole: string };
 const RESOURCES = [
   { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
@@ -139,7 +148,9 @@ export default function LusterOwnerPage() {
                 <h2 className="mt-3 text-xl font-semibold">Google Calendar</h2>
                 <p className="mt-1 text-sm text-stone-600">Busy events block availability. Luster appointments sync both ways when their Google event is moved, resized, or deleted.</p>
               </div>
-              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs capitalize">{health?.google.status || 'loading'}</span>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${health?.google.readiness === 'ready' ? 'bg-emerald-100 text-emerald-900' : health?.google.readiness === 'setup_incomplete' || health?.google.readiness === 'attention_required' || health?.google.readiness === 'reconnect_required' ? 'bg-amber-100 text-amber-900' : 'bg-stone-100'}`}>
+                {health ? GOOGLE_READINESS_LABELS[health.google.readiness ?? 'not_connected'] : 'Loading…'}
+              </span>
             </div>
             {health?.availability.google === false
               ? (
@@ -150,6 +161,16 @@ export default function LusterOwnerPage() {
               : health?.google.status === 'active'
                 ? (
                     <div className="mt-5 space-y-4">
+                      {health.google.readiness === 'setup_incomplete' && (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="status">
+                          <p className="font-semibold">One step left: choose your blocking calendars</p>
+                          <p className="mt-1">
+                            Select at least one calendar below under “Calendars that prevent double-booking”
+                            and save. Until you do, your main Google calendar blocks bookings automatically,
+                            but Google Calendar isn’t fully set up.
+                          </p>
+                        </div>
+                      )}
                       <label className="block text-sm">
                         Appointment calendar
                         <select
