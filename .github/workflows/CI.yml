@@ -79,6 +79,9 @@ jobs:
       - name: Linter
         run: npm run lint
 
+      - name: Secret leak scan
+        run: npm run security:check-secrets
+
       - name: Type checking
         run: npm run check-types
 

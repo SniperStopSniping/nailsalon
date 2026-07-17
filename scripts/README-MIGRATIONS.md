@@ -102,7 +102,7 @@ This is a **DB-based test** (not console.log based). It:
 
 All scripts print the masked DATABASE_URL at startup:
 ```
-Database: postgresql://***:***@ep-patient-wind-a404fmqu-pooler.us-east-1.aws.neon.tech/neondb?...
+Database: postgresql://***:***@<your-neon-host>-pooler.<region>.aws.neon.tech/neondb?...
 ```
 
 This prevents accidentally running against the wrong database.
@@ -154,8 +154,8 @@ This is a **critical** data integrity issue. Do not proceed until resolved.
 Query to find offending rows:
 ```sql
 SELECT a.id, a.salon_id, sc.salon_id as sc_salon_id
-FROM appointment a 
-JOIN salon_client sc ON sc.id = a.salon_client_id 
+FROM appointment a
+JOIN salon_client sc ON sc.id = a.salon_client_id
 WHERE a.salon_id <> sc.salon_id;
 ```
 

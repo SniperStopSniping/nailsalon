@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.6.0...v1.6.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* prevent lost booking service taps ([8a6bfea](https://github.com/SniperStopSniping/nailsalon/commit/8a6bfea41e8d4d5bf8cca5156388f9c406a2f962))
+
 # [1.6.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.5.1...v1.6.0) (2026-07-16)
 
 

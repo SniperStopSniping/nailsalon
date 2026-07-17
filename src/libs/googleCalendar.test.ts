@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   db,
   fetchMock,
-  privateKey,
   set,
 } = vi.hoisted(() => {
   const where = vi.fn(async () => undefined);
@@ -20,7 +19,6 @@ const {
   return {
     db: { select, update },
     fetchMock: vi.fn(),
-    privateKey: '-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCxYqnXECWSkuVj\\nJVeFoknKJ9IM0dk9vFmHSxl568UK/HZzlJxXfP4qj56IkhNaV9a7YCZW4nA+Jgcm\\nHsw2TmfZ1oZM7E7JK6wezExkxbC2dOwyUP+s1vYRaVnZQ2aF1yyFDHPSP01+N5G+\\n1RNzsyZXGvEEgLLV71zCpmBbtumRR62gASNn1L9RYGJw1im8VFdAGeDKDDoqaj8K\\nxI+Tn3yOAcjvhR4rwkIxBM/isF5xi1C+MLFFI6H5yivqbgwkPJXOGFgpa8xlsxef\\ncVPcdE2E/btRAtvTSoWcxh/vf964BsMA0Vg3llyKZyWtI4kqGFRw4HmOPX5F+aO3\\nCzC1GRIVAgMBAAECggEASNVHASv7EWTJVN03Q4JwI9YX0/Wx6jxU0k1Op5Xb8Pfa\\nNvjU/MMwpQ8VO+QmmBiq7YK8Gz6ccZgxpUBN/xpQX8xKlnkMnGMXKAogb9wQA8qc\\nVMiXQkN9A4crQh7/kILaH8MOJ0ygp+tvJ1jbxMzROECyp3OkelzuzGl99Qp0epax\\nrxPc/Zz7HFO9IXZKmGcAELzoLClwWQoUdQmESTMfSXcdTUOcezLR8jT/BBMto/nX\\nwSQEQoDJDMxAc5+M2MvEtwNoqDdz9l+csar0HbxZaPeEy1JQ1vS7d/wHR3LuvgbN\\nO8o/3GLXfp2oecKvdU1/TVRTX2UAzpLJkXjBvPUDHQKBgQDa/4edndA7u3UzTfo4\\nwApHek85BSwWoygXzkH808KNw5Y6ROiUD4+Xjajniy0xtnbJYhvwbtkvKjMjnX3l\\nx4V4exMIFodvunBG9uvWYUqMqoWBSxXZjw89iSOGxyXA31aKo8GoIyFn2Sin1beX\\nug3hL+y3ShaZLrSWfZIOzxzAdwKBgQDPWzrbMnx0MwRtwJ5GJOgO4X7OANpGCfhw\\nBfz4sJcDWnhua+O2ds/DKe29FUSKTfb5BKdc2rH1ybBOuwKBq325Vsl06e9nz53G\\nAB2zDgnOMqkvhY75thWQ2TedrnjTEgMGCm55fqF/17cmp8a6krpGGDWOr7o/jynN\\nszl0zVkQ0wKBgQC20Zau9618D/O5DqGSeo6aOPqlyTGS/EVeCiuAGm9R1TM2FYxq\\n/cqLZBDaqo7h70aeuy5DuuXHv9zNII6XIcbEW0n5+IS7utI8C6m5X6LSZw/obXwi\\nEJFSd4eW3e0gY9FlD2t9J0ad4OVVps4K9aDcmhtsr4bJ/fl3oAAsKK4B5QKBgDJR\\n0VagSdNpDgoUVFRxYF88GamkS1Pz13ZX/avcLsmBivhA9mGxM3oJEshwANIPWX/U\\nwUinSch7yW1RtKoDE9+GUB0vKAnpOEB0hsCNB5QidywxHSE8Lr+X9wcs7+VI2bL9\\nlRGmyUpc7vVSgceFE+8usNCPlIMYGuzwMWFG8/ZBAoGBAIWVpwaOURMcdMAefljG\\nT74f3Hpl0e3zYDf3wkb8f44JGn7CmNglDd4MIA38r0lWdEYFEk7Y/jj1hNYqLLQO\\n6BjvYcZqEUinipCtJ6Dfldu8RAhLAZP5CRJvPdjGh3Cnxy9reWchTUGN7r98zGJl\\nnEG3MviNb17XCbtt7nnGdnOg\\n-----END PRIVATE KEY-----\\n',
     set,
   };
 });
@@ -31,16 +29,26 @@ vi.mock('@/libs/lusterSecurity', () => ({
   decryptIntegrationSecret: vi.fn(() => 'refresh_token_plain'),
 }));
 
-vi.mock('@/libs/Env', () => ({
-  Env: {
-    GOOGLE_OAUTH_CLIENT_ID: 'oauth-client-id',
-    GOOGLE_OAUTH_CLIENT_SECRET: 'oauth-client-secret',
-    GOOGLE_CALENDAR_ENABLED: 'true',
-    GOOGLE_CALENDAR_ID: 'primary@example.com',
-    GOOGLE_CALENDAR_CLIENT_EMAIL: 'calendar-bot@example.iam.gserviceaccount.com',
-    GOOGLE_CALENDAR_PRIVATE_KEY: privateKey,
-  },
-}));
+vi.mock('@/libs/Env', async () => {
+  // Throwaway keypair generated per test run so no key material lives in the repo.
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  return {
+    Env: {
+      GOOGLE_OAUTH_CLIENT_ID: 'oauth-client-id',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'oauth-client-secret',
+      GOOGLE_CALENDAR_ENABLED: 'true',
+      GOOGLE_CALENDAR_ID: 'primary@example.com',
+      GOOGLE_CALENDAR_CLIENT_EMAIL: 'calendar-bot@example.iam.gserviceaccount.com',
+      GOOGLE_CALENDAR_PRIVATE_KEY: privateKey.replace(/\n/g, '\\n'),
+    },
+  };
+});
 
 vi.mock('@/libs/DB', () => ({
   db,
