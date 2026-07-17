@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { cn } from '@/utils/Helpers';
 
 type DialogShellProps = {
@@ -25,6 +26,8 @@ export function DialogShell({
   closeOnBackdrop = true,
   closeOnEscape = true,
 }: DialogShellProps) {
+  useBodyScrollLock(isOpen);
+
   useEffect(() => {
     if (!isOpen || !closeOnEscape) {
       return undefined;
@@ -46,6 +49,7 @@ export function DialogShell({
 
   return (
     <div
+      role="presentation"
       className={cn('fixed inset-0 z-50 flex bg-black/50', alignClassName)}
       onClick={(event) => {
         if (closeOnBackdrop && event.target === event.currentTarget) {

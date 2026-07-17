@@ -12,9 +12,11 @@
  */
 
 import type { PanInfo } from 'framer-motion';
-import { AnimatePresence, motion, useAnimation } from 'framer-motion';
+import { AnimatePresence, motion, useAnimation, useDragControls } from 'framer-motion';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 
 // Dismiss threshold in pixels
 const DISMISS_THRESHOLD = 100;
@@ -41,6 +43,7 @@ export function AppModal({
   allowDragToDismiss = true,
 }: AppModalProps) {
   const controls = useAnimation();
+  const dragControls = useDragControls();
   const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
@@ -60,29 +63,7 @@ export function AppModal({
   }, [isOpen, onClose]);
 
   // Lock body scroll when modal is open
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-    const scrollY = window.scrollY;
-    const previous = {
-      overflow: document.body.style.overflow,
-      position: document.body.style.position,
-      top: document.body.style.top,
-      width: document.body.style.width,
-    };
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-    return () => {
-      document.body.style.overflow = previous.overflow;
-      document.body.style.position = previous.position;
-      document.body.style.top = previous.top;
-      document.body.style.width = previous.width;
-      window.scrollTo(0, scrollY);
-    };
-  }, [isOpen]);
+  useBodyScrollLock(isOpen);
 
   const handleDragEnd = useCallback(
     (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -129,6 +110,11 @@ export function AppModal({
               stiffness: 300,
             }}
             drag={allowDragToDismiss ? 'y' : false}
+            // Drag starts only from the grab handle (dragListener disabled),
+            // so the content area keeps native touch scrolling instead of
+            // fighting the dismiss gesture.
+            dragControls={dragControls}
+            dragListener={false}
             dragConstraints={
               allowDragToDismiss ? { top: 0, bottom: 0 } : undefined
             }
@@ -137,13 +123,15 @@ export function AppModal({
             }
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
-              touchAction: allowDragToDismiss ? 'pan-x' : 'auto',
               top: 'max(env(safe-area-inset-top, 0px), 12px)',
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
-            {/* Drag Handle */}
-            <div className="flex cursor-grab justify-center pb-2 pt-3 active:cursor-grabbing">
+            {/* Drag Handle — the only surface that starts the dismiss gesture */}
+            <div
+              className={`flex justify-center pb-2 pt-3 ${allowDragToDismiss ? 'cursor-grab touch-none active:cursor-grabbing' : ''}`}
+              onPointerDown={allowDragToDismiss ? event => dragControls.start(event) : undefined}
+            >
               <div className="h-1 w-9 rounded-full bg-gray-300" />
             </div>
 
