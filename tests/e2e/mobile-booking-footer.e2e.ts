@@ -5,6 +5,9 @@ import { appPath, e2eConfig } from './support/config';
 const IPHONE_CHROME_USER_AGENT
   = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
 
+// The public footer only renders for free-solo salons.
+test.skip(!e2eConfig.freeSolo, 'The Free Luster footer only exists in the free-solo profile.');
+
 async function verifyNaturalFooterClearance(page: Page): Promise<string> {
   await page.goto(appPath(`/${e2eConfig.salonSlug}/book/service`), {
     waitUntil: 'domcontentloaded',
@@ -15,7 +18,10 @@ async function verifyNaturalFooterClearance(page: Page): Promise<string> {
   await expect(footer).toBeVisible();
   await expect(footer).toHaveCSS('margin-bottom', '0px');
 
-  await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
+  // Any service selection raises the sticky bar; don't couple this layout
+  // check to a specific fixture id (seeded ids differ between environments).
+  const serviceCard = page.locator(`[data-testid="service-card-${e2eConfig.serviceId}"], [data-testid^="service-card-"]`).first();
+  await serviceCard.click();
   const stickyBar = page.getByTestId('service-sticky-bar');
 
   await expect(stickyBar).toBeVisible();

@@ -61,6 +61,10 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
       name: 'Luster Demo Studio',
       slug: 'nail-salon-no5',
       themeKey: 'nail-salon-no5',
+      // The demo salon models the free-Luster profile — the same assumption
+      // e2eConfig.freeSolo makes — so free-solo UI (public footer, auto tech
+      // skip) is exercised by local dev and PGlite-backed e2e runs.
+      freeSoloEnabled: true,
     })
     .returning();
 
