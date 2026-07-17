@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, desc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -1455,19 +1455,12 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     try {
-      if (googleReviewEvent) {
-        const [otherGoogleConflict] = await db.select({ id: googleCalendarEventSchema.id }).from(googleCalendarEventSchema).where(and(
-          eq(googleCalendarEventSchema.salonId, salon.id),
-          ne(googleCalendarEventSchema.id, googleReviewEvent.id),
-          eq(googleCalendarEventSchema.transparency, 'busy'),
-          isNull(googleCalendarEventSchema.deletedAt),
-          lt(googleCalendarEventSchema.startTime, blockedEndTime),
-          gt(googleCalendarEventSchema.endTime, startTime),
-        )).limit(1);
-        if (otherGoogleConflict) {
-          return Response.json({ error: { code: 'TIME_CONFLICT', message: 'Another Google event overlaps this time.' } }, { status: 409 });
-        }
-      }
+      // Conversions intentionally skip BOTH Google-overlap checks: the event
+      // being imported already coexists with its neighbours on the salon's
+      // calendar (back-to-back bookings, duplicate rows from re-syncs, or a
+      // second synced calendar), so another busy Google row must not block
+      // the import. Only a genuine overlap with an active CRM appointment
+      // blocks, via lockTechnicianAndAssertSlotFree in the transaction below.
       const googleCalendarConflict = googleReviewEvent
         ? false
         : await hasGoogleCalendarConflict({

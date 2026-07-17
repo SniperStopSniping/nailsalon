@@ -602,11 +602,6 @@ describe('POST /api/appointments booking policy', () => {
         from: vi.fn(() => ({
           where: vi.fn(() => ({ limit: vi.fn(async () => [sourceEvent]) })),
         })),
-      }))
-      .mockImplementationOnce(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
-        })),
       }));
 
     let appointmentValues: Record<string, unknown> | null = null;
@@ -710,15 +705,13 @@ describe('POST /api/appointments booking policy', () => {
   }
 
   function mockConversionSelects(sourceEvent: ReturnType<typeof buildConversionSourceEvent>) {
+    // Only the source-event load hits db.select: conversions no longer probe
+    // other Google events for overlaps (imports coexist with their calendar
+    // neighbours by definition).
     db.select
       .mockImplementationOnce(() => ({
         from: vi.fn(() => ({
           where: vi.fn(() => ({ limit: vi.fn(async () => [sourceEvent]) })),
-        })),
-      }))
-      .mockImplementationOnce(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
         })),
       }));
   }
@@ -835,6 +828,38 @@ describe('POST /api/appointments booking policy', () => {
     expect(txState.appointmentValues).toEqual(expect.objectContaining({
       technicianId: 'tech_1',
     }));
+  });
+
+  it('never blocks a conversion on other Google events (back-to-back or duplicate rows)', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({ available: false, reason: 'outside_schedule' });
+    // Under the previous behaviour this scenario required a queued empty
+    // response for the "other Google events" overlap probe to pass; that
+    // probe no longer exists — mockConversionSelects queues only the
+    // source-event load, and a busy neighbouring/duplicate Google row can
+    // no longer produce "Another Google event overlaps this time."
+    mockConversionSelects(buildConversionSourceEvent());
+    mockConversionTransaction();
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+        }),
+      }),
+    );
+    const body = await response.json().catch(() => null);
+
+    expect(body?.error?.message).not.toBe('Another Google event overlaps this time.');
+    expect(response.status).toBe(201);
   });
 
   it('still rejects a conversion that genuinely double-books the technician', async () => {
