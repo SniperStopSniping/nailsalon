@@ -94,8 +94,9 @@ describe('GET /api/staff/client/[phone]', () => {
     });
     selectQueue.push(
       [{ visibility: null }],
-      [{ firstName: 'Ava', createdAt: new Date('2026-01-01T00:00:00Z') }],
+      // Salon-scoped record first: it gates the global identity lookup.
       [{ hasGoogleReview: false }],
+      [{ firstName: 'Ava', createdAt: new Date('2026-01-01T00:00:00Z') }],
       [],
       [],
       [],
@@ -126,5 +127,42 @@ describe('GET /api/staff/client/[phone]', () => {
         photos: [],
       },
     });
+  });
+
+  it('does not disclose another salon\'s client identity for an unknown phone', async () => {
+    requireStaffOrAdminSalonAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'staff',
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+      },
+      session: {
+        technicianId: 'tech_1',
+        technicianName: 'Taylor',
+        salonId: 'salon_1',
+        salonSlug: 'salon-a',
+        phone: '+15551234567',
+      },
+    });
+    // No salon-scoped record for this phone at salon_1 — even though a global
+    // client record exists (created by another salon), it must not be read.
+    selectQueue.push(
+      [{ visibility: null }],
+      [], // no salon_client relationship
+      [], // preferences
+      [], // appointments
+      [], // photos
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
+      { params: { phone: '5551234567' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.name).toBeNull();
+    expect(body.data.client.memberSince).toBeNull();
   });
 });
