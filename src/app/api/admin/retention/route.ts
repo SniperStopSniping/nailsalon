@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
@@ -125,8 +125,16 @@ export async function GET(request: Request): Promise<Response> {
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
-        gt(appointmentSchema.startTime, now),
-        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        // Future pending/confirmed bookings, plus any in_progress visit
+        // (even one started early or running past its slot) — all of these
+        // must suppress retention outreach for the client.
+        or(
+          and(
+            gt(appointmentSchema.startTime, now),
+            inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
+          ),
+          eq(appointmentSchema.status, 'in_progress'),
+        ),
       ))
       .limit(5000),
     db

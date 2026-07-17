@@ -384,15 +384,19 @@ export function buildRetentionQueue(args: {
   now?: Date;
 }): RetentionQueueItem[] {
   const now = args.now ?? new Date();
+  // in_progress counts as upcoming too: a client who is in the chair right
+  // now (or whose appointment was started early) must never see a rebook or
+  // win-back alert.
+  const upcomingStatuses = ['pending', 'confirmed', 'in_progress'];
   const clientsWithFutureAppointment = new Set(
     args.futureAppointments
-      .filter(appointment => appointment.startTime > now && ['pending', 'confirmed'].includes(appointment.status))
+      .filter(appointment => (appointment.startTime > now || appointment.status === 'in_progress') && upcomingStatuses.includes(appointment.status))
       .map(appointment => appointment.salonClientId)
       .filter((clientId): clientId is string => Boolean(clientId)),
   );
   const phonesWithFutureAppointment = new Set(
     args.futureAppointments
-      .filter(appointment => appointment.startTime > now && ['pending', 'confirmed'].includes(appointment.status))
+      .filter(appointment => (appointment.startTime > now || appointment.status === 'in_progress') && upcomingStatuses.includes(appointment.status))
       .map(appointment => normalizeRetentionPhone(appointment.clientPhone))
       .filter(Boolean),
   );

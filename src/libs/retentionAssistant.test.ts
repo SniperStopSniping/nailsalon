@@ -52,6 +52,27 @@ describe('retention stage resolution', () => {
     expect(resolveRetentionStage({ lastVisitAt: daysAgo(55), now: NOW })?.stage).toBe('promo_6w');
     expect(resolveRetentionStage({ lastVisitAt: daysAgo(56), now: NOW })?.stage).toBe('promo_8w');
   });
+
+  it('measures elapsed time, not calendar days, so timezone and DST shifts cannot skew a stage', () => {
+    // Intended semantics: a stage begins exactly N*24h after the last visit
+    // instant, regardless of the salon's timezone or the wall-clock date.
+    const justUnder = new Date(NOW.getTime() - (21 * DAY_MS - 60_000));
+
+    expect(resolveRetentionStage({ lastVisitAt: justUnder, now: NOW })).toBeNull();
+
+    const justOver = new Date(NOW.getTime() - (21 * DAY_MS + 60_000));
+
+    expect(resolveRetentionStage({ lastVisitAt: justOver, now: NOW })?.stage).toBe('rebook');
+
+    // A window that spans the 2026-11-01 North-American fall-back (an extra
+    // wall-clock hour) still flips exactly at 42*24h of elapsed time.
+    const dstNow = new Date('2026-11-15T16:00:00.000Z');
+    const acrossDstJustUnder = new Date(dstNow.getTime() - (42 * DAY_MS - 60_000));
+    const acrossDstJustOver = new Date(dstNow.getTime() - (42 * DAY_MS + 60_000));
+
+    expect(resolveRetentionStage({ lastVisitAt: acrossDstJustUnder, now: dstNow })?.stage).toBe('rebook');
+    expect(resolveRetentionStage({ lastVisitAt: acrossDstJustOver, now: dstNow })?.stage).toBe('promo_6w');
+  });
 });
 
 describe('retention queue', () => {
@@ -71,6 +92,43 @@ describe('retention queue', () => {
         endTime: new Date(NOW.getTime() + DAY_MS + 3_600_000),
         status: 'confirmed',
       }],
+      communications: [],
+      now: NOW,
+    });
+
+    expect(queue.map(item => item.clientId)).toEqual(['due']);
+  });
+
+  it('suppresses clients whose appointment is in progress, even one started early or running late', () => {
+    const queue = buildRetentionQueue({
+      clients: [
+        client({ id: 'started_early' }),
+        client({ id: 'running_late' }),
+        client({ id: 'due' }),
+      ],
+      futureAppointments: [
+        {
+          // Tech tapped Start ahead of the scheduled time: startTime is
+          // still in the future but the client is in the chair right now.
+          id: 'appointment_early',
+          salonClientId: 'started_early',
+          clientName: 'Early',
+          clientPhone: '4162222222',
+          startTime: new Date(NOW.getTime() + 3_600_000),
+          endTime: new Date(NOW.getTime() + 2 * 3_600_000),
+          status: 'in_progress',
+        },
+        {
+          // Visit running past its scheduled slot: startTime already passed.
+          id: 'appointment_late',
+          salonClientId: 'running_late',
+          clientName: 'Late',
+          clientPhone: '4163333333',
+          startTime: new Date(NOW.getTime() - 3_600_000),
+          endTime: new Date(NOW.getTime() - 1_800_000),
+          status: 'in_progress',
+        },
+      ],
       communications: [],
       now: NOW,
     });

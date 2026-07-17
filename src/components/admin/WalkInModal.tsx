@@ -14,6 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronRight, Clock, Loader2, Phone, Search, User, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -479,6 +480,9 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
         throw new Error(result.error?.message || 'Failed to create appointment');
       }
 
+      // Walk-in bookings must refresh the Today/retention queues just like
+      // every other appointment mutation.
+      notifyAppointmentDataChanged();
       onSuccess?.();
       onClose();
     } catch (err) {

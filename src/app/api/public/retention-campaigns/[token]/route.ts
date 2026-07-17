@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
+import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import { hashRetentionCampaignToken } from '@/libs/retentionCampaigns';
 import { retentionCampaignSchema } from '@/models/Schema';
 
@@ -26,6 +27,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ token: string }> },
 ): Promise<Response> {
+  // Public, unauthenticated endpoint: throttle per IP before any DB work.
+  // A legitimate client opens a campaign link at most a few times.
+  const rateLimit = checkEndpointRateLimit('public/retention-campaigns', getClientIp(request), 'REFERRAL');
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit.retryAfterMs);
+  }
+
   const [parsedParams, parsedQuery] = await Promise.all([
     params.then(value => paramsSchema.safeParse(value)),
     Promise.resolve(querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams.entries()))),

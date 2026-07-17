@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
 
-const { getSalonBySlug, selectRows, db } = vi.hoisted(() => {
+const { getSalonBySlug, selectRows, db, checkEndpointRateLimit } = vi.hoisted(() => {
   const selectRows: unknown[] = [];
   const query = (result: unknown) => {
     const chain = {
@@ -16,11 +16,20 @@ const { getSalonBySlug, selectRows, db } = vi.hoisted(() => {
     getSalonBySlug: vi.fn(),
     selectRows,
     db: { select: vi.fn(() => query(selectRows.shift() ?? [])) },
+    checkEndpointRateLimit: vi.fn(),
   };
 });
 
 vi.mock('@/libs/queries', () => ({ getSalonBySlug }));
 vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/rateLimit', () => ({
+  checkEndpointRateLimit,
+  getClientIp: () => '203.0.113.7',
+  rateLimitResponse: (retryAfterMs: number) => Response.json(
+    { error: { code: 'RATE_LIMITED', message: 'Too many requests.' } },
+    { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } },
+  ),
+}));
 
 const token = 'A'.repeat(43);
 
@@ -29,6 +38,21 @@ describe('GET /api/public/retention-campaigns/[token]', () => {
     vi.clearAllMocks();
     selectRows.length = 0;
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a' });
+    checkEndpointRateLimit.mockReturnValue({ allowed: true, retryAfterMs: 0 });
+  });
+
+  it('rate-limits by IP before doing any database work', async () => {
+    checkEndpointRateLimit.mockReturnValue({ allowed: false, retryAfterMs: 30_000 });
+
+    const response = await GET(
+      new Request(`http://localhost/api/public/retention-campaigns/${token}?salonSlug=salon-a`),
+      { params: Promise.resolve({ token }) },
+    );
+
+    expect(response.status).toBe(429);
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(checkEndpointRateLimit).toHaveBeenCalledWith('public/retention-campaigns', '203.0.113.7', 'REFERRAL');
   });
 
   it('binds token lookup to the requested salon tenant', async () => {

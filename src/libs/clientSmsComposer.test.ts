@@ -89,8 +89,19 @@ describe('buildClientSmsMessage', () => {
     );
   });
 
-  it('builds a rebooking ask with the previous service and booking link', () => {
+  it('builds a rebooking ask with the previous service, previous artist, and booking link', () => {
     expect(buildClientSmsMessage('rebook', fullContext)).toBe(
+      'Hi Ava 😊 would you like to book another Builder Gel Overlay appointment with Daniela at Isla Nail Studio? You can choose a time here: https://islanailsalon.com/en/isla/book?source=rebook',
+    );
+  });
+
+  it('omits the artist clause from the rebooking ask when no artist is known', () => {
+    const noArtistContext: ClientSmsContext = {
+      ...fullContext,
+      appointment: { ...fullContext.appointment!, artistName: null },
+    };
+
+    expect(buildClientSmsMessage('rebook', noArtistContext)).toBe(
       'Hi Ava 😊 would you like to book another Builder Gel Overlay appointment at Isla Nail Studio? You can choose a time here: https://islanailsalon.com/en/isla/book?source=rebook',
     );
   });
@@ -104,7 +115,7 @@ describe('buildClientSmsMessage', () => {
     ].join('\n'));
   });
 
-  it('builds complete appointment details including the local range and price', () => {
+  it('builds complete appointment details including the local range, price, and salon address', () => {
     expect(buildClientSmsMessage('appointment_details', fullContext)).toBe([
       'Hi Ava 😊 here are your appointment details for Isla Nail Studio:',
       'Date: Friday, July 17, 2026',
@@ -112,6 +123,7 @@ describe('buildClientSmsMessage', () => {
       'Service: Builder Gel Overlay',
       'Artist: Daniela',
       'Price: $65.00',
+      'Address: 123 Queen St W, Toronto, ON, M5H 2M9',
       'View or change your appointment: https://islanailsalon.com/manage/secure-token',
     ].join('\n'));
   });

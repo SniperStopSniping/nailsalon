@@ -950,6 +950,13 @@ export const clientCommunicationSchema = pgTable(
       table.status,
       table.snoozedUntil,
     ),
+    // Mirrors migrations/0055: at most one prepared/snoozed retention stage
+    // per client. Declared here too so PGlite-backed tests enforce the same
+    // invariant production does. (Migrations are hand-authored SQL — keep the
+    // two definitions in sync.)
+    activeRetentionUnique: uniqueIndex('client_communication_active_retention_unique')
+      .on(table.salonId, table.salonClientId)
+      .where(sql`"kind" IN ('rebook', 'promo_6w', 'promo_8w') AND "status" IN ('prepared', 'snoozed')`),
   }),
 );
 

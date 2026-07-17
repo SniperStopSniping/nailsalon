@@ -82,7 +82,7 @@ function validDate(value: string | Date | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function safeTimeZone(value: string | null | undefined): string {
+export function safeTimeZone(value: string | null | undefined): string {
   const candidate = clean(value) ?? DEFAULT_BOOKING_TIME_ZONE;
 
   try {
@@ -163,7 +163,9 @@ function buildRebookMessage(context: ClientSmsContext): string {
   const salonName = salonNameFor(context.salon.name);
   const bookingUrl = clean(context.salon.bookingUrl);
   const previousService = serviceNamesFor(context.appointment);
-  const appointmentCopy = previousService ? ` another ${previousService} appointment` : ' your next appointment';
+  const artistName = clean(context.appointment?.artistName);
+  const withArtist = artistName ? ` with ${artistName}` : '';
+  const appointmentCopy = previousService ? ` another ${previousService} appointment${withArtist}` : ` your next appointment${withArtist}`;
   const action = bookingUrl
     ? `You can choose a time here: ${bookingUrl}`
     : 'Reply to this message and we’ll help you find a time.';
@@ -207,6 +209,7 @@ function buildAppointmentDetailsMessage(context: ClientSmsContext): string {
   const artistName = clean(context.appointment?.artistName);
   const price = formatPrice(context.appointment?.totalPriceCents, context.salon.currency);
   const manageUrl = clean(context.appointment?.manageUrl);
+  const address = buildDirectionsDestination(context.salon.location);
   const lines = [
     `Hi ${name} 😊 here are your appointment details for ${salonName}:`,
     ...(date ? [`Date: ${date}`] : []),
@@ -214,6 +217,7 @@ function buildAppointmentDetailsMessage(context: ClientSmsContext): string {
     ...(serviceNames ? [`Service: ${serviceNames}`] : []),
     ...(artistName ? [`Artist: ${artistName}`] : []),
     ...(price ? [`Price: ${price}`] : []),
+    ...(address ? [`Address: ${address}`] : []),
     manageUrl
       ? `View or change your appointment: ${manageUrl}`
       : 'Reply to this message if you need to make a change.',

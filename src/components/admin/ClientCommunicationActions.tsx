@@ -29,9 +29,11 @@ import {
   type ClientSmsMessageKind,
   composeClientSmsDraft,
   detectNativeSmsPlatform,
+  safeTimeZone,
 } from '@/libs/clientSmsComposer';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
+import { formatDateInTimeZone } from '@/libs/timeZone';
 import {
   type ClientCommunicationKind,
   type ClientCommunicationStatus,
@@ -195,12 +197,15 @@ function renderPromotionMessage(args: {
   salonName: string;
   bookingUrl: string;
   expiresAt: string;
+  timeZone: string | null;
 }): string {
-  const expiry = new Date(args.expiresAt).toLocaleDateString('en-CA', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  // The expiry is a UTC instant; render it in the salon's timezone, not the
+  // staff device's, so the client is never told a day-early/day-late date.
+  const expiry = formatDateInTimeZone(
+    args.expiresAt,
+    { month: 'long', day: 'numeric', year: 'numeric' },
+    safeTimeZone(args.timeZone),
+  );
   const replacements: Record<string, string> = {
     '{firstName}': args.firstName,
     '{salonName}': args.salonName,
@@ -578,6 +583,7 @@ export function ClientCommunicationActions({
         salonName,
         bookingUrl: campaign.bookingUrl,
         expiresAt: campaign.expiresAt,
+        timeZone: supportData.timeZone,
       });
       const href = buildNativeSmsUrl({
         phone: client.phone,
