@@ -26,6 +26,7 @@ import {
 } from '@/models/Schema';
 import { LOYALTY_POINTS } from '@/utils/AppConfig';
 
+import { getActiveAppointmentsForContact } from './activeAppointments';
 import { db } from './DB';
 import { reconcileLoyaltyPointsBalance } from './loyaltyBalance';
 import { normalizePhone } from './phone';
@@ -597,36 +598,11 @@ export async function getActiveAppointmentsForClient(
   clientPhone: string,
   salonId: string,
 ): Promise<Appointment[]> {
-  const now = new Date();
-
-  // Normalize phone to handle different formats
-  // Include 10-digit version (strip leading 1 if 11 digits) to match stored format
-  const normalizedPhone = clientPhone.replace(/\D/g, '');
-  const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-    ? normalizedPhone.slice(1)
-    : normalizedPhone;
-  const phoneVariants = [
-    clientPhone,
-    normalizedPhone,
-    tenDigitPhone,
-    `+1${tenDigitPhone}`,
-    `+${normalizedPhone}`,
-  ];
-
-  // Block booking if client has pending, confirmed, OR in_progress appointments
-  // in_progress = currently being served, can't book another simultaneously
-  return db
-    .select()
-    .from(appointmentSchema)
-    .where(
-      and(
-        inArray(appointmentSchema.clientPhone, phoneVariants),
-        eq(appointmentSchema.salonId, salonId),
-        inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
-        gte(appointmentSchema.startTime, now),
-        isNull(appointmentSchema.deletedAt),
-      ),
-    );
+  return getActiveAppointmentsForContact({
+    salonId,
+    phone: clientPhone,
+    horizon: 'booking-gate',
+  });
 }
 
 // =============================================================================
