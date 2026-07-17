@@ -57,6 +57,7 @@ describe('requireAppointmentManagerAccess salon hint', () => {
     expect(requireAdmin).toHaveBeenCalledWith('salon_hinted');
     // The hint short-circuits — the active-salon cookie is never consulted.
     expect(requireActiveAdminSalon).not.toHaveBeenCalled();
+
     if (access.ok) {
       expect(access.actorRole).toBe('admin');
       expect(access.appointment).toEqual(APPOINTMENT);
@@ -71,9 +72,11 @@ describe('requireAppointmentManagerAccess salon hint', () => {
     const access = await requireAppointmentManagerAccess('appt_1', { salonSlugHint: 'hinted-salon' });
 
     expect(access.ok).toBe(false);
+
     if (!access.ok) {
       expect(access.response.status).toBe(404);
     }
+
     // It fell back to the verified active-salon path instead of trusting the hint.
     expect(requireActiveAdminSalon).toHaveBeenCalled();
   });

@@ -12,8 +12,8 @@ import { getSalonBySlug } from '@/libs/queries';
 import type { StaffSession } from '@/libs/staffAuth';
 import { requireStaffSession } from '@/libs/staffAuth';
 import {
-  appointmentSchema,
   type Appointment,
+  appointmentSchema,
   type Salon,
 } from '@/models/Schema';
 
@@ -265,7 +265,7 @@ async function requireAppointmentAccessInternal(
           403,
           'FORBIDDEN',
           options.assignmentForbiddenMessage
-            ?? 'You can only manage your own appointments',
+          ?? 'You can only manage your own appointments',
         ),
       };
     }

@@ -190,6 +190,7 @@ describe('AppointmentQuickEditSheet', () => {
     await waitFor(() => expect(onMarkNoShow).toHaveBeenCalledTimes(1));
 
     expect(confirmSpy).not.toHaveBeenCalled();
+
     confirmSpy.mockRestore();
   });
 
