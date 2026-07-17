@@ -269,6 +269,7 @@ export default async function BookConfirmPage({
           rewardsEnabled={rewardsEnabled}
           smsEnabled={smsEnabled}
           clientChangeCutoffHours={bookingConfig.clientChangeCutoffHours}
+          salonPhone={salon.phone ?? null}
         />
       </Suspense>
     </PublicSalonPageShell>
