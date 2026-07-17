@@ -1,3 +1,19 @@
+# [1.8.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.7.1...v1.8.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* **booking:** stop leaking appointment id/date in duplicate-booking 409 ([fd46a82](https://github.com/SniperStopSniping/nailsalon/commit/fd46a8227e87f353cce1cb422c43aa12d3d7b023))
+* **recovery:** match by phone or email, send only to on-file address ([e0d7126](https://github.com/SniperStopSniping/nailsalon/commit/e0d71262a0fae487942766e37c89b5379ff84670))
+* **recovery:** tighten types for settings and drizzle returning() ([e285cf2](https://github.com/SniperStopSniping/nailsalon/commit/e285cf2999375753379c74fe239a59fbb45e635a))
+
+
+### Features
+
+* **booking:** replace duplicate-booking dead end with recovery options ([e46659c](https://github.com/SniperStopSniping/nailsalon/commit/e46659cb867230a9cfe76733bd8a29e34bfd4e9a))
+* **booking:** shared active-appointment matcher by contact ([0ad6fa3](https://github.com/SniperStopSniping/nailsalon/commit/0ad6fa3ba51873055919f442b40f735e82416799))
+* **recovery:** find-booking accepts email or phone with honest result copy ([614b789](https://github.com/SniperStopSniping/nailsalon/commit/614b7899721bd5308f8fc2122a9f2f87c00b3653))
+
 ## [1.7.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.7.0...v1.7.1) (2026-07-17)
 
 
