@@ -1,3 +1,16 @@
+# [1.10.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.9.1...v1.10.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* **e2e:** make the mobile footer spec runnable in every environment ([f25a5c2](https://github.com/SniperStopSniping/nailsalon/commit/f25a5c228d13b39ecef9af11390cd4a486946fc4))
+* **retention:** close audited gaps in the retention assistant ([6703a0a](https://github.com/SniperStopSniping/nailsalon/commit/6703a0a3999225750bf0d4f2ee707c39bc2e4da2))
+
+
+### Features
+
+* add client retention and appointment tools ([30d70c4](https://github.com/SniperStopSniping/nailsalon/commit/30d70c40dc36e38da8020cb4dd052fd234f3700c))
+
 ## [1.9.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.9.0...v1.9.1) (2026-07-17)
 
 
