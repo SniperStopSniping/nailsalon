@@ -830,16 +830,16 @@ export async function POST(request: Request): Promise<Response> {
       );
 
       if (existingAppointments.length > 0) {
-        const existingAppt = existingAppointments[0]!;
+        // Intentionally no appointment id or date in the body: this response
+        // is reachable with nothing but a phone number, so any detail beyond
+        // the code would let callers enumerate other people's schedules.
         return Response.json(
           {
             error: {
               code: 'EXISTING_APPOINTMENT',
-              message: 'You already have an upcoming appointment. Please change or cancel it from your profile instead of booking another one.',
-              existingAppointmentId: existingAppt.id,
-              existingAppointmentDate: existingAppt.startTime.toISOString(),
+              message: 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.',
             },
-          } satisfies ErrorResponse & { error: { existingAppointmentId: string; existingAppointmentDate: string } },
+          } satisfies ErrorResponse,
           { status: 409 },
         );
       }
