@@ -310,6 +310,60 @@ describe('POST /api/appointments booking policy', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it('rejects campaign discounts on reschedules before reading or consuming the campaign token', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T17:00:00.000Z',
+          originalAppointmentId: 'appt_original',
+          campaignToken: 'campaign_token_123456789012345678901234',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: {
+        code: 'CAMPAIGN_FLOW_INVALID',
+        message: 'Retention promotions can only be used for a new public booking.',
+      },
+    });
+    expect(getAppointmentById).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a campaign token on a management-token path without consuming it', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T17:00:00.000Z',
+          manageToken: 'manage_token_12345678901234567890',
+          campaignToken: 'campaign_token_123456789012345678901234',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('CAMPAIGN_FLOW_INVALID');
+    expect(db.select).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it('returns a 409 without any appointment details when an active booking exists', async () => {
     getActiveAppointmentsForClient.mockResolvedValue([{
       id: 'appt_existing',
@@ -1050,5 +1104,195 @@ describe('POST /api/appointments booking policy', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error creating appointment:', expect.any(Error));
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('atomically redeems a campaign without failing the committed booking when ancillary timeline conversion fails', async () => {
+    const token = 'campaign_token_123456789012345678901234';
+    const campaign = {
+      id: 'campaign_1',
+      salonId: 'salon_1',
+      salonClientId: 'client_1',
+      communicationId: null,
+      tokenHash: 'stored_hash',
+      stage: 'promo_6w',
+      promotionSnapshot: {
+        enabled: true,
+        name: 'Welcome back',
+        discountType: 'percent',
+        value: 20,
+        eligibleServiceIds: ['srv_1'],
+        expiryDays: 14,
+        code: 'BACK20',
+        messageTemplate: '{bookingLink}',
+        singleUse: true,
+      },
+      expiresAt: new Date('2099-04-01T00:00:00.000Z'),
+      singleUse: true,
+      redeemedAt: null,
+      redeemedAppointmentId: null,
+      createdAt: new Date('2099-03-01T00:00:00.000Z'),
+      updatedAt: new Date('2099-03-01T00:00:00.000Z'),
+    };
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    const conversionError = new Error('timeline temporarily unavailable');
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.execute.mockRejectedValueOnce(conversionError);
+    db.select.mockImplementationOnce(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
+      })),
+    }));
+
+    let appointmentValues: Record<string, unknown> | null = null;
+    let redemptionValues: Record<string, unknown> | null = null;
+    db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
+      const tx = {
+        execute: vi.fn(async () => undefined),
+        select: vi.fn()
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
+              })),
+            })),
+          })),
+        insert: vi.fn()
+          .mockImplementationOnce(() => ({
+            values: vi.fn((values: Record<string, unknown>) => {
+              appointmentValues = values;
+              return {
+                returning: vi.fn(async () => [{
+                  ...values,
+                  id: 'appt_campaign',
+                  notes: null,
+                  startTime: new Date(String(values.startTime)),
+                  endTime: new Date(String(values.endTime)),
+                }]),
+              };
+            }),
+          }))
+          .mockImplementationOnce(() => ({ values: vi.fn(async () => undefined) }))
+          .mockImplementationOnce(() => ({
+            values: vi.fn(() => ({
+              returning: vi.fn(async () => [{
+                id: 'apptSvc_campaign',
+                appointmentId: 'appt_campaign',
+                serviceId: 'srv_1',
+                priceAtBooking: 6500,
+                durationAtBooking: 90,
+              }]),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            values: vi.fn((values: Record<string, unknown>) => {
+              redemptionValues = values;
+              return Promise.resolve();
+            }),
+          })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn(() => ({ returning: vi.fn(async () => [{ ...campaign, redeemedAt: new Date() }]) })),
+          })),
+        })),
+      };
+      return callback(tx as never);
+    });
+
+    const response = await POST(new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        serviceIds: ['srv_1'],
+        technicianId: 'tech_1',
+        startTime: '2099-03-13T15:00:00.000Z',
+        campaignToken: token,
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.appointment).toEqual(expect.objectContaining({
+      totalPrice: 5200,
+      subtotalBeforeDiscountCents: 6500,
+      discountAmountCents: 1300,
+      discountType: 'retention_promo_6w',
+      discountLabel: 'Welcome back',
+    }));
+    expect(appointmentValues).toEqual(expect.objectContaining({
+      totalPrice: 5200,
+      discountAmountCents: 1300,
+      discountType: 'retention_promo_6w',
+    }));
+    expect(redemptionValues).toEqual(expect.objectContaining({
+      salonId: 'salon_1',
+      campaignId: 'campaign_1',
+      appointmentId: 'appt_campaign',
+      discountAmountCents: 1300,
+    }));
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[Retention] Failed to convert latest outreach after booking:',
+      conversionError,
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects a retention campaign prepared for a different client', async () => {
+    const campaign = {
+      id: 'campaign_other',
+      salonId: 'salon_1',
+      salonClientId: 'client_other',
+      communicationId: null,
+      stage: 'promo_8w',
+      promotionSnapshot: {
+        enabled: true,
+        name: 'Come back',
+        discountType: 'fixed',
+        value: 1500,
+        eligibleServiceIds: [],
+        expiryDays: 14,
+        code: null,
+        messageTemplate: '{bookingLink}',
+        singleUse: true,
+      },
+      expiresAt: new Date('2099-04-01T00:00:00.000Z'),
+      singleUse: true,
+      redeemedAt: null,
+    };
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    db.select.mockImplementationOnce(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
+      })),
+    }));
+
+    const response = await POST(new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        serviceIds: ['srv_1'],
+        technicianId: 'tech_1',
+        startTime: '2099-03-13T15:00:00.000Z',
+        campaignToken: 'campaign_token_123456789012345678901234',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('CLIENT_MISMATCH');
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 });

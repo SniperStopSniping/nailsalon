@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { getOrCreateSalonClient, getSalonById } from '@/libs/queries';
+import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   buildGoogleReviewMessage,
   buildSatisfactionMessage,
@@ -38,6 +39,7 @@ export async function POST(
       wrongRoleMessage: 'Only salon staff or admins can record review follow-up',
       assignmentForbiddenMessage: 'You can only record follow-up for your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;
@@ -94,7 +96,10 @@ export async function POST(
     // Build the copyable message for the "send" actions.
     const salon = await getSalonById(appointment.salonId);
     const salonName = salon?.name ?? 'our salon';
-    const googleReviewUrl = (salon?.settings as SalonSettings | null | undefined)?.googleReviewUrl ?? null;
+    const retentionSettings = await getRetentionSettingsForSalon(appointment.salonId);
+    const googleReviewUrl = retentionSettings.googleReviewUrl
+      ?? (salon?.settings as SalonSettings | null | undefined)?.googleReviewUrl
+      ?? null;
 
     let message: string | null = null;
     if (action === 'satisfaction_question') {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,33 +7,43 @@ import AdminDashboardPage from './page';
 const {
   fetchMock,
   routerReplace,
-  routerPush,
   routerRefresh,
+  routerMock,
   searchParamGet,
   adminModalHostSpy,
+  appGridSpy,
+  ownerTodayWorkspaceSpy,
   swipeablePagesSpy,
   clerkSignOut,
-} = vi.hoisted(() => ({
-  fetchMock: vi.fn(),
-  routerReplace: vi.fn(),
-  routerPush: vi.fn(),
-  routerRefresh: vi.fn(),
-  searchParamGet: vi.fn<(key: string) => string | null>((key: string) => (key === 'salon' ? 'salon-b' : null)),
-  adminModalHostSpy: vi.fn(),
-  swipeablePagesSpy: vi.fn(),
-  clerkSignOut: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  const routerReplace = vi.fn();
+  const routerPush = vi.fn();
+  const routerRefresh = vi.fn();
+
+  return {
+    fetchMock: vi.fn(),
+    routerReplace,
+    routerRefresh,
+    routerMock: {
+      replace: routerReplace,
+      push: routerPush,
+      refresh: routerRefresh,
+    },
+    searchParamGet: vi.fn<(key: string) => string | null>((key: string) => (key === 'salon' ? 'salon-b' : null)),
+    adminModalHostSpy: vi.fn(),
+    appGridSpy: vi.fn(),
+    ownerTodayWorkspaceSpy: vi.fn(),
+    swipeablePagesSpy: vi.fn(),
+    clerkSignOut: vi.fn(),
+  };
+});
 
 vi.mock('@clerk/nextjs', () => ({
   useClerk: () => ({ signOut: clerkSignOut }),
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    replace: routerReplace,
-    push: routerPush,
-    refresh: routerRefresh,
-  }),
+  useRouter: () => routerMock,
   useParams: () => ({ locale: 'en' }),
   useSearchParams: () => ({
     get: searchParamGet,
@@ -43,7 +53,51 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/admin/AdminModalHost', () => ({
   AdminModalHost: (props: unknown) => {
     adminModalHostSpy(props);
-    return null;
+    const value = props as {
+      activeModal?: string | null;
+      onOpenPromotionSettings?: (
+        stage: 'promo_6w' | 'promo_8w',
+        clientId: string,
+      ) => void;
+      onClosePromotionSettings?: () => void;
+    };
+    return (
+      <>
+        {value.activeModal === 'clients' && (
+          <button
+            type="button"
+            onClick={() =>
+              value.onOpenPromotionSettings?.('promo_6w', 'client_bob')}
+          >
+            Configure Bob promotion
+          </button>
+        )}
+        {value.activeModal === 'marketing' && (
+          <button
+            type="button"
+            onClick={value.onClosePromotionSettings}
+          >
+            Back to Bob
+          </button>
+        )}
+      </>
+    );
+  },
+}));
+
+vi.mock('@/components/admin/OwnerTodayWorkspace', () => ({
+  OwnerTodayWorkspace: (props: { onOpenClient: (clientId: string) => void }) => {
+    ownerTodayWorkspaceSpy(props);
+    return (
+      <main data-testid="owner-today-workspace">
+        <button
+          type="button"
+          onClick={() => props.onOpenClient('client_bob')}
+        >
+          Open Bob retention alert
+        </button>
+      </main>
+    );
   },
 }));
 
@@ -52,7 +106,10 @@ vi.mock('@/components/admin/AnalyticsWidgets', () => ({
 }));
 
 vi.mock('@/components/admin/AppGrid', () => ({
-  AppGrid: () => <div>App grid</div>,
+  AppGrid: (props: unknown) => {
+    appGridSpy(props);
+    return <div>App grid</div>;
+  },
 }));
 
 vi.mock('@/components/admin/AdminImpersonationBanner', () => ({
@@ -86,6 +143,7 @@ vi.mock('@/components/ui/workspace-page-header', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
+  vi.stubGlobal('scrollTo', vi.fn());
 });
 
 describe('AdminDashboardPage', () => {
@@ -192,7 +250,7 @@ describe('AdminDashboardPage', () => {
     expect(routerReplace).not.toHaveBeenCalledWith('/en/admin-login');
   });
 
-  it('hides analytics and never requests it when the module is disabled', async () => {
+  it('hides disabled analytics but keeps core retention settings visible for Free Luster', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -205,10 +263,14 @@ describe('AdminDashboardPage', () => {
             isSuperAdmin: false,
             impersonation: null,
             salons: [
-              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner', freeSoloEnabled: true },
             ],
           },
         }), { status: 200 });
+      }
+
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
 
       if (url === '/api/admin/fraud-signals') {
@@ -238,6 +300,16 @@ describe('AdminDashboardPage', () => {
     expect(fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith('/api/admin/analytics?'),
     )).toBe(false);
+
+    fireEvent.click(screen.getByTestId('owner-nav-more'));
+    await waitFor(() => {
+      const latestProps = appGridSpy.mock.calls.at(-1)?.[0] as {
+        hiddenIds?: string[];
+      };
+
+      expect(latestProps.hiddenIds).toContain('analytics');
+      expect(latestProps.hiddenIds).not.toContain('marketing');
+    });
   });
 
   it('hides analytics and never requests it when the module is not entitled', async () => {
@@ -401,14 +473,20 @@ describe('AdminDashboardPage', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-a');
     });
 
+    const salonBRequestsBeforeReturn = fetchMock.mock.calls.filter(([url]) =>
+      String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
+    ).length;
+
     currentSalon = 'salon-b';
     view.rerender(<AdminDashboardPage />);
 
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.filter(([url]) =>
-        String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
-      )).toHaveLength(1);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
     });
+
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url) === '/api/admin/settings/modules?salonSlug=salon-b',
+    )).toHaveLength(salonBRequestsBeforeReturn);
   });
 
   it('downgrades to the disabled state when analytics returns a gated 403', async () => {
@@ -464,5 +542,94 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByText('Analytics dashboard is turned off for this salon.')).not.toBeInTheDocument();
 
     expect(analyticsRequests).toBeGreaterThan(0);
+  });
+
+  it('opens the exact client selected from a dashboard retention alert', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            phone: '+15555550100',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: null,
+            salons: [
+              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+            ],
+          },
+        }), { status: 200 });
+      }
+
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: {
+            modules: { analyticsDashboard: false },
+            entitledModules: { analyticsDashboard: true },
+            moduleReasons: { analyticsDashboard: 'MODULE_DISABLED' },
+          },
+        }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open Bob retention alert' }),
+    );
+
+    await waitFor(() => {
+      expect(adminModalHostSpy.mock.calls.some(([props]) => {
+        const value = props as {
+          activeModal?: string | null;
+          initialClientId?: string | null;
+        };
+
+        return value.activeModal === 'clients'
+          && value.initialClientId === 'client_bob';
+      })).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Bob promotion' }));
+
+    await waitFor(() => {
+      expect(adminModalHostSpy.mock.calls.some(([props]) => {
+        const value = props as {
+          activeModal?: string | null;
+          initialClientId?: string | null;
+          initialPromotionStage?: string | null;
+        };
+
+        return value.activeModal === 'marketing'
+          && value.initialClientId === 'client_bob'
+          && value.initialPromotionStage === 'promo_6w';
+      })).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Bob' }));
+
+    await waitFor(() => {
+      const lastProps = adminModalHostSpy.mock.calls.at(-1)?.[0] as {
+        activeModal?: string | null;
+        initialClientId?: string | null;
+      };
+
+      expect(lastProps).toMatchObject({
+        activeModal: 'clients',
+        initialClientId: 'client_bob',
+      });
+    });
   });
 });

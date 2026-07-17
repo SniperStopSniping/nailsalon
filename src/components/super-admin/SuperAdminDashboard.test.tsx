@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SuperAdminDashboard } from './SuperAdminDashboard';
 
 const { fetchMock, useParamsMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -23,8 +24,6 @@ vi.mock('./InvitesModal', () => ({
 vi.mock('./SalonDetailPanel', () => ({
   SalonDetailPanel: () => null,
 }));
-
-import { SuperAdminDashboard } from './SuperAdminDashboard';
 
 describe('SuperAdminDashboard', () => {
   beforeEach(() => {
@@ -49,7 +48,7 @@ describe('SuperAdminDashboard', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith('/api/super-admin/organizations?page=1&pageSize=20');
-    expect(screen.getByText('No salons found')).toBeInTheDocument();
+    expect(await screen.findByText('No salons found')).toBeInTheDocument();
   });
 
   it('shows the API error message instead of masking it behind a generic salons failure', async () => {

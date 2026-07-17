@@ -33,7 +33,13 @@ import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 // =============================================================================
 // Use shared type from admin types
 import type { AnalyticsResponse } from '@/types/admin';
+import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+
+type PromotionSettingsStage = Extract<
+  RetentionStage,
+  'promo_6w' | 'promo_8w'
+>;
 
 // =============================================================================
 // Types
@@ -271,15 +277,20 @@ function AdminDashboardContent() {
   const [initialAppointmentId, setInitialAppointmentId] = useState<
     string | null
   >(null);
+  const [initialClientId, setInitialClientId] = useState<string | null>(null);
+  const [initialPromotionStage, setInitialPromotionStage]
+    = useState<PromotionSettingsStage | null>(null);
+  const [promotionSettingsReturnClientId, setPromotionSettingsReturnClientId]
+    = useState<string | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showFraudSignals, setShowFraudSignals] = useState(false);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [showWalkIn, setShowWalkIn] = useState(false);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
-    ?? requestedSalonSlug
-    ?? adminUser?.salons[0]?.slug
-    ?? null;
+      ?? requestedSalonSlug
+      ?? adminUser?.salons[0]?.slug
+      ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
     ? (adminUser?.salons.find(
         s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
@@ -908,6 +919,13 @@ function AdminDashboardContent() {
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
+      if (appId === 'clients') {
+        setInitialClientId(null);
+      }
+      if (appId === 'marketing') {
+        setInitialPromotionStage(null);
+        setPromotionSettingsReturnClientId(null);
+      }
       setActiveModal(appId);
     }
   };
@@ -922,6 +940,8 @@ function AdminDashboardContent() {
         setShowWalkIn(true);
         break;
       case 'send-sms':
+        setInitialPromotionStage(null);
+        setPromotionSettingsReturnClientId(null);
         setActiveModal('marketing');
         break;
       case 'today-schedule':
@@ -947,6 +967,8 @@ function AdminDashboardContent() {
   const handleWorkspaceTab = useCallback((tab: OwnerWorkspaceTab) => {
     setShowScheduleCalendar(false);
     setActiveModal(null);
+    setInitialPromotionStage(null);
+    setPromotionSettingsReturnClientId(null);
     setWorkspaceTab(tab);
     const resetOwnerViewport = () => {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -966,6 +988,7 @@ function AdminDashboardContent() {
       return;
     }
     if (tab === 'clients') {
+      setInitialClientId(null);
       setActiveModal('clients');
       return;
     }
@@ -978,6 +1001,22 @@ function AdminDashboardContent() {
   const handleCloseModal = () => {
     setActiveModal(null);
     setInitialAppointmentId(null);
+    setInitialClientId(null);
+    setInitialPromotionStage(null);
+    setPromotionSettingsReturnClientId(null);
+  };
+
+  const handleClosePromotionSettings = () => {
+    const returnClientId = promotionSettingsReturnClientId;
+    setInitialPromotionStage(null);
+    setPromotionSettingsReturnClientId(null);
+    if (returnClientId) {
+      setInitialAppointmentId(null);
+      setInitialClientId(returnClientId);
+      setActiveModal('clients');
+      return;
+    }
+    handleCloseModal();
   };
 
   // 1) Auth check phase - never show dashboard UI here
@@ -1036,10 +1075,6 @@ function AdminDashboardContent() {
   };
   const moduleIsEnabled = (module: ModuleKey) =>
     moduleReasons[module] === 'ENABLED';
-  const marketingEnabled
-    = moduleIsEnabled('smsReminders')
-    || moduleIsEnabled('referrals')
-    || moduleIsEnabled('rewards');
   const staffToolsEnabled
     = moduleIsEnabled('scheduleOverrides') || moduleIsEnabled('staffEarnings');
   const hiddenAppIds: string[] = [
@@ -1051,9 +1086,9 @@ function AdminDashboardContent() {
   if (!moduleIsEnabled('analyticsDashboard')) {
     hiddenAppIds.push('analytics');
   }
-  if (!marketingEnabled) {
-    hiddenAppIds.push('marketing');
-  }
+  // Retention settings and editable native Messages drafts are core Luster
+  // tools, including Free Luster. They do not depend on the paid Twilio SMS,
+  // referral, or rewards entitlements that previously hid this app tile.
   if (!moduleIsEnabled('rewards')) {
     hiddenAppIds.push('rewards');
   }
@@ -1249,10 +1284,17 @@ function AdminDashboardContent() {
                     `/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`,
                   )}
                 onOpenAppointment={(appointmentId) => {
+                  setInitialClientId(null);
                   setInitialAppointmentId(appointmentId);
                   setActiveModal('bookings');
                 }}
-                onOpenClients={() => setActiveModal('clients')}
+                onOpenClient={(clientId) => {
+                  setInitialAppointmentId(null);
+                  setInitialClientId(clientId);
+                  setInitialPromotionStage(null);
+                  setPromotionSettingsReturnClientId(null);
+                  setActiveModal('clients');
+                }}
               />
             )}
 
@@ -1268,6 +1310,16 @@ function AdminDashboardContent() {
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
         initialAppointmentId={initialAppointmentId}
+        initialClientId={initialClientId}
+        initialPromotionStage={initialPromotionStage}
+        onOpenPromotionSettings={(stage, clientId) => {
+          setInitialAppointmentId(null);
+          setInitialClientId(clientId);
+          setInitialPromotionStage(stage);
+          setPromotionSettingsReturnClientId(clientId);
+          setActiveModal('marketing');
+        }}
+        onClosePromotionSettings={handleClosePromotionSettings}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
         showFraudSignals={showFraudSignals}

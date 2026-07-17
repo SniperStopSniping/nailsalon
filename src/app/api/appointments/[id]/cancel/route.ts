@@ -24,6 +24,8 @@ const cancelAppointmentSchema = z.object({
   notes: z.string().optional(),
 });
 
+const CANCELLABLE_STATUSES: string[] = ['pending', 'confirmed', 'in_progress'];
+
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
@@ -46,6 +48,32 @@ type SuccessResponse = {
     };
   };
 };
+
+type CancellationTransition = {
+  applied: boolean;
+  conflictStatus: string | null;
+  cancelledAt: Date;
+};
+
+function isSameCancellation(
+  appointment: { status: string; cancelReason: string | null },
+  status: 'cancelled' | 'no_show',
+  cancelReason: (typeof CANCEL_REASONS)[number],
+): boolean {
+  return appointment.status === status && appointment.cancelReason === cancelReason;
+}
+
+function invalidStateResponse(status: string): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'INVALID_STATE',
+        message: `Cannot cancel appointment in "${status}" status. Must be pending, confirmed, or in_progress.`,
+      },
+    } satisfies ErrorResponse,
+    { status: 400 },
+  );
+}
 
 // =============================================================================
 // PATCH /api/appointments/[id]/cancel - Cancel an appointment
@@ -92,165 +120,232 @@ export async function PATCH(
     // 2. Verify appointment exists
     const appointment = access.appointment;
 
-    // 3. Check appointment is in a valid state to cancel
-    const validStates = ['pending', 'confirmed', 'in_progress'];
-    if (!validStates.includes(appointment.status)) {
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_STATE',
-            message: `Cannot cancel appointment in "${appointment.status}" status. Must be pending, confirmed, or in_progress.`,
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
-    }
-
-    // 4. Update the appointment. A no-show is its own terminal status —
+    // 3. A no-show is its own terminal status —
     // writing it as "cancelled" made every no-show metric read zero.
     // canvas_state is kept in sync so the staff flow sees the same outcome.
     const now = new Date();
     const resolvedStatus = validated.data.cancelReason === 'no_show' ? 'no_show' : 'cancelled';
-
-    await db
-      .update(appointmentSchema)
-      .set({
-        status: resolvedStatus,
-        canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
-        canvasStateUpdatedAt: now,
-        cancelReason: validated.data.cancelReason,
-        notes: validated.data.notes || appointment.notes,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(appointmentSchema.id, appointmentId),
-          eq(appointmentSchema.salonId, appointment.salonId),
-        ),
-      );
-
-    // 5. Unlink any rewards that were pending use with this appointment
-    // (Return them to 'active' status so they can be used for another booking)
-    const linkedReward = await db
-      .select()
-      .from(rewardSchema)
-      .where(
-        and(
-          eq(rewardSchema.usedInAppointmentId, appointmentId),
-          eq(rewardSchema.salonId, appointment.salonId),
-        ),
-      )
-      .limit(1);
-
-    if (linkedReward.length > 0) {
-      const reward = linkedReward[0]!;
-      // Only restore if it wasn't already used
-      if (reward.status !== 'used') {
-        await db
-          .update(rewardSchema)
-          .set({
-            usedInAppointmentId: null,
-            status: 'active',
-          })
-          .where(eq(rewardSchema.id, reward.id));
-      }
+    const alreadyCancelled = isSameCancellation(
+      appointment,
+      resolvedStatus,
+      validated.data.cancelReason,
+    );
+    if (!CANCELLABLE_STATUSES.includes(appointment.status) && !alreadyCancelled) {
+      return invalidStateResponse(appointment.status);
     }
 
-    // 5b. Refund any points that were redeemed on this appointment
-    // Check if notes contain "[Points redeemed:" which indicates points were spent
     const notesText = appointment.notes || '';
     const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
+    const pointsToRefund = pointsRedeemedMatch
+      ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
+      : 0;
 
-    if (pointsRedeemedMatch) {
-      // Extract the points number (remove commas)
-      const pointsToRefund = Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10);
-
-      if (pointsToRefund > 0) {
-        // Find the client and refund their points
-        const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
-        const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-          ? normalizedPhone.slice(1)
-          : normalizedPhone;
-
-        const phoneVariants = [
-          tenDigitPhone,
-          `+1${tenDigitPhone}`,
-          appointment.clientPhone,
-        ];
-
-        await db
-          .update(salonClientSchema)
+    // The terminal transition and every balance mutation are one atomic unit.
+    // The status predicate is the compare-and-set: concurrent requests may both
+    // authenticate against the old snapshot, but exactly one can transition the
+    // row and therefore exactly one can restore rewards/refund points.
+    let transition: CancellationTransition;
+    if (alreadyCancelled) {
+      transition = {
+        applied: false,
+        conflictStatus: null,
+        cancelledAt: appointment.updatedAt ?? now,
+      };
+    } else {
+      transition = await db.transaction(async (tx): Promise<CancellationTransition> => {
+        const [cancelledAppointment] = await tx
+          .update(appointmentSchema)
           .set({
-            loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+            status: resolvedStatus,
+            canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
+            canvasStateUpdatedAt: now,
+            cancelReason: validated.data.cancelReason,
+            notes: validated.data.notes || appointment.notes,
+            updatedAt: now,
           })
           .where(
             and(
-              eq(salonClientSchema.salonId, appointment.salonId),
-              inArray(salonClientSchema.phone, phoneVariants),
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, appointment.salonId),
+              inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
             ),
-          );
-      }
-    }
+          )
+          .returning();
 
-    // 5d. Update salon client stats if this was a no-show
-    // (Background, don't await - no-shows affect stats)
-    if (validated.data.cancelReason === 'no_show') {
-      updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((err) => {
-        console.error('Failed to update salon client stats:', err);
+        if (!cancelledAppointment) {
+          const [currentAppointment] = await tx
+            .select({
+              status: appointmentSchema.status,
+              cancelReason: appointmentSchema.cancelReason,
+              updatedAt: appointmentSchema.updatedAt,
+            })
+            .from(appointmentSchema)
+            .where(and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, appointment.salonId),
+            ))
+            .limit(1);
+
+          if (currentAppointment && isSameCancellation(
+            currentAppointment,
+            resolvedStatus,
+            validated.data.cancelReason,
+          )) {
+            return {
+              applied: false,
+              conflictStatus: null,
+              cancelledAt: currentAppointment.updatedAt,
+            };
+          }
+
+          return {
+            applied: false,
+            conflictStatus: currentAppointment?.status ?? 'missing',
+            cancelledAt: now,
+          };
+        }
+
+        // Return pending rewards to active inside the same transaction.
+        const [linkedReward] = await tx
+          .select()
+          .from(rewardSchema)
+          .where(and(
+            eq(rewardSchema.usedInAppointmentId, appointmentId),
+            eq(rewardSchema.salonId, appointment.salonId),
+          ))
+          .limit(1);
+
+        if (linkedReward && linkedReward.status !== 'used') {
+          await tx
+            .update(rewardSchema)
+            .set({
+              usedInAppointmentId: null,
+              status: 'active',
+            })
+            .where(and(
+              eq(rewardSchema.id, linkedReward.id),
+              eq(rewardSchema.salonId, appointment.salonId),
+              eq(rewardSchema.usedInAppointmentId, appointmentId),
+            ));
+        }
+
+        if (pointsToRefund > 0) {
+          const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
+          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
+            ? normalizedPhone.slice(1)
+            : normalizedPhone;
+          const phoneVariants = [
+            tenDigitPhone,
+            `+1${tenDigitPhone}`,
+            appointment.clientPhone,
+          ];
+          const clientIdentity = appointment.salonClientId
+            ? eq(salonClientSchema.id, appointment.salonClientId)
+            : inArray(salonClientSchema.phone, phoneVariants);
+
+          await tx
+            .update(salonClientSchema)
+            .set({
+              loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+            })
+            .where(and(
+              eq(salonClientSchema.salonId, appointment.salonId),
+              clientIdentity,
+            ));
+        }
+
+        return {
+          applied: true,
+          conflictStatus: null,
+          cancelledAt: cancelledAppointment.updatedAt,
+        };
       });
     }
 
-    await enqueueGoogleCalendarDelete({
-      appointmentId,
-      salonId: appointment.salonId,
-      googleCalendarEventId: appointment.googleCalendarEventId,
-    });
+    if (transition.conflictStatus) {
+      return invalidStateResponse(transition.conflictStatus);
+    }
 
-    // 6. Send cancellation notifications after data updates succeed.
+    // The calendar outbox is deduplicated, so an idempotent retry may safely
+    // repair a rare enqueue failure without duplicating the external deletion.
+    try {
+      await enqueueGoogleCalendarDelete({
+        appointmentId,
+        salonId: appointment.salonId,
+        googleCalendarEventId: appointment.googleCalendarEventId,
+      });
+    } catch (calendarError) {
+      console.error('Failed to enqueue Google Calendar deletion after cancellation:', calendarError);
+    }
+
+    // No-show statistics and outbound notifications only belong to the request
+    // that won the state transition. Retried/idempotent requests do not repeat
+    // either side effect.
+    if (transition.applied && validated.data.cancelReason === 'no_show') {
+      updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((statsError) => {
+        console.error('Failed to update salon client stats:', statsError);
+      });
+    }
+
+    // Send cancellation notifications after the transaction commits.
     // No-shows are excluded: telling a client who missed their appointment
     // that it "was cancelled" is confusing — a follow-up is a separate flow.
-    if (validated.data.cancelReason !== 'rescheduled' && validated.data.cancelReason !== 'no_show') {
-      const [salon, technician, serviceNames] = await Promise.all([
-        getSalonById(appointment.salonId),
-        appointment.technicianId
-          ? getTechnicianById(appointment.technicianId, appointment.salonId)
-          : Promise.resolve(null),
-        getAppointmentServiceNames(appointmentId),
-      ]);
+    if (
+      transition.applied
+      && validated.data.cancelReason !== 'rescheduled'
+      && validated.data.cancelReason !== 'no_show'
+    ) {
+      try {
+        const [salon, technician, serviceNames] = await Promise.all([
+          getSalonById(appointment.salonId),
+          appointment.technicianId
+            ? getTechnicianById(appointment.technicianId, appointment.salonId)
+            : Promise.resolve(null),
+          getAppointmentServiceNames(appointmentId),
+        ]);
+        const notificationResults = await Promise.allSettled([
+          sendCancellationConfirmation(appointment.salonId, {
+            phone: appointment.clientPhone,
+            clientName: appointment.clientName || undefined,
+            appointmentId,
+            salonName: salon?.name || 'the salon',
+          }),
+          salon
+            ? sendBookingNotificationsForAppointmentCancelled({
+                salon: {
+                  id: salon.id,
+                  name: salon.name,
+                  ownerName: salon.ownerName,
+                  ownerPhone: salon.ownerPhone,
+                  ownerEmail: salon.ownerEmail,
+                  features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                  settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+                },
+                technician: technician
+                  ? {
+                      id: technician.id,
+                      name: technician.name,
+                      phone: technician.phone,
+                      email: technician.email,
+                    }
+                  : null,
+                appointmentId,
+                clientName: appointment.clientName || 'Guest',
+                clientPhone: appointment.clientPhone,
+                services: serviceNames,
+                startTime: appointment.startTime.toISOString(),
+                cancelReason: validated.data.cancelReason,
+              })
+            : Promise.resolve(),
+        ]);
 
-      await sendCancellationConfirmation(appointment.salonId, {
-        phone: appointment.clientPhone,
-        clientName: appointment.clientName || undefined,
-        appointmentId,
-        salonName: salon?.name || 'the salon',
-      });
-
-      if (salon) {
-        await sendBookingNotificationsForAppointmentCancelled({
-          salon: {
-            id: salon.id,
-            name: salon.name,
-            ownerName: salon.ownerName,
-            ownerPhone: salon.ownerPhone,
-            ownerEmail: salon.ownerEmail,
-            features: (salon.features as SalonFeatures | null | undefined) ?? null,
-            settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-          },
-          technician: technician
-            ? {
-                id: technician.id,
-                name: technician.name,
-                phone: technician.phone,
-                email: technician.email,
-              }
-            : null,
-          appointmentId,
-          clientName: appointment.clientName || 'Guest',
-          clientPhone: appointment.clientPhone,
-          services: serviceNames,
-          startTime: appointment.startTime.toISOString(),
-          cancelReason: validated.data.cancelReason,
-        });
+        for (const result of notificationResults) {
+          if (result.status === 'rejected') {
+            console.error('Cancellation notification failed after cancellation committed:', result.reason);
+          }
+        }
+      } catch (notificationError) {
+        console.error('Failed to prepare cancellation notifications after cancellation committed:', notificationError);
       }
     }
 
@@ -261,7 +356,7 @@ export async function PATCH(
           id: appointmentId,
           status: resolvedStatus,
           cancelReason: validated.data.cancelReason,
-          cancelledAt: now,
+          cancelledAt: transition.cancelledAt,
         },
       },
     };

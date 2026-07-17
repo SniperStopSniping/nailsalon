@@ -183,6 +183,7 @@ export function buildBookingUrl(
     techError?: string | null;
     originalAppointmentId?: string | null;
     manageToken?: string | null;
+    campaignToken?: string | null;
     date?: string | null;
     time?: string | null;
     startTime?: string | null;
@@ -235,6 +236,9 @@ export function buildBookingUrl(
   if (params.manageToken) {
     searchParams.set('manageToken', params.manageToken);
   }
+  if (params.campaignToken) {
+    searchParams.set('campaign', params.campaignToken);
+  }
 
   // Optional: date and time (for confirm step)
   if (params.date) {
@@ -267,6 +271,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   techError: string | null;
   originalAppointmentId: string | null;
   manageToken: string | null;
+  campaignToken: string | null;
   date: string | null;
   time: string | null;
   startTime: string | null;
@@ -284,6 +289,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
     techError: searchParams.get('techError') || null,
     originalAppointmentId: searchParams.get('originalAppointmentId') || null,
     manageToken: searchParams.get('manageToken') || null,
+    campaignToken: searchParams.get('campaign') || null,
     date: searchParams.get('date') || null,
     time: searchParams.get('time') || null,
     startTime: searchParams.get('startTime') || null,

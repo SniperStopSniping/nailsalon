@@ -25,6 +25,7 @@ const {
   isSmsEnabled,
   resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
+  resolvePublicRetentionCampaignPreview,
 } = vi.hoisted(() => ({
   bookConfirmClientSpy: vi.fn(),
   bookTimeClientSpy: vi.fn(),
@@ -41,6 +42,7 @@ const {
   isSmsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicBookingSelection: vi.fn(),
+  resolvePublicRetentionCampaignPreview: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -61,6 +63,10 @@ vi.mock('@/libs/publicBookingSelection', () => ({
 
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   resolvePublicBookingTechnicianContext,
+}));
+
+vi.mock('@/libs/publicRetentionCampaign', () => ({
+  resolvePublicRetentionCampaignPreview,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -228,6 +234,11 @@ describe('booking pricing parity', () => {
       avatarUrl: null,
     });
     resolvePublicBookingTechnicianContext.mockImplementation(createResolvedTechnicianContext);
+    resolvePublicRetentionCampaignPreview.mockResolvedValue({
+      status: 'none',
+      preview: null,
+      message: null,
+    });
   });
 
   it.each([

@@ -81,6 +81,14 @@ type BookConfirmClientProps = {
     percent: number;
     amountCents: number;
   } | null;
+  campaignPromotionPreview?: {
+    name: string;
+    displayOffer: string;
+    code: string | null;
+    expiresAt: string;
+    discountAmountCents: number;
+  } | null;
+  campaignMessage?: string | null;
   totalPrice: number;
   totalDuration: number;
   technician: TechnicianSummary;
@@ -491,6 +499,8 @@ const ConfirmContent = ({
   subtotalBeforeDiscount,
   discountAmount,
   firstVisitDiscountPreview,
+  campaignPromotionPreview,
+  campaignMessage,
   rewardsEnabled,
   isReschedule,
   guestName,
@@ -519,6 +529,8 @@ const ConfirmContent = ({
   subtotalBeforeDiscount: number;
   discountAmount: number;
   firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
+  campaignPromotionPreview: BookConfirmClientProps['campaignPromotionPreview'];
+  campaignMessage: string | null;
   rewardsEnabled: boolean;
   isReschedule: boolean;
   guestName: string;
@@ -641,6 +653,25 @@ const ConfirmContent = ({
           className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
           contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
         >
+          {campaignPromotionPreview && discountAmount > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
+              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                Welcome-back offer
+              </span>
+              <p className="font-body mt-1 font-semibold text-emerald-950">
+                {campaignPromotionPreview.name}
+                {' · '}
+                {campaignPromotionPreview.displayOffer}
+              </p>
+              <p className="font-body mt-1 text-xs text-emerald-800">
+                Subtotal $
+                {subtotalBeforeDiscount.toFixed(2)}
+                {' · Savings $'}
+                {discountAmount.toFixed(2)}
+                {campaignPromotionPreview.code ? ` · Code ${campaignPromotionPreview.code}` : ''}
+              </p>
+            </div>
+          )}
           {firstVisitDiscountPreview && discountAmount > 0 && (
             <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
               <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
@@ -682,6 +713,16 @@ const ConfirmContent = ({
             </div>
           )}
         </SectionCard>
+
+        {campaignMessage && (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          >
+            {campaignMessage}
+            {' Regular booking prices apply.'}
+          </div>
+        )}
 
         {bookingError && (
           <div
@@ -1150,6 +1191,8 @@ export function BookConfirmClient({
   subtotalBeforeDiscount,
   discountAmount = 0,
   firstVisitDiscountPreview = null,
+  campaignPromotionPreview = null,
+  campaignMessage = null,
   totalPrice,
   totalDuration,
   technician,
@@ -1175,6 +1218,7 @@ export function BookConfirmClient({
   const techId = searchParams.get('techId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
+  const campaignToken = searchParams.get('campaign') || '';
   const {
     isLoggedIn,
     isCheckingSession,
@@ -1298,6 +1342,7 @@ export function BookConfirmClient({
         ...(location?.id && { locationId: location.id }),
         ...(originalAppointmentId && { originalAppointmentId }),
         ...(manageToken && { manageToken }),
+        ...(campaignPromotionPreview && campaignToken && { campaignToken }),
       };
 
       const response = await fetch('/api/appointments', {
@@ -1370,7 +1415,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [baseServiceId, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smsConsent, smsEnabled, techId, timeStr]);
+  }, [baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smsConsent, smsEnabled, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
@@ -1569,6 +1614,8 @@ export function BookConfirmClient({
       subtotalBeforeDiscount={resolvedSubtotalBeforeDiscount}
       discountAmount={discountAmount}
       firstVisitDiscountPreview={firstVisitDiscountPreview}
+      campaignPromotionPreview={campaignPromotionPreview}
+      campaignMessage={campaignMessage}
       onConfirm={createBooking}
       onEditSelection={() => router.back()}
       isSubmitting={isBooking}

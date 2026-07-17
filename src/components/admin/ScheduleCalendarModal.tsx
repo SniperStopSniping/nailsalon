@@ -1168,7 +1168,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
                   Math.round(
                     (new Date(googleEventPrefill.endTime).getTime()
                       - new Date(googleEventPrefill.startTime).getTime())
-                      / 60_000,
+                    / 60_000,
                   ),
                 ),
                 description: googleEventPrefill.description,

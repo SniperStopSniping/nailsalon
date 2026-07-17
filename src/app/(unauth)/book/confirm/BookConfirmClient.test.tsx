@@ -4,12 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const { routerBack, routerPush, syncFromUrl, fetchMock, windowOpen } = vi.hoisted(() => ({
+const { routerBack, routerPush, syncFromUrl, fetchMock, windowOpen, navigationMock } = vi.hoisted(() => ({
   routerBack: vi.fn(),
   routerPush: vi.fn(),
   syncFromUrl: vi.fn(),
   fetchMock: vi.fn(),
   windowOpen: vi.fn(),
+  navigationMock: {
+    searchParams: new URLSearchParams('techId=tech_1'),
+  },
 }));
 
 vi.mock('canvas-confetti', () => ({
@@ -22,7 +25,7 @@ vi.mock('next/navigation', () => ({
     push: routerPush,
   }),
   useParams: () => ({ locale: 'en' }),
-  useSearchParams: () => new URLSearchParams('techId=tech_1'),
+  useSearchParams: () => navigationMock.searchParams,
 }));
 
 vi.mock('@/hooks/useBookingState', () => ({
@@ -71,6 +74,7 @@ describe('BookConfirmClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    navigationMock.searchParams = new URLSearchParams('techId=tech_1');
     vi.stubGlobal('fetch', fetchMock);
     window.open = windowOpen;
   });
@@ -214,5 +218,83 @@ describe('BookConfirmClient', () => {
       '_blank',
       'noopener,noreferrer',
     );
+  });
+
+  it('shows a retention offer and submits its opaque token for server-side redemption', async () => {
+    const token = 'campaign_token_123456789012345678901234';
+    navigationMock.searchParams = new URLSearchParams(`techId=tech_1&campaign=${token}`);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointmentId: 'appt_campaign',
+        manageUrl: 'https://salon-a.test/manage/safe',
+        appointment: { id: 'appt_campaign' },
+      },
+    }), { status: 201 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={13}
+        campaignPromotionPreview={{
+          name: 'Welcome back',
+          displayOffer: '20% off',
+          code: 'BACK20',
+          expiresAt: '2099-04-01T00:00:00.000Z',
+          discountAmountCents: 1300,
+        }}
+        totalPrice={52}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    expect(screen.getByText(/Welcome back · 20% off/i)).toBeInTheDocument();
+    expect(screen.getByText(/Savings \$13\.00 · Code BACK20/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment · \$52/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(requestBody.campaignToken).toBe(token);
+  });
+
+  it('does not submit an invalid campaign token when regular pricing is shown', async () => {
+    navigationMock.searchParams = new URLSearchParams('techId=tech_1&campaign=expired_campaign_token_123456789012345');
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointmentId: 'appt_regular', appointment: { id: 'appt_regular' } },
+    }), { status: 201 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        campaignMessage="This promotion has expired."
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('This promotion has expired. Regular booking prices apply.');
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment · \$65/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(requestBody).not.toHaveProperty('campaignToken');
   });
 });

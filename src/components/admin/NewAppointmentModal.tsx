@@ -16,6 +16,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Calendar, Check, ChevronDown, Clock, Loader2, Phone, Plus, Search, User, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -475,6 +476,7 @@ export function NewAppointmentModal({
       if (draftKey) {
         window.sessionStorage.removeItem(draftKey);
       }
+      notifyAppointmentDataChanged();
       onSuccess?.();
       onClose();
     } catch (err) {

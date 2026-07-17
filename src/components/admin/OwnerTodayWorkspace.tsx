@@ -2,10 +2,12 @@
 
 import {
   AlertCircle,
+  BellRing,
   CalendarDays,
   ChevronRight,
   Clock3,
   ExternalLink,
+  Gift,
   Link2,
   MailWarning,
   RefreshCw,
@@ -20,6 +22,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
 import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
+import {
+  APPOINTMENT_DATA_CHANGED_EVENT,
+  RETENTION_DATA_CHANGED_EVENT,
+} from '@/libs/dashboardEvents';
+import type { RetentionStage } from '@/types/retention';
 
 type AppointmentGlance = {
   total: number;
@@ -66,6 +73,59 @@ type TodayData = {
   links?: { publicUrl: string; bookingUrl: string; findBookingUrl: string };
 };
 
+type RetentionQueueData = {
+  retention: Array<{
+    clientId: string;
+    clientName: string | null;
+    phone: string | null;
+    stage: RetentionStage;
+    dueAt: string;
+    lastVisitAt: string;
+    rebookIntervalDays: number | null;
+  }>;
+  appointmentReminders: Array<{
+    appointmentId: string;
+    clientId: string;
+    clientName: string | null;
+    phone: string | null;
+    startTime: string;
+    endTime: string;
+    dueAt: string;
+  }>;
+};
+
+const RETENTION_STAGE_PRIORITY: Record<RetentionStage, number> = {
+  rebook: 1,
+  promo_6w: 2,
+  promo_8w: 3,
+};
+
+function retentionPresentation(stage: RetentionStage) {
+  if (stage === 'promo_8w') {
+    return {
+      action: 'Win back',
+      title: '8-week win-back',
+      className:
+        'border-fuchsia-200 bg-gradient-to-r from-rose-100 via-fuchsia-50 to-amber-50 text-rose-950 shadow-sm',
+      iconClassName: 'bg-rose-800 text-white',
+    };
+  }
+  if (stage === 'promo_6w') {
+    return {
+      action: 'Send offer',
+      title: '6-week win-back',
+      className: 'border-rose-200 bg-rose-50 text-rose-950',
+      iconClassName: 'bg-rose-100 text-rose-700',
+    };
+  }
+  return {
+    action: 'Rebook',
+    title: 'Due for rebooking',
+    className: 'border-amber-200 bg-amber-50 text-amber-950',
+    iconClassName: 'bg-amber-100 text-amber-700',
+  };
+}
+
 export function OwnerTodayWorkspace({
   salonSlug,
   appointments,
@@ -77,7 +137,7 @@ export function OwnerTodayWorkspace({
   onOpenCalendar,
   onOpenIntegrations,
   onOpenAppointment,
-  onOpenClients,
+  onOpenClient,
 }: {
   salonSlug: string;
   appointments: AppointmentGlance;
@@ -89,11 +149,14 @@ export function OwnerTodayWorkspace({
   onOpenCalendar: () => void;
   onOpenIntegrations: () => void;
   onOpenAppointment: (appointmentId: string) => void;
-  onOpenClients: () => void;
+  onOpenClient: (clientId: string) => void;
 }) {
   const [today, setToday] = useState<TodayData | null>(null);
   const [todayLoading, setTodayLoading] = useState(true);
   const [todayError, setTodayError] = useState<string | null>(null);
+  const [retention, setRetention] = useState<RetentionQueueData | null>(null);
+  const [retentionLoading, setRetentionLoading] = useState(true);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
 
   const loadToday = useCallback(async () => {
     if (!salonSlug) {
@@ -124,11 +187,95 @@ export function OwnerTodayWorkspace({
     }
   }, [salonSlug]);
 
+  const loadRetention = useCallback(async () => {
+    if (!salonSlug) {
+      setRetention(null);
+      setRetentionLoading(false);
+      setRetentionError(null);
+      return;
+    }
+    setRetentionLoading(true);
+    setRetentionError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/retention?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload?.error?.message
+          || payload?.error
+          || 'Client follow-ups could not be loaded.',
+        );
+      }
+      const data = payload?.data;
+      setRetention({
+        retention: Array.isArray(data?.retention) ? data.retention : [],
+        appointmentReminders: Array.isArray(data?.appointmentReminders)
+          ? data.appointmentReminders
+          : [],
+      });
+    } catch (error) {
+      setRetentionError(
+        error instanceof Error
+          ? error.message
+          : 'Client follow-ups could not be loaded.',
+      );
+    } finally {
+      setRetentionLoading(false);
+    }
+  }, [salonSlug]);
+
   useEffect(() => {
     void loadToday();
     const timer = window.setInterval(() => void loadToday(), 60_000);
     return () => window.clearInterval(timer);
   }, [loadToday]);
+
+  useEffect(() => {
+    void loadRetention();
+    const timer = window.setInterval(() => void loadRetention(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadRetention]);
+
+  useEffect(() => {
+    const refreshToday = () => void loadToday();
+    const refreshRetention = () => void loadRetention();
+
+    window.addEventListener(APPOINTMENT_DATA_CHANGED_EVENT, refreshToday);
+    window.addEventListener(RETENTION_DATA_CHANGED_EVENT, refreshRetention);
+
+    return () => {
+      window.removeEventListener(APPOINTMENT_DATA_CHANGED_EVENT, refreshToday);
+      window.removeEventListener(RETENTION_DATA_CHANGED_EVENT, refreshRetention);
+    };
+  }, [loadRetention, loadToday]);
+
+  const retentionItems = useMemo(() => {
+    const oneStagePerClient = new Map<
+      string,
+      RetentionQueueData['retention'][number]
+    >();
+    for (const item of retention?.retention ?? []) {
+      const existing = oneStagePerClient.get(item.clientId);
+      if (
+        !existing
+        || RETENTION_STAGE_PRIORITY[item.stage]
+        > RETENTION_STAGE_PRIORITY[existing.stage]
+      ) {
+        oneStagePerClient.set(item.clientId, item);
+      }
+    }
+    return [...oneStagePerClient.values()].sort(
+      (left, right) =>
+        new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime(),
+    );
+  }, [retention]);
+
+  const appointmentReminders = retention?.appointmentReminders ?? [];
+  const legacyDueClients
+    = !retention && retentionError ? (today?.dueClients ?? []) : [];
 
   const nextAppointmentId = useMemo(
     () =>
@@ -154,6 +301,23 @@ export function OwnerTodayWorkspace({
   const formatTime = (value: string) =>
     new Intl.DateTimeFormat('en-CA', {
       timeZone: today?.timeZone || 'America/Toronto',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(value));
+
+  const formatVisitDate = (value: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: today?.timeZone || 'America/Toronto',
+      month: 'short',
+      day: 'numeric',
+    }).format(new Date(value));
+
+  const formatReminderTime = (value: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: today?.timeZone || 'America/Toronto',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
     }).format(new Date(value));
@@ -222,14 +386,14 @@ export function OwnerTodayWorkspace({
           </div>
           <button
             type="button"
-            onClick={() => void loadToday()}
-            disabled={todayLoading}
-            aria-label="Refresh today"
+            onClick={() => void Promise.all([loadToday(), loadRetention()])}
+            disabled={todayLoading || retentionLoading}
+            aria-label="Refresh dashboard"
             className="rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
           >
             <RefreshCw
               size={17}
-              className={todayLoading ? 'animate-spin' : ''}
+              className={todayLoading || retentionLoading ? 'animate-spin' : ''}
             />
           </button>
         </div>
@@ -319,8 +483,137 @@ export function OwnerTodayWorkspace({
         </button>
       </section>
 
+      {retentionLoading
+      || retentionError
+      || retentionItems.length
+      || appointmentReminders.length
+        ? (
+            <section
+              className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+              data-testid="owner-client-followups"
+            >
+              <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
+                <div>
+                  <h2 className="font-semibold text-stone-950">Client follow-ups</h2>
+                  <p className="mt-0.5 text-xs text-stone-500">
+                    Rebooking, win-back offers, and reminders
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadRetention()}
+                  disabled={retentionLoading}
+                  aria-label="Refresh client follow-ups"
+                  className="rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
+                >
+                  <RefreshCw
+                    size={17}
+                    className={retentionLoading ? 'animate-spin' : ''}
+                  />
+                </button>
+              </div>
+
+              {retentionLoading && !retention
+                ? (
+                    <div className="space-y-3 p-5">
+                      <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
+                      <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
+                    </div>
+                  )
+                : (
+                    <div className="space-y-3 p-4">
+                      {retentionError && (
+                        <div
+                          role="alert"
+                          className="flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm text-red-800"
+                        >
+                          <AlertCircle size={18} className="shrink-0" />
+                          <span className="min-w-0 flex-1">{retentionError}</span>
+                          <button
+                            type="button"
+                            onClick={() => void loadRetention()}
+                            className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-red-800 shadow-sm"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      )}
+
+                      {retentionItems.map((item) => {
+                        const presentation = retentionPresentation(item.stage);
+                        const clientName = item.clientName || 'Client';
+                        return (
+                          <button
+                            key={`${item.clientId}:${item.stage}`}
+                            type="button"
+                            onClick={() => onOpenClient(item.clientId)}
+                            aria-label={`${presentation.action} ${clientName}`}
+                            className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-transform active:scale-[0.99] ${presentation.className}`}
+                          >
+                            <span className={`flex size-10 shrink-0 items-center justify-center rounded-full ${presentation.iconClassName}`}>
+                              {item.stage === 'rebook'
+                                ? <UserRound size={19} />
+                                : <Gift size={19} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[11px] font-bold uppercase tracking-[0.12em] opacity-70">
+                                {presentation.title}
+                              </span>
+                              <span className="mt-0.5 block truncate text-sm font-semibold">
+                                {item.stage === 'rebook'
+                                  ? `${clientName} is ready to rebook`
+                                  : `${clientName} has not booked recently`}
+                              </span>
+                              <span className="mt-0.5 block text-xs opacity-70">
+                                Last visit
+                                {' '}
+                                {formatVisitDate(item.lastVisitAt)}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-xs font-bold">
+                              {presentation.action}
+                            </span>
+                            <ChevronRight size={15} className="shrink-0 opacity-50" />
+                          </button>
+                        );
+                      })}
+
+                      {appointmentReminders.map(reminder => (
+                        <button
+                          key={reminder.appointmentId}
+                          type="button"
+                          onClick={() => onOpenClient(reminder.clientId)}
+                          aria-label={`Send reminder to ${reminder.clientName || 'client'}`}
+                          className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-3 text-left text-blue-950 transition-transform active:scale-[0.99]"
+                        >
+                          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                            <BellRing size={19} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                              Appointment reminder
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm font-semibold">
+                              {reminder.clientName || 'Client'}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-blue-700">
+                              {formatReminderTime(reminder.startTime)}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-xs font-bold text-blue-800">
+                            Send reminder
+                          </span>
+                          <ChevronRight size={15} className="shrink-0 text-blue-400" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+            </section>
+          )
+        : null}
+
       {today?.failedConfirmations.length
-      || today?.dueClients.length
+      || legacyDueClients.length
       || today?.googleEventsNeedingReview
       || integrationNeedsAttention
         ? (
@@ -354,24 +647,22 @@ export function OwnerTodayWorkspace({
                     <ChevronRight size={15} />
                   </button>
                 )}
-                {Boolean(today?.dueClients.length) && (
+                {legacyDueClients.map(client => (
                   <button
+                    key={client.id}
                     type="button"
-                    onClick={onOpenClients}
+                    onClick={() => onOpenClient(client.id)}
                     className="flex w-full items-center gap-3 rounded-2xl bg-amber-50 p-3 text-left text-sm text-amber-900"
                   >
                     <UserRound size={18} />
                     <span className="flex-1">
-                      {today!.dueClients.length}
+                      {client.fullName || 'Client'}
                       {' '}
-                      client
-                      {today!.dueClients.length === 1 ? '' : 's'}
-                      {' '}
-                      due for rebooking
+                      is due for rebooking
                     </span>
                     <ChevronRight size={15} />
                   </button>
-                )}
+                ))}
                 {Boolean(today?.googleEventsNeedingReview) && (
                   <button
                     type="button"

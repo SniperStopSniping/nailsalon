@@ -16,6 +16,7 @@ const {
   isRewardsEnabled,
   isSmsEnabled,
   resolvePublicBookingTechnicianContext,
+  resolvePublicRetentionCampaignPreview,
   bookConfirmClientSpy,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
@@ -29,6 +30,7 @@ const {
   isRewardsEnabled: vi.fn(),
   isSmsEnabled: vi.fn(),
   resolvePublicBookingTechnicianContext: vi.fn(),
+  resolvePublicRetentionCampaignPreview: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
 }));
 
@@ -50,6 +52,10 @@ vi.mock('@/libs/clientAuth', () => ({
 
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   resolvePublicBookingTechnicianContext,
+}));
+
+vi.mock('@/libs/publicRetentionCampaign', () => ({
+  resolvePublicRetentionCampaignPreview,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -108,6 +114,7 @@ describe('BookConfirmPage directions fallback', () => {
       zipCode: 'M2J 2C1',
     });
     getLocationById.mockResolvedValue(null);
+    resolvePublicRetentionCampaignPreview.mockResolvedValue({ status: 'none', preview: null, message: null });
     resolvePublicBookingTechnicianContext.mockResolvedValue({
       resolvedSelection: {
         mode: 'legacy',
@@ -300,6 +307,48 @@ describe('BookConfirmPage directions fallback', () => {
         imageUrl: '/mila.jpg',
       },
       bookingFlow: ['service', 'time', 'confirm'],
+    }));
+  });
+
+  it('uses the validated campaign preview instead of stacking an automatic discount', async () => {
+    resolvePublicRetentionCampaignPreview.mockResolvedValue({
+      status: 'valid',
+      message: null,
+      preview: {
+        id: 'campaign_1',
+        stage: 'promo_6w',
+        name: 'Welcome back',
+        displayOffer: '20% off',
+        code: 'BACK20',
+        expiresAt: '2099-04-01T00:00:00.000Z',
+        discountAmountCents: 1300,
+      },
+    });
+
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+        campaign: 'campaign_token_123456789012345678901234',
+      },
+    });
+
+    render(element);
+
+    expect(resolvePublicRetentionCampaignPreview).toHaveBeenCalledWith(expect.objectContaining({
+      token: 'campaign_token_123456789012345678901234',
+      salonId: 'salon_1',
+      services: [{ id: 'srv_1', priceCents: 6500 }],
+    }));
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      subtotalBeforeDiscount: 65,
+      discountAmount: 13,
+      totalPrice: 52,
+      firstVisitDiscountPreview: null,
+      campaignPromotionPreview: expect.objectContaining({ id: 'campaign_1' }),
     }));
   });
 });

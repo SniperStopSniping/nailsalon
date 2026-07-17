@@ -31,7 +31,11 @@ export default async function SlugTenantLayout({
       >
         {children}
         {salon.freeSoloEnabled && (
-          <footer className="border-t border-stone-200 bg-white p-4 text-center text-xs text-stone-500">
+          <footer
+            data-testid="public-salon-footer"
+            className="border-t border-stone-200 bg-white p-4 text-center text-xs text-stone-500"
+            style={{ marginBottom: 'var(--service-sticky-footer-clearance, 0px)' }}
+          >
             Free booking by
             {' '}
             <a href="https://luster.com" className="font-semibold text-stone-700 underline underline-offset-2">Luster</a>

@@ -35,6 +35,7 @@ export default async function BookTimePage({
     salonSlug?: string;
     originalAppointmentId?: string;
     manageToken?: string;
+    campaign?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -76,6 +77,7 @@ export default async function BookTimePage({
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -135,6 +137,7 @@ export default async function BookTimePage({
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -152,6 +155,7 @@ export default async function BookTimePage({
         locationId: resolvedLocationId,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -172,6 +176,7 @@ export default async function BookTimePage({
         techError: 'unsupported',
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -188,6 +193,7 @@ export default async function BookTimePage({
         techId: null,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
