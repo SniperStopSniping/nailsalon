@@ -1,4 +1,4 @@
-import { devices, expect, type Page, test, webkit } from '@playwright/test';
+import { devices, expect, type Page, test } from '@playwright/test';
 
 import { appPath, e2eConfig } from './support/config';
 
@@ -55,7 +55,7 @@ async function verifyNaturalFooterClearance(page: Page): Promise<string> {
   return page.url();
 }
 
-test('iPhone Chrome keeps the Free Luster footer above the sticky booking bar', async ({
+test('iPhone Chrome keeps the Free Luster footer above the sticky booking bar @mobile-chrome', async ({
   browser,
   baseURL,
 }) => {
@@ -77,10 +77,10 @@ test('iPhone Chrome keeps the Free Luster footer above the sticky booking bar', 
   }
 });
 
-test('iPhone Safari keeps the Free Luster footer above the sticky booking bar', async ({
+test('iPhone Safari keeps the Free Luster footer above the sticky booking bar @mobile-safari', async ({
+  browser,
   baseURL,
 }) => {
-  const browser = await webkit.launch();
   const context = await browser.newContext({
     ...devices['iPhone 13'],
     baseURL,
@@ -92,6 +92,5 @@ test('iPhone Safari keeps the Free Luster footer above the sticky booking bar', 
     expect(destination).toMatch(new RegExp(`/${e2eConfig.salonSlug}/find-booking(?:\\?|$)`));
   } finally {
     await context.close();
-    await browser.close();
   }
 });

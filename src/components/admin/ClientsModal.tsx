@@ -783,14 +783,14 @@ function ClientDetail({
 
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
-      || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
-      || sensitivitiesDraft !== (profile?.sensitivities ?? '')
-      || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
-      || lengthDraft !== (profile?.nailPreferences?.length ?? '')
-      || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
-      || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
-      || tagsDraft !== (profile?.tags?.join(', ') ?? '')
-      || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
+    || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
+    || sensitivitiesDraft !== (profile?.sensitivities ?? '')
+    || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
+    || lengthDraft !== (profile?.nailPreferences?.length ?? '')
+    || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
+    || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
+    || tagsDraft !== (profile?.tags?.join(', ') ?? '')
+    || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
 
   const flagsDirty = useMemo(() => {
     if (!flagsState) {
