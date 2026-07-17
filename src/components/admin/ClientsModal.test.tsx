@@ -14,10 +14,19 @@ vi.mock('framer-motion', () => {
       React.createElement(tag, { ...props, ref }, children),
     );
 
+  // Cache per tag: a fresh component type on every property access would make
+  // React remount the subtree on each render, detaching queried nodes.
+  const motionCache = new Map<string, ReturnType<typeof makeMotionTag>>();
+
   return {
     AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     motion: new Proxy({}, {
-      get: (_, tag: string) => makeMotionTag(tag),
+      get: (_, tag: string) => {
+        if (!motionCache.has(tag)) {
+          motionCache.set(tag, makeMotionTag(tag));
+        }
+        return motionCache.get(tag);
+      },
     }),
   };
 });
@@ -32,6 +41,64 @@ vi.mock('@/providers/SalonProvider', () => ({
     isAccessible: true,
   }),
 }));
+
+vi.mock('./NewAppointmentModal', () => ({
+  NewAppointmentModal: ({ isOpen, clientPrefill }: { isOpen: boolean; clientPrefill?: unknown }) => (
+    isOpen
+      ? <div data-testid="new-appointment-modal">{JSON.stringify(clientPrefill ?? null)}</div>
+      : null
+  ),
+}));
+
+function buildManageDetailResponse(appointmentId: string) {
+  return {
+    data: {
+      appointment: {
+        id: appointmentId,
+        salonId: 'salon_1',
+        salonSlug: 'isla-nail-studio',
+        clientName: 'Ava Thompson',
+        clientPhone: '1111111111',
+        clientEmail: 'ava@example.com',
+        technicianId: 'tech_1',
+        locationId: null,
+        locationName: null,
+        status: 'confirmed',
+        startTime: '2026-04-04T15:00:00.000Z',
+        endTime: '2026-04-04T16:00:00.000Z',
+        totalPrice: 9500,
+        totalDurationMinutes: 60,
+        bufferMinutes: 10,
+        slotIntervalMinutes: 15,
+        isLocked: false,
+        lockedAt: null,
+        paymentStatus: 'pending',
+        baseServiceId: 'svc_1',
+        baseServiceName: 'Gel Fill',
+        discountType: null,
+        discountAmountCents: 0,
+        notes: null,
+        techNotes: null,
+      },
+      services: [],
+      addOns: [],
+      serviceOptions: [{ id: 'svc_1', name: 'Gel Fill', category: 'manicure', priceCents: 9500, durationMinutes: 60 }],
+      technicianOptions: [{ id: 'tech_1', name: 'Daniela' }],
+      permissions: {
+        canMove: true,
+        canChangeService: true,
+        canCancel: true,
+        canMarkCompleted: true,
+        canStart: false,
+        canConfirm: false,
+        canMarkNoShow: true,
+        canReassignTechnician: true,
+      },
+      warnings: [],
+      communications: [],
+    },
+  };
+}
 
 type ListClient = {
   id: string;
@@ -635,6 +702,86 @@ describe('ClientsModal', () => {
       flagReason: 'Aggressive behavior',
       isBlocked: true,
       blockedReason: 'Repeated no-shows',
+    });
+  });
+
+  describe('appointment management from the client profile', () => {
+    function mockProfileRoutes() {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.startsWith('/api/admin/settings/modules?')) {
+          return new Response(JSON.stringify({
+            data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+          }), { status: 200 });
+        }
+        if (url.startsWith('/api/admin/clients?')) {
+          return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+        }
+        if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+          return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+        }
+        if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+          return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
+        }
+        if (url === '/api/appointments/appt_upcoming/manage?salonSlug=isla-nail-studio') {
+          return new Response(JSON.stringify(buildManageDetailResponse('appt_upcoming')), { status: 200 });
+        }
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+    }
+
+    it('opens the shared manage sheet from an upcoming appointment card with the salon hint', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(await screen.findByTestId('client-appointment-change-appt_upcoming'));
+
+      expect(await screen.findByTestId('appointment-quick-edit-sheet')).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_upcoming/manage?salonSlug=isla-nail-studio');
+      });
+    });
+
+    it('opens the cancel confirmation directly from the card Cancel button', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(await screen.findByTestId('client-appointment-cancel-appt_upcoming'));
+
+      expect(await screen.findByText('Cancel this appointment?')).toBeInTheDocument();
+      expect(screen.getByText(/frees the time slot/i)).toBeInTheDocument();
+    });
+
+    it('does not offer Cancel on completed history, but cards still open the sheet', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      await screen.findByTestId('client-appointment-card-appt_completed');
+
+      expect(screen.queryByTestId('client-appointment-cancel-appt_completed')).not.toBeInTheDocument();
+      expect(screen.getByTestId('client-appointment-change-appt_completed')).toBeInTheDocument();
+    });
+
+    it('opens the booking modal prefilled with the client from Book appointment', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(await screen.findByTestId('client-book-appointment'));
+
+      const bookingModal = await screen.findByTestId('new-appointment-modal');
+
+      expect(JSON.parse(bookingModal.textContent!)).toEqual(expect.objectContaining({
+        name: 'Ava Thompson',
+        phone: '1111111111',
+        email: 'ava@example.com',
+      }));
     });
   });
 });

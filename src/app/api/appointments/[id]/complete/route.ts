@@ -93,6 +93,7 @@ export async function PATCH(
       wrongRoleMessage: 'Only salon staff or admins can complete this appointment',
       assignmentForbiddenMessage: 'You can only complete your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;
@@ -565,7 +566,7 @@ async function handleSuccessfulCompletion(
 // =============================================================================
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } },
 ): Promise<Response> {
   try {
@@ -575,6 +576,7 @@ export async function POST(
       wrongRoleMessage: 'Only salon staff or admins can start this appointment',
       assignmentForbiddenMessage: 'You can only start your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;

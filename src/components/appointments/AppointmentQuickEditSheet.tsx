@@ -4,6 +4,7 @@ import { CalendarPlus, Clock3, Mail, MapPin, Phone, UserRound } from 'lucide-rea
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
@@ -32,13 +33,20 @@ type AppointmentQuickEditSheetProps = {
     startTime: string;
   }) => Promise<void>;
   onMoveToNextAvailable: () => Promise<void>;
-  onCancelAppointment: (reason: string) => Promise<void>;
+  onCancelAppointment: (args: { reason: string; internalNote?: string }) => Promise<void>;
   onMarkCompleted: () => Promise<void>;
   onStartAppointment: () => Promise<void>;
   onConfirmAppointment?: () => Promise<void>;
   onMarkNoShow?: () => Promise<void>;
   onResendConfirmation?: () => Promise<void>;
   onRebook?: () => void;
+  /** Set when completion needs an explicit no-photo decision (see useAppointmentActions). */
+  completionNeedsPhotoDecision?: boolean;
+  onResolvePhotoDecision?: (skip: boolean) => void;
+  /** Called when the detail failed to load and the user wants to retry. */
+  onRetryLoad?: () => void;
+  /** Opens the given confirmation as soon as detail loads (e.g. a Cancel button on an appointment card). */
+  initialPendingAction?: 'cancel' | null;
 };
 
 const EMPTY_WARNINGS: ManageWarning[] = [];
@@ -90,11 +98,17 @@ export function AppointmentQuickEditSheet({
   onMarkNoShow,
   onResendConfirmation,
   onRebook,
+  completionNeedsPhotoDecision = false,
+  onResolvePhotoDecision,
+  onRetryLoad,
+  initialPendingAction = null,
 }: AppointmentQuickEditSheetProps) {
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState('');
   const [cancelReason, setCancelReason] = useState('client_request');
+  const [internalNote, setInternalNote] = useState('');
+  const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | null>(null);
 
   useEffect(() => {
     if (!detail) {
@@ -104,7 +118,10 @@ export function AppointmentQuickEditSheet({
     setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
     setTechnicianId(detail.appointment.technicianId ?? null);
     setStartTime(formatDateTimeValue(detail.appointment.startTime));
-  }, [detail]);
+    if (initialPendingAction === 'cancel' && detail.permissions.canCancel) {
+      setPendingConfirm('cancel');
+    }
+  }, [detail, initialPendingAction]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
@@ -150,6 +167,10 @@ export function AppointmentQuickEditSheet({
     <DialogShell
       isOpen={isOpen}
       onClose={onClose}
+      // Accidental dismissal protection: while a save is running or edits are
+      // unsaved, the sheet only closes through its explicit buttons.
+      closeOnBackdrop={!isDirty && !saving}
+      closeOnEscape={!isDirty && !saving}
       maxWidthClassName="w-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
       contentClassName="flex max-h-[92vh] min-h-[60vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl"
@@ -182,7 +203,19 @@ export function AppointmentQuickEditSheet({
             : !detail
                 ? (
                     <div className="py-10">
-                      <div className="text-sm text-neutral-500">Appointment details are unavailable.</div>
+                      <div className="text-sm text-neutral-500">
+                        {actionError || 'Appointment details are unavailable.'}
+                      </div>
+                      {onRetryLoad && (
+                        <button
+                          type="button"
+                          data-testid="appointment-sheet-retry-load"
+                          onClick={onRetryLoad}
+                          className="mt-3 min-h-11 rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-900"
+                        >
+                          Try again
+                        </button>
+                      )}
                     </div>
                   )
                 : (
@@ -574,11 +607,8 @@ export function AppointmentQuickEditSheet({
                           {detail.permissions.canMarkNoShow && onMarkNoShow && (
                             <button
                               type="button"
-                              onClick={() => {
-                                if (window.confirm('Mark this client as a no-show?')) {
-                                  void onMarkNoShow();
-                                }
-                              }}
+                              data-testid="appointment-sheet-no-show"
+                              onClick={() => setPendingConfirm('no_show')}
                               disabled={saving}
                               className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
                             >
@@ -586,35 +616,15 @@ export function AppointmentQuickEditSheet({
                             </button>
                           )}
                           {detail.permissions.canCancel && (
-                            <div className="col-span-2 rounded-xl bg-neutral-50 p-3">
-                              <div className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
-                                Cancel appointment
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {([
-                                  ['client_request', 'Client request'],
-                                  ['no_show', 'No show'],
-                                  ['rescheduled', 'Rescheduled'],
-                                ] as const).map(([value, label]) => (
-                                  <button
-                                    key={value}
-                                    type="button"
-                                    onClick={() => setCancelReason(value)}
-                                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${cancelReason === value ? 'bg-black text-white' : 'bg-white text-neutral-600'}`}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => void onCancelAppointment(cancelReason)}
-                                disabled={saving}
-                                className="mt-3 w-full rounded-xl border border-red-200 bg-white p-3 text-sm font-medium text-red-600"
-                              >
-                                Cancel appointment
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              data-testid="appointment-sheet-cancel"
+                              onClick={() => setPendingConfirm('cancel')}
+                              disabled={saving}
+                              className="col-span-2 rounded-xl border border-red-200 bg-white p-3 text-sm font-medium text-red-600"
+                            >
+                              Cancel appointment
+                            </button>
                           )}
                         </div>
                       </div>
@@ -654,6 +664,85 @@ export function AppointmentQuickEditSheet({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={pendingConfirm === 'cancel'}
+        title="Cancel this appointment?"
+        tone="danger"
+        busy={saving}
+        confirmLabel="Cancel appointment"
+        cancelLabel="Keep appointment"
+        description="This frees the time slot for other clients, updates the salon's Google Calendar, and stops reminder messages. If client emails are enabled, the client will be notified."
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          setPendingConfirm(null);
+          void onCancelAppointment({
+            reason: cancelReason,
+            internalNote: internalNote.trim() || undefined,
+          }).then(() => setInternalNote(''));
+        }}
+      >
+        <div>
+          <div className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">Reason</div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ['client_request', 'Client request'],
+              ['no_show', 'No show'],
+              ['rescheduled', 'Rescheduled'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                data-testid={`cancel-reason-${value}`}
+                onClick={() => setCancelReason(value)}
+                className={`min-h-9 rounded-full px-3 py-1.5 text-xs font-medium ${cancelReason === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="mt-3 block" htmlFor="appointment-cancel-note">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
+              Internal note (not sent to the client)
+            </span>
+            <textarea
+              id="appointment-cancel-note"
+              data-testid="appointment-cancel-note"
+              value={internalNote}
+              onChange={event => setInternalNote(event.target.value)}
+              rows={2}
+              className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+              placeholder="Optional — why was this cancelled?"
+            />
+          </label>
+        </div>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        isOpen={pendingConfirm === 'no_show'}
+        title="Mark as no-show?"
+        tone="danger"
+        busy={saving}
+        confirmLabel="Mark no-show"
+        cancelLabel="Go back"
+        description="This is recorded on the client's profile and frees the time slot."
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          setPendingConfirm(null);
+          void onMarkNoShow?.();
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={completionNeedsPhotoDecision}
+        title="No after photo uploaded"
+        busy={saving}
+        confirmLabel="Complete anyway"
+        cancelLabel="Go back"
+        description="This appointment has no after photo. You can complete it without one, or go back and add the photo first."
+        onClose={() => onResolvePhotoDecision?.(false)}
+        onConfirm={() => onResolvePhotoDecision?.(true)}
+      />
     </DialogShell>
   );
 }

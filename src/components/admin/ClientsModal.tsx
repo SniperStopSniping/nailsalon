@@ -22,12 +22,15 @@ import {
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
+import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
+import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
+import { NewAppointmentModal } from './NewAppointmentModal';
 
 type ClientSummary = {
   id: string;
@@ -399,9 +402,34 @@ function StatCard({
   );
 }
 
-function AppointmentCard({ appointment }: { appointment: ClientAppointment }) {
+function AppointmentCard({
+  appointment,
+  onManage,
+  onCancel,
+}: {
+  appointment: ClientAppointment;
+  /** Opens the shared manage sheet. When provided the whole card is tappable. */
+  onManage?: (appointmentId: string) => void;
+  /** Opens the manage sheet with the cancel confirmation already up. */
+  onCancel?: (appointmentId: string) => void;
+}) {
+  const interactive = Boolean(onManage);
   return (
-    <div className="rounded-[14px] border border-neutral-100 bg-white p-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
+    <div
+      data-testid={`client-appointment-card-${appointment.id}`}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? () => onManage!(appointment.id) : undefined}
+      onKeyDown={interactive
+        ? (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onManage!(appointment.id);
+            }
+          }
+        : undefined}
+      className={`rounded-[14px] border border-neutral-100 bg-white p-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)] ${interactive ? 'cursor-pointer text-left transition-transform active:scale-[0.99]' : ''}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[15px] font-semibold text-[#1C1C1E]">
@@ -430,6 +458,36 @@ function AppointmentCard({ appointment }: { appointment: ClientAppointment }) {
           {appointment.notes}
         </div>
       )}
+      {(onManage || onCancel) && (
+        <div className="mt-3 flex gap-2">
+          {onManage && (
+            <button
+              type="button"
+              data-testid={`client-appointment-change-${appointment.id}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onManage(appointment.id);
+              }}
+              className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[#1C1C1E]"
+            >
+              Change
+            </button>
+          )}
+          {onCancel && (
+            <button
+              type="button"
+              data-testid={`client-appointment-cancel-${appointment.id}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCancel(appointment.id);
+              }}
+              className="min-h-10 flex-1 rounded-xl border border-red-200 px-3 py-2 text-[13px] font-semibold text-red-600"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -438,10 +496,14 @@ function AppointmentsSection({
   title,
   appointments,
   emptyMessage,
+  onManage,
+  onCancel,
 }: {
   title: string;
   appointments: ClientAppointment[];
   emptyMessage: string;
+  onManage?: (appointmentId: string) => void;
+  onCancel?: (appointmentId: string) => void;
 }) {
   return (
     <AdminDetailCard className="mb-4">
@@ -458,7 +520,12 @@ function AppointmentsSection({
         : (
             <div className="space-y-2.5">
               {appointments.map(appointment => (
-                <AppointmentCard key={appointment.id} appointment={appointment} />
+                <AppointmentCard
+                  key={appointment.id}
+                  appointment={appointment}
+                  onManage={onManage}
+                  onCancel={onCancel}
+                />
               ))}
             </div>
           )}
@@ -496,6 +563,9 @@ function ClientDetail({
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [cancelIntent, setCancelIntent] = useState(false);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
 
   const [flagsState, setFlagsState] = useState<ClientFlagsState | null>(initialCachedDetail?.flagsState ?? null);
   const [flagsError, setFlagsError] = useState<string | null>(null);
@@ -646,6 +716,43 @@ function ClientDetail({
     fetchClientDetail();
     fetchFlags();
   }, [fetchClientDetail, fetchFlags]);
+
+  // Shared appointment management: any change refreshes the profile so
+  // upcoming/past lists, stats, and the dashboard stay consistent.
+  const appointmentActions = useAppointmentActions({
+    salonSlug,
+    onMutationApplied: () => {
+      void fetchClientDetail(true);
+    },
+    onCancelled: () => {
+      setCancelIntent(false);
+      void fetchClientDetail(true);
+    },
+    onOptimisticStatus: () => {
+      void fetchClientDetail(true);
+    },
+  });
+
+  const handleManageAppointment = useCallback((appointmentId: string) => {
+    setCancelIntent(false);
+    appointmentActions.openAppointment(appointmentId);
+  }, [appointmentActions]);
+
+  const handleCancelAppointmentRequest = useCallback((appointmentId: string) => {
+    setCancelIntent(true);
+    appointmentActions.openAppointment(appointmentId);
+  }, [appointmentActions]);
+
+  const openBookingModal = useCallback((prefill: RebookPrefill | null) => {
+    setBookingPrefill(prefill ?? {
+      name: statsSource.fullName ?? null,
+      phone: statsSource.phone,
+      email: statsSource.email ?? null,
+      serviceId: null,
+      technicianId: profile?.preferredTechnician?.id ?? null,
+    });
+    setShowBookingModal(true);
+  }, [profile?.preferredTechnician?.id, statsSource.email, statsSource.fullName, statsSource.phone]);
 
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
@@ -820,6 +927,15 @@ function ClientDetail({
               </Button>
               <Button asChild type="button" variant="brandSoft" size="pillSm">
                 <a href={`sms:${statsSource.phone}`}>Text</a>
+              </Button>
+              <Button
+                type="button"
+                variant="brandSoft"
+                size="pillSm"
+                data-testid="client-book-appointment"
+                onClick={() => openBookingModal(null)}
+              >
+                Book appointment
               </Button>
             </div>
           </div>
@@ -1138,12 +1254,15 @@ function ClientDetail({
                     title="Upcoming appointments"
                     appointments={upcomingAppointments}
                     emptyMessage="No upcoming appointments booked."
+                    onManage={handleManageAppointment}
+                    onCancel={handleCancelAppointmentRequest}
                   />
 
                   <AppointmentsSection
                     title="Completed appointments"
                     appointments={pastAppointments}
                     emptyMessage="No completed appointments yet."
+                    onManage={handleManageAppointment}
                   />
 
                   {recentIssues.length > 0 && (
@@ -1151,11 +1270,64 @@ function ClientDetail({
                       title="Recent issues"
                       appointments={recentIssues}
                       emptyMessage=""
+                      onManage={handleManageAppointment}
                     />
                   )}
                 </>
               )}
       </div>
+
+      <AppointmentQuickEditSheet
+        isOpen={Boolean(appointmentActions.selectedAppointmentId)}
+        onClose={() => {
+          setCancelIntent(false);
+          appointmentActions.closeAppointment();
+        }}
+        detail={appointmentActions.detail}
+        loading={appointmentActions.detailLoading}
+        saving={appointmentActions.detailSaving}
+        actionError={appointmentActions.detailError}
+        attemptedTimeLabel={appointmentActions.attemptedTimeLabel}
+        warnings={appointmentActions.warnings}
+        onSaveEdits={appointmentActions.saveEdits}
+        onMoveToNextAvailable={appointmentActions.moveToNextAvailable}
+        onCancelAppointment={args => appointmentActions.cancelAppointment(args as CancelArgs)}
+        onMarkCompleted={() => appointmentActions.completeAppointment()}
+        onStartAppointment={appointmentActions.startAppointment}
+        onConfirmAppointment={appointmentActions.confirmAppointment}
+        onMarkNoShow={appointmentActions.markNoShow}
+        onResendConfirmation={appointmentActions.resendConfirmation}
+        completionNeedsPhotoDecision={appointmentActions.completionNeedsPhotoDecision}
+        onResolvePhotoDecision={(skip) => {
+          if (skip) {
+            void appointmentActions.completeAppointment({ skipPhotoValidation: true });
+          } else {
+            appointmentActions.dismissPhotoDecision();
+          }
+        }}
+        onRetryLoad={() => void appointmentActions.refreshDetail()}
+        initialPendingAction={cancelIntent ? 'cancel' : null}
+        onRebook={() => {
+          const prefill = appointmentActions.buildRebookPrefill();
+          if (!prefill) {
+            return;
+          }
+          appointmentActions.closeAppointment();
+          openBookingModal(prefill);
+        }}
+      />
+
+      <NewAppointmentModal
+        isOpen={showBookingModal}
+        onClose={() => {
+          setShowBookingModal(false);
+          setBookingPrefill(null);
+        }}
+        onSuccess={() => {
+          void fetchClientDetail(true);
+        }}
+        clientPrefill={bookingPrefill}
+      />
     </motion.div>
   );
 }

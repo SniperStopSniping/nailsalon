@@ -60,6 +60,7 @@ export async function PATCH(
       assignmentForbiddenMessage: 'You can only manage your own appointments',
       clientForbiddenMessage: 'You can only update your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;

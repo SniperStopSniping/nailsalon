@@ -9,7 +9,7 @@ import {
   type CalendarAppointment,
   type CalendarResource,
 } from '@/components/appointments/AppointmentsDayView';
-import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
+import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
@@ -86,27 +86,31 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(15);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
-  const [rebookPrefill, setRebookPrefill] = useState<{
-    name: string | null;
-    phone: string;
-    email: string | null;
-    serviceId: string | null;
-    technicianId: string | null;
-  } | null>(null);
-  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<AppointmentManageDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailSaving, setDetailSaving] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<ManageWarning[]>([]);
+  const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
   const latestAppointmentsFetchIdRef = useRef(0);
+
+  const actions = useAppointmentActions({
+    onMutationApplied: (result) => {
+      setAppointments(current => patchAppointment(current, result.calendarEvent));
+    },
+    onCancelled: (appointmentId) => {
+      setAppointments(current => current.filter(appointment => appointment.id !== appointmentId));
+    },
+    onOptimisticStatus: (appointmentId, status) => {
+      setAppointments(current => current.map(appointment => (
+        appointment.id === appointmentId
+          ? { ...appointment, status, isLocked: status === 'in_progress' || status === 'completed' }
+          : appointment
+      )));
+    },
+  });
+  const { openAppointment, runManageMutation, setDetailError, setAttemptedTimeLabel } = actions;
 
   useEffect(() => {
     if (initialAppointmentId) {
-      setSelectedAppointmentId(initialAppointmentId);
+      openAppointment(initialAppointmentId);
     }
-  }, [initialAppointmentId]);
+  }, [initialAppointmentId, openAppointment]);
 
   const fetchAppointments = useCallback(async () => {
     const fetchId = latestAppointmentsFetchIdRef.current + 1;
@@ -136,12 +140,11 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
         label: technician.name,
       })) ?? []);
       setSlotIntervalMinutes(result.meta?.slotIntervalMinutes ?? 15);
-    } catch (fetchError) {
+    } catch {
       if (latestAppointmentsFetchIdRef.current !== fetchId) {
         return;
       }
 
-      console.error('Failed to fetch appointments:', fetchError);
       setError('Failed to load appointments');
     } finally {
       if (latestAppointmentsFetchIdRef.current === fetchId) {
@@ -150,56 +153,9 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
     }
   }, [selectedDate]);
 
-  const fetchDetail = useCallback(async (appointmentId: string) => {
-    try {
-      setDetailLoading(true);
-      setDetailError(null);
-      setAttemptedTimeLabel(null);
-      setWarnings([]);
-
-      const response = await fetch(`/api/appointments/${appointmentId}/manage`);
-      if (!response.ok) {
-        throw new Error('Failed to load appointment details');
-      }
-
-      const result = await response.json();
-      setDetail(result.data ?? null);
-    } catch (fetchError) {
-      console.error('Failed to fetch manage detail:', fetchError);
-      setDetailError('Failed to load appointment details');
-      setDetail(null);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     void fetchAppointments();
   }, [fetchAppointments]);
-
-  useEffect(() => {
-    if (!selectedAppointmentId) {
-      setDetail(null);
-      setDetailError(null);
-      setAttemptedTimeLabel(null);
-      setWarnings([]);
-      return;
-    }
-
-    void fetchDetail(selectedAppointmentId);
-  }, [fetchDetail, selectedAppointmentId]);
-
-  const applyMutationResult = useCallback((result: {
-    detail: AppointmentManageDetail;
-    calendarEvent: CalendarAppointment;
-    warnings?: ManageWarning[];
-  }) => {
-    setDetail(result.detail);
-    setAppointments(current => patchAppointment(current, result.calendarEvent));
-    setWarnings(result.warnings ?? []);
-    setDetailError(null);
-    setAttemptedTimeLabel(null);
-  }, []);
 
   const handleMoveAppointment = useCallback(async (args: {
     appointmentId: string;
@@ -219,25 +175,13 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
     )));
 
     try {
-      const response = await fetch(`/api/appointments/${args.appointmentId}/manage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          operation: 'move',
-          startTime: new Date(args.startTime).toISOString(),
-        }),
+      await runManageMutation(args.appointmentId, {
+        operation: 'move',
+        startTime: new Date(args.startTime).toISOString(),
       });
-
-      if (!response.ok) {
-        const payload = await response.json();
-        throw payload.error ?? new Error('Move failed');
-      }
-
-      const result = await response.json();
-      applyMutationResult(result.data);
     } catch (moveError) {
       setAppointments(current => patchAppointment(current, previous));
-      setSelectedAppointmentId(args.appointmentId);
+      openAppointment(args.appointmentId);
       setDetailError(
         typeof moveError === 'object' && moveError !== null && 'message' in moveError
           ? String((moveError as { message?: unknown }).message)
@@ -245,235 +189,7 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
       );
       setAttemptedTimeLabel(formatAttemptedTime(args.startTime));
     }
-  }, [appointments, applyMutationResult]);
-
-  const handleResendConfirmation = useCallback(async () => {
-    if (!selectedAppointmentId) {
-      return;
-    }
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/resend-confirmation`, { method: 'POST' });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw payload.error ?? new Error('Confirmation email could not be sent');
-      }
-      await fetchDetail(selectedAppointmentId);
-    } catch (emailError) {
-      setDetailError(
-        typeof emailError === 'object' && emailError !== null && 'message' in emailError
-          ? String((emailError as { message?: unknown }).message)
-          : 'Confirmation email could not be sent',
-      );
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [fetchDetail, selectedAppointmentId]);
-
-  const runManageMutation = useCallback(async (
-    appointmentId: string,
-    payload: Record<string, unknown>,
-  ) => {
-    setDetailSaving(true);
-    setDetailError(null);
-
-    try {
-      const response = await fetch(`/api/appointments/${appointmentId}/manage`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Update failed');
-      }
-
-      applyMutationResult(result.data);
-    } catch (mutationError) {
-      setDetailError(
-        typeof mutationError === 'object' && mutationError !== null && 'message' in mutationError
-          ? String((mutationError as { message?: unknown }).message)
-          : 'Unable to update appointment',
-      );
-      const attemptedStartTime = typeof mutationError === 'object'
-        && mutationError !== null
-        && 'details' in mutationError
-        && typeof (mutationError as { details?: { attemptedStartTime?: string } }).details?.attemptedStartTime === 'string'
-        ? (mutationError as { details?: { attemptedStartTime?: string } }).details!.attemptedStartTime
-        : null;
-      setAttemptedTimeLabel(attemptedStartTime ? formatAttemptedTime(attemptedStartTime) : null);
-      throw mutationError;
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [applyMutationResult]);
-
-  const handleSaveEdits = useCallback(async (args: {
-    baseServiceId: string;
-    technicianId: string | null;
-    startTime: string;
-  }) => {
-    if (!detail || !selectedAppointmentId) {
-      return;
-    }
-
-    const originalStartTime = new Date(detail.appointment.startTime).toISOString();
-    const nextStartTime = new Date(args.startTime).toISOString();
-
-    if (args.baseServiceId !== (detail.appointment.baseServiceId ?? '')) {
-      await runManageMutation(selectedAppointmentId, {
-        operation: 'changeService',
-        baseServiceId: args.baseServiceId,
-        startTime: nextStartTime,
-        technicianId: args.technicianId,
-      });
-      return;
-    }
-
-    if (args.technicianId !== detail.appointment.technicianId && nextStartTime === originalStartTime) {
-      await runManageMutation(selectedAppointmentId, {
-        operation: 'reassignTechnician',
-        technicianId: args.technicianId,
-      });
-      return;
-    }
-
-    if (nextStartTime !== originalStartTime || args.technicianId !== detail.appointment.technicianId) {
-      await runManageMutation(selectedAppointmentId, {
-        operation: 'move',
-        startTime: nextStartTime,
-        technicianId: args.technicianId,
-      });
-    }
-  }, [detail, runManageMutation, selectedAppointmentId]);
-
-  const handleStartAppointment = useCallback(async () => {
-    if (!selectedAppointmentId) {
-      return;
-    }
-
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
-        method: 'POST',
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to start appointment');
-      }
-
-      setAppointments(current => current.map(appointment => (
-        appointment.id === selectedAppointmentId
-          ? { ...appointment, status: 'in_progress', isLocked: true }
-          : appointment
-      )));
-      await fetchDetail(selectedAppointmentId);
-    } catch (startError) {
-      setDetailError(
-        typeof startError === 'object' && startError !== null && 'message' in startError
-          ? String((startError as { message?: unknown }).message)
-          : 'Unable to start appointment',
-      );
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [fetchDetail, selectedAppointmentId]);
-
-  const handleCompleteAppointment = useCallback(async () => {
-    if (!selectedAppointmentId) {
-      return;
-    }
-
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentStatus: 'paid' }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to complete appointment');
-      }
-
-      setAppointments(current => current.map(appointment => (
-        appointment.id === selectedAppointmentId
-          ? { ...appointment, status: 'completed', isLocked: true }
-          : appointment
-      )));
-      await fetchDetail(selectedAppointmentId);
-    } catch (completeError) {
-      setDetailError(
-        typeof completeError === 'object' && completeError !== null && 'message' in completeError
-          ? String((completeError as { message?: unknown }).message)
-          : 'Unable to complete appointment',
-      );
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [fetchDetail, selectedAppointmentId]);
-
-  const handleSimpleStatusChange = useCallback(async (status: 'confirmed') => {
-    if (!selectedAppointmentId) {
-      return;
-    }
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to update appointment');
-      }
-      setAppointments(current => current.map(appointment => appointment.id === selectedAppointmentId ? { ...appointment, status } : appointment));
-      await fetchDetail(selectedAppointmentId);
-    } catch (statusError) {
-      setDetailError(typeof statusError === 'object' && statusError !== null && 'message' in statusError
-        ? String((statusError as { message?: unknown }).message)
-        : 'Unable to update appointment');
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [fetchDetail, selectedAppointmentId]);
-
-  const handleCancelAppointment = useCallback(async (reason: string) => {
-    if (!selectedAppointmentId) {
-      return;
-    }
-
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/cancel`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancelReason: reason }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to cancel appointment');
-      }
-
-      setAppointments(current => current.filter(appointment => appointment.id !== selectedAppointmentId));
-      setSelectedAppointmentId(null);
-    } catch (cancelError) {
-      setDetailError(
-        typeof cancelError === 'object' && cancelError !== null && 'message' in cancelError
-          ? String((cancelError as { message?: unknown }).message)
-          : 'Unable to cancel appointment',
-      );
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [selectedAppointmentId]);
+  }, [appointments, openAppointment, runManageMutation, setAttemptedTimeLabel, setDetailError]);
 
   return (
     <div className="flex min-h-full w-full flex-col bg-white font-sans text-black">
@@ -492,7 +208,7 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
         loading={loading}
         error={error}
         onRetry={fetchAppointments}
-        onAppointmentSelect={setSelectedAppointmentId}
+        onAppointmentSelect={actions.openAppointment}
         onMoveAppointment={({ appointmentId, startTime }) => void handleMoveAppointment({ appointmentId, startTime })}
         emptyTitle="No appointments scheduled"
         emptyDescription="You are clear for the selected day."
@@ -509,45 +225,38 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
       </button>
 
       <AppointmentQuickEditSheet
-        isOpen={Boolean(selectedAppointmentId)}
-        onClose={() => {
-          setSelectedAppointmentId(null);
-          setDetail(null);
-          setDetailError(null);
-          setAttemptedTimeLabel(null);
-          setWarnings([]);
-        }}
-        detail={detail}
-        loading={detailLoading}
-        saving={detailSaving}
-        actionError={detailError}
-        attemptedTimeLabel={attemptedTimeLabel}
-        warnings={warnings}
-        onSaveEdits={handleSaveEdits}
-        onMoveToNextAvailable={async () => {
-          if (!selectedAppointmentId) {
-            return;
+        isOpen={Boolean(actions.selectedAppointmentId)}
+        onClose={actions.closeAppointment}
+        detail={actions.detail}
+        loading={actions.detailLoading}
+        saving={actions.detailSaving}
+        actionError={actions.detailError}
+        attemptedTimeLabel={actions.attemptedTimeLabel}
+        warnings={actions.warnings}
+        onSaveEdits={actions.saveEdits}
+        onMoveToNextAvailable={actions.moveToNextAvailable}
+        onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
+        onMarkCompleted={() => actions.completeAppointment()}
+        onStartAppointment={actions.startAppointment}
+        onConfirmAppointment={actions.confirmAppointment}
+        onMarkNoShow={actions.markNoShow}
+        onResendConfirmation={actions.resendConfirmation}
+        completionNeedsPhotoDecision={actions.completionNeedsPhotoDecision}
+        onResolvePhotoDecision={(skip) => {
+          if (skip) {
+            void actions.completeAppointment({ skipPhotoValidation: true });
+          } else {
+            actions.dismissPhotoDecision();
           }
-          await runManageMutation(selectedAppointmentId, { operation: 'moveToNextAvailable' });
         }}
-        onCancelAppointment={handleCancelAppointment}
-        onMarkCompleted={handleCompleteAppointment}
-        onStartAppointment={handleStartAppointment}
-        onConfirmAppointment={() => handleSimpleStatusChange('confirmed')}
-        onMarkNoShow={() => handleCancelAppointment('no_show')}
-        onResendConfirmation={handleResendConfirmation}
+        onRetryLoad={() => void actions.refreshDetail()}
         onRebook={() => {
-          if (!detail) {
+          const prefill = actions.buildRebookPrefill();
+          if (!prefill) {
             return;
           }
-          setRebookPrefill({
-            name: detail.appointment.clientName,
-            phone: detail.appointment.clientPhone,
-            email: detail.appointment.clientEmail ?? null,
-            serviceId: detail.appointment.baseServiceId,
-            technicianId: detail.appointment.technicianId,
-          });
-          setSelectedAppointmentId(null);
+          setRebookPrefill(prefill);
+          actions.closeAppointment();
           setShowNewAppointmentModal(true);
         }}
       />

@@ -4,7 +4,7 @@ import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 export const dynamic = 'force-dynamic';
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } },
 ): Promise<Response> {
   const access = await requireAppointmentManagerAccess(params.id, {
@@ -12,6 +12,7 @@ export async function POST(
     wrongRoleMessage: 'Only salon staff or admins can resend confirmations',
     assignmentForbiddenMessage: 'You can only manage your own appointments',
     tenantForbiddenMessage: 'Appointment does not belong to your salon',
+    salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
   });
   if (!access.ok) {
     return access.response;
