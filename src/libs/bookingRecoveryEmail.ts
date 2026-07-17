@@ -19,12 +19,14 @@ const RECOVERY_DEDUPE_BUCKET_MS = 10 * 60_000;
 const MAX_ACTIVE_TOKENS_PER_APPOINTMENT = 3;
 const TOKEN_LIFETIME_AFTER_END_MS = 30 * 24 * 60 * 60 * 1000;
 
+type RecoverySalonSettings = import('@/types/salonPolicy').SalonSettings | null | undefined;
+
 type RecoverySalon = {
   id: string;
   slug: string;
   name: string;
   customDomain: string | null;
-  settings?: unknown;
+  settings?: RecoverySalonSettings;
 };
 
 type RecoveryAppointment = {
@@ -89,7 +91,7 @@ async function loadServiceNames(appointmentIds: string[]): Promise<Map<string, s
   return names;
 }
 
-async function resolveTimezone(settings: unknown): Promise<string> {
+async function resolveTimezone(settings: RecoverySalonSettings): Promise<string> {
   const { resolveBookingConfigFromSettings } = await import('./bookingConfig');
   return resolveBookingConfigFromSettings(settings).timezone;
 }
@@ -146,7 +148,7 @@ export async function sendBookingRecoveryEmail(input: {
     purpose: 'booking_recovery',
     dedupeKey: buildRecoveryDedupeKey(salon.id, recipientEmail),
     status: 'queued',
-  }).onConflictDoNothing().returning({ id: notificationDeliverySchema.id });
+  }).onConflictDoNothing().returning();
   if (!inserted.length) {
     return { ok: true, deduped: true, deliveryId: null };
   }
