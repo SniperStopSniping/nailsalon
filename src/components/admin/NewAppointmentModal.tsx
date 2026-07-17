@@ -160,6 +160,7 @@ export function NewAppointmentModal({
   const sourceFingerprintRef = useRef<string | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
+  const pendingTechDefaultRef = useRef(false);
 
   const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
 
@@ -186,7 +187,18 @@ export function NewAppointmentModal({
     setSourceChanged(false);
     setSubmissionSourceStatus(null);
     setSubmitFailed(false);
+    // Conversions default to the salon's primary technician once the list
+    // loads (still editable) — a Google event has no technician of its own.
+    pendingTechDefaultRef.current = true;
   }, [googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !googleEventPrefill || !pendingTechDefaultRef.current || technicians.length === 0) {
+      return;
+    }
+    pendingTechDefaultRef.current = false;
+    setSelectedTechnicianId(current => current ?? technicians[0]?.id ?? null);
+  }, [googleEventPrefill, isOpen, technicians]);
 
   useEffect(() => {
     if (!isOpen || !googleEventPrefill || activeGoogleSessionIdRef.current !== googleEventPrefill.id) {
@@ -482,6 +494,10 @@ export function NewAppointmentModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create appointment');
       setSubmitFailed(true);
+      // A failed attempt created nothing to dedupe against — rotate the key
+      // so "Retry conversion" is a fresh request instead of colliding with
+      // the previous attempt's still-held booking lock.
+      idempotencyKeyRef.current = createIdempotencyKey();
     } finally {
       submittingRef.current = false;
       setSubmitting(false);

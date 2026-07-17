@@ -691,6 +691,179 @@ describe('POST /api/appointments booking policy', () => {
     expect(enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
   });
 
+  function buildConversionSourceEvent() {
+    return {
+      id: 'google_event_1',
+      salonId: 'salon_1',
+      calendarId: 'primary',
+      googleEventId: 'provider_event_1',
+      appointmentId: null,
+      title: 'Imported event',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:30:00.000Z'),
+      durationMinutes: 90,
+      reviewStatus: 'needs_review',
+      transparency: 'busy',
+      syncMode: 'inbound_only',
+      deletedAt: null,
+    };
+  }
+
+  function mockConversionSelects(sourceEvent: ReturnType<typeof buildConversionSourceEvent>) {
+    db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => [sourceEvent]) })),
+        })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+        })),
+      }));
+  }
+
+  function mockConversionTransaction(options: { guardConflict?: boolean } = {}) {
+    const state: { appointmentValues: Record<string, unknown> | null } = { appointmentValues: null };
+    const sourceEvent = buildConversionSourceEvent();
+    db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
+      const tx = {
+        execute: vi.fn(async () => undefined),
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              // lockTechnicianAndAssertSlotFree's overlap probe: a returned
+              // row means a genuine double-book and throws SlotConflictError.
+              limit: vi.fn(async () => (options.guardConflict ? [{ id: 'existing_overlap' }] : [])),
+            })),
+          })),
+        })),
+        insert: vi.fn()
+          .mockImplementationOnce(() => ({
+            values: vi.fn((values: Record<string, unknown>) => {
+              state.appointmentValues = values;
+              return {
+                returning: vi.fn(async () => [{
+                  ...values,
+                  id: 'appt_converted',
+                  startTime: new Date(String(values.startTime)),
+                  endTime: new Date(String(values.endTime)),
+                }]),
+              };
+            }),
+          }))
+          .mockImplementationOnce(() => ({ values: vi.fn(async () => undefined) }))
+          .mockImplementationOnce(() => ({
+            values: vi.fn(() => ({
+              returning: vi.fn(async () => [{
+                id: 'apptSvc_converted',
+                appointmentId: 'appt_converted',
+                serviceId: 'srv_1',
+                priceAtBooking: 6500,
+                durationAtBooking: 90,
+              }]),
+            })),
+          })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn(() => ({ returning: vi.fn(async () => [sourceEvent]) })),
+          })),
+        })),
+      };
+      return callback(tx as never);
+    });
+    return state;
+  }
+
+  it('converts a Google event even when the soft availability gate rejects the slot', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    // The gate would reject this slot for a client booking — conversions
+    // import an event that already exists, so it must not block them.
+    canTechnicianTakeAppointment.mockReturnValue({ available: false, reason: 'outside_schedule' });
+    mockConversionSelects(buildConversionSourceEvent());
+    const txState = mockConversionTransaction();
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(canTechnicianTakeAppointment).not.toHaveBeenCalled();
+    expect(txState.appointmentValues).toEqual(expect.objectContaining({
+      technicianId: 'tech_1',
+    }));
+  });
+
+  it('assigns the primary technician when converting without an explicit one', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({ available: false, reason: 'outside_schedule' });
+    mockConversionSelects(buildConversionSourceEvent());
+    const txState = mockConversionTransaction();
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: null,
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+        }),
+      }),
+    );
+    const body = await response.json().catch(() => null);
+
+    expect(response.status).toBe(201);
+    expect(body?.error?.code).toBeUndefined();
+    // First (primary) technician from getTechniciansBySalonId.
+    expect(txState.appointmentValues).toEqual(expect.objectContaining({
+      technicianId: 'tech_1',
+    }));
+  });
+
+  it('still rejects a conversion that genuinely double-books the technician', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({ available: false, reason: 'outside_schedule' });
+    mockConversionSelects(buildConversionSourceEvent());
+    mockConversionTransaction({ guardConflict: true });
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('TIME_CONFLICT');
+  });
+
   it('rejects an incomplete guest booking when name and email are missing', async () => {
     requireClientApiSession.mockResolvedValue({
       ok: false,
