@@ -45,6 +45,8 @@ type AppointmentQuickEditSheetProps = {
   onResolvePhotoDecision?: (skip: boolean) => void;
   /** Called when the detail failed to load and the user wants to retry. */
   onRetryLoad?: () => void;
+  /** Opens the given confirmation as soon as detail loads (e.g. a Cancel button on an appointment card). */
+  initialPendingAction?: 'cancel' | null;
 };
 
 const EMPTY_WARNINGS: ManageWarning[] = [];
@@ -99,6 +101,7 @@ export function AppointmentQuickEditSheet({
   completionNeedsPhotoDecision = false,
   onResolvePhotoDecision,
   onRetryLoad,
+  initialPendingAction = null,
 }: AppointmentQuickEditSheetProps) {
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
@@ -115,7 +118,10 @@ export function AppointmentQuickEditSheet({
     setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
     setTechnicianId(detail.appointment.technicianId ?? null);
     setStartTime(formatDateTimeValue(detail.appointment.startTime));
-  }, [detail]);
+    if (initialPendingAction === 'cancel' && detail.permissions.canCancel) {
+      setPendingConfirm('cancel');
+    }
+  }, [detail, initialPendingAction]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
