@@ -1,9 +1,9 @@
 'use client';
 
 import { CalendarDays, Check, Clock, Loader2, Lock, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
+import { type GoogleEventSourceStatus, NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
 
 type ReviewEvent = {
   id: string;
@@ -11,6 +11,11 @@ type ReviewEvent = {
   startTime: string;
   endTime: string;
   durationMinutes: number;
+  description?: string | null;
+  location?: string | null;
+  googleUpdatedAt?: string | null;
+  updatedAt?: string | null;
+  sourceVersion?: string | null;
   transparency: 'busy' | 'free';
   isReadOnly: boolean;
   suggestion?: {
@@ -25,7 +30,47 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [converting, setConverting] = useState<ReviewEvent | null>(null);
+  const [conversionSourceStatus, setConversionSourceStatus] = useState<GoogleEventSourceStatus>('available');
   const [error, setError] = useState<string | null>(null);
+  const convertingRef = useRef<ReviewEvent | null>(null);
+
+  const reconcileActiveConversion = useCallback(async (freshEvents: ReviewEvent[]) => {
+    const active = convertingRef.current;
+    if (!active) {
+      return;
+    }
+
+    const refreshed = freshEvents.find(event => event.id === active.id);
+    if (refreshed) {
+      convertingRef.current = refreshed;
+      setConverting(refreshed);
+      setConversionSourceStatus('available');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/google-events/${encodeURIComponent(active.id)}?${new URLSearchParams({ salonSlug })}`, { cache: 'no-store' });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.data?.event) {
+        const verified = { ...active, ...payload.data.event } as ReviewEvent;
+        convertingRef.current = verified;
+        setConverting(verified);
+        setConversionSourceStatus('available');
+        return;
+      }
+      const code = payload?.error?.code;
+      if (code === 'GOOGLE_EVENT_DELETED') {
+        setConversionSourceStatus('deleted');
+      } else if (code === 'GOOGLE_EVENT_ALREADY_CONVERTED') {
+        setConversionSourceStatus('converted');
+      } else if (code === 'GOOGLE_EVENT_NOT_FOUND') {
+        setConversionSourceStatus('inaccessible');
+      }
+    } catch {
+      // A failed status check is not proof that the source event disappeared.
+      // Keep the editing session intact and let the owner retry the refresh.
+    }
+  }, [salonSlug]);
 
   const load = useCallback(async () => {
     if (!salonSlug) {
@@ -39,13 +84,15 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
       if (!response.ok) {
         throw new Error(payload.error || 'Google events could not be loaded.');
       }
-      setEvents(payload.data?.events || []);
+      const freshEvents = (payload.data?.events || []) as ReviewEvent[];
+      setEvents(freshEvents);
+      await reconcileActiveConversion(freshEvents);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Google events could not be loaded.');
     } finally {
       setLoading(false);
     }
-  }, [salonSlug]);
+  }, [reconcileActiveConversion, salonSlug]);
 
   useEffect(() => {
     void load();
@@ -68,7 +115,19 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
     setWorkingId(null);
   }
 
-  if (!loading && events.length === 0 && !error) {
+  function openConversion(event: ReviewEvent) {
+    convertingRef.current = event;
+    setConverting(event);
+    setConversionSourceStatus('available');
+  }
+
+  function closeConversion() {
+    convertingRef.current = null;
+    setConverting(null);
+    setConversionSourceStatus('available');
+  }
+
+  if (!loading && events.length === 0 && !error && !converting) {
     return null;
   }
 
@@ -131,7 +190,7 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
                       {workingId === event.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                       {event.transparency === 'free' ? 'Keep as Free' : 'Keep as Busy'}
                     </button>
-                    <button type="button" onClick={() => setConverting(event)} className="rounded-xl bg-rose-800 px-3 py-2 text-xs font-semibold text-white">Convert to appointment</button>
+                    <button type="button" onClick={() => openConversion(event)} className="rounded-xl bg-rose-800 px-3 py-2 text-xs font-semibold text-white">Convert to appointment</button>
                   </div>
                 </article>
               ))}
@@ -139,17 +198,23 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
           )}
       <NewAppointmentModal
         isOpen={Boolean(converting)}
-        onClose={() => setConverting(null)}
+        onClose={closeConversion}
         onSuccess={() => {
-          setConverting(null);
+          closeConversion();
           void load();
         }}
+        googleEventSourceStatus={conversionSourceStatus}
+        onRefreshGoogleEvent={() => void load()}
         googleEventPrefill={converting
           ? {
               id: converting.id,
               title: converting.title,
               startTime: converting.startTime,
+              endTime: converting.endTime,
               durationMinutes: converting.durationMinutes,
+              description: converting.description,
+              location: converting.location,
+              sourceVersion: converting.sourceVersion || converting.googleUpdatedAt || converting.updatedAt,
               suggestedClient: converting.suggestion?.client || null,
               suggestedService: converting.suggestion?.service || null,
               isReadOnly: converting.isReadOnly,

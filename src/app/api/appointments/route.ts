@@ -186,6 +186,8 @@ const createAppointmentSchema = z.object({
   manageToken: z.string().min(20).optional(),
   googleEventReviewId: z.string().min(1).optional(),
   priceCentsOverride: z.number().int().min(0).max(1_000_000).optional(),
+  durationMinutesOverride: z.number().int().min(1).max(1440).optional(),
+  notes: z.string().trim().max(2000).optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -352,6 +354,7 @@ export async function POST(request: Request): Promise<Response> {
     const normalizedBaseServiceId = data.baseServiceId?.trim() || null;
     const normalizedSelectedAddOns = data.selectedAddOns ?? [];
     const normalizedLegacyServiceIds = data.serviceIds ?? [];
+    const normalizedNotes = data.notes?.trim() || null;
 
     // Validate raw startTime early. If appointmentDate/appointmentTime are provided,
     // the server will recompute the final instant from the salon timezone after
@@ -464,6 +467,13 @@ export async function POST(request: Request): Promise<Response> {
       if (Math.abs(googleReviewEvent.startTime.getTime() - parsedStartTime.getTime()) > 60_000) {
         return Response.json({ error: { code: 'GOOGLE_EVENT_TIME_CHANGED', message: 'The Google event time changed. Refresh and try again.' } }, { status: 409 });
       }
+    } else if (data.durationMinutesOverride !== undefined || normalizedNotes) {
+      return Response.json({
+        error: {
+          code: 'GOOGLE_EVENT_FIELDS_INVALID',
+          message: 'Duration overrides and conversion notes require a Google event.',
+        },
+      } satisfies ErrorResponse, { status: 400 });
     }
 
     const normalizedClientEmail = data.clientEmail?.trim().toLowerCase() || null;
@@ -540,6 +550,10 @@ export async function POST(request: Request): Promise<Response> {
           startTime: canonicalStartTime, // UTC ISO (validated above)
           locationId: normalizedLocationId, // Trimmed + empty→null
           originalAppointmentId: normalizedOriginalApptId, // Trimmed + empty→null
+          googleEventReviewId: data.googleEventReviewId ?? null,
+          priceCentsOverride: data.priceCentsOverride ?? null,
+          durationMinutesOverride: data.durationMinutesOverride ?? null,
+          notes: normalizedNotes,
         }))
         .digest('hex')
         .substring(0, 16); // Short hash is sufficient
@@ -946,8 +960,8 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     if (googleReviewEvent) {
-      totalDurationMinutes = googleReviewEvent.durationMinutes;
-      blockedDurationMinutes = googleReviewEvent.durationMinutes + bufferMinutes;
+      totalDurationMinutes = data.durationMinutesOverride ?? googleReviewEvent.durationMinutes;
+      blockedDurationMinutes = totalDurationMinutes + bufferMinutes;
       if (data.priceCentsOverride !== undefined) {
         totalPrice = data.priceCentsOverride;
         subtotalBeforeDiscountCents = data.priceCentsOverride;
@@ -1419,6 +1433,7 @@ export async function POST(request: Request): Promise<Response> {
               clientPhone: salonClient.phone,
               clientName,
               clientEmail: normalizedClientEmail ?? originalAppointment.clientEmail,
+              notes: normalizedNotes ?? originalAppointment.notes,
               salonClientId: salonClient.id,
               googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
               startTime,
@@ -1575,6 +1590,7 @@ export async function POST(request: Request): Promise<Response> {
               clientPhone: salonClient.phone,
               clientName,
               clientEmail: normalizedClientEmail,
+              notes: normalizedNotes,
               salonClientId: salonClient.id,
               googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
               startTime,

@@ -34,6 +34,7 @@ const {
   hasGoogleCalendarConflict,
   syncGoogleCalendarEventForAppointment,
   deleteGoogleCalendarEventForAppointment,
+  recordGoogleEventReviewDecision,
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
   sendCustomerBookingConfirmationEmail,
@@ -69,6 +70,7 @@ const {
   hasGoogleCalendarConflict: vi.fn(),
   syncGoogleCalendarEventForAppointment: vi.fn(),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
+  recordGoogleEventReviewDecision: vi.fn(),
   enqueueGoogleCalendarUpsert: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
   sendCustomerBookingConfirmationEmail: vi.fn(),
@@ -157,6 +159,10 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
+vi.mock('@/libs/googleEventReview', () => ({
+  recordGoogleEventReviewDecision,
+}));
+
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
@@ -217,6 +223,7 @@ describe('POST /api/appointments booking policy', () => {
     hasGoogleCalendarConflict.mockResolvedValue(false);
     syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
+    recordGoogleEventReviewDecision.mockResolvedValue(undefined);
     enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
     sendCustomerBookingConfirmationEmail.mockResolvedValue(true);
@@ -458,6 +465,142 @@ describe('POST /api/appointments booking policy', () => {
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('TIME_CONFLICT');
     expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('enforces owner authorization server-side for Google event conversion', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('FORBIDDEN');
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('stores conversion duration and notes while atomically claiming the source event', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    const sourceEvent = {
+      id: 'google_event_1',
+      salonId: 'salon_1',
+      calendarId: 'primary',
+      googleEventId: 'provider_event_1',
+      appointmentId: null,
+      title: 'Controlled fake event',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:30:00.000Z'),
+      durationMinutes: 90,
+      reviewStatus: 'needs_review',
+      transparency: 'busy',
+      syncMode: 'inbound_only',
+      deletedAt: null,
+    };
+    db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => [sourceEvent]) })),
+        })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+        })),
+      }));
+
+    let appointmentValues: Record<string, unknown> | null = null;
+    const claimReturning = vi.fn(async () => [sourceEvent]);
+    db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
+      const tx = {
+        execute: vi.fn(async () => undefined),
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+          })),
+        })),
+        insert: vi.fn()
+          .mockImplementationOnce(() => ({
+            values: vi.fn((values: Record<string, unknown>) => {
+              appointmentValues = values;
+              return {
+                returning: vi.fn(async () => [{
+                  ...values,
+                  id: 'appt_converted',
+                  startTime: new Date(String(values.startTime)),
+                  endTime: new Date(String(values.endTime)),
+                }]),
+              };
+            }),
+          }))
+          .mockImplementationOnce(() => ({ values: vi.fn(async () => undefined) }))
+          .mockImplementationOnce(() => ({
+            values: vi.fn(() => ({
+              returning: vi.fn(async () => [{
+                id: 'apptSvc_converted',
+                appointmentId: 'appt_converted',
+                serviceId: 'srv_1',
+                priceAtBooking: 6500,
+                durationAtBooking: 90,
+              }]),
+            })),
+          })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn(() => ({ returning: claimReturning })),
+          })),
+        })),
+      };
+      return callback(tx as never);
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': 'controlled-conversion-session',
+        },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Controlled Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+          durationMinutesOverride: 75,
+          notes: 'Controlled conversion note',
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(appointmentValues).toEqual(expect.objectContaining({
+      googleCalendarEventId: 'provider_event_1',
+      totalDurationMinutes: 75,
+      blockedDurationMinutes: 85,
+      notes: 'Controlled conversion note',
+    }));
+    expect(claimReturning).toHaveBeenCalledTimes(1);
+    expect(recordGoogleEventReviewDecision).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      title: 'Controlled fake event',
+      decision: 'appointment',
+    });
+    expect(enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
   });
 
   it('rejects an incomplete guest booking when name and email are missing', async () => {
