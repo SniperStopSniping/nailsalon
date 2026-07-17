@@ -69,6 +69,8 @@ vi.mock('@/libs/googleCalendar', () => ({
 
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
 
+import { sendCancellationConfirmation } from '@/libs/SMS';
+
 import { PATCH } from './route';
 
 describe('PATCH /api/appointments/[id]/cancel', () => {
@@ -92,6 +94,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
+    updateSalonClientStats.mockResolvedValue(undefined);
   });
 
   it('rejects wrong-role access', async () => {
@@ -192,5 +195,81 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       services: ['BIAB Fill'],
       cancelReason: 'client_request',
     }));
+  });
+
+  it('stores a no-show under the no_show status, keeps canvas state in sync, and skips the client cancellation message', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        notes: null,
+        clientName: 'Ava',
+        clientPhone: '+15551234567',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: 'gevent_1',
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'no_show' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'no_show',
+      canvasState: 'no_show',
+      cancelReason: 'no_show',
+    }));
+    expect(body.data.appointment.status).toBe('no_show');
+    // A client who missed their appointment must not receive a
+    // "your appointment was cancelled" confirmation.
+    expect(vi.mocked(sendCancellationConfirmation)).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForAppointmentCancelled).not.toHaveBeenCalled();
+    expect(updateSalonClientStats).toHaveBeenCalledWith('salon_1', '+15551234567');
+    expect(enqueueGoogleCalendarDelete).toHaveBeenCalled();
+  });
+
+  it('marks the legacy status cancelled together with the canvas state for normal cancellations', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        notes: null,
+        clientName: 'Ava',
+        clientPhone: '+15551234567',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: null,
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'cancelled',
+      canvasState: 'cancelled',
+    }));
+    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalled();
   });
 });

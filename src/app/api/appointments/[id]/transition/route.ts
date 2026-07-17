@@ -1,12 +1,13 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { canTransition } from '@/core/appointments/appointmentStateMachine';
+import { canTransition, canvasStateToLegacyStatus } from '@/core/appointments/appointmentStateMachine';
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
 import type { AppointmentState, Transition } from '@/core/appointments/policyTypes';
 import { logAppointmentChange, logAppointmentLocked } from '@/libs/appointmentAudit';
-import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import { db } from '@/libs/DB';
+import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
   appointmentSchema,
@@ -165,6 +166,16 @@ export async function POST(
       updatedAt: now,
     };
 
+    // Keep the legacy status column in sync so the owner dashboard,
+    // availability engine, and analytics see staff-driven state changes.
+    const legacyStatus = canvasStateToLegacyStatus(to);
+    if (legacyStatus) {
+      updateData.status = legacyStatus;
+      if (legacyStatus === 'no_show' || legacyStatus === 'cancelled') {
+        updateData.cancelReason = legacyStatus === 'no_show' ? 'no_show' : 'client_request';
+      }
+    }
+
     // Set startedAt if transitioning to 'working' and not already set
     if (to === 'working' && !appointment.startedAt) {
       updateData.startedAt = now;
@@ -194,6 +205,16 @@ export async function POST(
       )
       .returning();
 
+    // Staff cancellations and no-shows release the technician's time; the
+    // linked Google Calendar event must be removed like the owner cancel path.
+    if (legacyStatus === 'cancelled' || legacyStatus === 'no_show') {
+      await enqueueGoogleCalendarDelete({
+        appointmentId,
+        salonId: session.salonId,
+        googleCalendarEventId: appointment.googleCalendarEventId,
+      });
+    }
+
     // 14. Audit logging (Step 16A)
     // Log state transition
     await logAppointmentChange({
@@ -203,8 +224,8 @@ export async function POST(
       performedBy: `staff:${session.technicianId}`,
       performedByRole: 'staff',
       performedByName: technicianName,
-      previousValue: { canvasState: currentCanvasState },
-      newValue: { canvasState: to },
+      previousValue: { canvasState: currentCanvasState, status: appointment.status },
+      newValue: { canvasState: to, ...(legacyStatus ? { status: legacyStatus } : {}) },
     });
 
     // Log locking if it happened

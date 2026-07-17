@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
+import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 
 type AppointmentGlance = {
   total: number;
@@ -279,8 +280,8 @@ export function OwnerTodayWorkspace({
                               : ''}
                           </p>
                         </div>
-                        <span className="rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold capitalize text-stone-600">
-                          {appointment.status.replace('_', ' ')}
+                        <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
+                          {formatAppointmentStatus(appointment.status)}
                         </span>
                         <ChevronRight size={16} className="shrink-0 text-stone-300" />
                       </button>

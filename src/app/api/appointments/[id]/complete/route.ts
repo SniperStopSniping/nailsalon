@@ -601,6 +601,8 @@ export async function POST(
       .update(appointmentSchema)
       .set({
         status: 'in_progress',
+        canvasState: 'working',
+        canvasStateUpdatedAt: now,
         startedAt: now,
         updatedAt: now,
       })
