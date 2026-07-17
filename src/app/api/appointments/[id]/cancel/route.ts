@@ -66,6 +66,7 @@ export async function PATCH(
       wrongRoleMessage: 'Only salon staff or admins can cancel this appointment',
       assignmentForbiddenMessage: 'You can only cancel your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;

@@ -52,6 +52,14 @@ type AppointmentAccessOptions = {
   tenantForbiddenMessage?: string;
   assignmentForbiddenMessage?: string;
   clientForbiddenMessage?: string;
+  /**
+   * Salon slug the caller believes the appointment belongs to. For admins of
+   * multiple salons this lets a surface pinned to one salon (e.g. the Clients
+   * modal) manage appointments there even when the active-salon cookie points
+   * elsewhere. The hint is NEVER trusted on its own — admin membership in the
+   * hinted salon is verified via requireAdmin before any lookup.
+   */
+  salonSlugHint?: string | null;
 };
 
 function errorResponse(
@@ -272,6 +280,41 @@ async function requireAppointmentAccessInternal(
 
   if (staffAuth.response.status !== 401) {
     authFailure = staffAuth.response;
+  }
+
+  // An explicitly hinted salon takes precedence over the active-salon cookie,
+  // but only after verifying the admin actually belongs to that salon.
+  if (options.salonSlugHint) {
+    const hintedSalon = await getSalonBySlug(options.salonSlugHint);
+    if (hintedSalon) {
+      const hintedAdminGuard = await requireAdmin(hintedSalon.id);
+      if (hintedAdminGuard.ok) {
+        const appointment = await loadAppointmentForSalon(
+          appointmentId,
+          hintedSalon.id,
+        );
+
+        if (!appointment) {
+          return {
+            ok: false,
+            response: errorResponse(
+              404,
+              'APPOINTMENT_NOT_FOUND',
+              `Appointment with ID "${appointmentId}" not found`,
+            ),
+          };
+        }
+
+        return {
+          ok: true,
+          appointment,
+          actorRole: 'admin',
+          admin: hintedAdminGuard.admin,
+        };
+      }
+      // Not an admin of the hinted salon: fall through to the regular
+      // active-salon / client paths rather than granting anything.
+    }
   }
 
   const activeAdminContext = await requireActiveAdminSalon();

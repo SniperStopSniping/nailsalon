@@ -790,6 +790,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   // Shared appointment-management actions: any change refreshes the visible
   // range so day counts and the day panel stay consistent.
   const actions = useAppointmentActions({
+    salonSlug,
     onMutationApplied: () => {
       fetchAppointments();
     },

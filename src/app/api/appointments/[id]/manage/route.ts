@@ -96,7 +96,7 @@ function toErrorResponse(error: unknown): Response {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } },
 ): Promise<Response> {
   try {
@@ -105,6 +105,7 @@ export async function GET(
       wrongRoleMessage: 'Only salon staff or admins can manage this appointment',
       assignmentForbiddenMessage: 'You can only manage your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;
@@ -139,6 +140,7 @@ export async function PATCH(
       wrongRoleMessage: 'Only salon staff or admins can manage this appointment',
       assignmentForbiddenMessage: 'You can only manage your own appointments',
       tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
     });
     if (!access.ok) {
       return access.response;

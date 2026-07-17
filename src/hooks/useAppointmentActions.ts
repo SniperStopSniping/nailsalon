@@ -32,6 +32,12 @@ type UseAppointmentActionsOptions = {
   onCancelled?: (appointmentId: string, status: 'cancelled' | 'no_show') => void;
   /** Called when a simple status change succeeds (start/complete/confirm) for optimistic list patches. */
   onOptimisticStatus?: (appointmentId: string, status: string) => void;
+  /**
+   * Salon the surface is pinned to. Sent as an explicit (server-verified)
+   * hint so multi-salon admins can manage appointments from surfaces scoped
+   * to a salon other than their active-salon cookie.
+   */
+  salonSlug?: string | null;
 };
 
 function formatAttemptedTime(iso: string) {
@@ -64,7 +70,11 @@ function errorCode(error: unknown): string | null {
  * local UI state.
  */
 export function useAppointmentActions(options: UseAppointmentActionsOptions = {}) {
-  const { onMutationApplied, onCancelled, onOptimisticStatus } = options;
+  const { onMutationApplied, onCancelled, onOptimisticStatus, salonSlug } = options;
+
+  const apiPath = useCallback((path: string) => (
+    salonSlug ? `${path}?salonSlug=${encodeURIComponent(salonSlug)}` : path
+  ), [salonSlug]);
 
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AppointmentManageDetail | null>(null);
@@ -82,7 +92,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       setAttemptedTimeLabel(null);
       setWarnings([]);
 
-      const response = await fetch(`/api/appointments/${appointmentId}/manage`);
+      const response = await fetch(apiPath(`/api/appointments/${appointmentId}/manage`));
       const result = await response.json().catch(() => null);
       if (!response.ok) {
         throw result?.error ?? new Error('Failed to load appointment details');
@@ -95,7 +105,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [apiPath]);
 
   useEffect(() => {
     if (!selectedAppointmentId) {
@@ -140,7 +150,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailError(null);
 
     try {
-      const response = await fetch(`/api/appointments/${appointmentId}/manage`, {
+      const response = await fetch(apiPath(`/api/appointments/${appointmentId}/manage`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -165,7 +175,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [applyMutationResult]);
+  }, [apiPath, applyMutationResult]);
 
   const saveEdits = useCallback(async (args: {
     baseServiceId: string;
@@ -221,7 +231,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailSaving(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
+      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/complete`), {
         method: 'POST',
       });
       const result = await response.json();
@@ -236,7 +246,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
 
   const completeAppointment = useCallback(async (args: { skipPhotoValidation?: boolean } = {}) => {
     if (!selectedAppointmentId) {
@@ -247,7 +257,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailError(null);
     setCompletionNeedsPhotoDecision(false);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/complete`, {
+      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/complete`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -273,7 +283,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
 
   const dismissPhotoDecision = useCallback(() => {
     setCompletionNeedsPhotoDecision(false);
@@ -286,7 +296,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailSaving(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}`, {
+      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
@@ -302,7 +312,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
 
   const cancelAppointment = useCallback(async (args: CancelArgs) => {
     if (!selectedAppointmentId) {
@@ -320,7 +330,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailSaving(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/cancel`, {
+      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/cancel`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -347,7 +357,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [detail, onCancelled, selectedAppointmentId]);
+  }, [apiPath, detail, onCancelled, selectedAppointmentId]);
 
   const markNoShow = useCallback(async () => {
     await cancelAppointment({ reason: 'no_show' });
@@ -360,7 +370,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     setDetailSaving(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/appointments/${selectedAppointmentId}/resend-confirmation`, { method: 'POST' });
+      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/resend-confirmation`), { method: 'POST' });
       const payload = await response.json();
       if (!response.ok) {
         throw payload.error ?? new Error('Confirmation email could not be sent');
@@ -371,7 +381,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [fetchDetail, selectedAppointmentId]);
+  }, [apiPath, fetchDetail, selectedAppointmentId]);
 
   const buildRebookPrefill = useCallback((): RebookPrefill | null => {
     if (!detail) {

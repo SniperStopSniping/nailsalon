@@ -146,7 +146,8 @@ describe('ScheduleCalendarModal day detail', () => {
 
     await screen.findByTestId('appointment-quick-edit-sheet');
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/manage');
+      // The surface's salon rides along as a server-verified scoping hint.
+      expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/manage?salonSlug=test-salon');
     });
 
     // The day panel hides while the sheet is open.
