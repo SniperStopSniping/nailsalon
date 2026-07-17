@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.9.0...v1.9.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **auth:** provide Clerk context on /api/appointments routes ([4c0b941](https://github.com/SniperStopSniping/nailsalon/commit/4c0b9415635a6de54c5b472cfdc207616842e235))
+
 # [1.9.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.8.0...v1.9.0) (2026-07-17)
 
 
