@@ -386,6 +386,13 @@
       "when": 1784910000000,
       "tag": "0054_prevent_double_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784950000000,
+      "tag": "0055_client_retention_assistant",
+      "breakpoints": true
     }
   ]
 }

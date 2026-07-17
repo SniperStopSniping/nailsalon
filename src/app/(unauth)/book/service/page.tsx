@@ -46,7 +46,7 @@ export default async function BookServicePage({
   searchParams,
   params,
 }: {
-  searchParams: { locationId?: string; salonSlug?: string };
+  searchParams: { locationId?: string; salonSlug?: string; campaign?: string };
   params?: { locale?: string; slug?: string };
 }) {
   const context = await getPublicPageContext('book-service', searchParams, params);

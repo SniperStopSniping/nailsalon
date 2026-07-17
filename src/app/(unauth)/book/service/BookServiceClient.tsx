@@ -213,6 +213,7 @@ export function BookServiceClient({
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
+  const campaignToken = searchParams.get('campaign') || '';
   const urlLocationId = searchParams.get('locationId') || '';
   const urlBaseServiceId = searchParams.get('baseServiceId');
   const urlTechId = searchParams.get('techId');
@@ -252,11 +253,11 @@ export function BookServiceClient({
   const initialCategory = initialSelectedService?.category ?? services[0]?.category ?? 'manicure';
   const initialSelectedAddOns = initialBaseServiceId
     ? buildDefaultSelectedAddOns(
-      initialBaseServiceId,
-      serviceAddOnRules,
-      addOns,
-      urlSelectedAddOns,
-    )
+        initialBaseServiceId,
+        serviceAddOnRules,
+        addOns,
+        urlSelectedAddOns,
+      )
     : [];
 
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
@@ -264,12 +265,91 @@ export function BookServiceClient({
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [campaignOffer, setCampaignOffer] = useState<{
+    name: string;
+    displayOffer: string;
+    code: string | null;
+  } | null>(null);
+  const [campaignUnavailable, setCampaignUnavailable] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
   const hasManuallyClearedSelectionRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!campaignToken || !salonSlug) {
+      setCampaignOffer(null);
+      setCampaignUnavailable(false);
+      return undefined;
+    }
+
+    let active = true;
+    const loadCampaign = async () => {
+      try {
+        const response = await fetch(
+          `/api/public/retention-campaigns/${encodeURIComponent(campaignToken)}?salonSlug=${encodeURIComponent(salonSlug)}`,
+          { cache: 'no-store' },
+        );
+        const payload = await response.json().catch(() => null);
+        if (!active) {
+          return;
+        }
+        const campaign = payload?.data?.campaign;
+        if (!response.ok || !campaign?.displayOffer || !campaign?.promotion?.name) {
+          setCampaignOffer(null);
+          setCampaignUnavailable(true);
+          return;
+        }
+        setCampaignOffer({
+          name: campaign.promotion.name,
+          displayOffer: campaign.displayOffer,
+          code: campaign.promotion.code ?? null,
+        });
+        setCampaignUnavailable(false);
+      } catch {
+        if (active) {
+          setCampaignOffer(null);
+          setCampaignUnavailable(true);
+        }
+      }
+    };
+
+    void loadCampaign();
+    return () => {
+      active = false;
+    };
+  }, [campaignToken, salonSlug]);
+
+  // iOS Chrome can leave fixed elements attached to the layout viewport while
+  // its bottom toolbar changes the visible viewport. Keep a CSS offset in sync
+  // with that gap. Safari is deliberately excluded because it already places
+  // fixed elements against its visual viewport correctly.
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    const isIosChrome = /CriOS/i.test(window.navigator.userAgent);
+
+    if (!isIosChrome || !visualViewport) {
+      return undefined;
+    }
+
+    const updateViewportBottom = () => {
+      const viewportBottom = visualViewport.offsetTop + visualViewport.height;
+      const bottomInset = Math.max(0, window.innerHeight - viewportBottom);
+      document.documentElement.style.setProperty('--ios-chrome-viewport-bottom', `${bottomInset}px`);
+    };
+
+    updateViewportBottom();
+    visualViewport.addEventListener('resize', updateViewportBottom);
+    visualViewport.addEventListener('scroll', updateViewportBottom);
+
+    return () => {
+      visualViewport.removeEventListener('resize', updateViewportBottom);
+      visualViewport.removeEventListener('scroll', updateViewportBottom);
+      document.documentElement.style.removeProperty('--ios-chrome-viewport-bottom');
+    };
   }, []);
 
   useEffect(() => {
@@ -431,8 +511,8 @@ export function BookServiceClient({
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
   const selectedRules = selectedBaseServiceId
     ? serviceAddOnRules
-      .filter(rule => rule.serviceId === selectedBaseServiceId)
-      .sort((a, b) => a.displayOrder - b.displayOrder)
+        .filter(rule => rule.serviceId === selectedBaseServiceId)
+        .sort((a, b) => a.displayOrder - b.displayOrder)
     : [];
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
   const selectedAddOnsById = new Map(selectedAddOnsState.map(item => [item.addOnId, item.quantity ?? 1]));
@@ -459,12 +539,12 @@ export function BookServiceClient({
   );
   const compatiblePreviewTechnicians = selectedService
     ? locationCompatiblePreviewTechnicians.filter(technician =>
-      getPublicTechnicianCompatibility({
-        selectionMode: 'base-service',
-        technician,
-        requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
-      }).bookable,
-    )
+        getPublicTechnicianCompatibility({
+          selectionMode: 'base-service',
+          technician,
+          requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
+        }).bookable,
+      )
     : [];
   const hasSingleTechnicianSalonPreview = !selectedService && locationCompatiblePreviewTechnicians.length === 1;
   const soleCompatiblePreviewTechnician = compatiblePreviewTechnicians.length === 1
@@ -488,6 +568,28 @@ export function BookServiceClient({
   const effectiveBookingFlow = shouldCollapseTechStepInHeader
     ? bookingFlow.filter(step => step !== 'tech')
     : bookingFlow;
+
+  // The Free Luster footer is rendered by the tenant layout after this page.
+  // Reserve the complete fixed CTA height after that footer only while the CTA
+  // is visible, so the natural scroll end never leaves its links underneath
+  // iPhone Chrome's visual viewport or browser controls.
+  useEffect(() => {
+    const footerClearanceProperty = '--service-sticky-footer-clearance';
+
+    if (!selectedService) {
+      document.documentElement.style.removeProperty(footerClearanceProperty);
+      return undefined;
+    }
+
+    document.documentElement.style.setProperty(
+      footerClearanceProperty,
+      'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))',
+    );
+
+    return () => {
+      document.documentElement.style.removeProperty(footerClearanceProperty);
+    };
+  }, [selectedService]);
 
   useEffect(() => {
     if (!isHydrated || !bookingFlow.includes('tech')) {
@@ -561,9 +663,9 @@ export function BookServiceClient({
   const serviceRows = buildServiceRows(filteredServices);
   const soleCompatiblePreviewRating = soleCompatiblePreviewTechnician
     ? getPublicTechnicianRatingDisplay({
-      rating: soleCompatiblePreviewTechnician.rating,
-      reviewCount: soleCompatiblePreviewTechnician.reviewCount,
-    })
+        rating: soleCompatiblePreviewTechnician.rating,
+        reviewCount: soleCompatiblePreviewTechnician.reviewCount,
+      })
     : null;
   const effectiveContinueTechnicianId = shouldPreviewAutoSkipTech
     ? soleCompatiblePreviewTechnician?.id ?? null
@@ -602,6 +704,7 @@ export function BookServiceClient({
       techId: effectiveContinueTechnicianId,
       originalAppointmentId,
       manageToken,
+      campaignToken,
       locationId: selectedLocationId,
     }, {
       routeSalonSlug,
@@ -618,6 +721,7 @@ export function BookServiceClient({
         selectedAddOns: selectedAddOnsState,
         originalAppointmentId,
         manageToken,
+        campaignToken,
         locationId: selectedLocationId,
       }, {
         routeSalonSlug,
@@ -689,7 +793,7 @@ export function BookServiceClient({
 
   return (
     <div
-      className="min-h-screen"
+      className="service-page-viewport"
       style={{
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
@@ -699,20 +803,33 @@ export function BookServiceClient({
           salonName={salonName}
           mounted={mounted}
           salonNameVariant="editorial"
-          announcement={showNewClientPromo
+          announcement={campaignOffer
             ? (
                 <div
-                  className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                  style={{
-                    borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
-                    backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
-                    color: `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
-                  }}
+                  className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
                 >
-                  ✨ 25% off for new clients — until April 30
+                  ✨
+                  {' '}
+                  {campaignOffer.name}
+                  {' · '}
+                  {campaignOffer.displayOffer}
+                  {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
                 </div>
               )
-            : undefined}
+            : showNewClientPromo
+              ? (
+                  <div
+                    className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                    style={{
+                      borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
+                      backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
+                      color: `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                    }}
+                  >
+                    ✨ 25% off for new clients — until April 30
+                  </div>
+                )
+              : undefined}
           title="Choose Your Service"
           description="Pick your main service, then add optional extras."
           bookingFlow={effectiveBookingFlow}
@@ -721,6 +838,12 @@ export function BookServiceClient({
           onBack={handleBack}
           className="-mb-1"
         />
+
+        {campaignUnavailable && (
+          <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            This promotion link is no longer available. You can still book at the regular price.
+          </div>
+        )}
 
         <div
           className="mb-4"
@@ -1297,7 +1420,8 @@ export function BookServiceClient({
         {selectedService && (
           <div
             data-testid="service-sticky-spacer"
-            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom))' }}
+            aria-hidden="true"
+            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))' }}
           />
         )}
       </div>
@@ -1308,7 +1432,8 @@ export function BookServiceClient({
           className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
           style={{
             animation: 'slideUp 0.3s ease-out',
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}
         >
           <style jsx>

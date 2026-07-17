@@ -4,16 +4,16 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { BlockingLoginModal } from '@/components/BlockingLoginModal';
-import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
+import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { StateCard } from '@/components/ui/state-card';
-import { useClientSession } from '@/hooks/useClientSession';
 import { useBookingState } from '@/hooks/useBookingState';
-import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { useClientSession } from '@/hooks/useClientSession';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
+import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -44,6 +44,8 @@ export type AddOnSummary = {
   duration: number;
 };
 
+const EMPTY_ADD_ONS: AddOnSummary[] = [];
+
 type BookTechClientProps = {
   technicians: TechnicianData[];
   services: ServiceSummary[];
@@ -57,7 +59,7 @@ type BookTechClientProps = {
 export function BookTechClient({
   technicians,
   services,
-  addOns = [],
+  addOns = EMPTY_ADD_ONS,
   totalPrice,
   totalDuration,
   locationName = null,
@@ -79,6 +81,8 @@ export function BookTechClient({
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const locationId = searchParams.get('locationId') || '';
+  const manageToken = searchParams.get('manageToken') || '';
+  const campaignToken = searchParams.get('campaign') || '';
 
   // Use shared auth hook
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
@@ -136,6 +140,8 @@ export function BookTechClient({
       selectedAddOns,
       techId,
       originalAppointmentId,
+      manageToken,
+      campaignToken,
       locationId,
     }, {
       routeSalonSlug,
@@ -197,6 +203,8 @@ export function BookTechClient({
         baseServiceId,
         selectedAddOns,
         originalAppointmentId,
+        manageToken,
+        campaignToken,
         locationId,
       }, {
         routeSalonSlug,
@@ -316,37 +324,41 @@ export function BookTechClient({
                     {tech.name}
                   </div>
 
-                  {!tech.bookable ? (
-                    <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
-                      {tech.unavailableReason ?? 'Unavailable for this service'}
-                    </div>
-                  ) : ratingDisplay.kind === 'rated' ? (
-                    <div className="mb-2 flex items-center gap-1.5">
-                      <div className="flex items-center gap-0.5">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <svg
-                            key={star}
-                            width="14"
-                            height="14"
-                            viewBox="0 0 12 12"
-                            style={{ fill: star <= Math.floor(ratingDisplay.ratingValue) ? themeVars.primary : '#e5e5e5' }}
-                          >
-                            <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
-                          </svg>
-                        ))}
-                      </div>
-                      <span className="text-sm font-bold text-neutral-900">{ratingDisplay.ratingText}</span>
-                      <span className="text-xs text-neutral-400">
-                        (
-                        {ratingDisplay.reviewCountText}
+                  {!tech.bookable
+                    ? (
+                        <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
+                          {tech.unavailableReason ?? 'Unavailable for this service'}
+                        </div>
+                      )
+                    : ratingDisplay.kind === 'rated'
+                      ? (
+                          <div className="mb-2 flex items-center gap-1.5">
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <svg
+                                  key={star}
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 12 12"
+                                  style={{ fill: star <= Math.floor(ratingDisplay.ratingValue) ? themeVars.primary : '#e5e5e5' }}
+                                >
+                                  <path d="M6 0L7.5 4.5L12 4.5L8.25 7.5L9.75 12L6 9L2.25 12L3.75 7.5L0 4.5L4.5 4.5L6 0Z" />
+                                </svg>
+                              ))}
+                            </div>
+                            <span className="text-sm font-bold text-neutral-900">{ratingDisplay.ratingText}</span>
+                            <span className="text-xs text-neutral-400">
+                              (
+                              {ratingDisplay.reviewCountText}
+                              )
+                            </span>
+                          </div>
                         )
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
-                      {ratingDisplay.label}
-                    </div>
-                  )}
+                      : (
+                          <div className="mb-2 rounded-full bg-neutral-100 px-3 py-1 text-center text-xs font-medium text-neutral-600">
+                            {ratingDisplay.label}
+                          </div>
+                        )}
 
                   {/* Specialties */}
                   <div className="flex flex-wrap justify-center gap-1">

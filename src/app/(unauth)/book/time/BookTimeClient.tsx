@@ -211,6 +211,7 @@ export function BookTimeClient({
   const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
+  const campaignToken = searchParams.get('campaign') || '';
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
@@ -341,15 +342,15 @@ export function BookTimeClient({
         setAvailabilityError(null);
         const nextVisibleSlots: AvailabilitySlot[] = Array.isArray(data.slots)
           ? data.slots
-            .filter((slot: unknown): slot is AvailabilitySlot =>
-              typeof slot === 'object'
-              && slot !== null
-              && typeof (slot as AvailabilitySlot).time === 'string',
-            )
-            .map((slot: AvailabilitySlot) => ({
-              time: slot.time,
-              startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
-            }))
+              .filter((slot: unknown): slot is AvailabilitySlot =>
+                typeof slot === 'object'
+                && slot !== null
+                && typeof (slot as AvailabilitySlot).time === 'string',
+              )
+              .map((slot: AvailabilitySlot) => ({
+                time: slot.time,
+                startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
+              }))
           : (data.visibleSlots || []).map((time: string) => ({ time, startTime: null }));
         setVisibleSlots(nextVisibleSlots);
         setBookedSlots(data.bookedSlots || []);
@@ -650,6 +651,7 @@ export function BookTimeClient({
       locationId,
       originalAppointmentId,
       manageToken,
+      campaignToken,
     }, {
       routeSalonSlug,
       locale,
@@ -670,6 +672,7 @@ export function BookTimeClient({
         locationId,
         originalAppointmentId,
         manageToken,
+        campaignToken,
       }, {
         routeSalonSlug,
         locale,

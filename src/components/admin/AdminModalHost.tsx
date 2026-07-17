@@ -15,6 +15,12 @@ import { StaffModal } from '@/components/admin/StaffModal';
 import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
 import type { AnalyticsResponse } from '@/types/admin';
+import type { RetentionStage } from '@/types/retention';
+
+type PromotionSettingsStage = Extract<
+  RetentionStage,
+  'promo_6w' | 'promo_8w'
+>;
 
 type AnalyticsWidgetProps = {
   revenue: number;
@@ -52,6 +58,13 @@ type AdminModalHostProps = {
   isFreeSolo: boolean;
   onCloseModal: () => void;
   initialAppointmentId?: string | null;
+  initialClientId?: string | null;
+  initialPromotionStage?: PromotionSettingsStage | null;
+  onOpenPromotionSettings?: (
+    stage: PromotionSettingsStage,
+    clientId: string,
+  ) => void;
+  onClosePromotionSettings?: () => void;
   showNotifications: boolean;
   setShowNotifications: (value: boolean) => void;
   showFraudSignals: boolean;
@@ -77,6 +90,10 @@ export function AdminModalHost({
   isFreeSolo,
   onCloseModal,
   initialAppointmentId,
+  initialClientId,
+  initialPromotionStage,
+  onOpenPromotionSettings,
+  onClosePromotionSettings,
   showNotifications,
   setShowNotifications,
   showFraudSignals,
@@ -102,7 +119,11 @@ export function AdminModalHost({
         onClose={onCloseModal}
         allowDragToDismiss={false}
       >
-        <AppointmentsModal onClose={onCloseModal} initialAppointmentId={initialAppointmentId} />
+        <AppointmentsModal
+          onClose={onCloseModal}
+          initialAppointmentId={initialAppointmentId}
+          salonSlug={activeSalonSlug}
+        />
       </AppModal>
 
       <AppModal
@@ -129,7 +150,11 @@ export function AdminModalHost({
         isOpen={activeModal === 'clients'}
         onClose={onCloseModal}
       >
-        <ClientsModal onClose={onCloseModal} />
+        <ClientsModal
+          onClose={onCloseModal}
+          initialClientId={initialClientId}
+          onOpenPromotionSettings={onOpenPromotionSettings}
+        />
       </AppModal>
 
       <AppModal
@@ -148,9 +173,12 @@ export function AdminModalHost({
 
       <AppModal
         isOpen={activeModal === 'marketing'}
-        onClose={onCloseModal}
+        onClose={onClosePromotionSettings ?? onCloseModal}
       >
-        <MarketingModal onClose={onCloseModal} />
+        <MarketingModal
+          onClose={onClosePromotionSettings ?? onCloseModal}
+          initialPromotionStage={initialPromotionStage}
+        />
       </AppModal>
 
       <AppModal

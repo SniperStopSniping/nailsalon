@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -108,6 +109,7 @@ describe('GET /api/admin/clients/[id]', () => {
         status: 'confirmed',
         totalPrice: 9500,
         technicianId: 'tech_1',
+        locationId: 'loc_secondary',
         notes: 'French finish',
       }],
       [{
@@ -117,6 +119,7 @@ describe('GET /api/admin/clients/[id]', () => {
         status: 'completed',
         totalPrice: 8200,
         technicianId: 'tech_2',
+        locationId: null,
         notes: null,
       }],
       [{
@@ -126,12 +129,21 @@ describe('GET /api/admin/clients/[id]', () => {
         status: 'no_show',
         totalPrice: 0,
         technicianId: 'tech_1',
+        locationId: null,
         notes: 'Did not arrive',
       }],
       [
         { id: 'tech_1', name: 'Daniela', avatarUrl: null },
         { id: 'tech_2', name: 'Mila', avatarUrl: null },
       ],
+      [{
+        id: 'loc_secondary',
+        name: 'Yorkville Studio',
+        address: '88 Cumberland St',
+        city: 'Toronto',
+        state: 'ON',
+        zipCode: 'M5R 1A3',
+      }],
       [
         { appointmentId: 'appt_upcoming', serviceName: 'Gel Fill', priceAtBooking: 9500 },
         { appointmentId: 'appt_completed', serviceName: 'Classic Pedicure', priceAtBooking: 8200 },
@@ -156,6 +168,14 @@ describe('GET /api/admin/clients/[id]', () => {
     expect(body.data.upcomingAppointments[0]).toMatchObject({
       id: 'appt_upcoming',
       status: 'confirmed',
+      location: {
+        id: 'loc_secondary',
+        name: 'Yorkville Studio',
+        address: '88 Cumberland St',
+        city: 'Toronto',
+        state: 'ON',
+        zipCode: 'M5R 1A3',
+      },
       services: [{ name: 'Gel Fill', price: 9500 }],
     });
     expect(body.data.pastAppointments).toEqual([
