@@ -5,10 +5,16 @@
 -- 1. Add soft delete fields to salon table
 -- =============================================================================
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp;
+--> statement-breakpoint
+
 ALTER TABLE "salon" ADD COLUMN IF NOT EXISTS "deleted_by" text;
+--> statement-breakpoint
+
 
 -- Index for filtering out deleted salons
 CREATE INDEX IF NOT EXISTS "salon_deleted_at_idx" ON "salon"("deleted_at");
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 2. Create salon_audit_log table for tracking admin actions
@@ -22,11 +28,19 @@ CREATE TABLE IF NOT EXISTS "salon_audit_log" (
   "metadata" jsonb,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes for audit log queries
 CREATE INDEX IF NOT EXISTS "audit_log_salon_idx" ON "salon_audit_log"("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "audit_log_action_idx" ON "salon_audit_log"("action");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "audit_log_created_idx" ON "salon_audit_log"("created_at");
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 3. Create salon_location table for multi-location support
@@ -55,10 +69,16 @@ CREATE TABLE IF NOT EXISTS "salon_location" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes for location queries
 CREATE INDEX IF NOT EXISTS "location_salon_idx" ON "salon_location"("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "location_primary_idx" ON "salon_location"("salon_id", "is_primary");
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- 4. Update technician table to reference locations

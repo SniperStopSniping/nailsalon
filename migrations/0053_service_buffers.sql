@@ -1,6 +1,8 @@
 ALTER TABLE "service"
   ADD COLUMN IF NOT EXISTS "preparation_buffer_minutes" integer DEFAULT 0 NOT NULL,
   ADD COLUMN IF NOT EXISTS "cleanup_buffer_minutes" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+
 
 DO $$
 BEGIN
@@ -15,6 +17,10 @@ BEGIN
       CHECK ("cleanup_buffer_minutes" >= 0 AND "cleanup_buffer_minutes" <= 120) NOT VALID;
   END IF;
 END $$;
+--> statement-breakpoint
+
 
 ALTER TABLE "service" VALIDATE CONSTRAINT "service_preparation_buffer_range";
+--> statement-breakpoint
+
 ALTER TABLE "service" VALIDATE CONSTRAINT "service_cleanup_buffer_range";

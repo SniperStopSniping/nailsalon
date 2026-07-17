@@ -3,5 +3,6 @@
 -- null means "use defaults" - no data migration needed
 
 ALTER TABLE salon ADD COLUMN IF NOT EXISTS settings jsonb;
-ALTER TABLE salon ADD COLUMN IF NOT EXISTS visibility jsonb;
+--> statement-breakpoint
 
+ALTER TABLE salon ADD COLUMN IF NOT EXISTS visibility jsonb;

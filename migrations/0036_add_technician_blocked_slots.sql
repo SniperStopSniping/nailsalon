@@ -11,7 +11,13 @@ CREATE TABLE IF NOT EXISTS "technician_blocked_slot" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE INDEX IF NOT EXISTS "blocked_slot_technician_idx" ON "technician_blocked_slot"("technician_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "blocked_slot_salon_idx" ON "technician_blocked_slot"("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "blocked_slot_day_idx" ON "technician_blocked_slot"("technician_id", "day_of_week");

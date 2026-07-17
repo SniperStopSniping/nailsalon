@@ -19,12 +19,22 @@ CREATE TABLE IF NOT EXISTS time_off_request (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes for time_off_request
 CREATE INDEX IF NOT EXISTS time_off_request_salon_idx ON time_off_request(salon_id);
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS time_off_request_tech_idx ON time_off_request(technician_id);
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS time_off_request_status_idx ON time_off_request(salon_id, status);
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS time_off_request_tech_status_idx ON time_off_request(technician_id, status);
+--> statement-breakpoint
+
 
 -- =============================================================================
 -- NOTIFICATION TABLE
@@ -43,10 +53,18 @@ CREATE TABLE IF NOT EXISTS notification (
   read_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes for notification
 CREATE INDEX IF NOT EXISTS notification_salon_idx ON notification(salon_id);
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS notification_recipient_tech_idx ON notification(recipient_technician_id);
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS notification_unread_idx ON notification(recipient_technician_id, read_at) 
   WHERE read_at IS NULL;
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS notification_created_idx ON notification(recipient_technician_id, created_at DESC);

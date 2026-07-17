@@ -14,9 +14,17 @@ CREATE TABLE IF NOT EXISTS "audit_log" (
   "user_agent" TEXT,
   "created_at" TIMESTAMP DEFAULT NOW() NOT NULL
 );
+--> statement-breakpoint
+
 
 -- Indexes for efficient querying
 CREATE INDEX IF NOT EXISTS "audit_log_salon_idx" ON "audit_log"("salon_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "audit_log_action_idx" ON "audit_log"("action");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "audit_log_entity_idx" ON "audit_log"("entity_type", "entity_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "audit_log_created_at_idx" ON "audit_log"("created_at");

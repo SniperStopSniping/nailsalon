@@ -25,15 +25,25 @@ CREATE TABLE IF NOT EXISTS "google_calendar_event" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "google_calendar_event_tenant_provider_idx"
   ON "google_calendar_event" ("salon_id", "calendar_id", "google_event_id");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "google_calendar_event_review_time_idx"
   ON "google_calendar_event" ("salon_id", "review_status", "start_time");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "google_calendar_event_salon_time_idx"
   ON "google_calendar_event" ("salon_id", "start_time", "end_time");
+--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "google_calendar_event_appointment_idx"
   ON "google_calendar_event" ("appointment_id");
+--> statement-breakpoint
+
 
 CREATE TABLE IF NOT EXISTS "google_event_review_pattern" (
   "id" text PRIMARY KEY NOT NULL,
@@ -45,9 +55,13 @@ CREATE TABLE IF NOT EXISTS "google_event_review_pattern" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS "google_event_review_pattern_tenant_title_idx"
   ON "google_event_review_pattern" ("salon_id", "title_fingerprint");
+--> statement-breakpoint
+
 
 INSERT INTO "google_calendar_event" (
   "id", "salon_id", "calendar_id", "google_event_id", "appointment_id",
@@ -75,6 +89,8 @@ SELECT
 FROM "google_calendar_draft" d
 LEFT JOIN "salon_google_calendar_connection" c ON c."salon_id" = d."salon_id"
 ON CONFLICT ("salon_id", "calendar_id", "google_event_id") DO NOTHING;
+--> statement-breakpoint
+
 
 -- Force one bounded initial resynchronization so existing current/future events
 -- are discovered under the richer model. Historical rows are auto-reviewed.
