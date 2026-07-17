@@ -14,11 +14,25 @@ describe('bookingParams helpers', () => {
       techId: 'tech_1',
       locationId: 'loc_1',
       originalAppointmentId: 'appt_1',
+      campaignToken: 'campaign_token_12345678901234567890',
       date: '2026-03-20',
       time: '10:00',
     });
 
-    expect(url).toBe('/en/book/confirm?salonSlug=salon-a&serviceIds=srv_1%2Csrv_2&locationId=loc_1&techId=tech_1&originalAppointmentId=appt_1&date=2026-03-20&time=10%3A00');
+    expect(url).toBe('/en/book/confirm?salonSlug=salon-a&serviceIds=srv_1%2Csrv_2&locationId=loc_1&techId=tech_1&originalAppointmentId=appt_1&campaign=campaign_token_12345678901234567890&date=2026-03-20&time=10%3A00');
+    expect(url).not.toContain('clientPhone');
+  });
+
+  it('round-trips a retention campaign token without exposing it under a client identity field', async () => {
+    const { parseBookingParams } = await import('./bookingParams');
+    const token = 'safe_campaign_token_12345678901234567890';
+    const url = buildBookingUrl('/book/service', {
+      salonSlug: 'salon-a',
+      campaignToken: token,
+    });
+
+    expect(url).toContain(`campaign=${token}`);
+    expect(parseBookingParams(new URL(url, 'https://example.test').searchParams).campaignToken).toBe(token);
     expect(url).not.toContain('clientPhone');
   });
 

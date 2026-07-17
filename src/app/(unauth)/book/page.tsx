@@ -23,7 +23,7 @@ export default async function BookEntryPage({
   searchParams,
   params,
 }: {
-  searchParams: { salonSlug?: string };
+  searchParams: { salonSlug?: string; campaign?: string };
   params?: { locale?: string; slug?: string };
 }) {
   // Fetch salon data to get the booking flow
@@ -37,6 +37,7 @@ export default async function BookEntryPage({
 
   redirect(buildBookingUrl(`${localePrefix}/book/${firstStep}`, {
     salonSlug: searchParams.salonSlug ?? salon.slug,
+    campaignToken: searchParams.campaign ?? null,
   }, {
     routeSalonSlug: params?.slug,
     locale: params?.locale,

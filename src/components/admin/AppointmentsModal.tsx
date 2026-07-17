@@ -17,6 +17,7 @@ import { NewAppointmentModal } from './NewAppointmentModal';
 type AppointmentsModalProps = {
   onClose: () => void;
   initialAppointmentId?: string | null;
+  salonSlug?: string | null;
 };
 
 type AdminAppointmentsResponse = {
@@ -78,7 +79,11 @@ function patchAppointment(
   return appointments.map(appointment => appointment.id === updated.id ? updated : appointment);
 }
 
-export function AppointmentsModal({ onClose, initialAppointmentId = null }: AppointmentsModalProps) {
+export function AppointmentsModal({
+  onClose,
+  initialAppointmentId = null,
+  salonSlug = null,
+}: AppointmentsModalProps) {
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [resources, setResources] = useState<CalendarResource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +95,7 @@ export function AppointmentsModal({ onClose, initialAppointmentId = null }: Appo
   const latestAppointmentsFetchIdRef = useRef(0);
 
   const actions = useAppointmentActions({
+    salonSlug,
     onMutationApplied: (result) => {
       setAppointments(current => patchAppointment(current, result.calendarEvent));
     },

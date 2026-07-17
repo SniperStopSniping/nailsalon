@@ -11,16 +11,53 @@ const {
   enqueueGoogleCalendarDelete,
   updateWhere,
   updateSet,
+  transitionReturning,
+  transaction,
+  mockDbState,
   db,
   updateSalonClientStats,
 } = vi.hoisted(() => {
-  const limit = vi.fn(async () => []);
-  const whereSelect = vi.fn(() => ({ limit }));
-  const from = vi.fn(() => ({ where: whereSelect }));
-  const select = vi.fn(() => ({ from }));
-  const updateWhere = vi.fn(async () => undefined);
-  const updateSet = vi.fn(() => ({ where: updateWhere }));
-  const update = vi.fn(() => ({ set: updateSet }));
+  const mockDbState = {
+    currentAppointmentRows: [] as Array<{
+      status: string;
+      cancelReason: string | null;
+      updatedAt: Date;
+    }>,
+    rewardRows: [] as Array<{
+      id: string;
+      status: string;
+    }>,
+    transitionApplied: false,
+  };
+  const select = vi.fn((projection?: Record<string, unknown>) => {
+    const readsCurrentAppointment = Boolean(
+      projection
+      && 'status' in projection
+      && 'cancelReason' in projection
+      && 'updatedAt' in projection,
+    );
+    const limit = vi.fn(async () => (
+      readsCurrentAppointment
+        ? mockDbState.currentAppointmentRows
+        : mockDbState.rewardRows
+    ));
+    const whereSelect = vi.fn(() => ({ limit }));
+    const from = vi.fn(() => ({ where: whereSelect }));
+    return { from };
+  });
+  const transitionReturning = vi.fn(async () => {
+    if (mockDbState.transitionApplied) {
+      return [];
+    }
+    mockDbState.transitionApplied = true;
+    return [{ updatedAt: new Date('2026-07-17T16:00:00.000Z') }];
+  });
+  const updateWhere = vi.fn((_condition: unknown) => ({ returning: transitionReturning }));
+  const updateSet = vi.fn((_values: Record<string, unknown>) => ({ where: updateWhere }));
+  const update = vi.fn((_table: unknown) => ({ set: updateSet }));
+  const transaction = vi.fn(async (callback: (tx: { select: typeof select; update: typeof update }) => unknown) => (
+    callback({ select, update })
+  ));
 
   return {
     requireAppointmentManagerAccess: vi.fn(),
@@ -32,9 +69,13 @@ const {
     enqueueGoogleCalendarDelete: vi.fn(),
     updateWhere,
     updateSet,
+    transitionReturning,
+    transaction,
+    mockDbState,
     db: {
       select,
       update,
+      transaction,
     },
     updateSalonClientStats: vi.fn(),
   };
@@ -76,6 +117,13 @@ import { PATCH } from './route';
 describe('PATCH /api/appointments/[id]/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbState.currentAppointmentRows = [{
+      status: 'cancelled',
+      cancelReason: 'client_request',
+      updatedAt: new Date('2026-07-17T16:00:00.000Z'),
+    }];
+    mockDbState.rewardRows = [];
+    mockDbState.transitionApplied = false;
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     getSalonById.mockResolvedValue({
       id: 'salon_1',
@@ -271,5 +319,108 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       canvasState: 'cancelled',
     }));
     expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalled();
+  });
+
+  it('applies a concurrent double-cancel once and refunds loyalty points only once', async () => {
+    const appointment = {
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonClientId: 'client_1',
+      technicianId: 'tech_1',
+      status: 'confirmed',
+      cancelReason: null,
+      notes: '[Points redeemed: 1,000 pts]',
+      clientName: 'Ava',
+      clientPhone: '+15551234567',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      googleCalendarEventId: 'gevent_1',
+      updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+    };
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment,
+    });
+    mockDbState.rewardRows = [{ id: 'reward_1', status: 'pending' }];
+
+    const cancel = () => PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    const [firstResponse, secondResponse] = await Promise.all([cancel(), cancel()]);
+    const [firstBody, secondBody] = await Promise.all([
+      firstResponse.json(),
+      secondResponse.json(),
+    ]);
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(firstBody.data.appointment.status).toBe('cancelled');
+    expect(secondBody.data.appointment.status).toBe('cancelled');
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transitionReturning).toHaveBeenCalledTimes(2);
+
+    const loyaltyRefunds = updateSet.mock.calls.filter(([values]) => (
+      values && typeof values === 'object' && 'loyaltyPoints' in values
+    ));
+    const rewardRestores = updateSet.mock.calls.filter(([values]) => (
+      values
+      && typeof values === 'object'
+      && 'usedInAppointmentId' in values
+      && 'status' in values
+      && values.usedInAppointmentId === null
+      && values.status === 'active'
+    ));
+
+    expect(loyaltyRefunds).toHaveLength(1);
+    expect(rewardRestores).toHaveLength(1);
+    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledTimes(1);
+    expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns success after commit when calendar or notification delivery fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'client_1',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        cancelReason: null,
+        notes: null,
+        clientName: 'Ava',
+        clientPhone: '+15551234567',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: 'gevent_1',
+        updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+      },
+    });
+    enqueueGoogleCalendarDelete.mockRejectedValueOnce(new Error('outbox unavailable'));
+    vi.mocked(sendCancellationConfirmation).mockRejectedValueOnce(new Error('sms unavailable'));
+    sendBookingNotificationsForAppointmentCancelled.mockRejectedValueOnce(new Error('email unavailable'));
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment.status).toBe('cancelled');
+    expect(consoleError).toHaveBeenCalled();
+
+    consoleError.mockRestore();
   });
 });

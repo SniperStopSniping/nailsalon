@@ -8,6 +8,7 @@ import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepa
 import { getClientSession } from '@/libs/clientAuth';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
+import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
 import { getPublicPageContext } from '@/libs/tenant';
@@ -39,6 +40,7 @@ export default async function BookConfirmPage({
     salonSlug?: string;
     originalAppointmentId?: string;
     manageToken?: string;
+    campaign?: string;
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -136,6 +138,7 @@ export default async function BookConfirmPage({
         locationId: locationId || primaryLocation?.id || null,
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -156,6 +159,7 @@ export default async function BookConfirmPage({
         techError: 'unsupported',
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -172,6 +176,7 @@ export default async function BookConfirmPage({
         techId: null,
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
+        campaignToken: searchParams.campaign ?? null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -227,6 +232,24 @@ export default async function BookConfirmPage({
     price: service.priceCents / 100,
     duration: service.durationMinutes,
   }));
+  const campaignResolution = await resolvePublicRetentionCampaignPreview({
+    token: searchParams.campaign ?? null,
+    salonId: salon.id,
+    services: resolvedTechnicianContext.resolvedSelection.services.map(service => ({
+      id: service.id,
+      priceCents: service.priceCents,
+    })),
+  });
+  const campaignPreview = campaignResolution.status === 'valid'
+    ? campaignResolution.preview
+    : null;
+  const subtotalBeforeDiscountCents = resolvedTechnicianContext.resolvedSelection.subtotalBeforeDiscountCents;
+  const discountAmountCents = campaignPreview
+    ? campaignPreview.discountAmountCents
+    : resolvedTechnicianContext.resolvedSelection.discountAmountCents;
+  const totalPriceCents = campaignPreview
+    ? Math.max(0, subtotalBeforeDiscountCents - campaignPreview.discountAmountCents)
+    : resolvedTechnicianContext.resolvedSelection.totalPriceCents;
   // Rewards program state — points messaging is hidden when the program is off
   const rewardsEnabled = await isRewardsEnabled(salon.id);
   // SMS reminder state — "we'll text you" copy is hidden when reminders are off
@@ -253,10 +276,16 @@ export default async function BookConfirmPage({
           }))}
           baseServiceId={resolvedTechnicianContext.resolvedSelection.baseServiceId}
           selectedAddOns={resolvedTechnicianContext.resolvedSelection.selectedAddOns}
-          subtotalBeforeDiscount={resolvedTechnicianContext.resolvedSelection.subtotalBeforeDiscountCents / 100}
-          discountAmount={resolvedTechnicianContext.resolvedSelection.discountAmountCents / 100}
-          firstVisitDiscountPreview={resolvedTechnicianContext.resolvedSelection.firstVisitDiscountPreview}
-          totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
+          subtotalBeforeDiscount={subtotalBeforeDiscountCents / 100}
+          discountAmount={discountAmountCents / 100}
+          firstVisitDiscountPreview={campaignPreview
+            ? null
+            : resolvedTechnicianContext.resolvedSelection.firstVisitDiscountPreview}
+          campaignPromotionPreview={campaignPreview}
+          campaignMessage={campaignResolution.status === 'invalid'
+            ? campaignResolution.message
+            : null}
+          totalPrice={totalPriceCents / 100}
           totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}
           technician={technician}
           salonSlug={salon.slug}

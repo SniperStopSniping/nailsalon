@@ -12,6 +12,7 @@ import {
   appointmentPhotoSchema,
   appointmentSchema,
   appointmentServicesSchema,
+  salonLocationSchema,
   serviceSchema,
   technicianSchema,
 } from '@/models/Schema';
@@ -140,6 +141,7 @@ export async function GET(
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
+        locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
       })
       .from(appointmentSchema)
@@ -163,6 +165,7 @@ export async function GET(
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
+        locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
       })
       .from(appointmentSchema)
@@ -186,6 +189,7 @@ export async function GET(
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
+        locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
       })
       .from(appointmentSchema)
@@ -227,12 +231,46 @@ export async function GET(
       techMap = new Map(technicians.map(t => [t.id, t]));
     }
 
+    const upcomingLocationIds = [
+      ...new Set(
+        upcomingAppointments
+          .map(appointment => appointment.locationId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    let locationMap = new Map<string, {
+      id: string;
+      name: string;
+      address: string | null;
+      city: string | null;
+      state: string | null;
+      zipCode: string | null;
+    }>();
+    if (upcomingLocationIds.length > 0) {
+      const locations = await db
+        .select({
+          id: salonLocationSchema.id,
+          name: salonLocationSchema.name,
+          address: salonLocationSchema.address,
+          city: salonLocationSchema.city,
+          state: salonLocationSchema.state,
+          zipCode: salonLocationSchema.zipCode,
+        })
+        .from(salonLocationSchema)
+        .where(and(
+          eq(salonLocationSchema.salonId, salon.id),
+          inArray(salonLocationSchema.id, upcomingLocationIds),
+        ));
+      locationMap = new Map(locations.map(location => [location.id, location]));
+    }
+
     // Get services for each appointment
-    const appointmentServicesMap = new Map<string, { name: string; price: number }[]>();
+    const appointmentServicesMap = new Map<string, { id: string; name: string; price: number }[]>();
     if (allAppointmentIds.length > 0) {
       const services = await db
         .select({
           appointmentId: appointmentServicesSchema.appointmentId,
+          serviceId: serviceSchema.id,
           serviceName: serviceSchema.name,
           priceAtBooking: appointmentServicesSchema.priceAtBooking,
         })
@@ -242,7 +280,7 @@ export async function GET(
 
       for (const svc of services) {
         const existing = appointmentServicesMap.get(svc.appointmentId) ?? [];
-        existing.push({ name: svc.serviceName, price: svc.priceAtBooking });
+        existing.push({ id: svc.serviceId, name: svc.serviceName, price: svc.priceAtBooking });
         appointmentServicesMap.set(svc.appointmentId, existing);
       }
     }
@@ -255,6 +293,7 @@ export async function GET(
       status: appt.status,
       totalPrice: appt.totalPrice,
       technician: appt.technicianId ? techMap.get(appt.technicianId) ?? null : null,
+      location: appt.locationId ? locationMap.get(appt.locationId) ?? null : null,
       services: appointmentServicesMap.get(appt.id) ?? [],
       notes: appt.notes,
     });
@@ -297,6 +336,8 @@ export async function GET(
           averageSpend,
           noShowCount: client.noShowCount ?? 0,
           loyaltyPoints: client.loyaltyPoints ?? 0,
+          hasGoogleReview: client.hasGoogleReview,
+          googleReviewMarkedAt: client.googleReviewMarkedAt?.toISOString() ?? null,
           createdAt: client.createdAt.toISOString(),
         },
         upcomingAppointments: upcomingAppointments.map(formatAppointment),

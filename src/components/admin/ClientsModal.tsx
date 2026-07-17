@@ -22,12 +22,14 @@ import {
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
+import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { useSalon } from '@/providers/SalonProvider';
+import type { RetentionStage } from '@/types/retention';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
@@ -78,6 +80,8 @@ type ClientProfile = {
   averageSpend: number;
   noShowCount: number;
   loyaltyPoints: number;
+  hasGoogleReview: boolean;
+  googleReviewMarkedAt: string | null;
   createdAt: string;
 };
 
@@ -92,7 +96,16 @@ type ClientAppointment = {
     name: string;
     avatarUrl: string | null;
   } | null;
+  location: {
+    id: string;
+    name: string;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  } | null;
   services: Array<{
+    id: string;
     name: string;
     price: number;
   }>;
@@ -142,7 +155,17 @@ type ClientPhoto = {
 
 type ClientsModalProps = {
   onClose: () => void;
+  initialClientId?: string | null;
+  onOpenPromotionSettings?: (
+    stage: PromotionSettingsStage,
+    clientId: string,
+  ) => void;
 };
+
+type PromotionSettingsStage = Extract<
+  RetentionStage,
+  'promo_6w' | 'promo_8w'
+>;
 
 type SortOption = 'recent' | 'visits' | 'spent' | 'name';
 
@@ -536,6 +559,7 @@ function AppointmentsSection({
 function ClientDetail({
   clientSummary,
   salonSlug,
+  salonName,
   moduleAvailability,
   technicians,
   techniciansLoading,
@@ -543,10 +567,12 @@ function ClientDetail({
   initialCachedDetail,
   onCacheUpdate,
   onRefreshTechnicians,
+  onOpenPromotionSettings,
   onBack,
 }: {
   clientSummary: ClientSummary;
   salonSlug: string;
+  salonName: string;
   moduleAvailability: ModuleAvailability;
   technicians: TechnicianOption[];
   techniciansLoading: boolean;
@@ -554,6 +580,7 @@ function ClientDetail({
   initialCachedDetail: ClientDetailCacheEntry | null;
   onCacheUpdate: (clientId: string, updates: Partial<ClientDetailCacheEntry>) => void;
   onRefreshTechnicians: () => Promise<void> | void;
+  onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
@@ -921,23 +948,33 @@ function ClientDetail({
                     </>
                   )}
             </div>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button asChild type="button" variant="brandSoft" size="pillSm">
-                <a href={`tel:${statsSource.phone}`}>Call</a>
-              </Button>
-              <Button asChild type="button" variant="brandSoft" size="pillSm">
-                <a href={`sms:${statsSource.phone}`}>Text</a>
-              </Button>
-              <Button
-                type="button"
-                variant="brandSoft"
-                size="pillSm"
-                data-testid="client-book-appointment"
-                onClick={() => openBookingModal(null)}
-              >
-                Book appointment
-              </Button>
-            </div>
+            <ClientCommunicationActions
+              salonSlug={salonSlug}
+              salonName={salonName}
+              client={{
+                id: statsSource.id,
+                fullName: statsSource.fullName,
+                phone: statsSource.phone,
+              }}
+              upcomingAppointment={upcomingAppointments[0] ?? null}
+              lastCompletedAppointment={pastAppointments[0] ?? null}
+              completedAppointmentCount={pastAppointments.length}
+              hasGoogleReview={profile?.hasGoogleReview ?? false}
+              onOpenPromotionSettings={onOpenPromotionSettings}
+              onBookAppointment={() => {
+                const previousAppointment = pastAppointments[0];
+                openBookingModal({
+                  name: statsSource.fullName ?? null,
+                  phone: statsSource.phone,
+                  email: statsSource.email ?? null,
+                  serviceId: previousAppointment?.services[0]?.id ?? null,
+                  technicianId:
+                    previousAppointment?.technician?.id
+                    ?? profile?.preferredTechnician?.id
+                    ?? null,
+                });
+              }}
+            />
           </div>
         </AdminDetailCard>
 
@@ -1332,8 +1369,12 @@ function ClientDetail({
   );
 }
 
-export function ClientsModal({ onClose }: ClientsModalProps) {
-  const { salonSlug } = useSalon();
+export function ClientsModal({
+  onClose,
+  initialClientId = null,
+  onOpenPromotionSettings,
+}: ClientsModalProps) {
+  const { salonSlug, salonName } = useSalon();
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1344,6 +1385,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
   const [hasMore, setHasMore] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(null);
+  const [initialClientError, setInitialClientError] = useState<string | null>(null);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
     loaded: false,
@@ -1357,6 +1399,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
 
   const clientDetailCacheRef = useRef<Record<string, ClientDetailCacheEntry>>({});
   const lastFetchedPageRef = useRef(1);
+  const initialClientRequestRef = useRef<string | null>(null);
 
   const fetchClients = useCallback(async (targetPage: number, resetPage = false) => {
     if (!salonSlug) {
@@ -1469,6 +1512,67 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
   }, []);
 
   useEffect(() => {
+    if (!initialClientId || !salonSlug || selectedClient?.id === initialClientId) {
+      return;
+    }
+
+    const listedClient = clients.find(client => client.id === initialClientId);
+    if (listedClient) {
+      setInitialClientError(null);
+      setSelectedClient(listedClient);
+      return;
+    }
+
+    const requestKey = `${salonSlug}:${initialClientId}`;
+    if (initialClientRequestRef.current === requestKey) {
+      return;
+    }
+    initialClientRequestRef.current = requestKey;
+    setInitialClientError(null);
+
+    void fetch(
+      `/api/admin/clients/${encodeURIComponent(initialClientId)}?salonSlug=${encodeURIComponent(salonSlug)}`,
+      { cache: 'no-store' },
+    )
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.data?.client) {
+          throw new Error(payload?.error?.message || 'Client could not be loaded.');
+        }
+
+        const client = payload.data.client as ClientProfile;
+        clientDetailCacheRef.current[client.id] = {
+          profile: client,
+          upcomingAppointments: payload.data.upcomingAppointments ?? [],
+          pastAppointments: payload.data.pastAppointments ?? [],
+          recentIssues: payload.data.recentIssues ?? [],
+          flagsState: null,
+          flagsLoaded: false,
+        };
+        setSelectedClient({
+          id: client.id,
+          phone: client.phone,
+          fullName: client.fullName,
+          email: client.email,
+          lastVisitAt: client.lastVisitAt,
+          totalVisits: client.totalVisits,
+          totalSpent: client.totalSpent,
+          noShowCount: client.noShowCount,
+          loyaltyPoints: client.loyaltyPoints,
+          preferredTechnician: client.preferredTechnician,
+          notes: client.notes,
+        });
+      })
+      .catch((requestError: unknown) => {
+        setInitialClientError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'Client could not be loaded.',
+        );
+      });
+  }, [clients, initialClientId, salonSlug, selectedClient?.id]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
     }, 300);
@@ -1529,6 +1633,28 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-10">
+        {initialClientError && (
+          <AsyncStatePanel
+            tone="error"
+            title="Unable to open that client"
+            description={initialClientError}
+            className="mx-4 mt-4"
+            action={(
+              <Button
+                type="button"
+                variant="brandSoft"
+                size="pillSm"
+                onClick={() => {
+                  initialClientRequestRef.current = null;
+                  setInitialClientError(null);
+                  void fetchClients(1, true);
+                }}
+              >
+                Try again
+              </Button>
+            )}
+          />
+        )}
         {loading && clients.length === 0
           ? (
               <div className="p-4">
@@ -1614,6 +1740,7 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
             key={selectedClient.id}
             clientSummary={selectedClient}
             salonSlug={salonSlug}
+            salonName={salonName}
             moduleAvailability={moduleAvailability}
             technicians={technicians}
             techniciansLoading={techniciansLoading}
@@ -1621,6 +1748,8 @@ export function ClientsModal({ onClose }: ClientsModalProps) {
             initialCachedDetail={clientDetailCacheRef.current[selectedClient.id] ?? null}
             onCacheUpdate={updateClientDetailCache}
             onRefreshTechnicians={fetchTechnicians}
+            onOpenPromotionSettings={stage =>
+              onOpenPromotionSettings?.(stage, selectedClient.id)}
             onBack={() => setSelectedClient(null)}
           />
         )}
