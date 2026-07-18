@@ -30,9 +30,11 @@ import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
+import type { ServiceTemplate } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
+import { ServiceLibraryTab } from './serviceLibrary/ServiceLibraryTab';
 
 // Types
 type BookingCategory = 'manicure' | 'pedicure' | 'combo';
@@ -61,8 +63,10 @@ type ServicePrefill = {
   name: string;
   description: string;
   price: number; // cents
+  priceDisplayText?: string | null;
   durationMinutes: number;
   category: ServiceCategory;
+  bookingCategory?: BookingCategory;
   templateKey: string;
 };
 
@@ -332,10 +336,11 @@ function AddServiceDialog({
       setName(prefill.name);
       setDescription(prefill.description);
       setPrice(String(prefill.price / 100));
+      setPriceDisplayText(prefill.priceDisplayText ?? '');
       setDurationMinutes(String(prefill.durationMinutes));
       setCategory(prefill.category);
-      setBookingCategory(deriveBookingCategory(prefill.category));
-      setBookingCategoryTouched(false);
+      setBookingCategory(prefill.bookingCategory ?? deriveBookingCategory(prefill.category));
+      setBookingCategoryTouched(Boolean(prefill.bookingCategory));
       setError(null);
     } else if (!isOpen) {
       setName('');
@@ -969,6 +974,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   );
   const [addDialogPrefill, setAddDialogPrefill] = useState<ServicePrefill | null>(null);
   const [lusterPromoDismissed, setLusterPromoDismissed] = useState<boolean | null>(null);
+  const [libraryIntroDismissed, setLibraryIntroDismissed] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<'menu' | 'library'>('menu');
+  const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
+  const [bulkAddBusy, setBulkAddBusy] = useState(false);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -1068,6 +1077,9 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           setLusterPromoDismissed(
             Boolean(result?.merchandising?.lusterPromoDismissed),
           );
+          setLibraryIntroDismissed(
+            Boolean(result?.merchandising?.serviceLibraryIntroDismissed),
+          );
         }
       } catch {
         // Promo card simply stays hidden if settings can't be loaded.
@@ -1078,6 +1090,98 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       cancelled = true;
     };
   }, [salonSlug]);
+
+  const fetchOwnedTemplateKeys = useCallback(async () => {
+    if (!salonSlug) {
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/salon/services/from-templates?salonSlug=${encodeURIComponent(salonSlug)}`,
+      );
+      if (!response.ok) {
+        return;
+      }
+      const result = await response.json();
+      setOwnedTemplateKeys(new Set(result?.data?.ownedTemplateKeys ?? []));
+    } catch {
+      // "Added" states degrade gracefully; the server still blocks duplicates.
+    }
+  }, [salonSlug]);
+
+  useEffect(() => {
+    void fetchOwnedTemplateKeys();
+  }, [fetchOwnedTemplateKeys]);
+
+  const patchMerchandising = useCallback(async (update: Record<string, boolean>) => {
+    if (!salonSlug) {
+      return;
+    }
+    try {
+      await fetch(
+        `/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchandising: update }),
+        },
+      );
+    } catch {
+      // Dismissals are best-effort; the card is already hidden locally.
+    }
+  }, [salonSlug]);
+
+  const handleAddTemplate = useCallback(async (template: ServiceTemplate) => {
+    if (template.serviceType === 'addon') {
+      // Add-ons are created server-side with their defaults and wired to any
+      // compatible services already on the menu.
+      if (!salonSlug) {
+        return;
+      }
+      const response = await fetch('/api/salon/services/from-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonSlug, templateKeys: [template.systemKey] }),
+      });
+      if (response.ok) {
+        setOwnedTemplateKeys(current => new Set([...current, template.systemKey]));
+        void fetchServices();
+      }
+      return;
+    }
+
+    setAddDialogPrefill({
+      name: template.name,
+      description: template.description ?? '',
+      price: template.defaultPriceCents,
+      priceDisplayText: template.priceDisplayText,
+      durationMinutes: template.defaultDurationMinutes,
+      category: template.serviceCategory as ServiceCategory,
+      bookingCategory: template.bookingCategory,
+      templateKey: template.systemKey,
+    });
+    setShowAddDialog(true);
+  }, [salonSlug, fetchServices]);
+
+  const handleBulkAdd = useCallback(async (templateKeys: string[]) => {
+    if (!salonSlug || templateKeys.length === 0) {
+      return;
+    }
+    setBulkAddBusy(true);
+    try {
+      const response = await fetch('/api/salon/services/from-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonSlug, templateKeys }),
+      });
+      if (response.ok) {
+        setOwnedTemplateKeys(current => new Set([...current, ...templateKeys]));
+        void fetchServices();
+      }
+    } finally {
+      setBulkAddBusy(false);
+    }
+  }, [salonSlug, fetchServices]);
 
   const dismissLusterPromo = useCallback(async () => {
     setLusterPromoDismissed(true);
@@ -1142,16 +1246,95 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
             </button>
           )}
         />
-        <CategoryTabs
-          active={activeCategory}
-          onChange={setActiveCategory}
-          counts={categoryCounts}
-        />
+        <div className="px-4 pb-2">
+          <div className="grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'menu'}
+              data-testid="services-tab-menu"
+              onClick={() => setActiveTab('menu')}
+              className={`rounded-full px-4 py-2 text-[14px] font-semibold transition-all ${
+                activeTab === 'menu' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+              }`}
+            >
+              My Menu
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'library'}
+              data-testid="services-tab-library"
+              onClick={() => setActiveTab('library')}
+              className={`rounded-full px-4 py-2 text-[14px] font-semibold transition-all ${
+                activeTab === 'library' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+              }`}
+            >
+              Service Library
+            </button>
+          </div>
+        </div>
+        {activeTab === 'menu' && (
+          <CategoryTabs
+            active={activeCategory}
+            onChange={setActiveCategory}
+            counts={categoryCounts}
+          />
+        )}
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pb-10">
-        {showLusterPromo && (
+        {activeTab === 'library' && (
+          <ServiceLibraryTab
+            ownedTemplateKeys={ownedTemplateKeys}
+            bulkAddBusy={bulkAddBusy}
+            onAddTemplate={template => void handleAddTemplate(template)}
+            onBulkAdd={handleBulkAdd}
+            onCreateCustom={() => {
+              setAddDialogPrefill(null);
+              setShowAddDialog(true);
+            }}
+          />
+        )}
+        {activeTab === 'menu' && !loading && !error && libraryIntroDismissed === false && (
+          <div
+            data-testid="library-intro-card"
+            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
+          >
+            <div>
+              <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                Explore the new Service Library
+              </div>
+              <p className="mt-0.5 text-[13px] text-[#6B7280]">
+                Add popular services to your menu in a couple of taps.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                data-testid="library-intro-dismiss"
+                onClick={() => {
+                  setLibraryIntroDismissed(true);
+                  void patchMerchandising({ serviceLibraryIntroDismissed: true });
+                }}
+                className="text-[13px] font-medium text-[#8E8E93]"
+              >
+                Not now
+              </button>
+              <Button
+                type="button"
+                variant="brand"
+                size="pillSm"
+                data-testid="library-intro-open"
+                onClick={() => setActiveTab('library')}
+              >
+                Open
+              </Button>
+            </div>
+          </div>
+        )}
+        {activeTab === 'menu' && showLusterPromo && (
           <LusterPromoCard
             onSetUp={() => {
               setAddDialogPrefill(LUSTER_PREFILL);
@@ -1160,7 +1343,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
             onDismiss={() => void dismissLusterPromo()}
           />
         )}
-        {loading
+        {activeTab === 'menu' && (loading
           ? (
               <div className="p-4">
                 <AsyncStatePanel
@@ -1207,7 +1390,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
                       />
                     ))}
                   </ListSurface>
-                )}
+                ))}
       </div>
 
       {/* Service Detail Overlay */}
@@ -1237,8 +1420,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           setEditingService(null);
           setAddDialogPrefill(null);
           setSelectedService(savedService);
+          setActiveTab('menu');
           setActiveCategory(savedService.category);
           void fetchServices();
+          void fetchOwnedTemplateKeys();
         }}
       />
     </div>

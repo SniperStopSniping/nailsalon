@@ -342,6 +342,9 @@ export const addOnSchema = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     category: addOnCategoryEnum('category').notNull(),
+    // Stable key linking this add-on to a catalog template; unique per salon
+    // via the partial index in migrations/0057_add_on_template_key.sql.
+    templateKey: text('template_key'),
     descriptionItems: jsonb('description_items').$type<string[] | null>().default(null),
     priceCents: integer('price_cents').notNull(),
     priceDisplayText: text('price_display_text'),

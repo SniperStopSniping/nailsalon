@@ -9,6 +9,7 @@ import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { buildSalonTenantPublicUrl, getCanonicalAppOrigin } from '@/libs/publicUrl';
+import { seedStarterMenuForSalon } from '@/libs/starterMenu';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
   adminInviteSchema,
@@ -52,12 +53,21 @@ const setupSchema = z.object({
   postalCode: z.string().trim().max(20).optional(),
   logoUrl: z.string().url().optional().or(z.literal('')),
   businessHours: hoursSchema,
+  // Legacy manual service entry — still accepted from in-flight wizard clients
+  // for one release; new clients send serviceOverrides for the starter menu.
   services: z.array(z.object({
     name: z.string().trim().min(2).max(100),
     priceCents: z.number().int().min(0).max(1_000_000),
     durationMinutes: z.number().int().min(15).max(480),
     category: z.enum(['manicure', 'builder_gel', 'extensions', 'pedicure', 'combo']),
-  })).min(1).max(20),
+  })).max(20).optional(),
+  // Per-template tweaks the owner made on the pre-filled starter-menu review.
+  serviceOverrides: z.array(z.object({
+    templateKey: z.string().min(1).max(80),
+    priceCents: z.number().int().min(0).max(1_000_000).optional(),
+    durationMinutes: z.number().int().min(15).max(480).optional(),
+    enabled: z.boolean().optional(),
+  })).max(60).optional(),
 });
 
 function getUniqueConstraint(error: unknown): string | null {
@@ -424,22 +434,35 @@ export async function POST(request: Request) {
         isActive: true,
       });
 
-      for (const [index, service] of input.services.entries()) {
-        const serviceId = crypto.randomUUID();
-        const baseSlug = service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'service';
-        await tx.insert(serviceSchema).values({
-          id: serviceId,
+      if (input.services?.length) {
+        // Legacy wizard payload: owner-typed services.
+        for (const [index, service] of input.services.entries()) {
+          const serviceId = crypto.randomUUID();
+          const baseSlug = service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'service';
+          await tx.insert(serviceSchema).values({
+            id: serviceId,
+            salonId,
+            name: service.name,
+            slug: `${baseSlug}-${index + 1}-${serviceId.slice(0, 8)}`,
+            price: service.priceCents,
+            durationMinutes: service.durationMinutes,
+            category: service.category,
+            bookingCategory: deriveBookingCategory(service.category),
+            sortOrder: index,
+            isActive: true,
+          });
+          await tx.insert(technicianServicesSchema).values({ technicianId, serviceId, priority: index, enabled: true });
+        }
+      } else {
+        // New salons start with the recommended starter menu (services,
+        // add-ons, and compatibility rules), with any owner tweaks applied.
+        await seedStarterMenuForSalon({
+          db: tx,
           salonId,
-          name: service.name,
-          slug: `${baseSlug}-${index + 1}-${serviceId.slice(0, 8)}`,
-          price: service.priceCents,
-          durationMinutes: service.durationMinutes,
-          category: service.category,
-          bookingCategory: deriveBookingCategory(service.category),
-          sortOrder: index,
-          isActive: true,
+          technicianId,
+          overrides: input.serviceOverrides ?? [],
+          mode: 'initial',
         });
-        await tx.insert(technicianServicesSchema).values({ technicianId, serviceId, priority: index, enabled: true });
       }
 
       const consumed = await tx

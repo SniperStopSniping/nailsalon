@@ -33,12 +33,29 @@ describe('LusterSetupWizard', () => {
     }), { status: 200 })));
   });
 
-  it('labels price and duration clearly on mobile-sized forms', async () => {
+  it('pre-fills the recommended starter menu with editable prices, durations, and offer toggles', async () => {
     render(<LusterSetupWizard inviteToken="invite-token" locale="en" />);
 
-    expect(await screen.findByLabelText('Price (CAD dollars)')).toHaveValue(65);
-    expect(screen.getByLabelText('Duration (minutes)')).toHaveValue(90);
-    expect(screen.getByText('Duration (minutes)')).toBeInTheDocument();
+    // Luster Manicure leads the review with its spec defaults.
+    expect(await screen.findByLabelText('Price for Luster Manicure')).toHaveValue(45);
+    expect(screen.getByLabelText('Duration for Luster Manicure')).toHaveValue(60);
+    expect(screen.getByLabelText('Offer Luster Manicure')).toBeChecked();
+
+    // The 14 starter services are all present; acrylic is not.
+    expect(screen.getByTestId('starter-review-gel_manicure')).toBeInTheDocument();
+    expect(screen.getByTestId('starter-review-classic_pedicure')).toBeInTheDocument();
+    expect(screen.getByTestId('starter-review-gel_mani_gel_pedi_combo')).toBeInTheDocument();
+    expect(screen.queryByText(/acrylic/i)).not.toBeInTheDocument();
+
+    // Rows are editable and can be turned off without disappearing.
+    fireEvent.change(screen.getByLabelText('Price for Luster Manicure'), { target: { value: '55' } });
+
+    expect(screen.getByLabelText('Price for Luster Manicure')).toHaveValue(55);
+
+    fireEvent.click(screen.getByLabelText('Offer Gel-X Extensions'));
+
+    expect(screen.getByLabelText('Offer Gel-X Extensions')).not.toBeChecked();
+    expect(screen.getByTestId('starter-review-gel_x_extensions')).toBeInTheDocument();
   });
 
   it('lets an unverified owner request and enter an email code', async () => {

@@ -27,18 +27,30 @@ type MockRoutes = {
   merchandising?: {
     featureLusterManicure?: boolean;
     lusterPromoDismissed?: boolean;
+    serviceLibraryIntroDismissed?: boolean;
   };
   createdService?: Record<string, unknown>;
+  ownedTemplateKeys?: string[];
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [] }: MockRoutes) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.startsWith('/api/admin/salon/settings')) {
       if (init?.method === 'PATCH') {
         return new Response(JSON.stringify({ merchandising: { lusterPromoDismissed: true } }), { status: 200 });
       }
-      return new Response(JSON.stringify({ merchandising }), { status: 200 });
+      return new Response(JSON.stringify({
+        merchandising: { serviceLibraryIntroDismissed: true, ...merchandising },
+      }), { status: 200 });
+    }
+    if (url.startsWith('/api/salon/services/from-templates')) {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          data: { createdServiceCount: 1, createdAddOnCount: 0, skippedTemplateKeys: [] },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: { ownedTemplateKeys } }), { status: 200 });
     }
     if (url.startsWith('/api/salon/services')) {
       if (init?.method === 'POST') {
@@ -293,5 +305,108 @@ describe('ServicesModal', () => {
     const [, requestInit] = findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')!;
 
     expect(JSON.parse(String((requestInit as RequestInit).body)).featuredOrder).toBe(3);
+  });
+
+  it('shows the Service Library with Added states and opens a prefilled sheet from a template', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true },
+      ownedTemplateKeys: ['gel_manicure'],
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-tab-library'));
+
+    expect(screen.getByTestId('service-library-tab')).toBeInTheDocument();
+    // Popular is the default shelf, Luster first.
+    expect(await screen.findByTestId('library-template-luster_manicure')).toBeInTheDocument();
+
+    // Templates the salon already owns show Added instead of Add.
+    await waitFor(() => {
+      expect(screen.getByTestId('library-added-gel_manicure')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('library-add-gel_manicure')).not.toBeInTheDocument();
+
+    // Adding a service template opens the compact review sheet prefilled.
+    fireEvent.click(screen.getByTestId('library-add-classic_pedicure'));
+
+    expect(screen.getByLabelText('Name')).toHaveValue('Classic Pedicure');
+    expect(screen.getByLabelText('Price')).toHaveValue(50);
+    expect(screen.getByLabelText('Duration')).toHaveValue(60);
+    expect(screen.getByTestId('service-booking-category')).toHaveValue('pedicure');
+  });
+
+  it('searches the library by alias so BIAB finds builder gel templates', async () => {
+    mockRoutes({ services: [], merchandising: { lusterPromoDismissed: true } });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-tab-library'));
+    fireEvent.change(screen.getByTestId('library-search'), { target: { value: 'BIAB' } });
+
+    expect(screen.getByTestId('library-template-builder_gel_overlay')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-template-classic_pedicure')).not.toBeInTheDocument();
+  });
+
+  it('bulk-adds the recommended starter menu with acrylic never offered and already-added items locked', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true },
+      ownedTemplateKeys: ['gel_manicure'],
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-tab-library'));
+    fireEvent.click(await screen.findByTestId('bulk-add-open'));
+
+    // Count excludes what the salon already owns (30 starters − 1 owned).
+    expect(await screen.findByTestId('bulk-add-confirm')).toHaveTextContent('Add 29 to menu');
+    expect(screen.getByTestId('bulk-add-check-gel_manicure')).toBeDisabled();
+    expect(screen.queryByTestId('bulk-add-check-acrylic_full_set_short')).not.toBeInTheDocument();
+
+    // Unchecking trims the batch; confirm posts the remaining keys.
+    fireEvent.click(screen.getByTestId('bulk-add-check-hard_gel_extensions'));
+    fireEvent.click(screen.getByTestId('bulk-add-confirm'));
+
+    await waitFor(() => {
+      const call = findCall((url, init) =>
+        url === '/api/salon/services/from-templates' && init?.method === 'POST');
+
+      expect(call).toBeTruthy();
+
+      const body = JSON.parse(String((call![1] as RequestInit).body));
+
+      expect(body.templateKeys).toHaveLength(28);
+      expect(body.templateKeys).not.toContain('hard_gel_extensions');
+      expect(body.templateKeys).not.toContain('gel_manicure');
+    });
+  });
+
+  it('shows the one-time library intro card until dismissed', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: false },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByTestId('library-intro-card')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('library-intro-dismiss'));
+
+    expect(screen.queryByTestId('library-intro-card')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const patchCall = findCall((url, init) =>
+        url.startsWith('/api/admin/salon/settings') && init?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+      expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+        merchandising: { serviceLibraryIntroDismissed: true },
+      });
+    });
   });
 });

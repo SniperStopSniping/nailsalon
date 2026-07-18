@@ -8,9 +8,9 @@ import {
   normalizeDescriptionItems,
 } from '@/libs/bookingCatalog';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
-import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
+import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import {
   BOOKING_CATEGORIES,
   type Service,
@@ -64,8 +64,12 @@ const createServiceSchema = z.object({
   category: z.enum(SERVICE_CATEGORIES),
   bookingCategory: z.enum(BOOKING_CATEGORIES).optional(),
   featuredOrder: z.number().int().min(1).max(999).nullable().optional(),
-  // PR scope: only the Luster template can be linked at creation for now.
-  templateKey: z.literal(LUSTER_MANICURE_TEMPLATE_KEY).nullable().optional(),
+  templateKey: z
+    .union([
+      z.null(),
+      z.string().refine(key => Boolean(getTemplateByKey(key)), 'Unknown template key'),
+    ])
+    .optional(),
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
 });
