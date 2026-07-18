@@ -58,6 +58,13 @@ type AvailabilitySlot = {
   startTime?: string | null;
 };
 
+type AvailabilityError = {
+  kind: 'unsupported_technician' | 'invalid_service' | 'temporary_failure';
+  message: string;
+  canRetry: boolean;
+  canReselectTechnician: boolean;
+};
+
 type CalendarCell = {
   key: string;
   date: Date | null;
@@ -247,7 +254,7 @@ export function BookTimeClient({
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<AvailabilityError | null>(null);
   const [findingNextAvailable, setFindingNextAvailable] = useState(false);
   const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
 
@@ -360,7 +367,17 @@ export function BookTimeClient({
           return;
         }
         const data = await response.json().catch(() => null);
-        setAvailabilityError(data?.error?.message ?? 'Unable to load live availability for this technician.');
+        const publicError = data?.error;
+        setAvailabilityError({
+          kind: publicError?.kind === 'unsupported_technician' || publicError?.kind === 'invalid_service'
+            ? publicError.kind
+            : 'temporary_failure',
+          message: typeof publicError?.message === 'string'
+            ? publicError.message
+            : 'Unable to load live availability right now. Please try again.',
+          canRetry: publicError?.canRetry !== false,
+          canReselectTechnician: publicError?.canReselectTechnician === true,
+        });
         setVisibleSlots([]);
         setBookedSlots([]);
       }
@@ -369,7 +386,12 @@ export function BookTimeClient({
         return;
       }
       console.error('Failed to fetch availability:', error);
-      setAvailabilityError('Unable to load live availability right now. Please try another date or refresh.');
+      setAvailabilityError({
+        kind: 'temporary_failure',
+        message: 'Unable to load live availability right now. Please try another date or refresh.',
+        canRetry: true,
+        canReselectTechnician: false,
+      });
       setVisibleSlots([]);
       setBookedSlots([]);
     } finally {
@@ -682,6 +704,22 @@ export function BookTimeClient({
     }
   };
 
+  const handleChooseAnotherTechnician = () => {
+    router.push(buildBookingUrl(`/${locale}/book/tech`, {
+      salonSlug,
+      serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+      baseServiceId,
+      selectedAddOns,
+      locationId,
+      originalAppointmentId,
+      manageToken,
+      campaignToken,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
+  };
+
   const formatSelectedDate = (date: Date) => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -846,7 +884,20 @@ export function BookTimeClient({
             className="mb-4"
             contentClassName="py-4"
             title="Availability could not be loaded"
-            description={availabilityError}
+            description={availabilityError.message}
+            action={availabilityError.canReselectTechnician
+              ? (
+                  <button type="button" onClick={handleChooseAnotherTechnician} className="mt-2 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white">
+                    Choose another technician
+                  </button>
+                )
+              : availabilityError.canRetry
+                ? (
+                    <button type="button" onClick={() => selectedDate && void fetchBookedSlots(selectedDate)} className="mt-2 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white">
+                      Retry
+                    </button>
+                  )
+                : undefined}
           />
         )}
 
