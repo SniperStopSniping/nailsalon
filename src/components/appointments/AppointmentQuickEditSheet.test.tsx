@@ -69,6 +69,30 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  it('keeps appointment details read-only in view mode', () => {
+    render(
+      <AppointmentQuickEditSheet
+        mode="view"
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.getByText('Appointment details')).toBeInTheDocument();
+    expect(screen.getByTestId('appointment-editor-form')).toHaveClass('hidden');
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
   it('disables technician reassignment for staff permissions', () => {
     render(
       <AppointmentQuickEditSheet

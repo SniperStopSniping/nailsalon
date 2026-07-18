@@ -427,27 +427,30 @@ function StatCard({
 
 function AppointmentCard({
   appointment,
-  onManage,
+  onView,
+  onChange,
   onCancel,
 }: {
   appointment: ClientAppointment;
-  /** Opens the shared manage sheet. When provided the whole card is tappable. */
-  onManage?: (appointmentId: string) => void;
+  /** Opens read-only appointment details. When provided the whole card is tappable. */
+  onView?: (appointmentId: string) => void;
+  /** Opens the shared booking editor. */
+  onChange?: (appointmentId: string) => void;
   /** Opens the manage sheet with the cancel confirmation already up. */
   onCancel?: (appointmentId: string) => void;
 }) {
-  const interactive = Boolean(onManage);
+  const interactive = Boolean(onView);
   return (
     <div
       data-testid={`client-appointment-card-${appointment.id}`}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
-      onClick={interactive ? () => onManage!(appointment.id) : undefined}
+      onClick={interactive ? () => onView!(appointment.id) : undefined}
       onKeyDown={interactive
         ? (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
-              onManage!(appointment.id);
+              onView!(appointment.id);
             }
           }
         : undefined}
@@ -481,15 +484,15 @@ function AppointmentCard({
           {appointment.notes}
         </div>
       )}
-      {(onManage || onCancel) && (
+      {(onChange || onCancel) && (
         <div className="mt-3 flex gap-2">
-          {onManage && (
+          {onChange && (
             <button
               type="button"
               data-testid={`client-appointment-change-${appointment.id}`}
               onClick={(event) => {
                 event.stopPropagation();
-                onManage(appointment.id);
+                onChange(appointment.id);
               }}
               className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[#1C1C1E]"
             >
@@ -519,13 +522,15 @@ function AppointmentsSection({
   title,
   appointments,
   emptyMessage,
-  onManage,
+  onView,
+  onChange,
   onCancel,
 }: {
   title: string;
   appointments: ClientAppointment[];
   emptyMessage: string;
-  onManage?: (appointmentId: string) => void;
+  onView?: (appointmentId: string) => void;
+  onChange?: (appointmentId: string) => void;
   onCancel?: (appointmentId: string) => void;
 }) {
   return (
@@ -546,7 +551,8 @@ function AppointmentsSection({
                 <AppointmentCard
                   key={appointment.id}
                   appointment={appointment}
-                  onManage={onManage}
+                  onView={onView}
+                  onChange={onChange}
                   onCancel={onCancel}
                 />
               ))}
@@ -591,6 +597,7 @@ function ClientDetail({
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
+  const [appointmentSheetMode, setAppointmentSheetMode] = useState<'view' | 'edit'>('view');
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
 
@@ -760,13 +767,21 @@ function ClientDetail({
     },
   });
 
-  const handleManageAppointment = useCallback((appointmentId: string) => {
+  const handleViewAppointment = useCallback((appointmentId: string) => {
     setCancelIntent(false);
+    setAppointmentSheetMode('view');
+    appointmentActions.openAppointment(appointmentId);
+  }, [appointmentActions]);
+
+  const handleChangeAppointment = useCallback((appointmentId: string) => {
+    setCancelIntent(false);
+    setAppointmentSheetMode('edit');
     appointmentActions.openAppointment(appointmentId);
   }, [appointmentActions]);
 
   const handleCancelAppointmentRequest = useCallback((appointmentId: string) => {
     setCancelIntent(true);
+    setAppointmentSheetMode('view');
     appointmentActions.openAppointment(appointmentId);
   }, [appointmentActions]);
 
@@ -1291,7 +1306,8 @@ function ClientDetail({
                     title="Upcoming appointments"
                     appointments={upcomingAppointments}
                     emptyMessage="No upcoming appointments booked."
-                    onManage={handleManageAppointment}
+                    onView={handleViewAppointment}
+                    onChange={handleChangeAppointment}
                     onCancel={handleCancelAppointmentRequest}
                   />
 
@@ -1299,7 +1315,8 @@ function ClientDetail({
                     title="Completed appointments"
                     appointments={pastAppointments}
                     emptyMessage="No completed appointments yet."
-                    onManage={handleManageAppointment}
+                    onView={handleViewAppointment}
+                    onChange={handleChangeAppointment}
                   />
 
                   {recentIssues.length > 0 && (
@@ -1307,7 +1324,8 @@ function ClientDetail({
                       title="Recent issues"
                       appointments={recentIssues}
                       emptyMessage=""
-                      onManage={handleManageAppointment}
+                      onView={handleViewAppointment}
+                      onChange={handleChangeAppointment}
                     />
                   )}
                 </>
@@ -1315,6 +1333,7 @@ function ClientDetail({
       </div>
 
       <AppointmentQuickEditSheet
+        mode={appointmentSheetMode}
         isOpen={Boolean(appointmentActions.selectedAppointmentId)}
         onClose={() => {
           setCancelIntent(false);

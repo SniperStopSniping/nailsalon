@@ -36,6 +36,7 @@ const patchSchema = z.discriminatedUnion('operation', [
     baseServiceId: z.string().min(1),
     startTime: z.string().datetime().optional(),
     technicianId: z.string().nullable().optional(),
+    durationMinutes: z.number().int().min(15).max(480).optional(),
   }).strict(),
   z.object({
     operation: z.literal('reassignTechnician'),

@@ -183,6 +183,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    durationMinutes?: number;
   }) => {
     if (!detail || !selectedAppointmentId) {
       return;
@@ -190,6 +191,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
 
     const originalStartTime = new Date(detail.appointment.startTime).toISOString();
     const nextStartTime = new Date(args.startTime).toISOString();
+    const nextDurationMinutes = args.durationMinutes ?? detail.appointment.totalDurationMinutes;
 
     if (args.baseServiceId !== (detail.appointment.baseServiceId ?? '')) {
       await runManageMutation(selectedAppointmentId, {
@@ -197,11 +199,14 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
         baseServiceId: args.baseServiceId,
         startTime: nextStartTime,
         technicianId: args.technicianId,
+        durationMinutes: nextDurationMinutes,
       });
       return;
     }
 
-    if (args.technicianId !== detail.appointment.technicianId && nextStartTime === originalStartTime) {
+    if (args.technicianId !== detail.appointment.technicianId
+      && nextStartTime === originalStartTime
+      && nextDurationMinutes === detail.appointment.totalDurationMinutes) {
       await runManageMutation(selectedAppointmentId, {
         operation: 'reassignTechnician',
         technicianId: args.technicianId,
@@ -209,11 +214,14 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       return;
     }
 
-    if (nextStartTime !== originalStartTime || args.technicianId !== detail.appointment.technicianId) {
+    if (nextStartTime !== originalStartTime
+      || args.technicianId !== detail.appointment.technicianId
+      || nextDurationMinutes !== detail.appointment.totalDurationMinutes) {
       await runManageMutation(selectedAppointmentId, {
         operation: 'move',
         startTime: nextStartTime,
         technicianId: args.technicianId,
+        durationMinutes: nextDurationMinutes,
       });
     }
   }, [detail, runManageMutation, selectedAppointmentId]);
