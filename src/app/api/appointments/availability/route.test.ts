@@ -12,6 +12,9 @@ const {
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
   selectResults,
+  findService,
+  findTechnician,
+  captureException,
   db,
 } = vi.hoisted(() => {
   const selectResults: Array<unknown[] | Error> = [];
@@ -55,8 +58,15 @@ const {
       busyWindows.some(window => startTime < window.endTime && endTime > window.startTime),
     ),
     selectResults,
+    findService: vi.fn(),
+    findTechnician: vi.fn(),
+    captureException: vi.fn(),
     db: {
       select,
+      query: {
+        serviceSchema: { findFirst: vi.fn((...args: unknown[]) => findService(...args)) },
+        technicianSchema: { findFirst: vi.fn((...args: unknown[]) => findTechnician(...args)) },
+      },
     },
   };
 });
@@ -81,6 +91,10 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/googleCalendar', () => ({
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
+}));
+
+vi.mock('@sentry/nextjs', () => ({
+  captureException,
 }));
 
 import { GET } from './route';
@@ -119,6 +133,8 @@ describe('GET /api/appointments/availability', () => {
     getTechniciansBySalonId.mockResolvedValue([]);
     guardSalonApiRoute.mockResolvedValue(null);
     getGoogleCalendarBusyWindows.mockResolvedValue([]);
+    findService.mockResolvedValue(null);
+    findTechnician.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -145,6 +161,91 @@ describe('GET /api/appointments/availability', () => {
     expect(body.visibleSlots).not.toContain('17:30');
     expect(body.visibleSlots).not.toContain('16:30');
     expect(body.visibleSlots).toContain('16:15');
+  });
+
+  it('returns a friendly recoverable error without leaking internal codes for a missing assignment', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    findService.mockResolvedValue({
+      id: 'svc_builder_overlay',
+      salonId: 'salon_1',
+      name: 'Builder Gel Overlay',
+      category: 'builder_gel',
+      isActive: true,
+    });
+    findTechnician.mockResolvedValue({ id: 'tech_1', salonId: 'salon_1', isActive: true });
+    getTechniciansBySalonId.mockResolvedValue([{
+      id: 'tech_2',
+      enabledServiceIds: ['svc_builder_overlay'],
+      serviceIds: ['svc_builder_overlay'],
+    }]);
+    selectResults.push([]);
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&baseServiceId=svc_builder_overlay',
+    ));
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(400);
+    expect(body.error).toEqual({
+      kind: 'unsupported_technician',
+      message: 'This service is not available with the selected technician. Please choose another technician.',
+      canRetry: false,
+      canReselectTechnician: true,
+    });
+    expect(serialized).not.toContain('TECHNICIAN_SERVICE_UNSUPPORTED');
+    expect(serialized).not.toContain('svc_builder_overlay');
+    expect(serialized).not.toContain('tech_1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Availability API] Invalid public booking selection',
+      expect.objectContaining({ classification: 'unsupported_technician', salonId: 'salon_1' }),
+    );
+  });
+
+  it('rejects a cross-tenant technician as an unsupported selection', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    findService.mockResolvedValue({
+      id: 'svc_builder_overlay',
+      salonId: 'salon_1',
+      name: 'Builder Gel Overlay',
+      category: 'builder_gel',
+      isActive: true,
+    });
+    findTechnician.mockResolvedValue(null);
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_other_salon&baseServiceId=svc_builder_overlay',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.kind).toBe('unsupported_technician');
+    expect(JSON.stringify(body)).not.toContain('tech_other_salon');
+    expect(warnSpy).toHaveBeenCalledOnce();
+  });
+
+  it('returns a retryable public error and reports unexpected failures to Sentry', async () => {
+    const internalError = new Error('database connection details must stay private');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    findService.mockRejectedValue(internalError);
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&baseServiceId=svc_builder_overlay',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toEqual({
+      kind: 'temporary_failure',
+      message: 'Unable to evaluate availability for the selected day.',
+      canRetry: true,
+      canReselectTechnician: false,
+    });
+    expect(JSON.stringify(body)).not.toContain(internalError.message);
+    expect(captureException).toHaveBeenCalledWith(internalError, expect.objectContaining({
+      tags: expect.objectContaining({ route: '/api/appointments/availability' }),
+    }));
+    expect(errorSpy).toHaveBeenCalledOnce();
   });
 
   it('excludes the original appointment from conflict checks during reschedule availability', async () => {

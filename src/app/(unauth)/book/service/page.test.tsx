@@ -1,6 +1,6 @@
-import React from 'react';
-
+/* eslint-disable import/first */
 import { render, screen } from '@testing-library/react';
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -12,6 +12,7 @@ const {
   getBookingConfigForSalon,
   getClientSession,
   getPublicPageContext,
+  getPublicBookableServiceIds,
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
   getTechniciansBySalonId,
@@ -26,6 +27,7 @@ const {
   getBookingConfigForSalon: vi.fn(),
   getClientSession: vi.fn(),
   getPublicPageContext: vi.fn(),
+  getPublicBookableServiceIds: vi.fn(),
   getServiceAddOnRulesBySalonId: vi.fn(),
   getServicesBySalonId: vi.fn(),
   getTechniciansBySalonId: vi.fn(),
@@ -72,6 +74,10 @@ vi.mock('@/libs/salonStatus', () => ({
   checkSalonStatus,
 }));
 
+vi.mock('@/libs/serviceAssignments', () => ({
+  getPublicBookableServiceIds,
+}));
+
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));
@@ -112,6 +118,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     getActiveAddOnsBySalonId.mockResolvedValue([]);
     getServiceAddOnRulesBySalonId.mockResolvedValue([]);
     getTechniciansBySalonId.mockResolvedValue([]);
+    getPublicBookableServiceIds.mockResolvedValue(null);
     getActiveLocationsBySalonId.mockResolvedValue([]);
   });
 
@@ -306,6 +313,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     render(element);
 
     const passedServices = bookServiceClientSpy.mock.calls.at(-1)?.[0]?.services;
+
     expect(passedServices).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'svc_valid_local',
@@ -328,5 +336,38 @@ describe('BookServicePage first-visit offer visibility', () => {
         imageUrl: 'https://res.cloudinary.com/demo/image/upload/v1/services/ok.jpg',
       }),
     ]));
+  });
+
+  it('omits services that have no enabled technician assignment in a structured salon', async () => {
+    getClientSession.mockResolvedValue(null);
+    getPublicBookableServiceIds.mockResolvedValue(new Set(['svc_bookable']));
+    getServicesBySalonId.mockResolvedValue([
+      {
+        id: 'svc_bookable',
+        name: 'Gel Manicure',
+        price: 5000,
+        durationMinutes: 60,
+        category: 'hands',
+        isActive: true,
+      },
+      {
+        id: 'svc_unassigned',
+        name: 'Builder Gel Overlay',
+        price: 6500,
+        durationMinutes: 90,
+        category: 'builder_gel',
+        isActive: true,
+      },
+    ]);
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      services: [expect.objectContaining({ id: 'svc_bookable' })],
+    }));
   });
 });

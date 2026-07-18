@@ -19,6 +19,28 @@ import {
   technicianServicesSchema,
 } from '@/models/Schema';
 
+export type BookingSelectionErrorCode
+  = | 'invalid_service'
+  | 'unsupported_technician'
+  | 'invalid_add_on';
+
+export class BookingSelectionError extends Error {
+  constructor(public readonly code: BookingSelectionErrorCode) {
+    super(code);
+    this.name = 'BookingSelectionError';
+  }
+}
+
+export function getPublicBookingSelectionMessage(error: BookingSelectionError): string {
+  if (error.code === 'unsupported_technician') {
+    return 'This service is not available with the selected technician. Please choose another technician.';
+  }
+  if (error.code === 'invalid_add_on') {
+    return 'One of the selected add-ons is no longer available. Please review your services.';
+  }
+  return 'This service is no longer available for online booking. Please choose another service.';
+}
+
 export const selectedAddOnInputSchema = z.object({
   addOnId: z.string().min(1, 'Add-on ID is required'),
   quantity: z.number().int().min(1).max(20).optional(),
@@ -216,7 +238,11 @@ export async function validatePublicBookingSelection(args: {
   technicianId?: string | null;
 }): Promise<ValidatedSelectionResult> {
   const { db } = await import('@/libs/DB');
-  const selection = publicBookingSelectionSchema.parse(args.selection);
+  const parsedSelection = publicBookingSelectionSchema.safeParse(args.selection);
+  if (!parsedSelection.success) {
+    throw new BookingSelectionError('invalid_service');
+  }
+  const selection = parsedSelection.data;
   const normalizedAddOns = mergeSelectedAddOns(selection.selectedAddOns);
 
   const baseService = await db.query.serviceSchema.findFirst({
@@ -228,16 +254,29 @@ export async function validatePublicBookingSelection(args: {
   });
 
   if (!baseService) {
-    throw new Error('INVALID_BASE_SERVICE');
+    throw new BookingSelectionError('invalid_service');
   }
 
   if (args.technicianId) {
+    const technician = await db.query.technicianSchema.findFirst({
+      where: (technician, { and, eq }) => and(
+        eq(technician.id, args.technicianId!),
+        eq(technician.salonId, args.salonId),
+        eq(technician.isActive, true),
+      ),
+    });
+
+    if (!technician) {
+      throw new BookingSelectionError('unsupported_technician');
+    }
+
     const enabledAssignments = await db
       .select({ serviceId: technicianServicesSchema.serviceId })
       .from(technicianServicesSchema)
       .where(
         and(
           eq(technicianServicesSchema.technicianId, args.technicianId),
+          inArray(technicianServicesSchema.serviceId, [baseService.id]),
           eq(technicianServicesSchema.enabled, true),
         ),
       );
@@ -253,7 +292,7 @@ export async function validatePublicBookingSelection(args: {
     });
 
     if (!compatibility.bookable) {
-      throw new Error('TECHNICIAN_SERVICE_UNSUPPORTED');
+      throw new BookingSelectionError('unsupported_technician');
     }
   }
 
@@ -304,7 +343,7 @@ export async function validatePublicBookingSelection(args: {
     );
 
   if (addOns.length !== addOnIds.length) {
-    throw new Error('INVALID_ADD_ON');
+    throw new BookingSelectionError('invalid_add_on');
   }
 
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
@@ -313,20 +352,20 @@ export async function validatePublicBookingSelection(args: {
     const rule = rulesByAddOnId.get(input.addOnId);
 
     if (!addOn || !rule) {
-      throw new Error('ADD_ON_NOT_ALLOWED');
+      throw new BookingSelectionError('invalid_add_on');
     }
 
     const quantity = input.quantity ?? 1;
     if (addOn.pricingType === 'per_unit') {
       if (!Number.isInteger(quantity) || quantity < 1) {
-        throw new Error('INVALID_ADD_ON_QUANTITY');
+        throw new BookingSelectionError('invalid_add_on');
       }
       const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
       if (quantity > maxQuantity) {
-        throw new Error('INVALID_ADD_ON_QUANTITY');
+        throw new BookingSelectionError('invalid_add_on');
       }
     } else if (quantity !== 1) {
-      throw new Error('FIXED_ADD_ON_QUANTITY_NOT_ALLOWED');
+      throw new BookingSelectionError('invalid_add_on');
     }
 
     return {

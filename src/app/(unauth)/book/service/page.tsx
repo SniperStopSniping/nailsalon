@@ -9,6 +9,7 @@ import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
+import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
@@ -74,31 +75,34 @@ export default async function BookServicePage({
   // Fetch services for this salon
   const bookingConfig = await getBookingConfigForSalon(salon.id);
   const clientSession = await getClientSession();
-  const [dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians] = await Promise.all([
+  const [dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians, publicBookableServiceIds] = await Promise.all([
     getServicesBySalonId(salon.id),
     getActiveAddOnsBySalonId(salon.id),
     getServiceAddOnRulesBySalonId(salon.id),
     getTechniciansBySalonId(salon.id),
+    getPublicBookableServiceIds(salon.id),
   ]);
 
-  const services = dbServices.map(service => ({
-    id: service.id,
-    name: service.name,
-    description: service.description ?? null,
-    descriptionItems: service.descriptionItems ?? [],
-    durationMinutes: service.durationMinutes,
-    priceCents: service.price,
-    priceDisplayText: service.priceDisplayText ?? null,
-    category: service.category,
-    imageUrl: normalizePublicServiceImageUrl(service.imageUrl),
-    resolvedIntroPriceLabel: resolveIntroPriceLabel({
-      isIntroPrice: service.isIntroPrice,
-      introPriceExpiresAt: service.introPriceExpiresAt,
-      introPriceLabel: service.introPriceLabel,
-      bookingConfig,
-    }),
-    sortOrder: service.sortOrder ?? null,
-  }));
+  const services = dbServices
+    .filter(service => publicBookableServiceIds === null || publicBookableServiceIds.has(service.id))
+    .map(service => ({
+      id: service.id,
+      name: service.name,
+      description: service.description ?? null,
+      descriptionItems: service.descriptionItems ?? [],
+      durationMinutes: service.durationMinutes,
+      priceCents: service.price,
+      priceDisplayText: service.priceDisplayText ?? null,
+      category: service.category,
+      imageUrl: normalizePublicServiceImageUrl(service.imageUrl),
+      resolvedIntroPriceLabel: resolveIntroPriceLabel({
+        isIntroPrice: service.isIntroPrice,
+        introPriceExpiresAt: service.introPriceExpiresAt,
+        introPriceLabel: service.introPriceLabel,
+        bookingConfig,
+      }),
+      sortOrder: service.sortOrder ?? null,
+    }));
 
   const addOns = dbAddOns.map(addOn => ({
     id: addOn.id,

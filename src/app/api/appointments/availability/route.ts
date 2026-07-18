@@ -1,3 +1,5 @@
+import * as Sentry from '@sentry/nextjs';
+
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import type { RequestedService } from '@/libs/bookingPolicy';
@@ -6,11 +8,17 @@ import {
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
-import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
+import {
+  BookingSelectionError,
+  getPublicBookingSelectionMessage,
+  getPublicTechnicianCompatibility,
+  validatePublicBookingSelection,
+} from '@/libs/bookingQuote';
 import {
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
 } from '@/libs/googleCalendar';
+import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompatibility';
 import {
   getLocationById,
   getSalonBySlug,
@@ -26,6 +34,38 @@ export const dynamic = 'force-dynamic';
 
 const DEFAULT_DURATION_MINUTES = 30;
 const MIN_LEAD_TIME_MINUTES = 120;
+
+type PublicAvailabilityError = {
+  kind: 'unsupported_technician' | 'invalid_service' | 'temporary_failure';
+  message: string;
+  canRetry: boolean;
+  canReselectTechnician: boolean;
+};
+
+function buildPublicAvailabilityError(args: {
+  error: unknown;
+  canReselectTechnician?: boolean;
+}): PublicAvailabilityError | null {
+  if (!(args.error instanceof BookingSelectionError)) {
+    return null;
+  }
+
+  if (args.error.code === 'unsupported_technician') {
+    return {
+      kind: 'unsupported_technician',
+      message: getPublicBookingSelectionMessage(args.error),
+      canRetry: false,
+      canReselectTechnician: Boolean(args.canReselectTechnician),
+    };
+  }
+
+  return {
+    kind: 'invalid_service',
+    message: getPublicBookingSelectionMessage(args.error),
+    canRetry: false,
+    canReselectTechnician: false,
+  };
+}
 
 function getAllSlots(intervalMinutes: number): string[] {
   const slots: string[] = [];
@@ -119,13 +159,32 @@ export async function GET(request: Request): Promise<Response> {
         visibleDurationMinutes = validatedSelection.quote.visibleDurationMinutes;
         bufferMinutes = validatedSelection.quote.bufferMinutes;
       } catch (error) {
+        if (!(error instanceof BookingSelectionError)) {
+          throw error;
+        }
+
+        const technicians = error.code === 'unsupported_technician'
+          ? await getTechniciansBySalonId(salon.id)
+          : [];
+        const canReselectTechnician = technicians.some(technician =>
+          technician.id !== technicianId
+          && technician.enabledServiceIds?.includes(baseServiceId)
+          && technicianSupportsPublicLocation({ technician, locationId }),
+        );
+        const publicError = buildPublicAvailabilityError({ error, canReselectTechnician });
+
+        console.warn('[Availability API] Invalid public booking selection', {
+          requestPath: new URL(request.url).pathname,
+          salonId: salon.id,
+          serviceId: baseServiceId,
+          technicianId,
+          locationId,
+          date,
+          classification: error.code,
+        });
+
         return Response.json(
-          {
-            error: {
-              code: 'INVALID_SELECTION',
-              message: error instanceof Error ? error.message : 'Invalid booking selection',
-            },
-          },
+          { error: publicError },
           { status: 400 },
         );
       }
@@ -349,11 +408,27 @@ export async function GET(request: Request): Promise<Response> {
           }
         : error,
     });
+    Sentry.captureException(error, {
+      tags: {
+        route: '/api/appointments/availability',
+        salonSlug,
+      },
+      extra: {
+        date,
+        technicianId,
+        baseServiceId,
+        serviceIds: serviceIdList,
+        locationId,
+        requestPath: new URL(request.url).pathname,
+      },
+    });
     return Response.json(
       {
         error: {
-          code: 'SERVER_ERROR',
+          kind: 'temporary_failure',
           message: 'Unable to evaluate availability for the selected day.',
+          canRetry: true,
+          canReselectTechnician: false,
         },
       },
       { status: 500 },

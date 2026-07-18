@@ -27,6 +27,8 @@ async function verifyNaturalFooterClearance(page: Page): Promise<string> {
 
   await expect(footer).toBeVisible();
   await expect(footer).toHaveCSS('margin-bottom', '0px');
+  await expect(footer.getByRole('link', { name: 'Luster', exact: true })).toHaveAttribute('href', 'https://lusterstudio.ca');
+  await expect(footer.getByRole('link', { name: /salon owner login/i })).toHaveAttribute('href', /\/owner$/);
 
   // Any service selection raises the sticky bar; don't couple this layout
   // check to a specific fixture id (seeded ids differ between environments).

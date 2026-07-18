@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -5,6 +6,7 @@ const {
   getServicesBySalonId,
   selectWhere,
   insertValues,
+  ensureServiceAssignments,
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
@@ -20,9 +22,11 @@ const {
     getServicesBySalonId: vi.fn(),
     selectWhere,
     insertValues,
+    ensureServiceAssignments: vi.fn(),
     db: {
       select,
       insert,
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({ select, insert })),
     },
   };
 });
@@ -43,6 +47,11 @@ vi.mock('@/libs/queries', () => ({
   getServicesBySalonId,
 }));
 
+vi.mock('@/libs/serviceAssignments', () => ({
+  ensureServiceAssignments,
+  InvalidTechnicianAssignmentError: class InvalidTechnicianAssignmentError extends Error {},
+}));
+
 import { GET, POST } from './route';
 
 describe('salon services route', () => {
@@ -53,6 +62,10 @@ describe('salon services route', () => {
       error: null,
     });
     getServicesBySalonId.mockResolvedValue([]);
+    ensureServiceAssignments.mockResolvedValue({
+      assignedTechnicianIds: ['tech_1'],
+      assignmentRequired: false,
+    });
     selectWhere.mockResolvedValue([{ maxOrder: 2 }]);
     insertValues.mockReturnValue({
       returning: vi.fn(async () => [{
@@ -101,6 +114,11 @@ describe('salon services route', () => {
       name: 'BIAB + Classic Pedicure',
       category: 'combo',
     }));
+    expect(ensureServiceAssignments).toHaveBeenCalledWith(expect.anything(), {
+      salonId: 'salon_1',
+      serviceId: 'svc_newsvc',
+      technicianIds: undefined,
+    });
   });
 
   it('rejects invalid create payloads', async () => {
