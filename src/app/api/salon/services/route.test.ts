@@ -1,6 +1,5 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { GET, POST } from './route';
 
 const {
   requireAdminSalon,
@@ -9,6 +8,7 @@ const {
   insertValues,
   updateSet,
   updateReturning,
+  ensureServiceAssignments,
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
@@ -31,10 +31,12 @@ const {
     insertValues,
     updateSet,
     updateReturning,
+    ensureServiceAssignments: vi.fn(),
     db: {
       select,
       insert,
       update,
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({ select, insert })),
     },
   };
 });
@@ -55,6 +57,13 @@ vi.mock('@/libs/queries', () => ({
   getServicesBySalonId,
 }));
 
+vi.mock('@/libs/serviceAssignments', () => ({
+  ensureServiceAssignments,
+  InvalidTechnicianAssignmentError: class InvalidTechnicianAssignmentError extends Error {},
+}));
+
+import { GET, POST } from './route';
+
 describe('salon services route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,6 +72,10 @@ describe('salon services route', () => {
       error: null,
     });
     getServicesBySalonId.mockResolvedValue([]);
+    ensureServiceAssignments.mockResolvedValue({
+      assignedTechnicianIds: ['tech_1'],
+      assignmentRequired: false,
+    });
     selectWhere.mockResolvedValue([{ maxOrder: 2 }]);
     insertValues.mockReturnValue({
       returning: vi.fn(async () => [{
@@ -115,6 +128,11 @@ describe('salon services route', () => {
       name: 'BIAB + Classic Pedicure',
       category: 'combo',
     }));
+    expect(ensureServiceAssignments).toHaveBeenCalledWith(expect.anything(), {
+      salonId: 'salon_1',
+      serviceId: 'svc_newsvc',
+      technicianIds: undefined,
+    });
   });
 
   it('accepts an explicit booking category, featured position, and Luster template key', async () => {

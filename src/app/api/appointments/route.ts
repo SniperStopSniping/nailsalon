@@ -28,7 +28,12 @@ import {
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
-import { getPublicTechnicianCompatibility, validatePublicBookingSelection } from '@/libs/bookingQuote';
+import {
+  BookingSelectionError,
+  getPublicBookingSelectionMessage,
+  getPublicTechnicianCompatibility,
+  validatePublicBookingSelection,
+} from '@/libs/bookingQuote';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
@@ -819,7 +824,9 @@ export async function POST(request: Request): Promise<Response> {
           {
             error: {
               code: 'INVALID_SELECTION',
-              message: error instanceof Error ? error.message : 'Invalid booking selection',
+              message: error instanceof BookingSelectionError
+                ? getPublicBookingSelectionMessage(error)
+                : 'Unable to validate the booking selection right now.',
             },
           } satisfies ErrorResponse,
           { status: 400 },
