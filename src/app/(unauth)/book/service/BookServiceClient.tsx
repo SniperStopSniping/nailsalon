@@ -256,7 +256,12 @@ export function BookServiceClient({
   const urlDrivenBaseServiceId = urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
-  const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? 'manicure';
+  // Manicure is the default tab, unless the salon offers nothing under it —
+  // then land on the first tab (in canonical order) that has services.
+  const firstNonEmptyCategory: BookingCategory
+    = BOOKING_CATEGORIES.find(category =>
+      services.some(service => service.bookingCategory === category)) ?? 'manicure';
+  const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? firstNonEmptyCategory;
   const initialSelectedAddOns = initialBaseServiceId
     ? buildDefaultSelectedAddOns(
       initialBaseServiceId,
@@ -1199,7 +1204,7 @@ export function BookServiceClient({
                     >
                       No
                       {' '}
-                      {BOOKING_CATEGORY_META[selectedCategory].label.toLowerCase()}
+                      {selectedCategory}
                       {' '}
                       services available yet.
                     </div>

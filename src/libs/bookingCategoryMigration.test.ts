@@ -33,7 +33,9 @@ describe('0056 booking category and Luster featuring migration', () => {
         ('svc_luster_inactive', 'salon_1', 'Luster Manicure', 'manicure', 8, false),
         ('svc_luster_active', 'salon_1', 'Luster Signature Manicure', 'manicure', 9, true),
         ('svc_luster_pedi', 'salon_2', 'Luster Pedicure', 'pedicure', 1, true),
-        ('svc_luster_s2', 'salon_2', 'Luster Manicure', 'builder_gel', 2, true);
+        ('svc_luster_s2', 'salon_2', 'Luster Manicure', 'builder_gel', 2, true),
+        ('svc_luster_biab', 'salon_4', 'High-Luster BIAB Overlay', 'builder_gel', 1, true),
+        ('svc_luster_off', 'salon_5', 'Luster Manicure', 'manicure', 1, false);
     `);
     await database.exec(MIGRATION_SQL);
   });
@@ -59,6 +61,8 @@ describe('0056 booking category and Luster featuring migration', () => {
       { id: 'svc_luster_active', booking_category: 'manicure' },
       { id: 'svc_luster_pedi', booking_category: 'pedicure' },
       { id: 'svc_luster_s2', booking_category: 'manicure' },
+      { id: 'svc_luster_biab', booking_category: 'manicure' },
+      { id: 'svc_luster_off', booking_category: 'manicure' },
     ]);
   });
 
@@ -76,13 +80,16 @@ describe('0056 booking category and Luster featuring migration', () => {
     await database.exec('DELETE FROM service WHERE id = \'svc_new\'');
   });
 
-  it('tags at most one Luster-named hand service per salon, preferring active ones', async () => {
+  it('tags at most one active Luster-manicure-named hand service per salon', async () => {
     const result = await database.query<{ id: string }>(
       'SELECT id FROM service WHERE template_key = \'luster_manicure\' ORDER BY id',
     );
 
-    // salon_1: the active Luster wins over the inactive one.
-    // salon_2: the pedicure named Luster is skipped; the builder_gel one is tagged.
+    // salon_1: the active Luster wins; the inactive one is never tagged.
+    // salon_2: the pedicure-named Luster is skipped; the builder_gel one is tagged.
+    // salon_4: 'High-Luster BIAB Overlay' lacks 'manicure' in its name — untouched,
+    //          so it is neither auto-featured nor blocking the real template later.
+    // salon_5: only an inactive match — untouched, so re-adding the template works.
     expect(result.rows).toEqual([
       { id: 'svc_luster_active' },
       { id: 'svc_luster_s2' },

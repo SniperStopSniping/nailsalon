@@ -11,7 +11,7 @@
  * Any attempt to update billingMode or *PointsOverride returns 403 Forbidden.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
@@ -213,6 +213,7 @@ export async function PATCH(request: Request): Promise<Response> {
     const after: Record<string, unknown> = {};
     const dbUpdates: Record<string, unknown> = {};
     let nextSettings: SalonSettings | null = null;
+    const touchedSettingsKeys: string[] = [];
 
     const ensureNextSettings = (): SalonSettings => {
       if (nextSettings) {
@@ -244,6 +245,7 @@ export async function PATCH(request: Request): Promise<Response> {
       before.bookingConfig = currentBookingConfig;
       after.bookingConfig = mergedBookingConfig;
       ensureNextSettings().booking = mergedBookingConfig;
+      touchedSettingsKeys.push('booking');
     }
 
     if (updates.bookingNotifications) {
@@ -255,10 +257,12 @@ export async function PATCH(request: Request): Promise<Response> {
       before.bookingNotifications = currentBookingNotifications;
       after.bookingNotifications = mergedBookingNotifications;
       ensureNextSettings().notifications = mergedBookingNotifications;
+      touchedSettingsKeys.push('notifications');
     }
 
+    let mergedMerchandising: ReturnType<typeof merchandisingSettingsSchema.parse> | null = null;
     if (updates.merchandising) {
-      const mergedMerchandising = merchandisingSettingsSchema.parse({
+      mergedMerchandising = merchandisingSettingsSchema.parse({
         ...currentMerchandising,
         ...updates.merchandising,
       });
@@ -266,10 +270,22 @@ export async function PATCH(request: Request): Promise<Response> {
       before.merchandising = currentMerchandising;
       after.merchandising = mergedMerchandising;
       ensureNextSettings().merchandising = mergedMerchandising;
+      touchedSettingsKeys.push('merchandising');
     }
 
     if (nextSettings) {
-      dbUpdates.settings = nextSettings;
+      // Merchandising-only updates (e.g. the fire-and-forget promo dismissal)
+      // write just their key via jsonb_set so a concurrent booking/notification
+      // save is never clobbered by this read-modify-write.
+      if (
+        mergedMerchandising
+        && touchedSettingsKeys.length === 1
+        && touchedSettingsKeys[0] === 'merchandising'
+      ) {
+        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{merchandising}', ${JSON.stringify(mergedMerchandising)}::jsonb)`;
+      } else {
+        dbUpdates.settings = nextSettings;
+      }
     }
 
     // 7. If no changes, return current state

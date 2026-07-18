@@ -363,12 +363,55 @@ describe('/api/admin/salon/settings merchandising settings', () => {
 
     const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
 
+    // Merchandising-only updates go through a targeted jsonb_set SQL
+    // expression (not a full settings-object replace) so a concurrent
+    // booking/notification save can never be clobbered by this writer.
+    expect(setPayload.settings).toBeDefined();
+    expect(setPayload.settings.merchandising).toBeUndefined();
+
+    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const paramValues = sqlChunks.filter(
+      (chunk): chunk is string => typeof chunk === 'string',
+    );
+
+    expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
+    expect(logAuditEvent).toHaveBeenCalled();
+  });
+
+  it('writes the full settings object when merchandising is saved alongside booking config', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        booking: {},
+        merchandising: {
+          featureLusterManicure: false,
+          lusterPromoDismissed: false,
+          serviceLibraryIntroDismissed: false,
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingConfig: {},
+          merchandising: { featureLusterManicure: false },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+
     expect(setPayload.settings.merchandising).toEqual({
       featureLusterManicure: false,
       lusterPromoDismissed: false,
       serviceLibraryIntroDismissed: false,
     });
-    expect(logAuditEvent).toHaveBeenCalled();
   });
 
   it('rejects invalid merchandising payloads', async () => {

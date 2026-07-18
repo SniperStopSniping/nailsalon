@@ -7,6 +7,8 @@ const {
   getServicesBySalonId,
   selectWhere,
   insertValues,
+  updateSet,
+  updateReturning,
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
@@ -17,14 +19,22 @@ const {
   const insertValues = vi.fn(() => ({ returning: insertReturning }));
   const insert = vi.fn(() => ({ values: insertValues }));
 
+  const updateReturning = vi.fn(async (): Promise<unknown[]> => []);
+  const updateWhere = vi.fn(() => ({ returning: updateReturning }));
+  const updateSet = vi.fn(() => ({ where: updateWhere }));
+  const update = vi.fn(() => ({ set: updateSet }));
+
   return {
     requireAdminSalon: vi.fn(),
     getServicesBySalonId: vi.fn(),
     selectWhere,
     insertValues,
+    updateSet,
+    updateReturning,
     db: {
       select,
       insert,
+      update,
     },
   };
 });
@@ -108,6 +118,11 @@ describe('salon services route', () => {
   });
 
   it('accepts an explicit booking category, featured position, and Luster template key', async () => {
+    // First select: no existing templated service; second: sortOrder max.
+    selectWhere
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ maxOrder: 2 }]);
+
     const response = await POST(new Request('http://localhost/api/salon/services', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -148,14 +163,10 @@ describe('salon services route', () => {
     expect(response.status).toBe(400);
   });
 
-  it('returns 409 when the Luster template already exists for the salon', async () => {
-    insertValues.mockReturnValueOnce({
-      returning: vi.fn(async () => {
-        throw new Error(
-          'duplicate key value violates unique constraint "service_salon_template_key_idx"',
-        );
-      }),
-    });
+  it('returns 409 when an active Luster template already exists for the salon', async () => {
+    selectWhere.mockResolvedValueOnce([
+      { id: 'svc_existing', isActive: true, templateKey: 'luster_manicure' },
+    ]);
 
     const response = await POST(new Request('http://localhost/api/salon/services', {
       method: 'POST',
@@ -173,6 +184,52 @@ describe('salon services route', () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('TEMPLATE_ALREADY_ADDED');
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it('revives a deactivated Luster template instead of failing on the unique index', async () => {
+    selectWhere.mockResolvedValueOnce([
+      { id: 'svc_dormant', isActive: false, templateKey: 'luster_manicure' },
+    ]);
+    updateReturning.mockResolvedValueOnce([{
+      id: 'svc_dormant',
+      name: 'Luster Manicure',
+      description: null,
+      price: 4500,
+      durationMinutes: 60,
+      category: 'manicure',
+      bookingCategory: 'manicure',
+      templateKey: 'luster_manicure',
+      imageUrl: null,
+      sortOrder: 5,
+      isActive: true,
+    }]);
+
+    const response = await POST(new Request('http://localhost/api/salon/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'isla-nail-studio',
+        name: 'Luster Manicure',
+        price: 4500,
+        durationMinutes: 60,
+        category: 'manicure',
+        templateKey: 'luster_manicure',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      isActive: true,
+      price: 4500,
+      bookingCategory: 'manicure',
+    }));
+    expect(body.data.service).toEqual(expect.objectContaining({
+      id: 'svc_dormant',
+      isActive: true,
+    }));
   });
 
   it('rejects invalid create payloads', async () => {

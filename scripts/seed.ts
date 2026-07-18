@@ -24,6 +24,7 @@ import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglit
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
+import { deriveBookingCategory } from '../src/libs/bookingCategory';
 import * as schema from '../src/models/Schema';
 
 // =============================================================================
@@ -317,7 +318,7 @@ async function seed() {
     for (const service of SERVICES) {
       await db
         .insert(schema.serviceSchema)
-        .values(service)
+        .values({ ...service, bookingCategory: deriveBookingCategory(service.category) })
         .onConflictDoUpdate({
           target: schema.serviceSchema.id,
           set: {
@@ -326,6 +327,7 @@ async function seed() {
             price: service.price,
             durationMinutes: service.durationMinutes,
             category: service.category,
+            bookingCategory: deriveBookingCategory(service.category),
             imageUrl: service.imageUrl,
             sortOrder: service.sortOrder,
             isActive: service.isActive,

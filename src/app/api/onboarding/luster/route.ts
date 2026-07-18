@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
@@ -434,6 +435,7 @@ export async function POST(request: Request) {
           price: service.priceCents,
           durationMinutes: service.durationMinutes,
           category: service.category,
+          bookingCategory: deriveBookingCategory(service.category),
           sortOrder: index,
           isActive: true,
         });

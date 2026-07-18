@@ -555,6 +555,38 @@ describe('BookServiceClient', () => {
     );
   });
 
+  it('lands on the first non-empty tab when the salon offers no manicure services', () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            id: 'svc-pedi-only',
+            name: 'Spa Pedicure',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 60,
+            priceCents: 6000,
+            priceDisplayText: null,
+            category: 'pedicure',
+            bookingCategory: 'pedicure',
+            templateKey: null,
+            featuredOrder: null,
+            imageUrl: '/service-pedi.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const track = screen.getByTestId('service-category-track');
+
+    expect(within(track).getByRole('button', { name: /pedicure/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('service-card-svc-pedi-only')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-category-empty')).not.toBeInTheDocument();
+  });
+
   it('surfaces search matches from any category regardless of the selected chip', () => {
     render(
       <BookServiceClient

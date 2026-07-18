@@ -42,8 +42,10 @@ FROM (
   SELECT DISTINCT ON ("salon_id") "id", "salon_id"
   FROM "service"
   WHERE lower("name") LIKE '%luster%'
+    AND lower("name") LIKE '%manicure%'
+    AND "is_active" IS TRUE
     AND "category" NOT IN ('pedicure', 'feet', 'combo')
-  ORDER BY "salon_id", ("is_active" IS TRUE) DESC, "sort_order" ASC NULLS LAST, "id" ASC
+  ORDER BY "salon_id", "sort_order" ASC NULLS LAST, "id" ASC
 ) best
 WHERE s."id" = best."id"
   AND s."template_key" IS NULL

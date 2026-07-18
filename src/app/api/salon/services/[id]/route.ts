@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -6,6 +6,7 @@ import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
 } from '@/libs/bookingCatalog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
 import {
   BOOKING_CATEGORIES,
@@ -109,9 +110,14 @@ export async function PATCH(
         preparationBufferMinutes: input.preparationBufferMinutes,
         cleanupBufferMinutes: input.cleanupBufferMinutes,
         category: input.category,
-        // Drizzle skips undefined values, so omitted fields stay unchanged
-        // while an explicit null clears featuredOrder.
-        bookingCategory: input.bookingCategory,
+        // When a caller (e.g. a pre-update client) changes the category
+        // without sending bookingCategory, re-derive it so admin and public
+        // categorization stay in sync; unchanged categories keep any custom
+        // grouping the owner picked.
+        bookingCategory: input.bookingCategory
+          ?? sql`CASE WHEN ${serviceSchema.category} <> ${input.category} THEN ${deriveBookingCategory(input.category)}::"booking_category" ELSE ${serviceSchema.bookingCategory} END`,
+        // Drizzle skips undefined values, so an omitted featuredOrder stays
+        // unchanged while an explicit null clears it.
         featuredOrder: input.featuredOrder,
         isIntroPrice: input.isIntroPrice,
         introPriceLabel: input.isIntroPrice ? input.introPriceLabel : null,

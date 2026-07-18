@@ -769,17 +769,14 @@ const LUSTER_PREFILL: ServicePrefill = {
 
 /**
  * Owner-only setup card shown when the salon has no active Luster Manicure.
- * Never rendered on any client-facing surface.
+ * Never rendered on any client-facing surface. If a deactivated Luster service
+ * exists, the POST /api/salon/services template path revives it in place.
  */
 function LusterPromoCard({
-  inactiveLusterService,
   onSetUp,
-  onReactivate,
   onDismiss,
 }: {
-  inactiveLusterService: ServiceData | null;
   onSetUp: () => void;
-  onReactivate: (service: ServiceData) => void;
   onDismiss: () => void;
 }) {
   return (
@@ -813,13 +810,7 @@ function LusterPromoCard({
           variant="brand"
           size="pillSm"
           data-testid="luster-promo-cta"
-          onClick={() => {
-            if (inactiveLusterService) {
-              onReactivate(inactiveLusterService);
-            } else {
-              onSetUp();
-            }
-          }}
+          onClick={onSetUp}
         >
           Set Up Service
         </Button>
@@ -1162,12 +1153,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       <div className="flex-1 overflow-y-auto pb-10">
         {showLusterPromo && (
           <LusterPromoCard
-            inactiveLusterService={lusterService}
             onSetUp={() => {
               setAddDialogPrefill(LUSTER_PREFILL);
               setShowAddDialog(true);
             }}
-            onReactivate={service => setEditingService(service)}
             onDismiss={() => void dismissLusterPromo()}
           />
         )}
