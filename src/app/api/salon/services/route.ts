@@ -10,6 +10,10 @@ import {
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
 import {
+  ensureServiceAssignments,
+  InvalidTechnicianAssignmentError,
+} from '@/libs/serviceAssignments';
+import {
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
@@ -61,6 +65,7 @@ const createServiceSchema = z.object({
   category: z.enum(SERVICE_CATEGORIES),
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
+  technicianIds: z.array(z.string().min(1)).optional(),
 });
 
 // =============================================================================
@@ -197,14 +202,6 @@ export async function POST(request: Request): Promise<Response> {
       return error!;
     }
 
-    const maxOrderRows = await db
-      .select({
-        maxOrder: sql<number>`coalesce(max(${serviceSchema.sortOrder}), 0)`,
-      })
-      .from(serviceSchema)
-      .where(eq(serviceSchema.salonId, salon.id));
-    const nextSortOrder = (maxOrderRows[0]?.maxOrder ?? 0) + 1;
-
     const normalizedDescriptionItems = normalizeDescriptionItems(
       data.descriptionItems,
     );
@@ -213,27 +210,52 @@ export async function POST(request: Request): Promise<Response> {
         ? descriptionItemsToLegacyText(normalizedDescriptionItems)
         : data.description;
 
-    const [createdService] = await db
-      .insert(serviceSchema)
-      .values({
-        id: `svc_${nanoid()}`,
+    const result = await db.transaction(async (tx) => {
+      const maxOrderRows = await tx
+        .select({
+          maxOrder: sql<number>`coalesce(max(${serviceSchema.sortOrder}), 0)`,
+        })
+        .from(serviceSchema)
+        .where(eq(serviceSchema.salonId, salon.id));
+      const nextSortOrder = (maxOrderRows[0]?.maxOrder ?? 0) + 1;
+      const serviceId = `svc_${nanoid()}`;
+
+      const [createdService] = await tx
+        .insert(serviceSchema)
+        .values({
+          id: serviceId,
+          salonId: salon.id,
+          name: data.name,
+          slug: uniqueSlugFromName(data.name),
+          description: legacyDescription,
+          descriptionItems: normalizedDescriptionItems,
+          price: data.price,
+          priceDisplayText: data.priceDisplayText,
+          durationMinutes: data.durationMinutes,
+          preparationBufferMinutes: data.preparationBufferMinutes,
+          cleanupBufferMinutes: data.cleanupBufferMinutes,
+          category: data.category,
+          isIntroPrice: data.isIntroPrice,
+          introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
+          sortOrder: nextSortOrder,
+          isActive: true,
+        })
+        .returning();
+
+      if (!createdService) {
+        return null;
+      }
+
+      const assignments = await ensureServiceAssignments(tx, {
         salonId: salon.id,
-        name: data.name,
-        slug: uniqueSlugFromName(data.name),
-        description: legacyDescription,
-        descriptionItems: normalizedDescriptionItems,
-        price: data.price,
-        priceDisplayText: data.priceDisplayText,
-        durationMinutes: data.durationMinutes,
-        preparationBufferMinutes: data.preparationBufferMinutes,
-        cleanupBufferMinutes: data.cleanupBufferMinutes,
-        category: data.category,
-        isIntroPrice: data.isIntroPrice,
-        introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
-        sortOrder: nextSortOrder,
-        isActive: true,
-      })
-      .returning();
+        serviceId,
+        technicianIds: data.technicianIds,
+      });
+
+      return { service: createdService, assignments };
+    });
+
+    const createdService = result?.service;
 
     if (!createdService) {
       return Response.json(
@@ -251,11 +273,23 @@ export async function POST(request: Request): Promise<Response> {
       {
         data: {
           service: buildServicePayload(createdService),
+          assignment: result.assignments,
         },
       },
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof InvalidTechnicianAssignmentError) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_TECHNICIAN_ASSIGNMENT',
+            message: 'One or more selected technicians are not active members of this salon.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
     console.error('Error creating service:', error);
     return Response.json(
       {

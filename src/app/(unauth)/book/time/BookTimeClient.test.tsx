@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -162,5 +162,68 @@ describe('BookTimeClient', () => {
 
     expect(await screen.findByText('Availability could not be loaded')).toBeInTheDocument();
     expect(screen.getByText('Technician schedule is unavailable for this day.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('preserves the service selection when an unsupported technician must be reselected', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        kind: 'unsupported_technician',
+        message: 'This service is not available with the selected technician. Please choose another technician.',
+        canRetry: false,
+        canReselectTechnician: true,
+      },
+    }), { status: 400 }));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Builder Gel Overlay', price: 65, duration: 90 }]}
+        totalPrice={65}
+        totalDuration={90}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    const chooseButton = await screen.findByRole('button', { name: 'Choose another technician' });
+
+    expect(screen.queryByText('TECHNICIAN_SERVICE_UNSUPPORTED')).not.toBeInTheDocument();
+
+    fireEvent.click(chooseButton);
+
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/en/salon-a/book/tech'));
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('serviceIds=srv_1'));
+  });
+
+  it('retries temporary availability failures', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        kind: 'temporary_failure',
+        message: 'Unable to evaluate availability for the selected day.',
+        canRetry: true,
+        canReselectTechnician: false,
+      },
+    }), { status: 500 }));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    const retryButton = await screen.findByRole('button', { name: 'Retry' });
+    const callsBeforeRetry = fetchMock.mock.calls.length;
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 }));
+    fireEvent.click(retryButton);
+
+    expect(await screen.findByRole('button', { name: '9:00 AM' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(callsBeforeRetry + 1);
   });
 });
