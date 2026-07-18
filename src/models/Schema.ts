@@ -65,6 +65,12 @@ export const serviceCategoryEnum = pgEnum('service_category', [
   'combo',
 ]);
 
+export const bookingCategoryEnum = pgEnum('booking_category', [
+  'manicure',
+  'pedicure',
+  'combo',
+]);
+
 export const addOnCategoryEnum = pgEnum('add_on_category', [
   'nail_art',
   'repair',
@@ -290,10 +296,17 @@ export const serviceSchema = pgTable(
 
     // Categorization
     category: serviceCategoryEnum('category').notNull(),
+    // Client-facing booking page grouping, independent of the admin category.
+    bookingCategory: bookingCategoryEnum('booking_category').default('manicure').notNull(),
+    // Stable key linking this service to a catalog template (e.g. 'luster_manicure').
+    // Unique per salon via the partial index below.
+    templateKey: text('template_key'),
 
     // Display
     imageUrl: text('image_url'),
     sortOrder: integer('sort_order').default(0),
+    // Manual featured position on the booking page; null = not manually featured.
+    featuredOrder: integer('featured_order'),
 
     // Status
     isActive: boolean('is_active').default(true),
@@ -310,6 +323,9 @@ export const serviceSchema = pgTable(
     salonSlugIdx: uniqueIndex('service_salon_slug_idx').on(table.salonId, table.slug),
     categoryIdx: index('service_category_idx').on(table.salonId, table.category),
     activeCategoryIdx: index('service_active_category_idx').on(table.salonId, table.isActive, table.category),
+    // Partial unique index (WHERE template_key IS NOT NULL) is created in
+    // migrations/0056_booking_category_luster_featuring.sql as
+    // service_salon_template_key_idx — one template-derived service per salon.
   }),
 );
 
@@ -2024,6 +2040,13 @@ export const PUBLIC_SERVICE_CATEGORIES = [
   'combo',
 ] as const;
 export type PublicServiceCategory = (typeof PUBLIC_SERVICE_CATEGORIES)[number];
+
+export const BOOKING_CATEGORIES = [
+  'manicure',
+  'pedicure',
+  'combo',
+] as const;
+export type BookingCategory = (typeof BOOKING_CATEGORIES)[number];
 
 export const ADD_ON_CATEGORIES = [
   'nail_art',

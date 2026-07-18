@@ -937,6 +937,7 @@ export function SettingsModal({
       firstVisitDiscountEnabled: false,
       clientChangeCutoffHours: 24,
     });
+  const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
   const [bookingNotificationsSaving, setBookingNotificationsSaving]
     = useState(false);
   const [bookingNotificationsSaved, setBookingNotificationsSaved]
@@ -1067,6 +1068,9 @@ export function SettingsModal({
           clientChangeCutoffHours:
             data.bookingConfig?.clientChangeCutoffHours ?? 24,
         });
+        setFeatureLusterManicure(
+          data.merchandising?.featureLusterManicure ?? true,
+        );
         setBookingNotificationsForm({
           newBooking: {
             technicianEnabled:
@@ -1164,6 +1168,9 @@ export function SettingsModal({
               clientChangeCutoffHours:
                 bookingConfigForm.clientChangeCutoffHours,
             },
+            merchandising: {
+              featureLusterManicure,
+            },
           }),
         },
       );
@@ -1190,6 +1197,9 @@ export function SettingsModal({
           data.bookingConfig?.clientChangeCutoffHours
           ?? bookingConfigForm.clientChangeCutoffHours,
       });
+      setFeatureLusterManicure(
+        data.merchandising?.featureLusterManicure ?? featureLusterManicure,
+      );
       setBookingConfigSaved(true);
       router.refresh();
     } catch (error) {
@@ -1197,7 +1207,7 @@ export function SettingsModal({
     } finally {
       setBookingConfigSaving(false);
     }
-  }, [bookingConfigForm, bookingConfigSaving, router, salonSlug]);
+  }, [bookingConfigForm, bookingConfigSaving, featureLusterManicure, router, salonSlug]);
 
   const saveBookingNotifications = useCallback(async () => {
     if (!salonSlug || bookingNotificationsSaving) {
@@ -1674,6 +1684,26 @@ export function SettingsModal({
                             ...prev,
                             firstVisitDiscountEnabled: event.target.checked,
                           }))}
+                        className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                      />
+                    </label>
+
+                    <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <div className="space-y-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Feature Luster Manicure
+                        </span>
+                        <p className="text-sm text-gray-700">
+                          Show your active Luster Manicure first in Featured
+                          Services.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        data-testid="feature-luster-manicure-toggle"
+                        checked={featureLusterManicure}
+                        onChange={event =>
+                          setFeatureLusterManicure(event.target.checked)}
                         className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
                       />
                     </label>

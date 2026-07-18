@@ -8,6 +8,7 @@ import {
 } from '@/libs/bookingCatalog';
 import { db } from '@/libs/DB';
 import {
+  BOOKING_CATEGORIES,
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
@@ -34,6 +35,8 @@ const updateServiceSchema = z.object({
   preparationBufferMinutes: z.number().int().min(0).max(120).default(0),
   cleanupBufferMinutes: z.number().int().min(0).max(120).default(0),
   category: z.enum(SERVICE_CATEGORIES),
+  bookingCategory: z.enum(BOOKING_CATEGORIES).optional(),
+  featuredOrder: z.number().int().min(1).max(999).nullable().optional(),
   isIntroPrice: z.boolean().default(false),
   introPriceLabel: optionalText,
   isActive: z.boolean().default(true),
@@ -52,8 +55,11 @@ function buildServicePayload(service: Service): ServiceResponse {
     preparationBufferMinutes: service.preparationBufferMinutes,
     cleanupBufferMinutes: service.cleanupBufferMinutes,
     category: service.category,
+    bookingCategory: service.bookingCategory,
+    templateKey: service.templateKey ?? null,
     imageUrl: service.imageUrl,
     sortOrder: service.sortOrder,
+    featuredOrder: service.featuredOrder ?? null,
     isActive: service.isActive,
     isIntroPrice: service.isIntroPrice,
     introPriceLabel: service.introPriceLabel,
@@ -103,6 +109,10 @@ export async function PATCH(
         preparationBufferMinutes: input.preparationBufferMinutes,
         cleanupBufferMinutes: input.cleanupBufferMinutes,
         category: input.category,
+        // Drizzle skips undefined values, so omitted fields stay unchanged
+        // while an explicit null clears featuredOrder.
+        bookingCategory: input.bookingCategory,
+        featuredOrder: input.featuredOrder,
         isIntroPrice: input.isIntroPrice,
         introPriceLabel: input.isIntroPrice ? input.introPriceLabel : null,
         isActive: input.isActive,

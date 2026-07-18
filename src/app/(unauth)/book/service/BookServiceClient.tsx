@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
+import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
@@ -20,7 +21,7 @@ import {
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
-import { PUBLIC_SERVICE_CATEGORIES } from '@/models/Schema';
+import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
@@ -47,6 +48,9 @@ export type ServiceData = {
   priceCents: number;
   priceDisplayText: string | null;
   category: ServiceCategory;
+  bookingCategory: BookingCategory;
+  templateKey: string | null;
+  featuredOrder: number | null;
   imageUrl: string;
   resolvedIntroPriceLabel: string | null;
   sortOrder?: number | null;
@@ -98,6 +102,7 @@ type BookServiceClientProps = {
   technicians?: TechnicianPreviewData[];
   currency?: string;
   showNewClientPromo?: boolean;
+  lusterFeaturingEnabled?: boolean;
 };
 
 const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = {
@@ -124,7 +129,7 @@ function buildServiceRows(services: ServiceData[]): ServiceData[][] {
   let currentRow: ServiceData[] = [];
 
   for (const service of services) {
-    if (service.category === 'combo') {
+    if (service.bookingCategory === 'combo') {
       if (currentRow.length > 0) {
         rows.push(currentRow);
         currentRow = [];
@@ -202,6 +207,7 @@ export function BookServiceClient({
   technicians = EMPTY_TECHNICIANS,
   currency = 'CAD',
   showNewClientPromo = false,
+  lusterFeaturingEnabled = true,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -250,7 +256,7 @@ export function BookServiceClient({
   const urlDrivenBaseServiceId = urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
-  const initialCategory = initialSelectedService?.category ?? services[0]?.category ?? 'manicure';
+  const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? 'manicure';
   const initialSelectedAddOns = initialBaseServiceId
     ? buildDefaultSelectedAddOns(
       initialBaseServiceId,
@@ -260,7 +266,7 @@ export function BookServiceClient({
     )
     : [];
 
-  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(initialCategory);
+  const [selectedCategory, setSelectedCategory] = useState<BookingCategory>(initialCategory);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
   const [searchQuery, setSearchQuery] = useState('');
@@ -387,7 +393,7 @@ export function BookServiceClient({
     );
 
     setSelectedBaseServiceIdState(storedBaseServiceId);
-    setSelectedCategory(storedService.category);
+    setSelectedCategory(storedService.bookingCategory);
     setSelectedAddOnsState(normalizedStoredAddOns);
     hasManuallyClearedSelectionRef.current = false;
     hasAppliedHydratedBookingStateRef.current = true;
@@ -486,26 +492,18 @@ export function BookServiceClient({
     } else {
       hasManuallyClearedSelectionRef.current = false;
       setSelectedBaseServiceIdState(service.id);
-      setSelectedCategory(service.category);
+      setSelectedCategory(service.bookingCategory);
     }
 
     triggerHaptic('select');
   };
-
-  const availableCategorySet = new Set(services.map(service => service.category));
-  const availableCategories = [
-    ...PUBLIC_SERVICE_CATEGORIES.filter(category => availableCategorySet.has(category as ServiceCategory)),
-    ...Array.from(availableCategorySet).filter(
-      category => !PUBLIC_SERVICE_CATEGORIES.includes(category as typeof PUBLIC_SERVICE_CATEGORIES[number]),
-    ),
-  ] as ServiceCategory[];
 
   const filteredServices = services.filter((service) => {
     if (searchQuery) {
       return service.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
 
-    return service.category === selectedCategory;
+    return service.bookingCategory === selectedCategory;
   });
 
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
@@ -659,7 +657,7 @@ export function BookServiceClient({
     },
     0,
   );
-  const featuredServices = getFeaturedServices(services);
+  const featuredServices = getFeaturedServices(services, { lusterFeaturingEnabled });
   const serviceRows = buildServiceRows(filteredServices);
   const soleCompatiblePreviewRating = soleCompatiblePreviewTechnician
     ? getPublicTechnicianRatingDisplay({
@@ -1075,7 +1073,11 @@ export function BookServiceClient({
                           Popular premium sets and combo appointments
                         </div>
                       </div>
-                      <div className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0">
+                      <div
+                        className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0"
+                        role="region"
+                        aria-label="Featured services"
+                      >
                         <div className="flex min-w-max gap-2">
                           {featuredServices.map((service, featuredIndex) => {
                             const isSelected = selectedBaseServiceId === service.id;
@@ -1086,8 +1088,10 @@ export function BookServiceClient({
                                 disabled={!isHydrated}
                                 onClick={() => handleServiceSelection(service)}
                                 data-testid={`featured-service-card-${service.id}`}
-                                className={`relative shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                  service.category === 'combo' ? 'w-[320px]' : 'w-[260px]'
+                                aria-pressed={isSelected}
+                                aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
+                                className={`relative w-[272px] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                  service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
                                 }`}
                                 style={{
                                   background: isSelected
@@ -1101,29 +1105,29 @@ export function BookServiceClient({
                                   borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
                                 }}
                               >
-                                <div className="relative h-[96px] overflow-hidden">
+                                <div className="relative h-[80px] overflow-hidden sm:h-[96px]">
                                   <ServiceCardImage
                                     src={service.imageUrl}
                                     alt={service.name}
                                     imageTestId={`featured-service-card-image-${service.id}`}
                                     className="object-cover transition-transform duration-300"
                                   />
-                                  <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
+                                  <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
                                   <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
                                     {/* "Best value" only on the lead card — a badge on every card means nothing */}
-                                    {featuredIndex === 0 && service.category === 'combo'
+                                    {featuredIndex === 0 && service.bookingCategory === 'combo'
                                       ? 'Best value'
                                       : CATEGORY_META[service.category].label}
                                   </div>
                                 </div>
                                 <div className="p-2">
-                                  <div className="text-[14px] font-bold leading-tight text-neutral-900">
+                                  <div className="text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
                                     {service.name}
                                   </div>
-                                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
+                                  <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
                                     {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
                                   </div>
-                                  <div className="mt-1 flex items-center justify-between gap-3">
+                                  <div className="mt-0.5 flex items-center justify-between gap-3 sm:mt-1">
                                     <span className="text-[12px] text-neutral-500">
                                       {formatDuration(service.durationMinutes)}
                                     </span>
@@ -1150,24 +1154,25 @@ export function BookServiceClient({
                   data-testid="service-category-scroll"
                 >
                   <div
-                    className="flex min-w-max flex-nowrap gap-2 md:min-w-0 md:flex-wrap md:justify-center"
+                    className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
                     data-testid="service-category-track"
                   >
-                    {availableCategories.map((category) => {
+                    {BOOKING_CATEGORIES.map((category) => {
                       const active = category === selectedCategory;
-                      const meta = CATEGORY_META[category];
+                      const meta = BOOKING_CATEGORY_META[category];
                       return (
                         <button
                           key={category}
                           type="button"
                           disabled={!isHydrated}
+                          aria-pressed={active}
                           onClick={() => {
                             if (category !== selectedCategory) {
                               setSelectedCategory(category);
                               triggerHaptic('select');
                             }
                           }}
-                          className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200"
+                          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5"
                           style={{
                             backgroundColor: active ? themeVars.accent : 'white',
                             color: active ? 'white' : '#525252',
@@ -1186,6 +1191,19 @@ export function BookServiceClient({
                 </div>
 
                 <div className="space-y-2">
+                  {!searchQuery && filteredServices.length === 0 && (
+                    <div
+                      data-testid="service-category-empty"
+                      className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-neutral-500"
+                      style={{ borderColor: themeVars.cardBorder }}
+                    >
+                      No
+                      {' '}
+                      {BOOKING_CATEGORY_META[selectedCategory].label.toLowerCase()}
+                      {' '}
+                      services available yet.
+                    </div>
+                  )}
                   {serviceRows.map((row, rowIndex) => {
                     const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
 
@@ -1207,7 +1225,7 @@ export function BookServiceClient({
                                 data-selected={isSelected ? 'true' : 'false'}
                                 aria-pressed={isSelected}
                                 className={`relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                  service.category === 'combo' ? 'col-span-full' : ''
+                                  service.bookingCategory === 'combo' ? 'col-span-full' : ''
                                 }`}
                                 style={{
                                   transform: mounted ? 'translateY(0)' : 'translateY(15px)',
@@ -1226,7 +1244,7 @@ export function BookServiceClient({
                               >
                                 <div
                                   data-testid={`service-card-image-${service.id}`}
-                                  className={`relative overflow-hidden ${service.category === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
+                                  className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
                                   style={{
                                     background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
                                   }}
@@ -1247,7 +1265,7 @@ export function BookServiceClient({
 
                                 <div
                                   data-testid={`service-card-content-${service.id}`}
-                                  className={`flex flex-1 flex-col ${service.category === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
+                                  className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
                                 >
                                   <div className="text-[14px] font-bold leading-tight text-neutral-900">
                                     {service.name}

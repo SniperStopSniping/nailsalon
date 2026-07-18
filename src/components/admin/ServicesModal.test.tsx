@@ -22,6 +22,40 @@ vi.mock('framer-motion', () => {
   };
 });
 
+type MockRoutes = {
+  services?: unknown[];
+  merchandising?: {
+    featureLusterManicure?: boolean;
+    lusterPromoDismissed?: boolean;
+  };
+  createdService?: Record<string, unknown>;
+};
+
+function mockRoutes({ services = [], merchandising = {}, createdService }: MockRoutes) {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith('/api/admin/salon/settings')) {
+      if (init?.method === 'PATCH') {
+        return new Response(JSON.stringify({ merchandising: { lusterPromoDismissed: true } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ merchandising }), { status: 200 });
+    }
+    if (url.startsWith('/api/salon/services')) {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({ data: { service: createdService ?? {} } }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ data: { services } }), { status: 200 });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+}
+
+function findCall(predicate: (url: string, init?: RequestInit) => boolean) {
+  return fetchMock.mock.calls.find(([input, init]) =>
+    predicate(String(input), init as RequestInit | undefined),
+  );
+}
+
 describe('ServicesModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -30,40 +64,21 @@ describe('ServicesModal', () => {
   });
 
   it('shows add actions for an empty salon and creates combo services against the active admin salon slug', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: {
-          services: [],
-        },
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: {
-          service: {
-            id: 'svc_new',
-            name: 'BIAB + Classic Pedicure',
-            description: 'Builder gel overlay paired with a classic pedicure',
-            price: 8500,
-            durationMinutes: 110,
-            category: 'combo',
-            imageUrl: null,
-            isActive: true,
-          },
-        },
-      }), { status: 201 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: {
-          services: [{
-            id: 'svc_new',
-            name: 'BIAB + Classic Pedicure',
-            description: 'Builder gel overlay paired with a classic pedicure',
-            price: 8500,
-            durationMinutes: 110,
-            category: 'combo',
-            imageUrl: null,
-            isActive: true,
-          }],
-        },
-      }), { status: 200 }));
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true },
+      createdService: {
+        id: 'svc_new',
+        name: 'BIAB + Classic Pedicure',
+        description: 'Builder gel overlay paired with a classic pedicure',
+        price: 8500,
+        durationMinutes: 110,
+        category: 'combo',
+        bookingCategory: 'combo',
+        imageUrl: null,
+        isActive: true,
+      },
+    });
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
@@ -80,17 +95,16 @@ describe('ServicesModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')).toBeTruthy();
     });
 
-    const [url, requestInit] = fetchMock.mock.calls[1] ?? [];
+    const [, requestInit] = findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')!;
 
-    expect(url).toBe('/api/salon/services');
     expect(requestInit).toEqual(expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }));
-    expect(JSON.parse(String(requestInit?.body))).toEqual({
+    expect(JSON.parse(String((requestInit as RequestInit).body))).toEqual({
       salonSlug: 'isla-nail-studio',
       name: 'BIAB + Classic Pedicure',
       description: 'Builder gel overlay paired with a classic pedicure',
@@ -101,6 +115,10 @@ describe('ServicesModal', () => {
       preparationBufferMinutes: 0,
       cleanupBufferMinutes: 0,
       category: 'combo',
+      // The booking-page section follows the category until touched directly.
+      bookingCategory: 'combo',
+      featuredOrder: null,
+      templateKey: null,
       isActive: true,
       isIntroPrice: false,
       introPriceLabel: null,
@@ -110,32 +128,31 @@ describe('ServicesModal', () => {
   });
 
   it('keeps combo available as a filter category and shows combo services when selected', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      data: {
-        services: [
-          {
-            id: 'svc_combo',
-            name: 'Gel X / Hard Gel Extensions + Classic Pedicure',
-            description: null,
-            price: 10500,
-            durationMinutes: 155,
-            category: 'combo',
-            imageUrl: null,
-            isActive: true,
-          },
-          {
-            id: 'svc_mani',
-            name: 'Gel Manicure',
-            description: null,
-            price: 4000,
-            durationMinutes: 60,
-            category: 'manicure',
-            imageUrl: null,
-            isActive: true,
-          },
-        ],
-      },
-    }), { status: 200 }));
+    mockRoutes({
+      services: [
+        {
+          id: 'svc_combo',
+          name: 'Gel X / Hard Gel Extensions + Classic Pedicure',
+          description: null,
+          price: 10500,
+          durationMinutes: 155,
+          category: 'combo',
+          imageUrl: null,
+          isActive: true,
+        },
+        {
+          id: 'svc_mani',
+          name: 'Gel Manicure',
+          description: null,
+          price: 4000,
+          durationMinutes: 60,
+          category: 'manicure',
+          imageUrl: null,
+          isActive: true,
+        },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+    });
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
@@ -146,5 +163,135 @@ describe('ServicesModal', () => {
 
     expect(screen.getByText('Gel X / Hard Gel Extensions + Classic Pedicure')).toBeInTheDocument();
     expect(screen.queryByText('Gel Manicure')).not.toBeInTheDocument();
+  });
+
+  it('shows the Luster setup card when the salon has no Luster service and creates it with the template key', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: false },
+      createdService: {
+        id: 'svc_luster',
+        name: 'Luster Manicure',
+        price: 4500,
+        durationMinutes: 60,
+        category: 'manicure',
+        bookingCategory: 'manicure',
+        templateKey: 'luster_manicure',
+        imageUrl: null,
+        isActive: true,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByTestId('luster-promo-card')).toBeInTheDocument();
+    expect(screen.getByText('Offer the Luster Manicure')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('luster-promo-cta'));
+
+    expect(screen.getByLabelText('Name')).toHaveValue('Luster Manicure');
+    expect(screen.getByLabelText('Price')).toHaveValue(45);
+    expect(screen.getByLabelText('Duration')).toHaveValue(60);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    await waitFor(() => {
+      expect(findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')).toBeTruthy();
+    });
+
+    const [, requestInit] = findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')!;
+    const body = JSON.parse(String((requestInit as RequestInit).body));
+
+    expect(body.templateKey).toBe('luster_manicure');
+    expect(body.name).toBe('Luster Manicure');
+    expect(body.bookingCategory).toBe('manicure');
+  });
+
+  it('hides the Luster setup card when an active Luster service exists', async () => {
+    mockRoutes({
+      services: [
+        {
+          id: 'svc_luster',
+          name: 'Luster Manicure',
+          description: null,
+          price: 4500,
+          durationMinutes: 60,
+          category: 'manicure',
+          bookingCategory: 'manicure',
+          templateKey: 'luster_manicure',
+          imageUrl: null,
+          isActive: true,
+        },
+      ],
+      merchandising: { lusterPromoDismissed: false },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByText('Luster Manicure')).toBeInTheDocument();
+    expect(screen.queryByTestId('luster-promo-card')).not.toBeInTheDocument();
+  });
+
+  it('hides the Luster setup card once dismissed and persists the dismissal', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: false },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('luster-promo-dismiss'));
+
+    expect(screen.queryByTestId('luster-promo-card')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const patchCall = findCall((url, init) =>
+        url.startsWith('/api/admin/salon/settings') && init?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+      expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+        merchandising: { lusterPromoDismissed: true },
+      });
+    });
+  });
+
+  it('assigns the next free featured position when the owner features a service', async () => {
+    mockRoutes({
+      services: [
+        {
+          id: 'svc_featured',
+          name: 'Signature Combo',
+          description: null,
+          price: 9000,
+          durationMinutes: 120,
+          category: 'combo',
+          bookingCategory: 'combo',
+          featuredOrder: 2,
+          imageUrl: null,
+          isActive: true,
+        },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+      createdService: { id: 'svc_new', name: 'New', price: 1000, durationMinutes: 30, category: 'manicure', bookingCategory: 'manicure', imageUrl: null, isActive: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await screen.findByText('Signature Combo');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Spa Pedicure' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '55' } });
+    fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '60' } });
+    fireEvent.click(screen.getByTestId('service-featured-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    await waitFor(() => {
+      expect(findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')).toBeTruthy();
+    });
+
+    const [, requestInit] = findCall((url, init) => url === '/api/salon/services' && init?.method === 'POST')!;
+
+    expect(JSON.parse(String((requestInit as RequestInit).body)).featuredOrder).toBe(3);
   });
 });

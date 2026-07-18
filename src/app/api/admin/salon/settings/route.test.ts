@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import { GET, PATCH } from './route';
+
 vi.mock('server-only', () => ({}));
 
 const {
@@ -80,8 +82,6 @@ vi.mock('@/libs/featureGating', () => ({
 vi.mock('@/libs/DB', () => ({
   db,
 }));
-
-import { GET, PATCH } from './route';
 
 describe('/api/admin/salon/settings notification settings', () => {
   beforeEach(() => {
@@ -279,6 +279,107 @@ describe('/api/admin/salon/settings notification settings', () => {
               ownerChannel: 'push',
             },
           },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('/api/admin/salon/settings merchandising settings', () => {
+  const baseSalon = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: {},
+    settings: {},
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+
+    requireAdmin.mockResolvedValue({
+      ok: true,
+      admin: { id: 'admin_1' },
+    });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({});
+    getDefaultLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+    resolveSalonLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+  });
+
+  it('defaults Feature Luster Manicure to enabled on GET when settings are empty', async () => {
+    getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.merchandising).toEqual({
+      featureLusterManicure: true,
+      lusterPromoDismissed: false,
+      serviceLibraryIntroDismissed: false,
+    });
+  });
+
+  it('persists a merchandising update into salon.settings without touching services', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        merchandising: {
+          featureLusterManicure: false,
+          lusterPromoDismissed: false,
+          serviceLibraryIntroDismissed: false,
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchandising: { featureLusterManicure: false },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.merchandising.featureLusterManicure).toBe(false);
+
+    // Only the salon row is updated; disabling never deactivates the service.
+    expect(db.update).toHaveBeenCalledTimes(1);
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+
+    expect(setPayload.settings.merchandising).toEqual({
+      featureLusterManicure: false,
+      lusterPromoDismissed: false,
+      serviceLibraryIntroDismissed: false,
+    });
+    expect(logAuditEvent).toHaveBeenCalled();
+  });
+
+  it('rejects invalid merchandising payloads', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchandising: { featureLusterManicure: 'nope' },
         }),
       }),
     );

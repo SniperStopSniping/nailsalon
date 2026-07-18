@@ -7,9 +7,12 @@ import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
 } from '@/libs/bookingCatalog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
+import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
 import {
+  BOOKING_CATEGORIES,
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
@@ -59,6 +62,10 @@ const createServiceSchema = z.object({
     .default(0),
   cleanupBufferMinutes: z.number().int().min(0).max(120).optional().default(0),
   category: z.enum(SERVICE_CATEGORIES),
+  bookingCategory: z.enum(BOOKING_CATEGORIES).optional(),
+  featuredOrder: z.number().int().min(1).max(999).nullable().optional(),
+  // PR scope: only the Luster template can be linked at creation for now.
+  templateKey: z.literal(LUSTER_MANICURE_TEMPLATE_KEY).nullable().optional(),
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
 });
@@ -88,8 +95,11 @@ function buildServicePayload(service: Service): ServiceResponse {
     preparationBufferMinutes: service.preparationBufferMinutes,
     cleanupBufferMinutes: service.cleanupBufferMinutes,
     category: service.category,
+    bookingCategory: service.bookingCategory,
+    templateKey: service.templateKey ?? null,
     imageUrl: service.imageUrl,
     sortOrder: service.sortOrder,
+    featuredOrder: service.featuredOrder ?? null,
     isActive: service.isActive,
     isIntroPrice: service.isIntroPrice ?? false,
     introPriceLabel: service.introPriceLabel ?? null,
@@ -228,9 +238,12 @@ export async function POST(request: Request): Promise<Response> {
         preparationBufferMinutes: data.preparationBufferMinutes,
         cleanupBufferMinutes: data.cleanupBufferMinutes,
         category: data.category,
+        bookingCategory: data.bookingCategory ?? deriveBookingCategory(data.category),
+        templateKey: data.templateKey ?? null,
         isIntroPrice: data.isIntroPrice,
         introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
         sortOrder: nextSortOrder,
+        featuredOrder: data.featuredOrder ?? null,
         isActive: true,
       })
       .returning();
@@ -256,6 +269,20 @@ export async function POST(request: Request): Promise<Response> {
       { status: 201 },
     );
   } catch (error) {
+    if (
+      error instanceof Error
+      && error.message.includes('service_salon_template_key_idx')
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'TEMPLATE_ALREADY_ADDED',
+            message: 'This service is already on your menu.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error creating service:', error);
     return Response.json(
       {

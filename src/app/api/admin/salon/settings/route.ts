@@ -26,6 +26,11 @@ import {
 import { db } from '@/libs/DB';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
+import {
+  merchandisingSettingsSchema,
+  merchandisingSettingsUpdateSchema,
+  resolveMerchandisingSettings,
+} from '@/libs/salonMerchandisingSettings';
 import { salonSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -41,6 +46,7 @@ const adminUpdateSchema = z.object({
   rewardsEnabled: z.boolean().optional(),
   bookingConfig: bookingConfigSchema.partial().optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
+  merchandising: merchandisingSettingsUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -103,6 +109,9 @@ export async function GET(request: Request): Promise<Response> {
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      merchandising: resolveMerchandisingSettings(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
       smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -195,6 +204,9 @@ export async function PATCH(request: Request): Promise<Response> {
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
+    const currentMerchandising = resolveMerchandisingSettings(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
 
     // 6. Build before/after diff for audit log (only changed fields)
     const before: Record<string, unknown> = {};
@@ -245,6 +257,17 @@ export async function PATCH(request: Request): Promise<Response> {
       ensureNextSettings().notifications = mergedBookingNotifications;
     }
 
+    if (updates.merchandising) {
+      const mergedMerchandising = merchandisingSettingsSchema.parse({
+        ...currentMerchandising,
+        ...updates.merchandising,
+      });
+
+      before.merchandising = currentMerchandising;
+      after.merchandising = mergedMerchandising;
+      ensureNextSettings().merchandising = mergedMerchandising;
+    }
+
     if (nextSettings) {
       dbUpdates.settings = nextSettings;
     }
@@ -265,6 +288,7 @@ export async function PATCH(request: Request): Promise<Response> {
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
         bookingNotifications: currentBookingNotifications,
+        merchandising: currentMerchandising,
         ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
         ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
         smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -323,6 +347,9 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      merchandising: resolveMerchandisingSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
       smsChannelAvailable: notificationCapabilities.smsChannelAvailable,

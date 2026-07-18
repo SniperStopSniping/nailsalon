@@ -11,6 +11,7 @@ import { Pool } from 'pg';
 
 import * as schema from '@/models/Schema';
 
+import { deriveBookingCategory } from './bookingCategory';
 import { Env } from './Env';
 
 // Global type for caching database connections across hot reloads
@@ -95,6 +96,9 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
   for (const service of services) {
     await db.insert(schema.serviceSchema).values({
       ...service,
+      // Runtime inserts bypass the 0056 backfill, so derive the client-facing
+      // grouping here the same way the migration does.
+      bookingCategory: deriveBookingCategory(service.category),
       salonId: salon.id,
     });
   }

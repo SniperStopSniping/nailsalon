@@ -8,10 +8,12 @@ import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
+import { resolveMerchandisingSettings } from '@/libs/salonMerchandisingSettings';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 import { BookServiceClient } from './BookServiceClient';
 
@@ -73,6 +75,9 @@ export default async function BookServicePage({
 
   // Fetch services for this salon
   const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const merchandising = resolveMerchandisingSettings(
+    (salon.settings as SalonSettings | null | undefined) ?? null,
+  );
   const clientSession = await getClientSession();
   const [dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians] = await Promise.all([
     getServicesBySalonId(salon.id),
@@ -90,6 +95,9 @@ export default async function BookServicePage({
     priceCents: service.price,
     priceDisplayText: service.priceDisplayText ?? null,
     category: service.category,
+    bookingCategory: service.bookingCategory,
+    templateKey: service.templateKey ?? null,
+    featuredOrder: service.featuredOrder ?? null,
     imageUrl: normalizePublicServiceImageUrl(service.imageUrl),
     resolvedIntroPriceLabel: resolveIntroPriceLabel({
       isIntroPrice: service.isIntroPrice,
@@ -196,6 +204,7 @@ export default async function BookServicePage({
           technicians={technicians}
           currency={bookingConfig.currency}
           showNewClientPromo={showNewClientPromo}
+          lusterFeaturingEnabled={merchandising.featureLusterManicure}
         />
       </Suspense>
     </PublicSalonPageShell>
