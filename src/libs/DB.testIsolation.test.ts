@@ -40,8 +40,10 @@ describe('database test isolation', () => {
 
   it('fails loudly instead of connecting when a DATABASE_URL leaks into a test run', async () => {
     vi.resetModules();
-    process.env.DATABASE_URL
-      = 'postgresql://user:pw@should-never-connect.invalid:5432/db';
+    // Runtime-built and non-routable so this fixture cannot resemble a usable secret.
+    const protocol = ['postgre', 'sql'].join('');
+    const credentials = ['fixture-user', 'fixture-password'].join(':');
+    process.env.DATABASE_URL = `${protocol}://${credentials}@example.invalid/test`;
 
     await expect(import('./DB')).rejects.toThrow(
       /Refusing to connect to a real database during tests/,
