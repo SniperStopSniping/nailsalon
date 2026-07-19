@@ -23,10 +23,30 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { useClientSession } from '@/hooks/useClientSession';
 import type { BookingStep } from '@/libs/bookingFlow';
-import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams';
+import { appendSalonSlug, buildBookingUrl, buildChangeAppointmentUrl } from '@/libs/bookingParams';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
+import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import {
+  buildSmartFitExpectationFields,
+  buildSmartFitSuggestionContextKey,
+  type CustomerSmartFitOffer,
+  describeSmartFitTimeDifference,
+  dismissSmartFitSuggestion,
+  isSmartFitOutrankedForSession,
+  markSmartFitAvailabilityRefresh,
+  markSmartFitOutrankedForSession,
+  parseSmartFitCentsParam,
+  parseSmartFitStaleBreakdown,
+  resolveSmartFitReviewOffer,
+  SMART_FIT_BADGE_LABEL,
+  SMART_FIT_REVIEW_DISCOUNT_LABEL,
+  SMART_FIT_STALE_FALLBACK_MESSAGE,
+  smartFitReplacedByHigherPriorityDiscount,
+  type SmartFitStaleBreakdown,
+  syncSmartFitSuggestionDismissal,
+} from '@/libs/smartFitCustomer';
 import { zonedTimeToUtc } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
@@ -111,7 +131,27 @@ type BookConfirmClientProps = {
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
 const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
 
+/** One nearby Smart Fit alternative, carried from the time step's availability response. */
+type SmartFitSuggestion = {
+  time: string;
+  startTime: string | null;
+  timeLabel: string;
+  timeDifference: string;
+  offer: CustomerSmartFitOffer;
+};
+
 // --- Helpers ---
+
+const formatTime12h = (timeString: string) => {
+  if (!timeString) {
+    return '';
+  }
+  const [hours, minutes] = timeString.split(':');
+  const hour = Number.parseInt(hours || '0', 10);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minutes} ${ampm}`;
+};
 
 const triggerLuxuryConfetti = () => {
   if (typeof window !== 'undefined') {
@@ -221,6 +261,7 @@ const BookingCard = ({
   location,
   rewardsEnabled = true,
   confirmed = false,
+  totalPriceDisplay,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -233,6 +274,8 @@ const BookingCard = ({
   location: LocationSummary;
   rewardsEnabled?: boolean;
   confirmed?: boolean;
+  /** Preformatted total (Smart Fit pricing) — falls back to the legacy `$n` render. */
+  totalPriceDisplay?: string;
 }) => {
   const serviceNames = [
     ...services.map(s => s.name),
@@ -274,8 +317,7 @@ const BookingCard = ({
               Total
             </p>
             <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
-              $
-              {totalPrice}
+              {totalPriceDisplay ?? `$${totalPrice}`}
             </p>
           </div>
         )}
@@ -481,6 +523,73 @@ const SlotTakenState = ({
 );
 
 /**
+ * Stale Smart Fit state (P7.3): the server rejected the expected discounted
+ * price with 409 SMART_FIT_CHANGED. No booking was created. Selections stay
+ * in the URL and contact details stay in sessionStorage, so returning to the
+ * time step is lossless; the refreshed time list receives focus there.
+ */
+const SmartFitStaleState = ({
+  message,
+  breakdown,
+  onChooseAnotherTime,
+}: {
+  message: string;
+  breakdown: SmartFitStaleBreakdown | null;
+  onChooseAnotherTime: () => void;
+}) => {
+  // Keyboard users arrive here from the now-unmounted Confirm button; land
+  // them on the one action instead of stranding focus at the document root.
+  const actionRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    actionRef.current?.focus();
+  }, []);
+
+  const replacedByBetterDiscount = smartFitReplacedByHigherPriorityDiscount(breakdown);
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
+      <div className="w-full max-w-md space-y-3">
+        <div role="alert">
+          <StateCard
+            tone="error"
+            icon={<AlertCircle className="mx-auto size-10 text-[var(--n5-error)]" />}
+            title="Availability just changed"
+            description={(
+              <>
+                <p>{message}</p>
+                {replacedByBetterDiscount && breakdown && (
+                  <p className="mt-2">
+                    {`A different offer now applies to your booking. Current price for this time: ${formatMoney(breakdown.finalTotalCents)}`}
+                    {breakdown.discountLabel ? ` (${breakdown.discountLabel})` : ''}
+                    .
+                  </p>
+                )}
+              </>
+            )}
+            contentClassName="py-7"
+          />
+        </div>
+        <button
+          ref={actionRef}
+          type="button"
+          onClick={() => {
+            triggerHaptic('select');
+            onChooseAnotherTime();
+          }}
+          className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+          style={{
+            borderRadius: n5.radiusMd,
+            boxShadow: n5.shadowSm,
+          }}
+        >
+          Choose another time
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/**
  * Review State - explicit submit before writing booking
  */
 const ConfirmContent = ({
@@ -513,6 +622,11 @@ const ConfirmContent = ({
   onGuestEmailChange,
   onGuestPhoneChange,
   onSmsConsentChange,
+  smartFitOffer,
+  totalPriceDisplay,
+  smartFitSuggestion,
+  onAcceptSmartFitSuggestion,
+  onDismissSmartFitSuggestion,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -543,248 +657,350 @@ const ConfirmContent = ({
   onGuestEmailChange: (value: string) => void;
   onGuestPhoneChange: (value: string) => void;
   onSmsConsentChange: (value: boolean) => void;
-}) => (
-  <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
-    <nav
-      className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
-      style={{
-        backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
-        borderColor: 'var(--n5-border-muted)',
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          triggerHaptic('select');
-          onEditSelection();
+  smartFitOffer: CustomerSmartFitOffer | null;
+  totalPriceDisplay: string;
+  smartFitSuggestion: SmartFitSuggestion | null;
+  onAcceptSmartFitSuggestion: () => void;
+  onDismissSmartFitSuggestion: () => void;
+}) => {
+  // Focus and announcement management for the one nearby suggestion: both
+  // actions unmount the banner (and the focused button with it), so focus
+  // moves to the confirm button and a polite live region states the outcome.
+  const confirmActionRef = useRef<HTMLButtonElement>(null);
+  const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
+
+  const handleAcceptSuggestion = () => {
+    if (smartFitSuggestion) {
+      setSmartFitOutcomeAnnouncement(
+        `Time updated to ${smartFitSuggestion.timeLabel}. ${SMART_FIT_REVIEW_DISCOUNT_LABEL} applied.`,
+      );
+    }
+    onAcceptSmartFitSuggestion();
+    confirmActionRef.current?.focus();
+  };
+
+  const handleDismissSuggestion = () => {
+    setSmartFitOutcomeAnnouncement('Keeping your selected time.');
+    onDismissSmartFitSuggestion();
+    confirmActionRef.current?.focus();
+  };
+
+  return (
+    <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+      <nav
+        className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
+          borderColor: 'var(--n5-border-muted)',
         }}
-        className="font-body text-sm font-medium text-[var(--n5-ink-muted)]"
       >
-        Edit
-      </button>
-      <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
-        Confirm
-      </span>
-      <div className="w-10" />
-    </nav>
-
-    <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center"
-      >
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-          className="mx-auto mb-4 flex size-20 items-center justify-center"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, transparent)',
-            borderRadius: n5.radiusPill,
-          }}
-        >
-          <Check className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />
-        </motion.div>
-        <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
-          Review your appointment
-        </h1>
-        <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
-          {isReschedule
-            ? 'Your current appointment stays booked until you confirm this new time.'
-            : 'Nothing is booked yet. Confirm below to reserve this time.'}
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-      >
-        <BookingCard
-          services={services}
-          addOns={addOns}
-          technician={technician}
-          totalPrice={totalPrice}
-          totalDuration={totalDuration}
-          dateStr={dateStr}
-          timeStr={timeStr}
-          pointsEarned={pointsEarned}
-          location={location}
-          rewardsEnabled={rewardsEnabled}
-        />
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="space-y-3"
-      >
-        <SectionCard
-          title="Your contact details"
-          description="No account or phone verification is required. We use your email for the confirmation and secure management link."
-          className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
-          contentClassName="space-y-3 pt-0"
-        >
-          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
-            Name
-            <input aria-label="Customer name" autoComplete="name" value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
-          </label>
-          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
-            Email
-            <input aria-label="Customer email" type="email" autoComplete="email" value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
-          </label>
-          <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
-            Mobile phone
-            <input aria-label="Customer phone" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
-          </label>
-          {smsEnabled && (
-            <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-              <input aria-label="SMS consent" type="checkbox" checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1" />
-              <span>I agree to receive transactional appointment confirmations and reminders by text. Consent is optional, message/data rates may apply, and I can reply STOP at any time.</span>
-            </label>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="Before you confirm"
-          description="This will reserve the time above and block duplicate bookings on the same account."
-          className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
-          contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
-        >
-          {campaignPromotionPreview && discountAmount > 0 && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
-              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                Welcome-back offer
-              </span>
-              <p className="font-body mt-1 font-semibold text-emerald-950">
-                {campaignPromotionPreview.name}
-                {' · '}
-                {campaignPromotionPreview.displayOffer}
-              </p>
-              <p className="font-body mt-1 text-xs text-emerald-800">
-                Subtotal $
-                {subtotalBeforeDiscount.toFixed(2)}
-                {' · Savings $'}
-                {discountAmount.toFixed(2)}
-                {campaignPromotionPreview.code ? ` · Code ${campaignPromotionPreview.code}` : ''}
-              </p>
-            </div>
-          )}
-          {firstVisitDiscountPreview && discountAmount > 0 && (
-            <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
-              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                Offer
-              </span>
-              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                First visit discount applied: -
-                {firstVisitDiscountPreview.percent}
-                %
-              </p>
-              <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                Subtotal $
-                {subtotalBeforeDiscount.toFixed(2)}
-                {' '}
-                · Savings $
-                {discountAmount.toFixed(2)}
-              </p>
-            </div>
-          )}
-          <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
-            <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-              Duration
-            </span>
-            <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-              {formatDuration(totalDuration)}
-            </p>
-          </div>
-          {rewardsEnabled && (
-            <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
-              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                Rewards
-              </span>
-              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                +
-                {pointsEarned.toLocaleString()}
-                {' '}
-                points after completion
-              </p>
-            </div>
-          )}
-        </SectionCard>
-
-        {campaignMessage && (
-          <div
-            role="status"
-            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-          >
-            {campaignMessage}
-            {' Regular booking prices apply.'}
-          </div>
-        )}
-
-        {bookingError && (
-          <div
-            role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-          >
-            {bookingError}
-            {' '}
-            Your details below are saved — you can try again.
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => {
-            triggerHaptic('confirm');
-            onConfirm();
-          }}
-          disabled={isSubmitting || !guestName.trim() || !isLikelyEmail(guestEmail) || guestPhone.replace(/\D/g, '').length < 10}
-          className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-          style={{
-            borderRadius: n5.radiusMd,
-            boxShadow: n5.shadowSm,
-          }}
-        >
-          {isSubmitting
-            ? (
-                <>
-                  <RefreshCw className="size-5 animate-spin" />
-                  <span>Confirming appointment...</span>
-                </>
-              )
-            : (
-                <>
-                  <Check className="size-5" />
-                  <span>
-                    Confirm appointment · $
-                    {totalPrice}
-                  </span>
-                </>
-              )}
-        </button>
-
         <button
           type="button"
           onClick={() => {
             triggerHaptic('select');
             onEditSelection();
           }}
-          className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-          style={{
-            borderRadius: n5.radiusMd,
-            borderColor: 'var(--n5-accent)',
-          }}
+          className="font-body text-sm font-medium text-[var(--n5-ink-muted)]"
         >
-          <RefreshCw className="size-4" />
-          <span>Change time or services</span>
+          Edit
         </button>
-      </motion.div>
-    </main>
-  </div>
-);
+        <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
+          Confirm
+        </span>
+        <div className="w-10" />
+      </nav>
+
+      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center"
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+            className="mx-auto mb-4 flex size-20 items-center justify-center"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, transparent)',
+              borderRadius: n5.radiusPill,
+            }}
+          >
+            <Check className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />
+          </motion.div>
+          <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
+            Review your appointment
+          </h1>
+          <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
+            {isReschedule
+              ? 'Your current appointment stays booked until you confirm this new time.'
+              : 'Nothing is booked yet. Confirm below to reserve this time.'}
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          <BookingCard
+            services={services}
+            addOns={addOns}
+            technician={technician}
+            totalPrice={totalPrice}
+            totalDuration={totalDuration}
+            dateStr={dateStr}
+            timeStr={timeStr}
+            pointsEarned={pointsEarned}
+            location={location}
+            rewardsEnabled={rewardsEnabled}
+            totalPriceDisplay={totalPriceDisplay}
+          />
+        </motion.div>
+
+        {/* Outcome of the suggestion (accepted/kept) for screen readers */}
+        <div aria-live="polite" className="sr-only">
+          {smartFitOutcomeAnnouncement}
+        </div>
+
+        {smartFitSuggestion && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+          >
+            <div
+              role="group"
+              aria-label="Smart Fit suggestion"
+              data-testid="smart-fit-suggestion"
+              className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+            >
+              <p className="font-body text-sm font-semibold text-emerald-950">
+                {`Save ${formatMoney(smartFitSuggestion.offer.discountAmountCents)} by booking ${smartFitSuggestion.timeDifference}`}
+              </p>
+              <p className="font-body mt-1 text-xs text-emerald-800">
+                {smartFitSuggestion.timeLabel}
+                {' · '}
+                {formatMoney(smartFitSuggestion.offer.discountedPriceCents)}
+                {' instead of '}
+                {formatMoney(smartFitSuggestion.offer.originalPriceCents)}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('confirm');
+                    handleAcceptSuggestion();
+                  }}
+                  className="font-body rounded-xl bg-[var(--n5-accent)] px-4 py-2.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+                >
+                  Choose this time
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic('select');
+                    handleDismissSuggestion();
+                  }}
+                  className="font-body rounded-xl border border-emerald-300 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition-all active:scale-[0.98]"
+                >
+                  Keep my time
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="space-y-3"
+        >
+          <SectionCard
+            title="Your contact details"
+            description="No account or phone verification is required. We use your email for the confirmation and secure management link."
+            className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+            contentClassName="space-y-3 pt-0"
+          >
+            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+              Name
+              <input aria-label="Customer name" autoComplete="name" value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+            </label>
+            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+              Email
+              <input aria-label="Customer email" type="email" autoComplete="email" value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+            </label>
+            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+              Mobile phone
+              <input aria-label="Customer phone" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+            </label>
+            {smsEnabled && (
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
+                <input aria-label="SMS consent" type="checkbox" checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1" />
+                <span>I agree to receive transactional appointment confirmations and reminders by text. Consent is optional, message/data rates may apply, and I can reply STOP at any time.</span>
+              </label>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Before you confirm"
+            description="This will reserve the time above and block duplicate bookings on the same account."
+            className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+            contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
+          >
+            {campaignPromotionPreview && discountAmount > 0 && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Welcome-back offer
+                </span>
+                <p className="font-body mt-1 font-semibold text-emerald-950">
+                  {campaignPromotionPreview.name}
+                  {' · '}
+                  {campaignPromotionPreview.displayOffer}
+                </p>
+                <p className="font-body mt-1 text-xs text-emerald-800">
+                  Subtotal $
+                  {subtotalBeforeDiscount.toFixed(2)}
+                  {' · Savings $'}
+                  {discountAmount.toFixed(2)}
+                  {campaignPromotionPreview.code ? ` · Code ${campaignPromotionPreview.code}` : ''}
+                </p>
+              </div>
+            )}
+            {firstVisitDiscountPreview && discountAmount > 0 && (
+              <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                  Offer
+                </span>
+                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                  First visit discount applied: -
+                  {firstVisitDiscountPreview.percent}
+                  %
+                </p>
+                <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                  Subtotal $
+                  {subtotalBeforeDiscount.toFixed(2)}
+                  {' '}
+                  · Savings $
+                  {discountAmount.toFixed(2)}
+                </p>
+              </div>
+            )}
+            {smartFitOffer && (
+              <div
+                data-testid="smart-fit-review"
+                className="rounded-xl border p-3 text-sm sm:col-span-2"
+                style={{ borderColor: 'var(--n5-border-muted)' }}
+              >
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                  {SMART_FIT_BADGE_LABEL}
+                </span>
+                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                  {`${SMART_FIT_REVIEW_DISCOUNT_LABEL} applied`}
+                </p>
+                <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                  {`Subtotal ${formatMoney(smartFitOffer.originalPriceCents)}`}
+                  {` · ${SMART_FIT_REVIEW_DISCOUNT_LABEL} −${formatMoney(smartFitOffer.discountAmountCents)}`}
+                  {` · Total ${formatMoney(smartFitOffer.discountedPriceCents)}`}
+                </p>
+              </div>
+            )}
+            <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
+              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                Duration
+              </span>
+              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                {formatDuration(totalDuration)}
+              </p>
+            </div>
+            {rewardsEnabled && (
+              <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                  Rewards
+                </span>
+                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                  +
+                  {pointsEarned.toLocaleString()}
+                  {' '}
+                  points after completion
+                </p>
+              </div>
+            )}
+          </SectionCard>
+
+          {campaignMessage && (
+            <div
+              role="status"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              {campaignMessage}
+              {' Regular booking prices apply.'}
+            </div>
+          )}
+
+          {bookingError && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {bookingError}
+              {' '}
+              Your details below are saved — you can try again.
+            </div>
+          )}
+
+          <button
+            ref={confirmActionRef}
+            type="button"
+            onClick={() => {
+              triggerHaptic('confirm');
+              onConfirm();
+            }}
+            disabled={isSubmitting || !guestName.trim() || !isLikelyEmail(guestEmail) || guestPhone.replace(/\D/g, '').length < 10}
+            className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              borderRadius: n5.radiusMd,
+              boxShadow: n5.shadowSm,
+            }}
+          >
+            {isSubmitting
+              ? (
+                  <>
+                    <RefreshCw className="size-5 animate-spin" />
+                    <span>Confirming appointment...</span>
+                  </>
+                )
+              : (
+                  <>
+                    <Check className="size-5" />
+                    <span>
+                      {`Confirm appointment · ${totalPriceDisplay}`}
+                    </span>
+                  </>
+                )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('select');
+              onEditSelection();
+            }}
+            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+            style={{
+              borderRadius: n5.radiusMd,
+              borderColor: 'var(--n5-accent)',
+            }}
+          >
+            <RefreshCw className="size-4" />
+            <span>Change time or services</span>
+          </button>
+        </motion.div>
+      </main>
+    </div>
+  );
+};
 
 /**
  * Success State - Premium Design
@@ -813,6 +1029,7 @@ const SuccessContent = ({
   manageUrl,
   canonicalStartTime,
   clientChangeCutoffHours,
+  totalPriceDisplay,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -823,6 +1040,7 @@ const SuccessContent = ({
   timeStr: string;
   pointsEarned: number;
   appointmentId: string | null;
+  totalPriceDisplay: string;
   onViewRewards: () => void;
   onManagePayment: () => void;
   onViewAppointment: () => void;
@@ -910,6 +1128,7 @@ const SuccessContent = ({
             location={location}
             rewardsEnabled={rewardsEnabled}
             confirmed
+            totalPriceDisplay={totalPriceDisplay}
           />
         </motion.div>
 
@@ -1219,6 +1438,19 @@ export function BookConfirmClient({
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
+  const urlLocationId = searchParams.get('locationId') || '';
+  const urlServiceIdsParam = searchParams.get('serviceIds') || '';
+  const urlServiceIds = urlServiceIdsParam ? urlServiceIdsParam.split(',').filter(Boolean) : [];
+
+  // Smart Fit (P7.3): server-derived preview values relayed from the time
+  // step's availability response. Display hints only — the booking API stays
+  // authoritative and rejects a stale expectation with 409 SMART_FIT_CHANGED.
+  const smartFitDiscountCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitDiscountCents'));
+  const smartFitTotalCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitTotalCents'));
+  const smartFitSuggestTimeParam = searchParams.get('smartFitSuggestTime') || '';
+  const smartFitSuggestStartTimeParam = searchParams.get('smartFitSuggestStartTime') || '';
+  const smartFitSuggestDiscountCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitSuggestDiscountCents'));
+  const smartFitSuggestTotalCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitSuggestTotalCents'));
   const {
     isLoggedIn,
     isCheckingSession,
@@ -1245,6 +1477,20 @@ export function BookConfirmClient({
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [slotTaken, setSlotTaken] = useState(false);
+  const [smartFitStale, setSmartFitStale] = useState<{
+    message: string;
+    breakdown: SmartFitStaleBreakdown | null;
+  } | null>(null);
+  const [smartFitSuggestionDismissed, setSmartFitSuggestionDismissed] = useState(false);
+  // Set once the booking API has proven a higher-priority discount out-ranks
+  // Smart Fit for this visitor (session-scoped) — stops re-promising it.
+  const [smartFitOutranked, setSmartFitOutranked] = useState(false);
+
+  useEffect(() => {
+    if (isSmartFitOutrankedForSession(salonSlug)) {
+      setSmartFitOutranked(true);
+    }
+  }, [salonSlug]);
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
@@ -1300,11 +1546,109 @@ export function BookConfirmClient({
   const [isSavingName, setIsSavingName] = useState(false);
   const nameCheckInitiatedRef = useRef(false);
 
-  const resolvedTotalPrice = totalPrice;
+  // Smart Fit precedence stays winner-take-all: any higher-priority discount
+  // (campaign, first visit) means no Smart Fit presentation and no
+  // expectation fields — the server prices the booking on its own.
+  const hasOtherDiscount = discountAmount > 0
+    || Boolean(firstVisitDiscountPreview)
+    || Boolean(campaignPromotionPreview)
+    || smartFitOutranked;
+  const subtotalCents = Math.round(subtotalBeforeDiscount * 100);
+  const smartFitOffer = resolveSmartFitReviewOffer({
+    subtotalCents,
+    discountCentsParam: smartFitDiscountCentsParam,
+    totalCentsParam: smartFitTotalCentsParam,
+    hasOtherDiscount,
+  });
+
+  const smartFitSuggestionTimeDifference = !smartFitOffer && smartFitSuggestTimeParam
+    ? describeSmartFitTimeDifference(timeStr, smartFitSuggestTimeParam)
+    : null;
+  const smartFitSuggestedOffer = smartFitSuggestionTimeDifference
+    ? resolveSmartFitReviewOffer({
+      subtotalCents,
+      discountCentsParam: smartFitSuggestDiscountCentsParam,
+      totalCentsParam: smartFitSuggestTotalCentsParam,
+      hasOtherDiscount,
+    })
+    : null;
+
+  // Dismissal is scoped to the exact booking context; a material change
+  // (service, add-ons, technician, location, date) resets it.
+  const smartFitSuggestionContextKey = buildSmartFitSuggestionContextKey({
+    salonSlug,
+    dateKey: dateStr,
+    techId: techId || 'any',
+    locationId: urlLocationId || null,
+    baseServiceId,
+    serviceIds: urlServiceIds,
+    selectedAddOns,
+  });
+  useEffect(() => {
+    // Only flows that actually carry a suggestion touch the dismissal store —
+    // a legacy confirm mount must not clear another flow's dismissal.
+    if (!smartFitSuggestTimeParam) {
+      return;
+    }
+    if (syncSmartFitSuggestionDismissal(smartFitSuggestionContextKey)) {
+      setSmartFitSuggestionDismissed(true);
+    }
+  }, [smartFitSuggestionContextKey, smartFitSuggestTimeParam]);
+
+  const smartFitSuggestion: SmartFitSuggestion | null
+    = smartFitSuggestedOffer && smartFitSuggestionTimeDifference && !smartFitSuggestionDismissed
+      ? {
+          time: smartFitSuggestTimeParam,
+          startTime: smartFitSuggestStartTimeParam || null,
+          timeLabel: formatTime12h(smartFitSuggestTimeParam),
+          timeDifference: smartFitSuggestionTimeDifference,
+          offer: smartFitSuggestedOffer,
+        }
+      : null;
+
+  const resolvedTotalPrice = smartFitOffer
+    ? smartFitOffer.discountedPriceCents / 100
+    : totalPrice;
+  const totalPriceDisplay = smartFitOffer
+    ? formatMoney(smartFitOffer.discountedPriceCents)
+    : `$${totalPrice}`;
   const resolvedTotalDuration = totalDuration;
   const resolvedSubtotalBeforeDiscount = subtotalBeforeDiscount;
   // totalPrice is in dollars, convert to cents for points calculation
   const pointsEarned = computeEarnedPointsFromCents(Math.round(resolvedTotalPrice * 100));
+
+  const handleAcceptSmartFitSuggestion = useCallback(() => {
+    if (!smartFitSuggestion) {
+      return;
+    }
+    // Switch the selection to the suggested Smart Fit slot: same booking
+    // context, new time, expectation params from the same availability data.
+    router.replace(buildBookingUrl(`/${locale}/book/confirm`, {
+      salonSlug,
+      serviceIds: urlServiceIds.length > 0 ? urlServiceIds : undefined,
+      baseServiceId,
+      selectedAddOns,
+      techId: techId || 'any',
+      date: dateStr,
+      time: smartFitSuggestion.time,
+      startTime: smartFitSuggestion.startTime,
+      locationId: urlLocationId || null,
+      originalAppointmentId,
+      manageToken,
+      campaignToken,
+      smartFitDiscountCents: smartFitSuggestion.offer.discountAmountCents,
+      smartFitTotalCents: smartFitSuggestion.offer.discountedPriceCents,
+    }, {
+      routeSalonSlug,
+      locale,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseServiceId, campaignToken, dateStr, locale, manageToken, originalAppointmentId, routeSalonSlug, router, salonSlug, selectedAddOns, smartFitSuggestion, techId, urlLocationId, urlServiceIdsParam]);
+
+  const handleDismissSmartFitSuggestion = useCallback(() => {
+    dismissSmartFitSuggestion(smartFitSuggestionContextKey);
+    setSmartFitSuggestionDismissed(true);
+  }, [smartFitSuggestionContextKey]);
 
   const createBooking = useCallback(async () => {
     if (bookingInitiatedRef.current) {
@@ -1343,6 +1687,11 @@ export function BookConfirmClient({
         ...(originalAppointmentId && { originalAppointmentId }),
         ...(manageToken && { manageToken }),
         ...(campaignPromotionPreview && campaignToken && { campaignToken }),
+        // Smart Fit expectations (P7.2 contract): only for a displayed Smart
+        // Fit offer, and only these two approved fields. The server rejects a
+        // stale expectation with 409 SMART_FIT_CHANGED instead of booking at
+        // a different price than shown.
+        ...(smartFitOffer && buildSmartFitExpectationFields(smartFitOffer)),
       };
 
       const response = await fetch('/api/appointments', {
@@ -1390,6 +1739,28 @@ export function BookConfirmClient({
           return;
         }
 
+        if (errorData.error?.code === 'SMART_FIT_CHANGED') {
+          // The expected discounted price is no longer valid. No booking was
+          // created; the client re-picks from refreshed availability instead
+          // of this stale expectation ever being resubmitted.
+          const breakdown = parseSmartFitStaleBreakdown(errorData.error?.details);
+          if (smartFitReplacedByHigherPriorityDiscount(breakdown)) {
+            // The server proved this visitor's identity earns a bigger,
+            // higher-priority discount. Stop promising Smart Fit savings for
+            // the rest of this session so the same 409 cannot loop.
+            markSmartFitOutrankedForSession(salonSlug);
+            setSmartFitOutranked(true);
+          }
+          setSmartFitStale({
+            message: typeof errorData.error?.message === 'string' && errorData.error.message
+              ? errorData.error.message
+              : SMART_FIT_STALE_FALLBACK_MESSAGE,
+            breakdown,
+          });
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
         throw new Error(errorData.error?.message || `We couldn't confirm this booking (code ${response.status}). Please try again.`);
       }
 
@@ -1415,7 +1786,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smsConsent, smsEnabled, techId, timeStr]);
+  }, [baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
@@ -1529,6 +1900,22 @@ export function BookConfirmClient({
     );
   }
 
+  // The Smart Fit price shown is no longer valid: no booking was created and
+  // no full-price fallback is selected silently. Going back refreshes
+  // availability; selections and contact details are preserved.
+  if (smartFitStale) {
+    return (
+      <SmartFitStaleState
+        message={smartFitStale.message}
+        breakdown={smartFitStale.breakdown}
+        onChooseAnotherTime={() => {
+          markSmartFitAvailabilityRefresh(salonSlug);
+          router.back();
+        }}
+      />
+    );
+  }
+
   // Another client took the slot: selections stay in the URL and contact
   // details stay in sessionStorage, so going back is lossless.
   if (slotTaken) {
@@ -1579,6 +1966,7 @@ export function BookConfirmClient({
           manageUrl={manageUrl}
           canonicalStartTime={canonicalStartTime}
           clientChangeCutoffHours={clientChangeCutoffHours}
+          totalPriceDisplay={totalPriceDisplay}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -1632,6 +2020,11 @@ export function BookConfirmClient({
       onGuestEmailChange={setGuestEmail}
       onGuestPhoneChange={setGuestPhone}
       onSmsConsentChange={setSmsConsent}
+      smartFitOffer={smartFitOffer}
+      totalPriceDisplay={totalPriceDisplay}
+      smartFitSuggestion={smartFitSuggestion}
+      onAcceptSmartFitSuggestion={handleAcceptSmartFitSuggestion}
+      onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
     />
   );
 }

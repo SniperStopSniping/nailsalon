@@ -1,6 +1,13 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  buildSmartFitSuggestionContextKey,
+  dismissSmartFitSuggestion,
+  markSmartFitAvailabilityRefresh,
+  markSmartFitOutrankedForSession,
+} from '@/libs/smartFitCustomer';
 
 import { BookTimeClient } from './BookTimeClient';
 
@@ -286,5 +293,252 @@ describe('BookTimeClient', () => {
 
     expect(await screen.findByRole('button', { name: '9:00 AM' })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(callsBeforeRetry + 1);
+  });
+
+  describe('Smart Fit presentation (P7.3)', () => {
+    const SMART_FIT_ANNOTATION = {
+      eligible: true,
+      discountType: 'percent',
+      discountValue: 10,
+      discountAmountCents: 650,
+      originalPriceCents: 6500,
+      discountedPriceCents: 5850,
+      qualifyingSides: ['before'],
+      improvementMinutes: 30,
+      consolidatedMinutes: 20,
+    };
+
+    const slotEntry = (time: string, smartFit: object | null = null) => ({
+      time,
+      startTime: `2026-03-14T${time.padStart(5, '0')}:00.000-04:00`,
+      availability: 'available',
+      ...(smartFit ? { smartFit } : {}),
+    });
+
+    const mockAvailability = (slots: object[], bookedSlots: string[] = []) => {
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots,
+        visibleSlots: (slots as Array<{ time: string }>).map(s => s.time),
+        bookedSlots,
+      }), { status: 200 })));
+    };
+
+    const renderTimeStep = () => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    beforeEach(() => {
+      sessionStorage.clear();
+    });
+
+    it('groups qualifying slots first with badge, savings, and both prices', async () => {
+      mockAvailability([
+        slotEntry('9:00'),
+        slotEntry('10:30', SMART_FIT_ANNOTATION),
+        slotEntry('11:00'),
+        slotEntry('13:30', SMART_FIT_ANNOTATION),
+      ]);
+
+      renderTimeStep();
+
+      const section = await screen.findByRole('region', { name: 'Save with a Smart Fit' });
+
+      expect(screen.getByText('Save with a Smart Fit')).toBeInTheDocument();
+      expect(screen.getByText('Choose a time that fits neatly into the salon’s schedule and save on your appointment.')).toBeInTheDocument();
+      expect(screen.getByText('Other available times')).toBeInTheDocument();
+
+      // Both qualifying slots render inside the Smart Fit section, in order,
+      // with an accessible name covering the badge, savings, and both prices.
+      const smartFitButtons = within(section).getAllByRole('button');
+
+      expect(smartFitButtons).toHaveLength(2);
+      expect(smartFitButtons[0]).toHaveAccessibleName('10:30 AM — Smart Fit: save $6.50. $58.50 instead of $65.00.');
+      expect(smartFitButtons[1]).toHaveAccessibleName('1:30 PM — Smart Fit: save $6.50. $58.50 instead of $65.00.');
+
+      // Visible presentation: badge, savings line, discounted and struck price.
+      expect(within(section).getAllByText('Smart Fit')).toHaveLength(2);
+      expect(within(section).getAllByText('Save $6.50')).toHaveLength(2);
+      expect(within(section).getAllByText('$58.50')).toHaveLength(2);
+      expect(within(section).getAllByText('$65.00')).toHaveLength(2);
+
+      // The qualifying times do not ALSO render in the regular grids.
+      expect(screen.getByTestId('smart-fit-slot-10:30')).toBeInTheDocument();
+      expect(screen.queryByTestId('time-slot-10:30')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('time-slot-13:30')).not.toBeInTheDocument();
+
+      // Regular slots keep their normal presentation.
+      expect(screen.getByTestId('time-slot-9:00')).toBeInTheDocument();
+      expect(screen.getByTestId('time-slot-11:00')).toBeInTheDocument();
+    });
+
+    it('renders the legacy layout untouched when no slot qualifies', async () => {
+      mockAvailability([slotEntry('9:00'), slotEntry('11:00')]);
+
+      renderTimeStep();
+
+      await screen.findByRole('button', { name: '9:00 AM' });
+
+      expect(screen.queryByText('Save with a Smart Fit')).not.toBeInTheDocument();
+      expect(screen.queryByText('Other available times')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Save \$/)).not.toBeInTheDocument();
+    });
+
+    it('navigates a Smart Fit selection with only the approved expectation params', async () => {
+      mockAvailability([slotEntry('9:00'), slotEntry('10:30', SMART_FIT_ANNOTATION)]);
+
+      renderTimeStep();
+
+      fireEvent.click(await screen.findByTestId('smart-fit-slot-10:30'));
+
+      expect(routerPush).toHaveBeenCalledTimes(1);
+
+      const url = String(routerPush.mock.calls[0]?.[0]);
+
+      expect(url).toContain('/en/salon-a/book/confirm');
+      expect(url).toContain('time=10%3A30');
+      expect(url).toContain('smartFitDiscountCents=650');
+      expect(url).toContain('smartFitTotalCents=5850');
+      // No suggestion for a slot that already qualifies, and no evaluator
+      // internals ever leave the availability payload.
+      expect(url).not.toContain('smartFitSuggest');
+      expect(url).not.toContain('improvementMinutes');
+      expect(url).not.toContain('qualifyingSides');
+    });
+
+    it('attaches the single nearest Smart Fit suggestion to a regular selection', async () => {
+      mockAvailability([
+        slotEntry('9:00'),
+        slotEntry('10:30', SMART_FIT_ANNOTATION),
+        slotEntry('11:00'),
+        slotEntry('13:30', SMART_FIT_ANNOTATION),
+      ]);
+
+      renderTimeStep();
+
+      fireEvent.click(await screen.findByTestId('time-slot-11:00'));
+
+      const url = String(routerPush.mock.calls[0]?.[0]);
+
+      expect(url).toContain('time=11%3A00');
+      // 10:30 (30 min away) beats 13:30 (150 min away); only one suggestion.
+      expect(url).toContain('smartFitSuggestTime=10%3A30');
+      expect(url).toContain('smartFitSuggestDiscountCents=650');
+      expect(url).toContain('smartFitSuggestTotalCents=5850');
+      expect(url).not.toContain('smartFitSuggestTime=13%3A30');
+      // The selected regular slot itself carries no expectation params.
+      expect(url).not.toContain('smartFitDiscountCents');
+      expect(url).not.toContain('smartFitTotalCents=');
+    });
+
+    it('honours a standing dismissal for the same booking context', async () => {
+      // The component auto-advances an empty "today" to tomorrow before the
+      // first availability response lands, so the effective date is the 15th.
+      dismissSmartFitSuggestion(buildSmartFitSuggestionContextKey({
+        salonSlug: 'salon-a',
+        dateKey: '2026-03-15',
+        techId: 'tech_1',
+        locationId: null,
+        baseServiceId: null,
+        serviceIds: ['srv_1'],
+        selectedAddOns: [],
+      }));
+      mockAvailability([slotEntry('10:30', SMART_FIT_ANNOTATION), slotEntry('11:00')]);
+
+      renderTimeStep();
+
+      fireEvent.click(await screen.findByTestId('time-slot-11:00'));
+
+      const url = String(routerPush.mock.calls[0]?.[0]);
+
+      expect(url).toContain('time=11%3A00');
+      expect(url).not.toContain('smartFitSuggest');
+      // The section itself never hides on dismissal.
+      expect(screen.getByText('Save with a Smart Fit')).toBeInTheDocument();
+    });
+
+    it('regroups when the selected date changes', async () => {
+      // The 16th has no qualifying slots; every other day does.
+      fetchMock.mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        const slots = url.includes('date=2026-03-16')
+          ? [slotEntry('9:00'), slotEntry('11:00')]
+          : [slotEntry('9:00'), slotEntry('10:30', SMART_FIT_ANNOTATION)];
+        return Promise.resolve(new Response(JSON.stringify({
+          slots,
+          visibleSlots: (slots as Array<{ time: string }>).map(s => s.time),
+          bookedSlots: [],
+        }), { status: 200 }));
+      });
+
+      renderTimeStep();
+
+      expect(await screen.findByText('Save with a Smart Fit')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('calendar-day-2026-03-16'));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Save with a Smart Fit')).not.toBeInTheDocument();
+      });
+
+      expect(await screen.findByRole('button', { name: '9:00 AM' })).toBeInTheDocument();
+    });
+
+    it('suppresses Smart Fit promises once the server proved a higher-priority discount', async () => {
+      markSmartFitOutrankedForSession('salon-a');
+      mockAvailability([slotEntry('9:00'), slotEntry('10:30', SMART_FIT_ANNOTATION)]);
+
+      renderTimeStep();
+
+      await screen.findByRole('button', { name: '9:00 AM' });
+
+      // The annotated slot renders as a plain bookable time — no un-honorable
+      // savings promise, so the 409 loop cannot recur.
+      expect(screen.queryByText('Save with a Smart Fit')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '10:30 AM' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('time-slot-10:30'));
+
+      expect(String(routerPush.mock.calls[0]?.[0])).not.toContain('smartFit');
+    });
+
+    it('suppresses Smart Fit presentation on campaign links', async () => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&campaign=campaign_token_123456789012345678901234';
+      mockAvailability([slotEntry('9:00'), slotEntry('10:30', SMART_FIT_ANNOTATION)]);
+
+      renderTimeStep();
+
+      await screen.findByRole('button', { name: '9:00 AM' });
+
+      expect(screen.queryByText('Save with a Smart Fit')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '10:30 AM' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('time-slot-10:30'));
+
+      const url = String(routerPush.mock.calls[0]?.[0]);
+
+      expect(url).not.toContain('smartFit');
+    });
+
+    it('moves focus to the refreshed time list after a stale Smart Fit return', async () => {
+      markSmartFitAvailabilityRefresh('salon-a');
+      mockAvailability([slotEntry('9:00'), slotEntry('10:30', SMART_FIT_ANNOTATION)]);
+
+      renderTimeStep();
+
+      const section = await screen.findByRole('region', { name: 'Save with a Smart Fit' });
+
+      await waitFor(() => {
+        expect(section).toHaveFocus();
+      });
+
+      // The one-shot flag is consumed.
+      expect(sessionStorage.getItem('luster_smart_fit_refresh')).toBeNull();
+    });
   });
 });

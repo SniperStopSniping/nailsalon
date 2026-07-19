@@ -9,6 +9,21 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { formatMoney } from '@/libs/formatMoney';
+import {
+  buildSmartFitSuggestionContextKey,
+  consumeSmartFitAvailabilityRefresh,
+  type CustomerSmartFitOffer,
+  isSmartFitOutrankedForSession,
+  parseCustomerSmartFitOffer,
+  selectNearbySmartFitSuggestion,
+  SMART_FIT_BADGE_LABEL,
+  SMART_FIT_OTHER_TIMES_TITLE,
+  SMART_FIT_SECTION_DESCRIPTION,
+  SMART_FIT_SECTION_TITLE,
+  splitSmartFitSlots,
+  syncSmartFitSuggestionDismissal,
+} from '@/libs/smartFitCustomer';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -51,11 +66,13 @@ type DisplayTimeSlot = {
   time: string;
   startTime: string | null;
   period: 'morning' | 'afternoon';
+  smartFit?: CustomerSmartFitOffer | null;
 };
 
 type AvailabilitySlot = {
   time: string;
   startTime?: string | null;
+  smartFit?: CustomerSmartFitOffer | null;
 };
 
 type AvailabilityError = {
@@ -78,6 +95,7 @@ function toDisplaySlots(slots: AvailabilitySlot[]): DisplayTimeSlot[] {
       time,
       startTime: slot.startTime ?? null,
       period: Number.parseInt(hour, 10) < 12 ? 'morning' : 'afternoon',
+      smartFit: slot.smartFit ?? null,
     };
   });
 }
@@ -257,8 +275,13 @@ export function BookTimeClient({
   const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
 
   // Refs for smooth scrolling to time slot sections
+  const smartFitSlotsRef = useRef<HTMLDivElement>(null);
   const morningSlotsRef = useRef<HTMLDivElement>(null);
   const afternoonSlotsRef = useRef<HTMLDivElement>(null);
+
+  // Set when this mount follows a stale Smart Fit response on the confirm
+  // step: once the refreshed availability renders, focus the time list.
+  const staleRefreshFocusRef = useRef(false);
 
   // Scroll state refs - pendingScroll triggers scroll when slots load
   const pendingScrollRef = useRef(false);
@@ -354,6 +377,13 @@ export function BookTimeClient({
             .map((slot: AvailabilitySlot) => ({
               time: slot.time,
               startTime: typeof slot.startTime === 'string' ? slot.startTime : null,
+              // Campaign links keep their own offer (winner-take-all, no
+              // stacking), and once the booking API has told this visitor a
+              // higher-priority discount out-ranks Smart Fit, stop promising
+              // a saving it cannot honor.
+              smartFit: campaignToken || isSmartFitOutrankedForSession(salonSlug)
+                ? null
+                : parseCustomerSmartFitOffer((slot as { smartFit?: unknown }).smartFit),
             }))
           : (data.visibleSlots || []).map((time: string) => ({ time, startTime: null }));
         setVisibleSlots(nextVisibleSlots);
@@ -396,7 +426,7 @@ export function BookTimeClient({
         setLoadingSlots(false);
       }
     }
-  }, [buildAvailabilityUrl, salonSlug, totalDuration]);
+  }, [buildAvailabilityUrl, campaignToken, salonSlug, totalDuration]);
 
   const findNextAvailableDate = useCallback(async () => {
     if (!selectedDate || findingNextAvailable) {
@@ -458,7 +488,12 @@ export function BookTimeClient({
   // Initialize and check if today has available slots (using Toronto timezone)
   useEffect(() => {
     setMounted(true);
-  }, []);
+    // Arriving from the stale-Smart-Fit screen: focus the refreshed time list
+    // once it renders so keyboard/screen-reader users land on the new times.
+    if (consumeSmartFitAvailabilityRefresh(salonSlug)) {
+      staleRefreshFocusRef.current = true;
+    }
+  }, [salonSlug]);
 
   // Fetch booked slots when selected date changes
   useEffect(() => {
@@ -537,8 +572,9 @@ export function BookTimeClient({
       pendingScrollRef.current = false;
       clearTimeout(hardTimeoutId);
 
-      // Find the first available section ref (morning preferred, then afternoon)
-      const targetRef = morningSlotsRef.current ?? afternoonSlotsRef.current;
+      // Find the first available section ref (Smart Fit section preferred,
+      // then morning, then afternoon)
+      const targetRef = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current;
       if (!targetRef) {
         // No slots rendered - don't scroll
         return;
@@ -559,16 +595,38 @@ export function BookTimeClient({
     };
   }, [loadingSlots, selectedDate, smoothScrollTo]);
 
+  // After a stale Smart Fit response returned the client to this step, move
+  // focus to the refreshed time list once it has rendered.
+  useEffect(() => {
+    if (!staleRefreshFocusRef.current || !mounted || loadingSlots) {
+      return;
+    }
+    if (visibleSlots.length === 0 && !availabilityError) {
+      return;
+    }
+    staleRefreshFocusRef.current = false;
+    const target = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current;
+    target?.focus();
+  }, [availabilityError, loadingSlots, mounted, visibleSlots]);
+
   const calendarDays = generateCalendarDays(currentYear, currentMonth);
 
   // Filter time slots for display
   const availableTimeSet = new Set(filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate, salonTimeZone));
   const availableTimeSlots = toDisplaySlots(visibleSlots.filter(slot => availableTimeSet.has(slot.time)));
-  const morningSlots = availableTimeSlots.filter(s => s.period === 'morning');
-  const afternoonSlots = availableTimeSlots.filter(s => s.period === 'afternoon');
 
   // Check if a slot is booked
   const isSlotBooked = (time: string) => bookedSlots.includes(time);
+
+  // Smart Fit grouping (P7.3): server-marked qualifying slots surface in their
+  // own section first; every other slot keeps the existing morning/afternoon
+  // presentation. With no qualifying slots this is exactly the legacy split.
+  const { smartFitSlots, regularSlots } = splitSmartFitSlots(availableTimeSlots, {
+    isSlotUnavailable: slot => isSlotBooked(slot.time),
+  });
+  const hasSmartFitSlots = smartFitSlots.length > 0;
+  const morningSlots = regularSlots.filter(s => s.period === 'morning');
+  const afternoonSlots = regularSlots.filter(s => s.period === 'afternoon');
 
   const monthNames = [
     'January',
@@ -656,6 +714,28 @@ export function BookTimeClient({
       return;
     }
 
+    // One nearby Smart Fit suggestion (P7.3): derived only from the loaded
+    // availability response for this exact date/technician/location context,
+    // and skipped while the client's dismissal for this context stands.
+    let suggestion: DisplayTimeSlot | null = null;
+    if (!slot.smartFit && hasSmartFitSlots) {
+      const contextKey = buildSmartFitSuggestionContextKey({
+        salonSlug,
+        dateKey: dateStr,
+        techId: effectiveTechId,
+        locationId: locationId || null,
+        baseServiceId,
+        serviceIds,
+        selectedAddOns,
+      });
+      if (!syncSmartFitSuggestionDismissal(contextKey)) {
+        suggestion = selectNearbySmartFitSuggestion({
+          selectedTime: slot.time,
+          slots: smartFitSlots,
+        });
+      }
+    }
+
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
@@ -669,6 +749,12 @@ export function BookTimeClient({
       originalAppointmentId,
       manageToken,
       campaignToken,
+      smartFitDiscountCents: slot.smartFit?.discountAmountCents ?? null,
+      smartFitTotalCents: slot.smartFit?.discountedPriceCents ?? null,
+      smartFitSuggestTime: suggestion?.time ?? null,
+      smartFitSuggestStartTime: suggestion?.startTime ?? null,
+      smartFitSuggestDiscountCents: suggestion?.smartFit?.discountAmountCents ?? null,
+      smartFitSuggestTotalCents: suggestion?.smartFit?.discountedPriceCents ?? null,
     }, {
       routeSalonSlug,
       locale,
@@ -942,10 +1028,87 @@ export function BookTimeClient({
               </div>
             )}
 
+            {/* Smart Fit qualifying times (P7.3) — server-derived offers only */}
+            {hasSmartFitSlots && !loadingSlots && (
+              <section
+                ref={smartFitSlotsRef}
+                tabIndex={-1}
+                aria-label={SMART_FIT_SECTION_TITLE}
+                className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                style={{
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: `color-mix(in srgb, ${themeVars.primary} 45%, ${themeVars.cardBorder})`,
+                }}
+              >
+                <div className="border-b border-neutral-100 px-5 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl" aria-hidden="true">✨</span>
+                    <h3 className="text-sm font-bold text-neutral-900">{SMART_FIT_SECTION_TITLE}</h3>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-neutral-500">{SMART_FIT_SECTION_DESCRIPTION}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 p-4">
+                  {smartFitSlots.map((slot) => {
+                    const offer = slot.smartFit;
+                    if (!offer) {
+                      return null;
+                    }
+                    return (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        data-testid={`smart-fit-slot-${slot.time}`}
+                        onClick={() => handleTimeSelect(slot)}
+                        aria-label={`${formatTime12h(slot.time)} — ${SMART_FIT_BADGE_LABEL}: save ${formatMoney(offer.discountAmountCents)}. ${formatMoney(offer.discountedPriceCents)} instead of ${formatMoney(offer.originalPriceCents)}.`}
+                        className="min-w-0 rounded-xl p-3 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-95"
+                        style={{
+                          borderWidth: '1px',
+                          borderStyle: 'solid',
+                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
+                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                        }}
+                      >
+                        <span aria-hidden="true" className="block min-w-0">
+                          <span className="flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
+                            <span className="text-sm font-bold text-neutral-800">{formatTime12h(slot.time)}</span>
+                            <span
+                              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold text-neutral-900"
+                              style={{
+                                backgroundColor: `color-mix(in srgb, ${themeVars.primary} 24%, white)`,
+                              }}
+                            >
+                              {SMART_FIT_BADGE_LABEL}
+                            </span>
+                          </span>
+                          <span className="mt-1 block text-xs font-semibold text-emerald-700">
+                            {`Save ${formatMoney(offer.discountAmountCents)}`}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+                            <span className="text-base font-bold text-neutral-900">{formatMoney(offer.discountedPriceCents)}</span>
+                            <s className="text-xs font-medium text-neutral-600">{formatMoney(offer.originalPriceCents)}</s>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Heading over the remaining regular times, only alongside the
+                Smart Fit section — the legacy layout stays heading-free */}
+            {hasSmartFitSlots && !loadingSlots && (morningSlots.length > 0 || afternoonSlots.length > 0) && (
+              <h3 className="pt-1 text-sm font-bold text-neutral-900">{SMART_FIT_OTHER_TIMES_TITLE}</h3>
+            )}
+
             {/* Morning Times */}
             {morningSlots.length > 0 && !loadingSlots && (
               <div
                 ref={morningSlotsRef}
+                tabIndex={-1}
+                role="region"
+                aria-label="Morning times"
                 className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
                 style={{
                   borderWidth: '1px',
@@ -1012,6 +1175,9 @@ export function BookTimeClient({
             {afternoonSlots.length > 0 && !loadingSlots && (
               <div
                 ref={afternoonSlotsRef}
+                tabIndex={-1}
+                role="region"
+                aria-label="Afternoon times"
                 className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
                 style={{
                   borderWidth: '1px',

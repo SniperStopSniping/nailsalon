@@ -187,6 +187,12 @@ export function buildBookingUrl(
     date?: string | null;
     time?: string | null;
     startTime?: string | null;
+    smartFitDiscountCents?: number | null;
+    smartFitTotalCents?: number | null;
+    smartFitSuggestTime?: string | null;
+    smartFitSuggestStartTime?: string | null;
+    smartFitSuggestDiscountCents?: number | null;
+    smartFitSuggestTotalCents?: number | null;
   },
   tenantRoute?: TenantRouteOptions,
 ): string {
@@ -249,6 +255,27 @@ export function buildBookingUrl(
   }
   if (params.startTime) {
     searchParams.set('startTime', params.startTime);
+  }
+
+  // Smart Fit (P7.3): server-derived preview/expectation values for a selected
+  // qualifying slot, and the single nearby suggestion for a regular slot. The
+  // confirm step treats these as display hints only — the booking API stays
+  // authoritative via the P7.2 expectation contract.
+  if (params.smartFitDiscountCents != null && params.smartFitTotalCents != null) {
+    searchParams.set('smartFitDiscountCents', String(params.smartFitDiscountCents));
+    searchParams.set('smartFitTotalCents', String(params.smartFitTotalCents));
+  }
+  if (
+    params.smartFitSuggestTime
+    && params.smartFitSuggestDiscountCents != null
+    && params.smartFitSuggestTotalCents != null
+  ) {
+    searchParams.set('smartFitSuggestTime', params.smartFitSuggestTime);
+    if (params.smartFitSuggestStartTime) {
+      searchParams.set('smartFitSuggestStartTime', params.smartFitSuggestStartTime);
+    }
+    searchParams.set('smartFitSuggestDiscountCents', String(params.smartFitSuggestDiscountCents));
+    searchParams.set('smartFitSuggestTotalCents', String(params.smartFitSuggestTotalCents));
   }
 
   const queryString = searchParams.toString();

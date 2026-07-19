@@ -118,4 +118,45 @@ describe('bookingParams helpers', () => {
       locale: 'en',
     })).toBe('/en/salon-a/book?locationId=loc_1');
   });
+
+  it('carries Smart Fit expectation and suggestion params only when complete', () => {
+    const url = buildBookingUrl('/book/confirm', {
+      salonSlug: 'salon-a',
+      serviceIds: ['srv_1'],
+      date: '2026-03-20',
+      time: '10:30',
+      smartFitDiscountCents: 650,
+      smartFitTotalCents: 5850,
+      smartFitSuggestTime: '10:00',
+      smartFitSuggestStartTime: '2026-03-20T14:00:00.000Z',
+      smartFitSuggestDiscountCents: 650,
+      smartFitSuggestTotalCents: 5850,
+    });
+
+    expect(url).toContain('smartFitDiscountCents=650');
+    expect(url).toContain('smartFitTotalCents=5850');
+    expect(url).toContain('smartFitSuggestTime=10%3A00');
+    expect(url).toContain('smartFitSuggestDiscountCents=650');
+    expect(url).toContain('smartFitSuggestTotalCents=5850');
+
+    // A half-complete pair is dropped entirely rather than sent broken.
+    const partial = buildBookingUrl('/book/confirm', {
+      salonSlug: 'salon-a',
+      time: '10:30',
+      smartFitDiscountCents: 650,
+      smartFitSuggestTime: '10:00',
+    });
+
+    expect(partial).not.toContain('smartFit');
+
+    // Regular selections stay byte-identical to the legacy URL shape.
+    const regular = buildBookingUrl('/book/confirm', {
+      salonSlug: 'salon-a',
+      serviceIds: ['srv_1'],
+      date: '2026-03-20',
+      time: '10:30',
+    });
+
+    expect(regular).not.toContain('smartFit');
+  });
 });
