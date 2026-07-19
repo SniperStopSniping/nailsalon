@@ -1,5 +1,16 @@
 # Luster Implementation Handoff — Audit Baseline & Phased Plan
 
+## Luster Learn & Shop redesign — 2026-07-19
+
+Implemented on branch `codex/luster-learn-shop` (commit hash recorded after commit/push).
+
+- Corrected all Luster product and education destinations to the approved canonical `https://lusterstudio.ca` URLs. No client-side availability checks or local guide fallbacks are used; the public Luster Studio site owns publication and Coming soon states.
+- Reordered the internal Luster application to Promos → Shop → Learn. Promos has an honest empty state and links to `/promotions`; Shop links to `/shop`, `/wholesale`, and `/join`; Learn exposes the overview and all ten approved guide URLs.
+- Removed visible integration controls from Luster while preserving the legacy callback redirect and existing owner marketing-consent behavior.
+- Files changed: `src/app/[locale]/admin/luster/page.tsx`, `src/app/[locale]/admin/luster/page.test.tsx`, `src/app/[locale]/admin/page.test.tsx`, `tests/e2e/luster-learn-shop.e2e.ts`, `.env.example`, and this handoff document.
+- Verification: focused Luster/More unit tests, typecheck, direct ESLint, and production build passed. The mobile Playwright spec was added but requires the configured live E2E environment to execute.
+- Limitation: promotions and guide availability are not sourced or rendered locally; the external Luster Studio website is the source of truth.
+
 > Produced by the Phase-0 audit session (2026-07-18). Read this before touching anything.
 > Audit method: 11 read-only domain audits + adversarial verification (213 status claims, 2 corrected) + plan synthesis.
 

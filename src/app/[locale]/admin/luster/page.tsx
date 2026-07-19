@@ -1,29 +1,57 @@
 'use client';
 
 /**
- * Luster brand page — education, product resources, and owner marketing consent.
+ * Luster Studio product and education area.
  *
- * Integrations (Google Calendar, Twilio texting) moved to More → Integrations.
- * Legacy links that still carry ?google= / ?twilio= callback params are safely
- * redirected to the Integrations app so old bookmarks and in-flight OAuth
- * round-trips keep working.
+ * External destinations are canonical URLs owned by lusterstudio.ca. The
+ * public site owns guide availability and any Coming soon presentation; this
+ * page never probes, hides, or replaces approved destinations.
+ *
+ * Integrations moved to More → Integrations. Legacy links that still carry
+ * ?google= / ?twilio= callback params are safely redirected there so old
+ * bookmarks and in-flight OAuth round-trips keep working.
  */
 
-import { ArrowLeft, BookOpen, ExternalLink, Plug, ShoppingBag, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, ExternalLink, Gift, GraduationCap, ShoppingBag, Sparkles, Users } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// Real Luster resources only — education and product links that exist today.
-// Do not add rewards, points, certifications, or ambassador programs here
-// unless the actual program (and its URL) exists.
-const LEARN_RESOURCES = [
-  { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
-  { id: 'technique-guides', title: 'Technique Guides', description: 'Practical service guides designed for working nail techs.', url: process.env.NEXT_PUBLIC_LUSTER_TECHNIQUE_GUIDES_URL || 'https://luster.com/pages/education', icon: Sparkles },
-];
+const LUSTER_STUDIO_URLS = {
+  promotions: 'https://lusterstudio.ca/promotions',
+  shop: 'https://lusterstudio.ca/shop',
+  wholesale: 'https://lusterstudio.ca/wholesale',
+  join: 'https://lusterstudio.ca/join',
+  learn: 'https://lusterstudio.ca/learn',
+  builderGelFoundations: 'https://lusterstudio.ca/learn/builder-gel-foundations',
+  nailPreparationAndRetention: 'https://lusterstudio.ca/learn/nail-preparation-and-retention',
+  flexVsControlBuilder: 'https://lusterstudio.ca/learn/choosing-flex-vs-control-builder',
+  builderGelApplication: 'https://lusterstudio.ca/learn/builder-gel-application',
+  apexAndStructure: 'https://lusterstudio.ca/learn/apex-and-structure',
+  rebalancingAndFillMaintenance: 'https://lusterstudio.ca/learn/rebalancing-and-fill-maintenance',
+  safeProductRemoval: 'https://lusterstudio.ca/learn/safe-product-removal',
+  troubleshootingLifting: 'https://lusterstudio.ca/learn/troubleshooting-lifting',
+  troubleshootingHeatSpikes: 'https://lusterstudio.ca/learn/troubleshooting-heat-spikes',
+  productStorageAndHandling: 'https://lusterstudio.ca/learn/product-storage-and-handling',
+} as const;
 
-const SHOP_RESOURCES = [
-  { id: 'wholesale-builder-gel', title: 'Shop Builder Gel', description: 'Professional products and wholesale offers for working techs.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_SHOP_URL || 'https://luster.com/collections/builder-gel', icon: ShoppingBag },
-];
+const SHOP_LINKS = [
+  { id: 'professional-products', title: 'Shop professional products', description: 'Explore Luster Studio products for professional services.', url: LUSTER_STUDIO_URLS.shop, icon: ShoppingBag },
+  { id: 'wholesale', title: 'Wholesale information', description: 'Learn about professional wholesale purchasing with Luster Studio.', url: LUSTER_STUDIO_URLS.wholesale, icon: Users },
+  { id: 'join', title: 'Join Luster', description: 'Find out how to join the Luster Studio professional community.', url: LUSTER_STUDIO_URLS.join, icon: Gift },
+] as const;
+
+const LEARN_LINKS = [
+  { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', url: LUSTER_STUDIO_URLS.builderGelFoundations, icon: BookOpen },
+  { id: 'nail-preparation-and-retention', title: 'Nail Preparation and Retention', url: LUSTER_STUDIO_URLS.nailPreparationAndRetention, icon: Sparkles },
+  { id: 'choosing-flex-vs-control-builder', title: 'Product Selection', url: LUSTER_STUDIO_URLS.flexVsControlBuilder, icon: ShoppingBag },
+  { id: 'builder-gel-application', title: 'Application Technique Guides', url: LUSTER_STUDIO_URLS.builderGelApplication, icon: GraduationCap },
+  { id: 'apex-and-structure', title: 'Apex and Structure', url: LUSTER_STUDIO_URLS.apexAndStructure, icon: Sparkles },
+  { id: 'rebalancing-and-fill-maintenance', title: 'Rebalancing and Fill Maintenance', url: LUSTER_STUDIO_URLS.rebalancingAndFillMaintenance, icon: BookOpen },
+  { id: 'safe-product-removal', title: 'Safe Product Removal', url: LUSTER_STUDIO_URLS.safeProductRemoval, icon: BookOpen },
+  { id: 'troubleshooting-lifting', title: 'Troubleshooting: Lifting', url: LUSTER_STUDIO_URLS.troubleshootingLifting, icon: Sparkles },
+  { id: 'troubleshooting-heat-spikes', title: 'Troubleshooting: Heat Spikes', url: LUSTER_STUDIO_URLS.troubleshootingHeatSpikes, icon: Sparkles },
+  { id: 'product-storage-and-handling', title: 'Product Storage and Handling', url: LUSTER_STUDIO_URLS.productStorageAndHandling, icon: ShoppingBag },
+] as const;
 
 export default function LusterOwnerPage() {
   const router = useRouter();
@@ -50,10 +78,7 @@ export default function LusterOwnerPage() {
     return `/${locale}/admin?${qs.toString()}`;
   };
 
-  // Legacy integration links (old OAuth callbacks, bookmarks) land here with
-  // ?google= / ?twilio= params — forward them to the Integrations app.
-  const hasLegacyIntegrationParams
-    = searchParams.has('google') || searchParams.has('twilio');
+  const hasLegacyIntegrationParams = searchParams.has('google') || searchParams.has('twilio');
 
   useEffect(() => {
     if (hasLegacyIntegrationParams) {
@@ -83,9 +108,10 @@ export default function LusterOwnerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function trackResource(resourceId: string, url: string) {
+  function trackResource(resourceId: string, url: string) {
     navigator.sendBeacon?.('/api/admin/luster/resource-click', new Blob([JSON.stringify({ salonSlug, resourceId, url })], { type: 'application/json' }));
   }
+
   async function updateMarketingConsent(consented: boolean) {
     setMarketingConsent(consented);
     await fetch('/api/admin/luster/marketing-consent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, consented }) });
@@ -100,6 +126,8 @@ export default function LusterOwnerPage() {
   }
 
   const card = 'rounded-3xl border border-stone-200 bg-white p-6 shadow-sm';
+  const externalLinkProps = { target: '_blank', rel: 'noopener noreferrer' } as const;
+
   return (
     <main className="min-h-screen bg-[#F8F3F0] px-4 py-8 text-stone-900">
       <div className="mx-auto max-w-5xl">
@@ -108,26 +136,43 @@ export default function LusterOwnerPage() {
           {' '}
           Dashboard
         </button>
-        <div className="mt-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster for nail techs</p>
-          <h1 className="mt-2 text-3xl font-semibold">Builder Gel education and resources</h1>
-          <p className="mt-2 text-stone-600">Your booking app stays free. Learn techniques, shop professional products, and grow your services.</p>
-        </div>
 
-        <section className="mt-8" aria-label="Learn">
-          <h2 className="text-2xl font-semibold">Learn</h2>
-          <p className="mt-1 text-sm text-stone-600">Builder Gel education and technique guides from Luster.</p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {LEARN_RESOURCES.map((resource) => {
+        <header className="mt-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster Studio</p>
+          <h1 className="mt-2 text-3xl font-semibold">Luster</h1>
+          <p className="mt-2 text-stone-600">Discover professional gel products, artist offers and education from Luster Studio.</p>
+        </header>
+
+        <section data-testid="luster-promos" aria-label="Promos" className="mt-8">
+          <h2 className="text-2xl font-semibold">Promos</h2>
+          <div className="mt-4 rounded-3xl border border-rose-100 bg-white p-6 shadow-sm">
+            <Gift className="text-rose-700" />
+            <h3 className="mt-4 font-semibold">New Luster offers will appear here.</h3>
+            <p className="mt-2 text-sm text-stone-600">Visit Luster Studio to explore the latest offers and professional updates.</p>
+            <a href={LUSTER_STUDIO_URLS.promotions} {...externalLinkProps} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-rose-700">
+              View Luster Studio promotions
+              <ExternalLink size={14} />
+            </a>
+            <a href={LUSTER_STUDIO_URLS.shop} {...externalLinkProps} className="ml-4 mt-4 inline-flex items-center gap-2 text-sm font-semibold text-rose-700">
+              Shop Luster Studio
+              <ExternalLink size={14} />
+            </a>
+          </div>
+        </section>
+
+        <section data-testid="luster-shop" aria-label="Shop" className="mt-8">
+          <h2 className="text-2xl font-semibold">Shop</h2>
+          <p className="mt-1 text-sm text-stone-600">Shop professional products, wholesale options, and artist information from Luster Studio.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            {SHOP_LINKS.map((resource) => {
               const Icon = resource.icon;
-
               return (
-                <a key={resource.id} href={`${resource.url}?utm_source=luster_booking&utm_medium=owner_dashboard&utm_campaign=free_booking`} target="_blank" rel="noreferrer" onClick={() => void trackResource(resource.id, resource.url)} className={card}>
+                <a key={resource.id} href={resource.url} {...externalLinkProps} onClick={() => trackResource(resource.id, resource.url)} className={card}>
                   <Icon className="text-rose-700" />
                   <h3 className="mt-4 font-semibold">{resource.title}</h3>
                   <p className="mt-2 text-sm text-stone-600">{resource.description}</p>
                   <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-rose-700">
-                    Open resource
+                    Open Luster Studio website
                     <ExternalLink size={14} />
                   </span>
                 </a>
@@ -136,20 +181,26 @@ export default function LusterOwnerPage() {
           </div>
         </section>
 
-        <section className="mt-8" aria-label="Shop">
-          <h2 className="text-2xl font-semibold">Shop &amp; wholesale</h2>
-          <p className="mt-1 text-sm text-stone-600">Luster professional products for your services.</p>
+        <section data-testid="luster-learn" aria-label="Learn" className="mt-8">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-semibold">Learn</h2>
+              <p className="mt-1 text-sm text-stone-600">Explore professional resources and guides from Luster Studio.</p>
+            </div>
+            <a href={LUSTER_STUDIO_URLS.learn} {...externalLinkProps} className="inline-flex items-center gap-2 text-sm font-semibold text-rose-700">
+              Browse all learning
+              <ExternalLink size={14} />
+            </a>
+          </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {SHOP_RESOURCES.map((resource) => {
+            {LEARN_LINKS.map((resource) => {
               const Icon = resource.icon;
-
               return (
-                <a key={resource.id} href={`${resource.url}?utm_source=luster_booking&utm_medium=owner_dashboard&utm_campaign=free_booking`} target="_blank" rel="noreferrer" onClick={() => void trackResource(resource.id, resource.url)} className={card}>
+                <a key={resource.id} href={resource.url} {...externalLinkProps} onClick={() => trackResource(resource.id, resource.url)} className={card}>
                   <Icon className="text-rose-700" />
                   <h3 className="mt-4 font-semibold">{resource.title}</h3>
-                  <p className="mt-2 text-sm text-stone-600">{resource.description}</p>
                   <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-rose-700">
-                    Open resource
+                    Open guide on Luster Studio
                     <ExternalLink size={14} />
                   </span>
                 </a>
@@ -157,20 +208,6 @@ export default function LusterOwnerPage() {
             })}
           </div>
         </section>
-
-        <button
-          type="button"
-          onClick={() => router.push(buildIntegrationsUrl(salonSlug))}
-          className="mt-8 flex w-full items-center gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-left shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-50"
-        >
-          <span className="flex size-10 items-center justify-center rounded-xl bg-rose-100 text-rose-800">
-            <Plug size={20} />
-          </span>
-          <span>
-            <span className="block text-sm font-semibold text-stone-900">Looking for Google Calendar or texting setup?</span>
-            <span className="block text-sm text-stone-600">Integrations moved to More → Integrations.</span>
-          </span>
-        </button>
 
         <label className="mt-8 flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">
           <input type="checkbox" checked={marketingConsent} onChange={event => void updateMarketingConsent(event.target.checked)} className="mt-1" />

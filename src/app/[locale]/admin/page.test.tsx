@@ -108,7 +108,14 @@ vi.mock('@/components/admin/AnalyticsWidgets', () => ({
 vi.mock('@/components/admin/AppGrid', () => ({
   AppGrid: (props: unknown) => {
     appGridSpy(props);
-    return <div>App grid</div>;
+    const value = props as { onAppTap?: (appId: string) => void };
+    return (
+      <div>
+        <button type="button" onClick={() => value.onAppTap?.('luster')}>
+          Open Luster
+        </button>
+      </div>
+    );
   },
 }));
 
@@ -631,5 +638,49 @@ describe('AdminDashboardPage', () => {
         initialClientId: 'client_bob',
       });
     });
+  });
+
+  it('routes More → Luster to the internal Luster application', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            phone: '+15555550100',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: null,
+            salons: [
+              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+            ],
+          },
+        }), { status: 200 });
+      }
+
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: {
+            modules: { analyticsDashboard: false },
+            entitledModules: { analyticsDashboard: true },
+            moduleReasons: { analyticsDashboard: 'MODULE_DISABLED' },
+          },
+        }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+
+    fireEvent.click(await screen.findByTestId('owner-nav-more'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Luster' }));
+
+    expect(routerMock.push).toHaveBeenCalledWith('/en/admin/luster?salon=salon-b');
   });
 });
