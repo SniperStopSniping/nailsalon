@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.0...v1.18.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **audit:** p9 audit — reschedule identity, salon-tz analytics, lifecycle hardening ([6d5e459](https://github.com/SniperStopSniping/nailsalon/commit/6d5e4591ba971698705f02acfe534f21f0fdde8d))
+
 # [1.18.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.17.0...v1.18.0) (2026-07-19)
 
 
