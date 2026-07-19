@@ -1437,6 +1437,14 @@ function AdminDashboardContent() {
         activeSalonSlug={activeDashboardSalonSlug}
         activeSalonId={activeDashboardSalon?.id ?? null}
         onOpenApp={openAppViaUrl}
+        activeSalonName={activeDashboardSalon?.name ?? null}
+        onOpenMarketingClient={(clientId) => {
+          setInitialAppointmentId(null);
+          setInitialClientId(clientId);
+          setInitialPromotionStage(null);
+          setPromotionSettingsReturnClientId(null);
+          setActiveModal('clients');
+        }}
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
         initialAppointmentId={initialAppointmentId}

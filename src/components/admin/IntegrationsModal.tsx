@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { isNativeSmsCapableDevice, resolveAutomaticTextStatus } from '@/libs/textingStatus';
+
 type GoogleReadiness
   = | 'not_connected'
   | 'reconnect_required'
@@ -104,78 +106,8 @@ function googleStatusTone(readiness: GoogleReadiness): StatusTone {
   return 'warn';
 }
 
-/**
- * Manual texting opens the device's native Messages app via an sms: link.
- * That only makes sense on a phone or tablet; report the truth per device.
- */
-function isNativeSmsCapableDevice(userAgent: string): boolean {
-  return /iphone|ipad|ipod|android/i.test(userAgent);
-}
-
-type AutomaticTextStatus = {
-  label:
-    | 'Ready'
-    | 'Setup incomplete'
-    | 'Not connected'
-    | 'Error'
-    | 'Not available yet'
-    | 'Loading…';
-  tone: StatusTone;
-  detail: string;
-};
-
-function resolveAutomaticTextStatus(
-  health: Health | null,
-  smsModuleReason: ModuleReason | null,
-): AutomaticTextStatus {
-  if (!health) {
-    return { label: 'Loading…', tone: 'muted', detail: '' };
-  }
-  const { twilio, availability } = health;
-  if (twilio.status === 'active' && twilio.phoneNumber) {
-    if (smsModuleReason === 'ENABLED') {
-      return {
-        label: 'Ready',
-        tone: 'good',
-        detail: `Automatic texts send from ${twilio.phoneNumber}.`,
-      };
-    }
-    return {
-      label: 'Setup incomplete',
-      tone: 'warn',
-      detail:
-        smsModuleReason === 'MODULE_DISABLED'
-          ? 'A number is connected, but SMS reminders are turned off in Settings.'
-          : 'A number is connected, but SMS reminders are not included in this salon’s plan.',
-    };
-  }
-  if (twilio.status === 'pending') {
-    return {
-      label: 'Setup incomplete',
-      tone: 'warn',
-      detail: 'Twilio is authorized. Choose a phone number to finish setup.',
-    };
-  }
-  if (twilio.status === 'deauthorized' || twilio.lastError) {
-    return {
-      label: 'Error',
-      tone: 'error',
-      detail: twilio.lastError || 'The Twilio connection was removed. Reconnect to resume automatic texts.',
-    };
-  }
-  if (!availability.twilio) {
-    return {
-      label: 'Not available yet',
-      tone: 'muted',
-      detail: 'Automatic texting is not offered on this Luster environment yet.',
-    };
-  }
-  return {
-    label: 'Not connected',
-    tone: 'muted',
-    detail: 'Optional. Connect Twilio to send reminders automatically.',
-  };
-}
+// Manual/automatic texting status logic is shared with the Marketing surface —
+// both must report identical channel truth (src/libs/textingStatus.ts).
 
 type IntegrationsModalProps = {
   onClose: () => void;

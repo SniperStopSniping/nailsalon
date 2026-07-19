@@ -58,6 +58,9 @@ type AdminModalHostProps = {
   activeSalonSlug: string | null;
   activeSalonId?: string | null;
   onOpenApp?: (appId: string) => void;
+  activeSalonName?: string | null;
+  /** Open a client profile from the Marketing follow-ups list. */
+  onOpenMarketingClient?: (clientId: string) => void;
   isFreeSolo: boolean;
   onCloseModal: () => void;
   initialAppointmentId?: string | null;
@@ -95,6 +98,8 @@ export function AdminModalHost({
   activeSalonSlug,
   activeSalonId = null,
   onOpenApp,
+  activeSalonName = null,
+  onOpenMarketingClient,
   isFreeSolo,
   onCloseModal,
   initialAppointmentId,
@@ -191,6 +196,9 @@ export function AdminModalHost({
         <MarketingModal
           onClose={onClosePromotionSettings ?? onCloseModal}
           initialPromotionStage={initialPromotionStage}
+          salonName={activeSalonName ?? undefined}
+          onOpenApp={onOpenApp}
+          onOpenClient={onOpenMarketingClient}
         />
       </AppModal>
 

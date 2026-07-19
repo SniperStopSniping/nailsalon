@@ -29,17 +29,15 @@ import {
   type ClientSmsMessageKind,
   composeClientSmsDraft,
   detectNativeSmsPlatform,
-  safeTimeZone,
 } from '@/libs/clientSmsComposer';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
-import { formatDateInTimeZone } from '@/libs/timeZone';
+import { firstNameForMessage, renderPromotionMessage } from '@/libs/promotionMessage';
 import {
   type ClientCommunicationKind,
   type ClientCommunicationStatus,
   REMINDER_SNOOZE_HOURS,
   RETENTION_SNOOZE_DAYS,
-  type RetentionPromotionSettings,
   type RetentionSettings,
   type RetentionStage,
 } from '@/types/retention';
@@ -174,56 +172,8 @@ const HISTORY_STATUS_LABELS: Record<ClientCommunicationStatus, string> = {
   converted: 'Converted',
 };
 
-function formatPromotionOffer(promotion: RetentionPromotionSettings): string {
-  if (promotion.discountType === 'percent') {
-    return `${promotion.value}% off`;
-  }
-
-  return `${new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency: 'CAD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(promotion.value / 100)} off`;
-}
-
-function firstNameForMessage(fullName: string | null): string {
-  return fullName?.trim().split(/\s+/)[0] || 'there';
-}
-
-function renderPromotionMessage(args: {
-  promotion: RetentionPromotionSettings;
-  firstName: string;
-  salonName: string;
-  bookingUrl: string;
-  expiresAt: string;
-  timeZone: string | null;
-}): string {
-  // The expiry is a UTC instant; render it in the salon's timezone, not the
-  // staff device's, so the client is never told a day-early/day-late date.
-  const expiry = formatDateInTimeZone(
-    args.expiresAt,
-    { month: 'long', day: 'numeric', year: 'numeric' },
-    safeTimeZone(args.timeZone),
-  );
-  const replacements: Record<string, string> = {
-    '{firstName}': args.firstName,
-    '{salonName}': args.salonName,
-    '{offer}': formatPromotionOffer(args.promotion),
-    '{expiry}': expiry,
-    '{bookingLink}': args.bookingUrl,
-  };
-
-  let message = args.promotion.messageTemplate;
-  for (const [placeholder, value] of Object.entries(replacements)) {
-    message = message.split(placeholder).join(value);
-  }
-
-  if (args.promotion.code && !message.includes(args.promotion.code)) {
-    message = `${message}\nUse code ${args.promotion.code}.`;
-  }
-  return message;
-}
+// Promotion interpolation is shared with the Marketing follow-ups surface —
+// both must render identical resolved copy (src/libs/promotionMessage.ts).
 
 function toSmsAppointment(
   appointment: CommunicationAppointment | null | undefined,
