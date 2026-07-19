@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.14.0...v1.15.0) (2026-07-19)
+
+
+### Features
+
+* **smart-fit:** wire availability, overlay, atomic confirmation, and persistence (P7.2) ([a733509](https://github.com/SniperStopSniping/nailsalon/commit/a733509797c308e41f06fd2d550166fa753c1d91))
+
 # [1.14.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.13.1...v1.14.0) (2026-07-19)
 
 
