@@ -1,3 +1,15 @@
+# [1.11.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.4...v1.11.0) (2026-07-19)
+
+
+### Bug Fixes
+
+* **booking:** harden booking-category rollout after adversarial review ([64f6d55](https://github.com/SniperStopSniping/nailsalon/commit/64f6d557ccf65692e41a8faa00213ab63614a10f))
+
+
+### Features
+
+* **booking:** three-pill service categories and Luster-first featured services ([6f85c6c](https://github.com/SniperStopSniping/nailsalon/commit/6f85c6c3eb667b72a0fd81fe8c79ded92bed1321))
+
 ## [1.10.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.3...v1.10.4) (2026-07-18)
 
 
