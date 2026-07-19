@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -7,6 +7,8 @@ import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
 } from '@/libs/bookingCatalog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
+import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
 import {
@@ -14,6 +16,7 @@ import {
   InvalidTechnicianAssignmentError,
 } from '@/libs/serviceAssignments';
 import {
+  BOOKING_CATEGORIES,
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
@@ -63,6 +66,10 @@ const createServiceSchema = z.object({
     .default(0),
   cleanupBufferMinutes: z.number().int().min(0).max(120).optional().default(0),
   category: z.enum(SERVICE_CATEGORIES),
+  bookingCategory: z.enum(BOOKING_CATEGORIES).optional(),
+  featuredOrder: z.number().int().min(1).max(999).nullable().optional(),
+  // PR scope: only the Luster template can be linked at creation for now.
+  templateKey: z.literal(LUSTER_MANICURE_TEMPLATE_KEY).nullable().optional(),
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
   technicianIds: z.array(z.string().min(1)).optional(),
@@ -93,8 +100,11 @@ function buildServicePayload(service: Service): ServiceResponse {
     preparationBufferMinutes: service.preparationBufferMinutes,
     cleanupBufferMinutes: service.cleanupBufferMinutes,
     category: service.category,
+    bookingCategory: service.bookingCategory,
+    templateKey: service.templateKey ?? null,
     imageUrl: service.imageUrl,
     sortOrder: service.sortOrder,
+    featuredOrder: service.featuredOrder ?? null,
     isActive: service.isActive,
     isIntroPrice: service.isIntroPrice ?? false,
     introPriceLabel: service.introPriceLabel ?? null,
@@ -205,6 +215,83 @@ export async function POST(request: Request): Promise<Response> {
     const normalizedDescriptionItems = normalizeDescriptionItems(
       data.descriptionItems,
     );
+
+    if (data.templateKey) {
+      // The partial unique index allows one templated service per salon even
+      // when it is deactivated (and deactivated services are hidden from the
+      // admin list), so re-adding the template must revive the existing row
+      // instead of failing on the index.
+      const [existingTemplated] = await db
+        .select()
+        .from(serviceSchema)
+        .where(
+          and(
+            eq(serviceSchema.salonId, salon.id),
+            eq(serviceSchema.templateKey, data.templateKey),
+          ),
+        );
+
+      if (existingTemplated?.isActive) {
+        return Response.json(
+          {
+            error: {
+              code: 'TEMPLATE_ALREADY_ADDED',
+              message: 'This service is already on your menu.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+
+      if (existingTemplated) {
+        const [revivedService] = await db
+          .update(serviceSchema)
+          .set({
+            name: data.name,
+            description:
+              normalizedDescriptionItems
+              && normalizedDescriptionItems.length > 0
+                ? descriptionItemsToLegacyText(normalizedDescriptionItems)
+                : data.description,
+            descriptionItems: normalizedDescriptionItems,
+            price: data.price,
+            priceDisplayText: data.priceDisplayText,
+            durationMinutes: data.durationMinutes,
+            preparationBufferMinutes: data.preparationBufferMinutes,
+            cleanupBufferMinutes: data.cleanupBufferMinutes,
+            category: data.category,
+            bookingCategory: data.bookingCategory ?? deriveBookingCategory(data.category),
+            featuredOrder: data.featuredOrder ?? null,
+            isIntroPrice: data.isIntroPrice,
+            introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
+            isActive: true,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(serviceSchema.id, existingTemplated.id),
+              eq(serviceSchema.salonId, salon.id),
+            ),
+          )
+          .returning();
+
+        if (revivedService) {
+          const revivedAssignments = await ensureServiceAssignments(db, {
+            salonId: salon.id,
+            serviceId: revivedService.id,
+            technicianIds: data.technicianIds,
+          });
+
+          return Response.json({
+            data: {
+              service: buildServicePayload(revivedService),
+              assignment: revivedAssignments,
+            },
+          });
+        }
+      }
+    }
+
     const legacyDescription
       = normalizedDescriptionItems && normalizedDescriptionItems.length > 0
         ? descriptionItemsToLegacyText(normalizedDescriptionItems)
@@ -235,9 +322,12 @@ export async function POST(request: Request): Promise<Response> {
           preparationBufferMinutes: data.preparationBufferMinutes,
           cleanupBufferMinutes: data.cleanupBufferMinutes,
           category: data.category,
+          bookingCategory: data.bookingCategory ?? deriveBookingCategory(data.category),
+          templateKey: data.templateKey ?? null,
           isIntroPrice: data.isIntroPrice,
           introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
           sortOrder: nextSortOrder,
+          featuredOrder: data.featuredOrder ?? null,
           isActive: true,
         })
         .returning();
@@ -279,6 +369,20 @@ export async function POST(request: Request): Promise<Response> {
       { status: 201 },
     );
   } catch (error) {
+    if (
+      error instanceof Error
+      && error.message.includes('service_salon_template_key_idx')
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'TEMPLATE_ALREADY_ADDED',
+            message: 'This service is already on your menu.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     if (error instanceof InvalidTechnicianAssignmentError) {
       return Response.json(
         {

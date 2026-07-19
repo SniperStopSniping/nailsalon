@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -6,8 +6,10 @@ import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
 } from '@/libs/bookingCatalog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
 import {
+  BOOKING_CATEGORIES,
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
@@ -34,6 +36,8 @@ const updateServiceSchema = z.object({
   preparationBufferMinutes: z.number().int().min(0).max(120).default(0),
   cleanupBufferMinutes: z.number().int().min(0).max(120).default(0),
   category: z.enum(SERVICE_CATEGORIES),
+  bookingCategory: z.enum(BOOKING_CATEGORIES).optional(),
+  featuredOrder: z.number().int().min(1).max(999).nullable().optional(),
   isIntroPrice: z.boolean().default(false),
   introPriceLabel: optionalText,
   isActive: z.boolean().default(true),
@@ -52,8 +56,11 @@ function buildServicePayload(service: Service): ServiceResponse {
     preparationBufferMinutes: service.preparationBufferMinutes,
     cleanupBufferMinutes: service.cleanupBufferMinutes,
     category: service.category,
+    bookingCategory: service.bookingCategory,
+    templateKey: service.templateKey ?? null,
     imageUrl: service.imageUrl,
     sortOrder: service.sortOrder,
+    featuredOrder: service.featuredOrder ?? null,
     isActive: service.isActive,
     isIntroPrice: service.isIntroPrice,
     introPriceLabel: service.introPriceLabel,
@@ -103,6 +110,15 @@ export async function PATCH(
         preparationBufferMinutes: input.preparationBufferMinutes,
         cleanupBufferMinutes: input.cleanupBufferMinutes,
         category: input.category,
+        // When a caller (e.g. a pre-update client) changes the category
+        // without sending bookingCategory, re-derive it so admin and public
+        // categorization stay in sync; unchanged categories keep any custom
+        // grouping the owner picked.
+        bookingCategory: input.bookingCategory
+          ?? sql`CASE WHEN ${serviceSchema.category} <> ${input.category} THEN ${deriveBookingCategory(input.category)}::"booking_category" ELSE ${serviceSchema.bookingCategory} END`,
+        // Drizzle skips undefined values, so an omitted featuredOrder stays
+        // unchanged while an explicit null clears it.
+        featuredOrder: input.featuredOrder,
         isIntroPrice: input.isIntroPrice,
         introPriceLabel: input.isIntroPrice ? input.introPriceLabel : null,
         isActive: input.isActive,

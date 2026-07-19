@@ -65,8 +65,11 @@ export type ServiceResponse = {
   preparationBufferMinutes?: number;
   cleanupBufferMinutes?: number;
   category?: string | null;
+  bookingCategory?: string | null;
+  templateKey?: string | null;
   imageUrl?: string | null;
   sortOrder?: number | null;
+  featuredOrder?: number | null;
   isActive: boolean | null;
   isIntroPrice?: boolean | null;
   introPriceLabel?: string | null;

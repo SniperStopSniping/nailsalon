@@ -140,6 +140,9 @@ const services = [
     priceCents: 4000,
     priceDisplayText: null,
     category: 'manicure' as const,
+    bookingCategory: 'manicure' as const,
+    templateKey: null,
+    featuredOrder: null,
     imageUrl: '/service-1.jpg',
     resolvedIntroPriceLabel: null,
   },
@@ -152,6 +155,9 @@ const services = [
     priceCents: 6500,
     priceDisplayText: null,
     category: 'extensions' as const,
+    bookingCategory: 'manicure' as const,
+    templateKey: null,
+    featuredOrder: null,
     imageUrl: '/service-2.jpg',
     resolvedIntroPriceLabel: null,
   },
@@ -166,6 +172,9 @@ const noAddOnService = {
   priceCents: 4500,
   priceDisplayText: null,
   category: 'manicure' as const,
+  bookingCategory: 'manicure' as const,
+  templateKey: null,
+  featuredOrder: null,
   imageUrl: '/service-3.jpg',
   resolvedIntroPriceLabel: null,
 };
@@ -388,7 +397,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-continue-button')).toBeVisible();
   });
 
-  it('renders category chips inside a horizontal mobile scroll track in canonical order, including combo', () => {
+  it('renders exactly the Manicure, Pedicure, and Combos chips in a horizontal mobile scroll track', () => {
     render(
       <BookServiceClient
         services={[
@@ -401,6 +410,9 @@ describe('BookServiceClient', () => {
             priceCents: 3500,
             priceDisplayText: null,
             category: 'manicure',
+            bookingCategory: 'manicure',
+            templateKey: null,
+            featuredOrder: null,
             imageUrl: '/service-3.jpg',
             resolvedIntroPriceLabel: null,
           },
@@ -413,6 +425,9 @@ describe('BookServiceClient', () => {
             priceCents: 5000,
             priceDisplayText: null,
             category: 'builder_gel',
+            bookingCategory: 'manicure',
+            templateKey: null,
+            featuredOrder: null,
             imageUrl: '/service-4.jpg',
             resolvedIntroPriceLabel: null,
           },
@@ -425,6 +440,9 @@ describe('BookServiceClient', () => {
             priceCents: 4000,
             priceDisplayText: null,
             category: 'pedicure',
+            bookingCategory: 'pedicure',
+            templateKey: null,
+            featuredOrder: null,
             imageUrl: '/service-5.jpg',
             resolvedIntroPriceLabel: null,
           },
@@ -437,6 +455,9 @@ describe('BookServiceClient', () => {
             priceCents: 8500,
             priceDisplayText: null,
             category: 'combo',
+            bookingCategory: 'combo',
+            templateKey: null,
+            featuredOrder: null,
             imageUrl: '/service-6.jpg',
             resolvedIntroPriceLabel: null,
           },
@@ -473,24 +494,170 @@ describe('BookServiceClient', () => {
 
     expect(chipNames).toEqual([
       '💅Manicure',
-      '✨Builder Gel',
       '🦶Pedicure',
-      '✨Combo',
+      '✨Combos',
     ]);
-    expect(within(track).getByRole('button', { name: /builder gel/i })).toHaveClass(
+    // Builder Gel is no longer a top-level chip; those services live under Manicure.
+    expect(within(track).queryByRole('button', { name: /builder gel/i })).not.toBeInTheDocument();
+    expect(within(track).getByRole('button', { name: /manicure/i })).toHaveClass(
       'shrink-0',
       'whitespace-nowrap',
     );
-    expect(within(track).getByRole('button', { name: /combo/i })).toHaveClass(
+    expect(within(track).getByRole('button', { name: /combos/i })).toHaveClass(
       'shrink-0',
       'whitespace-nowrap',
     );
+    // Manicure is the default tab, so the builder_gel service shows under it.
+    expect(within(track).getByRole('button', { name: /manicure/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('service-card-svc-4')).toBeInTheDocument();
     expect(screen.getByText('Featured services')).toBeInTheDocument();
     expect(screen.getByText('Popular premium sets and combo appointments')).toBeInTheDocument();
 
-    fireEvent.click(within(track).getByRole('button', { name: /combo/i }));
+    fireEvent.click(within(track).getByRole('button', { name: /combos/i }));
 
     expect(screen.getByTestId('service-card-svc-6')).toHaveClass('col-span-full');
+  });
+
+  it('filters the list by booking category and shows an empty state for empty tabs', () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            id: 'svc-bg',
+            name: 'Builder Gel Overlay',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 75,
+            priceCents: 5000,
+            priceDisplayText: null,
+            category: 'builder_gel',
+            bookingCategory: 'manicure',
+            templateKey: null,
+            featuredOrder: null,
+            imageUrl: '/service-bg.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const track = screen.getByTestId('service-category-track');
+
+    expect(screen.getByTestId('service-card-svc-bg')).toBeInTheDocument();
+
+    fireEvent.click(within(track).getByRole('button', { name: /pedicure/i }));
+
+    expect(screen.queryByTestId('service-card-svc-bg')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-category-empty')).toHaveTextContent(
+      'No pedicure services available yet.',
+    );
+  });
+
+  it('lands on the first non-empty tab when the salon offers no manicure services', () => {
+    render(
+      <BookServiceClient
+        services={[
+          {
+            id: 'svc-pedi-only',
+            name: 'Spa Pedicure',
+            description: null,
+            descriptionItems: [],
+            durationMinutes: 60,
+            priceCents: 6000,
+            priceDisplayText: null,
+            category: 'pedicure',
+            bookingCategory: 'pedicure',
+            templateKey: null,
+            featuredOrder: null,
+            imageUrl: '/service-pedi.jpg',
+            resolvedIntroPriceLabel: null,
+          },
+        ]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const track = screen.getByTestId('service-category-track');
+
+    expect(within(track).getByRole('button', { name: /pedicure/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('service-card-svc-pedi-only')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-category-empty')).not.toBeInTheDocument();
+  });
+
+  it('surfaces search matches from any category regardless of the selected chip', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const track = screen.getByTestId('service-category-track');
+    fireEvent.click(within(track).getByRole('button', { name: /pedicure/i }));
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: 'gel x' },
+    });
+
+    expect(screen.getByTestId('service-card-svc-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-category-empty')).not.toBeInTheDocument();
+  });
+
+  it('puts the active Luster Manicure first in the featured row when enabled', () => {
+    const lusterService = {
+      id: 'svc-luster',
+      name: 'Luster Manicure',
+      description: null,
+      descriptionItems: ['Premium structured manicure'],
+      durationMinutes: 60,
+      priceCents: 4500,
+      priceDisplayText: null,
+      category: 'manicure' as const,
+      bookingCategory: 'manicure' as const,
+      templateKey: 'luster_manicure',
+      featuredOrder: null,
+      imageUrl: '/service-luster.jpg',
+      resolvedIntroPriceLabel: null,
+    };
+
+    const { unmount } = render(
+      <BookServiceClient
+        services={[...services, lusterService]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled
+      />,
+    );
+
+    const featuredRegion = screen.getByRole('region', { name: 'Featured services' });
+    const featuredCards = within(featuredRegion)
+      .getAllByRole('button')
+      .map(button => button.getAttribute('data-testid'));
+
+    expect(featuredCards[0]).toBe('featured-service-card-svc-luster');
+    // Exactly one Luster card — never duplicated.
+    expect(
+      featuredCards.filter(id => id === 'featured-service-card-svc-luster'),
+    ).toHaveLength(1);
+
+    unmount();
+
+    // Disabled: Luster is not forced first and (with no manual position) is not featured.
+    render(
+      <BookServiceClient
+        services={[...services, lusterService]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled={false}
+      />,
+    );
+
+    expect(screen.queryByTestId('featured-service-card-svc-luster')).not.toBeInTheDocument();
+    // The service itself remains bookable in its category.
+    expect(screen.getByTestId('service-card-svc-luster')).toBeInTheDocument();
   });
 
   it('uses stable border-and-shadow emphasis for selected featured cards without image scaling', () => {
@@ -506,6 +673,9 @@ describe('BookServiceClient', () => {
             priceCents: 8500,
             priceDisplayText: null,
             category: 'combo',
+            bookingCategory: 'combo',
+            templateKey: null,
+            featuredOrder: null,
             imageUrl: '/service-combo.jpg',
             resolvedIntroPriceLabel: null,
           },
@@ -608,7 +778,6 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
     expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
 
-    fireEvent.click(within(screen.getByTestId('service-category-track')).getByRole('button', { name: /extensions/i }));
     fireEvent.click(screen.getByTestId('service-card-svc-2'));
 
     await waitFor(() => {
@@ -924,7 +1093,6 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-addon-note')).not.toBeInTheDocument();
 
-    fireEvent.click(within(screen.getByTestId('service-category-track')).getByRole('button', { name: /extensions/i }));
     fireEvent.click(screen.getByTestId('service-card-svc-2'));
 
     await waitFor(() => {
@@ -1007,7 +1175,6 @@ describe('BookServiceClient', () => {
       expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'true');
     });
 
-    fireEvent.click(within(screen.getByTestId('service-category-track')).getByRole('button', { name: /extensions/i }));
     fireEvent.click(screen.getByTestId('service-card-svc-2'));
 
     await waitFor(() => {

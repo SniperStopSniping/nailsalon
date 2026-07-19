@@ -11,7 +11,7 @@
  * Any attempt to update billingMode or *PointsOverride returns 403 Forbidden.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
@@ -26,6 +26,11 @@ import {
 import { db } from '@/libs/DB';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
+import {
+  merchandisingSettingsSchema,
+  merchandisingSettingsUpdateSchema,
+  resolveMerchandisingSettings,
+} from '@/libs/salonMerchandisingSettings';
 import { salonSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -41,6 +46,7 @@ const adminUpdateSchema = z.object({
   rewardsEnabled: z.boolean().optional(),
   bookingConfig: bookingConfigSchema.partial().optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
+  merchandising: merchandisingSettingsUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -103,6 +109,9 @@ export async function GET(request: Request): Promise<Response> {
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      merchandising: resolveMerchandisingSettings(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
       smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -195,12 +204,16 @@ export async function PATCH(request: Request): Promise<Response> {
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
+    const currentMerchandising = resolveMerchandisingSettings(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
 
     // 6. Build before/after diff for audit log (only changed fields)
     const before: Record<string, unknown> = {};
     const after: Record<string, unknown> = {};
     const dbUpdates: Record<string, unknown> = {};
     let nextSettings: SalonSettings | null = null;
+    const touchedSettingsKeys: string[] = [];
 
     const ensureNextSettings = (): SalonSettings => {
       if (nextSettings) {
@@ -232,6 +245,7 @@ export async function PATCH(request: Request): Promise<Response> {
       before.bookingConfig = currentBookingConfig;
       after.bookingConfig = mergedBookingConfig;
       ensureNextSettings().booking = mergedBookingConfig;
+      touchedSettingsKeys.push('booking');
     }
 
     if (updates.bookingNotifications) {
@@ -243,10 +257,35 @@ export async function PATCH(request: Request): Promise<Response> {
       before.bookingNotifications = currentBookingNotifications;
       after.bookingNotifications = mergedBookingNotifications;
       ensureNextSettings().notifications = mergedBookingNotifications;
+      touchedSettingsKeys.push('notifications');
+    }
+
+    let mergedMerchandising: ReturnType<typeof merchandisingSettingsSchema.parse> | null = null;
+    if (updates.merchandising) {
+      mergedMerchandising = merchandisingSettingsSchema.parse({
+        ...currentMerchandising,
+        ...updates.merchandising,
+      });
+
+      before.merchandising = currentMerchandising;
+      after.merchandising = mergedMerchandising;
+      ensureNextSettings().merchandising = mergedMerchandising;
+      touchedSettingsKeys.push('merchandising');
     }
 
     if (nextSettings) {
-      dbUpdates.settings = nextSettings;
+      // Merchandising-only updates (e.g. the fire-and-forget promo dismissal)
+      // write just their key via jsonb_set so a concurrent booking/notification
+      // save is never clobbered by this read-modify-write.
+      if (
+        mergedMerchandising
+        && touchedSettingsKeys.length === 1
+        && touchedSettingsKeys[0] === 'merchandising'
+      ) {
+        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{merchandising}', ${JSON.stringify(mergedMerchandising)}::jsonb)`;
+      } else {
+        dbUpdates.settings = nextSettings;
+      }
     }
 
     // 7. If no changes, return current state
@@ -265,6 +304,7 @@ export async function PATCH(request: Request): Promise<Response> {
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
         bookingNotifications: currentBookingNotifications,
+        merchandising: currentMerchandising,
         ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
         ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
         smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -323,6 +363,9 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      merchandising: resolveMerchandisingSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
       smsChannelAvailable: notificationCapabilities.smsChannelAvailable,

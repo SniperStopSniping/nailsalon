@@ -1,7 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
-import { type BookingConfig, DEFAULT_BOOKING_CONFIG } from '@/libs/bookingConfig';
 import { descriptionItemsToLegacyText } from '@/libs/bookingCatalog';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
+import { type BookingConfig, DEFAULT_BOOKING_CONFIG } from '@/libs/bookingConfig';
 import {
   addOnSchema,
   salonSchema,
@@ -438,6 +439,7 @@ export async function seedDefaultCatalogForSalon(args: {
         isIntroPrice: service.isIntroPrice ?? false,
         introPriceLabel: service.introPriceLabel ?? null,
         category: service.category,
+        bookingCategory: deriveBookingCategory(service.category),
         sortOrder: index + 1,
         isActive: true,
       });
@@ -593,6 +595,7 @@ export async function backfillMissingDefaultComboServicesForSalon(args: {
         isIntroPrice: service.isIntroPrice ?? false,
         introPriceLabel: service.introPriceLabel ?? null,
         category: service.category,
+        bookingCategory: deriveBookingCategory(service.category),
         sortOrder: nextSortOrder,
         isActive: true,
       })
@@ -703,6 +706,7 @@ export async function backfillMissingColourChangeForSalon(args: {
       isIntroPrice: serviceTemplate.isIntroPrice ?? false,
       introPriceLabel: serviceTemplate.introPriceLabel ?? null,
       category: serviceTemplate.category,
+      bookingCategory: deriveBookingCategory(serviceTemplate.category),
       sortOrder: nextSortOrder,
       isActive: true,
     })

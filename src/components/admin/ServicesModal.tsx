@@ -28,11 +28,15 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
+import { deriveBookingCategory } from '@/libs/bookingCategory';
+import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
 
 // Types
+type BookingCategory = 'manicure' | 'pedicure' | 'combo';
+
 type ServiceData = {
   id: string;
   name: string;
@@ -44,10 +48,22 @@ type ServiceData = {
   preparationBufferMinutes: number;
   cleanupBufferMinutes: number;
   category: string;
+  bookingCategory: BookingCategory;
+  templateKey?: string | null;
+  featuredOrder?: number | null;
   imageUrl: string | null;
   isActive: boolean;
   isIntroPrice?: boolean | null;
   introPriceLabel?: string | null;
+};
+
+type ServicePrefill = {
+  name: string;
+  description: string;
+  price: number; // cents
+  durationMinutes: number;
+  category: ServiceCategory;
+  templateKey: string;
 };
 
 type ServicesModalProps = {
@@ -254,12 +270,18 @@ function AddServiceDialog({
   isOpen,
   salonSlug,
   service,
+  prefill,
+  nextFeaturedOrder,
   onClose,
   onSaved,
 }: {
   isOpen: boolean;
   salonSlug: string | null;
   service?: ServiceData | null;
+  /** Pre-populates the create form (e.g. the Luster setup flow). */
+  prefill?: ServicePrefill | null;
+  /** Position assigned when the owner turns featuring on. */
+  nextFeaturedOrder: number;
   onClose: () => void;
   onSaved: (service: ServiceData) => void;
 }) {
@@ -271,6 +293,9 @@ function AddServiceDialog({
   const [preparationBufferMinutes, setPreparationBufferMinutes] = useState('0');
   const [cleanupBufferMinutes, setCleanupBufferMinutes] = useState('0');
   const [category, setCategory] = useState<ServiceCategory>('manicure');
+  const [bookingCategory, setBookingCategory] = useState<BookingCategory>('manicure');
+  const [bookingCategoryTouched, setBookingCategoryTouched] = useState(false);
+  const [isFeatured, setIsFeatured] = useState(false);
   const [isIntroPrice, setIsIntroPrice] = useState(false);
   const [introPriceLabel, setIntroPriceLabel] = useState('');
   const [isActive, setIsActive] = useState(true);
@@ -293,9 +318,24 @@ function AddServiceDialog({
       );
       setCleanupBufferMinutes(String(service.cleanupBufferMinutes || 0));
       setCategory(service.category as ServiceCategory);
+      setBookingCategory(
+        service.bookingCategory
+        ?? deriveBookingCategory(service.category as ServiceCategory),
+      );
+      setBookingCategoryTouched(true);
+      setIsFeatured(service.featuredOrder != null);
       setIsIntroPrice(Boolean(service.isIntroPrice));
       setIntroPriceLabel(service.introPriceLabel || '');
       setIsActive(service.isActive);
+      setError(null);
+    } else if (isOpen && prefill) {
+      setName(prefill.name);
+      setDescription(prefill.description);
+      setPrice(String(prefill.price / 100));
+      setDurationMinutes(String(prefill.durationMinutes));
+      setCategory(prefill.category);
+      setBookingCategory(deriveBookingCategory(prefill.category));
+      setBookingCategoryTouched(false);
       setError(null);
     } else if (!isOpen) {
       setName('');
@@ -306,13 +346,16 @@ function AddServiceDialog({
       setPreparationBufferMinutes('0');
       setCleanupBufferMinutes('0');
       setCategory('manicure');
+      setBookingCategory('manicure');
+      setBookingCategoryTouched(false);
+      setIsFeatured(false);
       setIsIntroPrice(false);
       setIntroPriceLabel('');
       setIsActive(true);
       setSaving(false);
       setError(null);
     }
-  }, [isOpen, service]);
+  }, [isOpen, service, prefill]);
 
   const handleSubmit = async () => {
     if (!salonSlug) {
@@ -380,6 +423,11 @@ function AddServiceDialog({
             preparationBufferMinutes: parsedPreparationBuffer,
             cleanupBufferMinutes: parsedCleanupBuffer,
             category,
+            bookingCategory,
+            featuredOrder: isFeatured
+              ? service?.featuredOrder ?? nextFeaturedOrder
+              : null,
+            ...(service ? {} : { templateKey: prefill?.templateKey ?? null }),
             isIntroPrice,
             introPriceLabel: isIntroPrice
               ? introPriceLabel.trim() || null
@@ -526,8 +574,13 @@ function AddServiceDialog({
           </span>
           <select
             value={category}
-            onChange={event =>
-              setCategory(event.target.value as ServiceCategory)}
+            onChange={(event) => {
+              const nextCategory = event.target.value as ServiceCategory;
+              setCategory(nextCategory);
+              if (!bookingCategoryTouched) {
+                setBookingCategory(deriveBookingCategory(nextCategory));
+              }
+            }}
             className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
           >
             <option value="manicure">Manicure</option>
@@ -543,6 +596,48 @@ function AddServiceDialog({
               Heads up: services in this category don’t show on your public booking page.
             </span>
           )}
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Booking page section
+          </span>
+          <select
+            data-testid="service-booking-category"
+            value={bookingCategory}
+            onChange={(event) => {
+              setBookingCategory(event.target.value as BookingCategory);
+              setBookingCategoryTouched(true);
+            }}
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+          >
+            <option value="manicure">Manicure</option>
+            <option value="pedicure">Pedicure</option>
+            <option value="combo">Combos</option>
+          </select>
+          <span className="mt-1.5 block text-xs text-[#6B7280]">
+            Which tab clients find this service under on your booking page.
+          </span>
+        </label>
+
+        <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+          <span>
+            <span className="block text-sm font-medium text-[#1C1C1E]">
+              ⭐ Feature this service
+            </span>
+            <span className="block text-xs text-[#6B7280]">
+              {isFeatured && service?.featuredOrder != null
+                ? `Featured — position ${service.featuredOrder}`
+                : 'Show it in Featured Services on your booking page.'}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            data-testid="service-featured-toggle"
+            checked={isFeatured}
+            onChange={event => setIsFeatured(event.target.checked)}
+            className="size-4"
+          />
         </label>
 
         <label className="block">
@@ -660,6 +755,67 @@ function AddServiceDialog({
         </div>
       </div>
     </DialogShell>
+  );
+}
+
+const LUSTER_PREFILL: ServicePrefill = {
+  name: 'Luster Manicure',
+  description: 'A premium structured manicure using Luster professional products.',
+  price: 4500,
+  durationMinutes: 60,
+  category: 'manicure',
+  templateKey: LUSTER_MANICURE_TEMPLATE_KEY,
+};
+
+/**
+ * Owner-only setup card shown when the salon has no active Luster Manicure.
+ * Never rendered on any client-facing surface. If a deactivated Luster service
+ * exists, the POST /api/salon/services template path revives it in place.
+ */
+function LusterPromoCard({
+  onSetUp,
+  onDismiss,
+}: {
+  onSetUp: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      data-testid="luster-promo-card"
+      className="mx-4 mb-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+            Offer the Luster Manicure
+          </div>
+          <p className="mt-1 text-[13px] leading-5 text-[#6B7280]">
+            Add a premium manicure service using your complimentary Luster
+            product sample.
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          data-testid="luster-promo-dismiss"
+          onClick={onDismiss}
+          className="shrink-0 text-[13px] font-medium text-[#8E8E93]"
+        >
+          Not now
+        </button>
+      </div>
+      <div className="mt-3">
+        <Button
+          type="button"
+          variant="brand"
+          size="pillSm"
+          data-testid="luster-promo-cta"
+          onClick={onSetUp}
+        >
+          Set Up Service
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -811,6 +967,8 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [editingService, setEditingService] = useState<ServiceData | null>(
     null,
   );
+  const [addDialogPrefill, setAddDialogPrefill] = useState<ServicePrefill | null>(null);
+  const [lusterPromoDismissed, setLusterPromoDismissed] = useState<boolean | null>(null);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -849,6 +1007,9 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           preparationBufferMinutes?: number;
           cleanupBufferMinutes?: number;
           category: string;
+          bookingCategory?: BookingCategory | null;
+          templateKey?: string | null;
+          featuredOrder?: number | null;
           imageUrl: string | null;
           isActive: boolean;
           isIntroPrice?: boolean | null;
@@ -864,6 +1025,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           preparationBufferMinutes: service.preparationBufferMinutes ?? 0,
           cleanupBufferMinutes: service.cleanupBufferMinutes ?? 0,
           category: service.category,
+          bookingCategory: service.bookingCategory
+            ?? deriveBookingCategory(service.category as ServiceCategory),
+          templateKey: service.templateKey ?? null,
+          featuredOrder: service.featuredOrder ?? null,
           imageUrl: service.imageUrl,
           isActive: service.isActive,
           isIntroPrice: service.isIntroPrice ?? false,
@@ -883,6 +1048,67 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   useEffect(() => {
     fetchServices();
   }, [fetchServices]);
+
+  // Load the promo-card dismissal state; stay hidden until it's known.
+  useEffect(() => {
+    if (!salonSlug) {
+      return;
+    }
+    let cancelled = false;
+    const loadMerchandising = async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
+        );
+        if (!response.ok) {
+          return;
+        }
+        const result = await response.json();
+        if (!cancelled) {
+          setLusterPromoDismissed(
+            Boolean(result?.merchandising?.lusterPromoDismissed),
+          );
+        }
+      } catch {
+        // Promo card simply stays hidden if settings can't be loaded.
+      }
+    };
+    void loadMerchandising();
+    return () => {
+      cancelled = true;
+    };
+  }, [salonSlug]);
+
+  const dismissLusterPromo = useCallback(async () => {
+    setLusterPromoDismissed(true);
+    if (!salonSlug) {
+      return;
+    }
+    try {
+      await fetch(
+        `/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchandising: { lusterPromoDismissed: true } }),
+        },
+      );
+    } catch {
+      // Dismissal is best-effort; the card is already hidden locally.
+    }
+  }, [salonSlug]);
+
+  const lusterService = services.find(
+    service => service.templateKey === LUSTER_MANICURE_TEMPLATE_KEY,
+  ) ?? null;
+  const showLusterPromo = !loading
+    && !error
+    && lusterPromoDismissed === false
+    && (!lusterService || !lusterService.isActive);
+  const nextFeaturedOrder = services.reduce(
+    (max, service) => Math.max(max, service.featuredOrder ?? 0),
+    0,
+  ) + 1;
 
   // Filter services by category
   const filteredServices
@@ -925,6 +1151,15 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pb-10">
+        {showLusterPromo && (
+          <LusterPromoCard
+            onSetUp={() => {
+              setAddDialogPrefill(LUSTER_PREFILL);
+              setShowAddDialog(true);
+            }}
+            onDismiss={() => void dismissLusterPromo()}
+          />
+        )}
         {loading
           ? (
               <div className="p-4">
@@ -990,13 +1225,17 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         isOpen={showAddDialog || Boolean(editingService)}
         salonSlug={salonSlug}
         service={editingService}
+        prefill={addDialogPrefill}
+        nextFeaturedOrder={nextFeaturedOrder}
         onClose={() => {
           setShowAddDialog(false);
           setEditingService(null);
+          setAddDialogPrefill(null);
         }}
         onSaved={(savedService) => {
           setShowAddDialog(false);
           setEditingService(null);
+          setAddDialogPrefill(null);
           setSelectedService(savedService);
           setActiveCategory(savedService.category);
           void fetchServices();
