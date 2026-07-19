@@ -48,6 +48,20 @@ vi.mock('./WalkInModal', () => ({
   WalkInModal: () => null,
 }));
 
+vi.mock('./IntegrationsModal', () => ({
+  IntegrationsModal: ({
+    salonSlug,
+    initialView,
+    initialNotice,
+  }: {
+    salonSlug?: string | null;
+    initialView?: string;
+    initialNotice?: string | null;
+  }) => (
+    <p>{`integrations:${salonSlug}:${initialView}:${initialNotice ?? 'none'}`}</p>
+  ),
+}));
+
 describe('AdminModalHost', () => {
   it('forwards the active salon with a Today appointment into Bookings', () => {
     render(
@@ -144,5 +158,54 @@ describe('AdminModalHost', () => {
       'promo_6w',
       'client_bob',
     );
+  });
+
+  it('routes the integrations app to the IntegrationsModal with its deep-linked view', () => {
+    render(
+      <AdminModalHost
+        activeModal="integrations"
+        activeSalonSlug="isla-nail-studio"
+        isFreeSolo
+        onCloseModal={vi.fn()}
+        integrationsInitialView="google"
+        integrationsNotice="Google Calendar connected. Choose which calendars Luster should use."
+        showNotifications={false}
+        setShowNotifications={vi.fn()}
+        showFraudSignals={false}
+        setShowFraudSignals={vi.fn()}
+        showScheduleCalendar={false}
+        setShowScheduleCalendar={vi.fn()}
+        showWalkIn={false}
+        setShowWalkIn={vi.fn()}
+        userName="Daniela"
+        userInitial="D"
+        analyticsProps={{
+          revenue: 0,
+          revenueTrend: 0,
+          staffData: [],
+          utilization: [],
+          services: [],
+          timePeriod: 'Daily',
+          onTimePeriodChange: vi.fn(),
+          anchorDate: '2026-07-17',
+          onPrev: vi.fn(),
+          onNext: vi.fn(),
+          onToday: vi.fn(),
+          onAnchorChange: vi.fn(),
+        }}
+        fraudSignals={[]}
+        fraudSignalsTotalCount={0}
+        fraudSignalsLoading={false}
+        fraudSignalsError={null}
+        fetchFraudSignals={vi.fn()}
+        onFraudSignalResolved={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        'integrations:isla-nail-studio:google:Google Calendar connected. Choose which calendars Luster should use.',
+      ),
+    ).toBeInTheDocument();
   });
 });

@@ -28,9 +28,10 @@ export async function GET(request: Request) {
       target: salonTwilioConnectionSchema.salonId,
       set: { connectAccountSid: accountSid, status: 'pending', deauthorizedAt: null, lastError: null, updatedAt: new Date() },
     });
-    return Response.redirect(new URL(`/en/admin/luster?salon=${encodeURIComponent(state.salonSlug)}&twilio=authorized`, request.url));
+    // Land on the Integrations app (Text messaging view) to finish number setup.
+    return Response.redirect(new URL(`/en/admin?salon=${encodeURIComponent(state.salonSlug)}&app=integrations&twilio=authorized`, request.url));
   } catch (error) {
     console.error('[Twilio Connect callback]', error);
-    return Response.redirect(new URL('/en/admin/luster?twilio=error', request.url));
+    return Response.redirect(new URL('/en/admin?app=integrations&twilio=error', request.url));
   }
 }

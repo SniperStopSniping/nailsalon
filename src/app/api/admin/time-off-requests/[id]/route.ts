@@ -11,6 +11,7 @@
  */
 
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { requireActiveAdminSalon } from '@/libs/adminAuth';
@@ -23,6 +24,7 @@ import {
   adminUserSchema,
   appointmentSchema,
   technicianSchema,
+  technicianTimeOffSchema,
   timeOffRequestSchema,
 } from '@/models/Schema';
 
@@ -90,6 +92,7 @@ export async function PATCH(
         technicianId: timeOffRequestSchema.technicianId,
         startDate: timeOffRequestSchema.startDate,
         endDate: timeOffRequestSchema.endDate,
+        note: timeOffRequestSchema.note,
         status: timeOffRequestSchema.status,
       })
       .from(timeOffRequestSchema)
@@ -123,17 +126,54 @@ export async function PATCH(
       );
     }
 
-    // 6. Update the request
-    const [updatedRequest] = await db
-      .update(timeOffRequestSchema)
-      .set({
-        status,
-        decidedByAdminId: admin.id,
-        decidedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(timeOffRequestSchema.id, id))
-      .returning();
+    // 6. Update the request. An APPROVED decision must also create the
+    // technician_time_off row that the availability engine reads —
+    // approving a request without it would leave the technician bookable.
+    // Both writes happen in one transaction so they can't diverge.
+    const updatedRequest = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(timeOffRequestSchema)
+        .set({
+          status,
+          decidedByAdminId: admin.id,
+          decidedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(timeOffRequestSchema.id, id))
+        .returning();
+
+      if (status === 'APPROVED') {
+        // Idempotency: skip if an identical time-off block already exists
+        // (e.g. the admin also entered it manually before approving).
+        const [existingBlock] = await tx
+          .select({ id: technicianTimeOffSchema.id })
+          .from(technicianTimeOffSchema)
+          .where(
+            and(
+              eq(technicianTimeOffSchema.technicianId, existingRequest.technicianId),
+              eq(technicianTimeOffSchema.startDate, existingRequest.startDate),
+              eq(technicianTimeOffSchema.endDate, existingRequest.endDate),
+            ),
+          )
+          .limit(1);
+
+        if (!existingBlock) {
+          await tx.insert(technicianTimeOffSchema).values({
+            id: `timeoff_${nanoid()}`,
+            technicianId: existingRequest.technicianId,
+            salonId: existingRequest.salonId,
+            startDate: existingRequest.startDate,
+            endDate: existingRequest.endDate,
+            reason: null,
+            notes: existingRequest.note
+              ? `Approved staff request: ${existingRequest.note}`
+              : 'Approved staff request',
+          });
+        }
+      }
+
+      return updated;
+    });
 
     // 7. Get technician info for logging
     const [technician] = await db
