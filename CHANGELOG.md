@@ -1,3 +1,14 @@
+# [1.13.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.12.1...v1.13.0) (2026-07-19)
+
+
+### Features
+
+* **admin:** add Integrations app to the More workspace ([43714ed](https://github.com/SniperStopSniping/nailsalon/commit/43714ed8981f65458cf2b8236094a60ba0c40d76))
+* **checkout:** dedicated completion flow with items, photos, tax, and payments ([7d214f3](https://github.com/SniperStopSniping/nailsalon/commit/7d214f3f44e28f542eeb139b28684f6203d568e8))
+* **clients:** client hub with overview, segments and reports ([f06472b](https://github.com/SniperStopSniping/nailsalon/commit/f06472b8cd41942d22aa0043010e5aec0a455fbd))
+* **marketing:** honest Marketing workspace with assisted manual messaging ([7fc2035](https://github.com/SniperStopSniping/nailsalon/commit/7fc2035c0860f51d3e294361ac5404e0257a0282))
+* **settings:** grouped Settings index with focused editing views ([efbaa39](https://github.com/SniperStopSniping/nailsalon/commit/efbaa3994baf6b4cb5cab1f567df4682d4d1c03f))
+
 ## [1.12.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.12.0...v1.12.1) (2026-07-19)
 
 
