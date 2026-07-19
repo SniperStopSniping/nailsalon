@@ -234,6 +234,19 @@ export type SalonSettings = {
     };
   };
 
+  // Smart Fit discount (P7.1). OFF by default; never inferred. Canonical zod
+  // shape + clamps live in src/libs/smartFitConfig.ts. Approved settings only —
+  // no adjacency-side toggles, no stacking, no suggestion-distance setting.
+  smartFit?: {
+    enabled?: boolean;
+    discountType?: 'percent' | 'fixed'; // percent value 0-100 | fixed cents
+    value?: number;
+    maxRemainingGapMinutes?: number; // default 10
+    minImprovementMinutes?: number; // default 20
+    eligibleServiceIds?: string[]; // empty = all
+    eligibleTechnicianIds?: string[]; // empty = all
+  };
+
   // Booking-page merchandising (featured services, owner promos).
   merchandising?: {
     featureLusterManicure?: boolean; // default: true
