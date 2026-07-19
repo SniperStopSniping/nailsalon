@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.16.0...v1.17.0) (2026-07-19)
+
+
+### Features
+
+* **smart-fit:** owner settings UI, safe persistence, and permission enforcement (P7.4) ([f86192f](https://github.com/SniperStopSniping/nailsalon/commit/f86192faf6f23ac1b02e5c664a7f453999430e7d))
+
 # [1.16.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.15.0...v1.16.0) (2026-07-19)
 
 
