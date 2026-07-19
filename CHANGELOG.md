@@ -1,3 +1,15 @@
+# [1.12.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.11.0...v1.12.0) (2026-07-19)
+
+
+### Bug Fixes
+
+* **lint:** sort imports in salon services route ([6721148](https://github.com/SniperStopSniping/nailsalon/commit/672114863e7d62318a96a39ac9afb4baebb960d7))
+
+
+### Features
+
+* **services:** service library, starter menu, and template-driven onboarding ([d1fd382](https://github.com/SniperStopSniping/nailsalon/commit/d1fd38263cf2519d0ae180c032d0c86f7a484764))
+
 # [1.11.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.10.4...v1.11.0) (2026-07-19)
 
 
