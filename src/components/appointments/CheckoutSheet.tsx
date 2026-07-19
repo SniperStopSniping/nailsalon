@@ -43,6 +43,8 @@ type CheckoutContext = {
     endTime: string;
     totalDurationMinutes: number;
     totalPrice: number;
+    discountAmountCents: number | null;
+    discountLabel: string | null;
     startedAt: string | null;
     completedAt: string | null;
     actualStartAt: string | null;
@@ -112,6 +114,20 @@ type CheckoutSheetProps = {
   onRebook?: () => void;
   onViewClient?: () => void;
 };
+
+// Preset options of the discount-reason <select>. A seeded booking-discount
+// label (or a reopened custom reason) that isn't one of these is rendered as
+// its own option so the select displays it instead of appearing blank.
+const DISCOUNT_REASON_PRESETS = [
+  '',
+  'Added service',
+  'Added nail art',
+  'Repair',
+  'Discount',
+  'Price correction',
+  'Complimentary item',
+  'Custom',
+];
 
 const PAYMENT_METHOD_OPTIONS = [
   ['cash', 'Cash'],
@@ -214,8 +230,19 @@ export function CheckoutSheet({
             ? data.taxConfig.taxAddOnsByDefault
             : data.taxConfig.taxCustomByDefault,
     })));
-    setDiscountInput(data.appointment.finalDiscountCents ? centsToInput(data.appointment.finalDiscountCents) : '');
-    setDiscountReason(data.appointment.finalDiscountReason ?? '');
+    if (data.appointment.finalDiscountCents != null) {
+      // A prior itemized checkout already recorded a discount decision
+      // (including an explicit 0) — honor it verbatim on reopen.
+      setDiscountInput(data.appointment.finalDiscountCents ? centsToInput(data.appointment.finalDiscountCents) : '');
+      setDiscountReason(data.appointment.finalDiscountReason ?? '');
+    } else {
+      // First itemized checkout: carry the booking-time discount
+      // (first-visit / reward / campaign snapshot) into the sheet so it is
+      // never silently dropped from the recomputed totals.
+      const bookedDiscountCents = data.appointment.discountAmountCents ?? 0;
+      setDiscountInput(bookedDiscountCents > 0 ? centsToInput(bookedDiscountCents) : '');
+      setDiscountReason(bookedDiscountCents > 0 ? (data.appointment.discountLabel ?? 'Booked discount') : '');
+    }
     setTipInput(data.appointment.tipCents ? centsToInput(data.appointment.tipCents) : '');
     setTaxExempt(data.appointment.taxExempt ?? false);
     setTaxExemptReason(data.appointment.taxExemptReason ?? '');
@@ -1084,6 +1111,9 @@ export function CheckoutSheet({
                       onChange={event => setDiscountReason(event.target.value)}
                       className={inputClass}
                     >
+                      {discountReason !== '' && !DISCOUNT_REASON_PRESETS.includes(discountReason) && (
+                        <option value={discountReason}>{discountReason}</option>
+                      )}
                       <option value="">No reason</option>
                       <option value="Added service">Added service</option>
                       <option value="Added nail art">Added nail art</option>

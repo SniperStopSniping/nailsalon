@@ -34,6 +34,8 @@ function buildContext(overrides: Record<string, unknown> = {}) {
       endTime: '2026-07-18T15:00:00.000Z',
       totalDurationMinutes: 60,
       totalPrice: 4500,
+      discountAmountCents: null,
+      discountLabel: null,
       startedAt: '2026-07-18T14:05:00.000Z',
       completedAt: null,
       actualStartAt: null,
@@ -319,6 +321,175 @@ describe('CheckoutSheet', () => {
     fireEvent.click(screen.getByTestId('checkout-success-view-receipt'));
 
     expect(await screen.findByTestId('checkout-receipt')).toBeInTheDocument();
+  });
+
+  it('seeds a booked first-visit discount into the sheet when checkout opens', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        totalPrice: 3375,
+        discountAmountCents: 1125,
+        discountLabel: 'First visit discount',
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('11.25');
+    expect(screen.getByTestId('checkout-discount-reason')).toHaveValue('First visit discount');
+    // 4500 − 1125 = 3375 taxable → 13% = 438.75 → 439 (half-up) → 3814 due
+    expect(screen.getByTestId('checkout-tax-amount')).toHaveTextContent('$4.39');
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$38.14');
+  });
+
+  it('seeds a booked reward discount and keeps it while items are edited', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        totalPrice: 4000,
+        discountAmountCents: 500,
+        discountLabel: 'Reward applied',
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('5');
+    // 4500 − 500 = 4000 taxable → 520 tax → 4520 due
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$45.20');
+
+    // Add-on/custom edit: the seeded discount must survive.
+    fireEvent.click(screen.getByTestId('checkout-add-custom'));
+    fireEvent.change(screen.getByTestId('checkout-custom-name'), { target: { value: 'Nail repair' } });
+    fireEvent.change(screen.getByLabelText('Price for Nail repair'), { target: { value: '10' } });
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('5');
+    // 5500 − 500 = 5000 taxable → 650 tax → 5650 due
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$56.50');
+
+    // Service price edit: still present, still applied exactly once.
+    fireEvent.change(screen.getByLabelText('Price for BIAB Short'), { target: { value: '50' } });
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('5');
+    // 5000 + 1000 − 500 = 5500 taxable → 715 tax → 6215 due
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$62.15');
+  });
+
+  it('seeds a booked campaign discount and sends it exactly once on completion', async () => {
+    const context = buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        totalPrice: 4050,
+        discountAmountCents: 450,
+        discountLabel: 'We miss you — 10% off',
+      },
+      photos: [{ id: 'p1', imageUrl: 'https://img/1.jpg', thumbnailUrl: null, photoType: 'after' }],
+    });
+    await renderSheet(context);
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('4.50');
+    expect(screen.getByTestId('checkout-discount-reason')).toHaveValue('We miss you — 10% off');
+
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    fireEvent.click(await screen.findByTestId('checkout-complete-button'));
+    await screen.findByTestId('checkout-success');
+
+    const completeCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).includes('/complete') && (init as RequestInit)?.method === 'PATCH');
+
+    expect(completeCall).toBeDefined();
+
+    const body = JSON.parse((completeCall![1] as RequestInit).body as string);
+
+    // The booked discount flows through as the single checkout discount.
+    expect(body.discountCents).toBe(450);
+    expect(body.discountReason).toBe('We miss you — 10% off');
+    // 4500 − 450 = 4050 taxable → 526.5 → 527 (half-up) → 4577 due
+    expect(body.expectedTotalDueCents).toBe(4577);
+  });
+
+  it('a seeded discount larger than the edited subtotal clamps to zero, never negative', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        totalPrice: 0,
+        discountAmountCents: 5000,
+        discountLabel: 'Reward applied',
+      },
+    }));
+
+    fireEvent.click(screen.getByLabelText('Remove BIAB Short'));
+
+    // Subtotal 0, discount clamped to 0 → no negative taxable base, no tax.
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$0.00');
+  });
+
+  it('a prior itemized checkout wins over the booked discount on reopen (including explicit zero)', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        discountAmountCents: 1125,
+        discountLabel: 'First visit discount',
+        finalDiscountCents: 200,
+        finalDiscountReason: 'Price correction',
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('2');
+    expect(screen.getByTestId('checkout-discount-reason')).toHaveValue('Price correction');
+  });
+
+  it('an explicit zero discount from a prior checkout is not resurrected by the booked discount', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        discountAmountCents: 1125,
+        discountLabel: 'First visit discount',
+        finalDiscountCents: 0,
+        finalDiscountReason: null,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('');
+    // 4500 taxable, no discount → 585 tax → 5085 due (undiscounted)
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$50.85');
+  });
+
+  it('an appointment without a booked discount opens with an empty discount, unchanged', async () => {
+    await renderSheet();
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('');
+    expect(screen.getByTestId('checkout-discount-reason')).toHaveValue('');
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$50.85');
+  });
+
+  it('the receipt shows the finalized discount with its honest label', async () => {
+    mockCheckoutFetch(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'paid',
+        finalPriceCents: 3375,
+        finalSubtotalCents: 4500,
+        finalDiscountCents: 1125,
+        finalDiscountReason: 'First visit discount',
+        taxEnabledSnapshot: true,
+        taxNameSnapshot: 'HST',
+        taxRateBps: 1300,
+        taxInclusive: false,
+        taxAmountCents: 439,
+      },
+      balance: { totalDueCents: 3814, amountPaidCents: 3814, balanceCents: 0 },
+    }));
+    render(
+      <CheckoutSheet
+        isOpen
+        appointmentId="appt_1"
+        initialView="receipt"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const receipt = await screen.findByTestId('checkout-receipt');
+
+    expect(receipt).toHaveTextContent('Discount (First visit discount)');
+    expect(receipt).toHaveTextContent('$11.25');
   });
 
   it('opens straight onto the receipt for completed appointments', async () => {
