@@ -6,11 +6,14 @@ import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
 import { getIdempotencyKey, getPresignKey, TTL } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { verifyUploadExists } from '@/core/storage/storageClient';
+import { logAppointmentChange } from '@/libs/appointmentAudit';
 import { db } from '@/libs/DB';
+import { normalizePhone } from '@/libs/phone';
 import { getSalonById } from '@/libs/queries';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
+  appointmentPhotoSchema,
   appointmentSchema,
   autopostQueueSchema,
   salonPoliciesSchema,
@@ -221,6 +224,45 @@ export async function POST(
         .insert(appointmentArtifactsSchema)
         .values(insertData)
         .returning();
+    }
+
+    // 10b. Dual-write appointment_photo — the single photo truth. Every
+    // display surface AND the completion after-photo gate read this table, so
+    // a presign-uploaded photo must land here too (the artifacts row above
+    // only feeds the canvas state machine). Idempotent on objectKey.
+    const existingPhoto = await db
+      .select({ id: appointmentPhotoSchema.id })
+      .from(appointmentPhotoSchema)
+      .where(
+        and(
+          eq(appointmentPhotoSchema.appointmentId, appointmentId),
+          eq(appointmentPhotoSchema.cloudinaryPublicId, objectKey),
+        ),
+      )
+      .limit(1);
+
+    if (existingPhoto.length === 0) {
+      await db.insert(appointmentPhotoSchema).values({
+        id: `photo_${nanoid()}`,
+        appointmentId,
+        salonId: appointment.salonId,
+        normalizedClientPhone: normalizePhone(appointment.clientPhone) ?? appointment.clientPhone,
+        photoType: kind,
+        cloudinaryPublicId: objectKey,
+        imageUrl: verifyResult.url ?? '',
+        thumbnailUrl: verifyResult.thumbnailUrl ?? null,
+        uploadedByTechId: session.technicianId,
+      });
+
+      void logAppointmentChange({
+        appointmentId,
+        salonId: appointment.salonId,
+        action: 'photo_uploaded',
+        performedBy: `staff:${session.technicianId}`,
+        performedByRole: 'staff',
+        performedByName: session.technicianName,
+        newValue: { photoType: kind },
+      });
     }
 
     // 11. Update appointment canvasStateUpdatedAt

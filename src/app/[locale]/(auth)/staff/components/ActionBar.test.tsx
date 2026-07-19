@@ -4,28 +4,107 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ActionBar } from './ActionBar';
 
+vi.mock('next/image', () => ({
+  default: (props: { alt: string }) => <img alt={props.alt} />,
+}));
+
+const CHECKOUT_CONTEXT = {
+  appointment: {
+    id: 'appt_1',
+    status: 'in_progress',
+    paymentStatus: 'pending',
+    clientName: 'Ava',
+    startTime: '2026-03-20T10:00:00.000Z',
+    endTime: '2026-03-20T11:15:00.000Z',
+    totalDurationMinutes: 75,
+    totalPrice: 6500,
+    startedAt: '2026-03-20T10:02:00.000Z',
+    completedAt: null,
+    actualStartAt: null,
+    actualEndAt: null,
+    finalPriceCents: null,
+    finalSubtotalCents: null,
+    finalDiscountCents: null,
+    finalDiscountReason: null,
+    tipCents: 0,
+    paymentMethod: null,
+    taxEnabledSnapshot: null,
+    taxNameSnapshot: null,
+    taxRateBps: null,
+    taxInclusive: null,
+    taxAmountCents: null,
+    taxableSubtotalCents: null,
+    taxExempt: null,
+    taxExemptReason: null,
+  },
+  bookedItems: [
+    {
+      kind: 'service',
+      catalogServiceId: 'service_1',
+      catalogAddOnId: null,
+      name: 'BIAB Short',
+      quantity: 1,
+      unitPriceCents: 6500,
+      durationMinutes: 75,
+    },
+  ],
+  finalItems: [],
+  catalog: { services: [], addOns: [] },
+  taxConfig: {
+    enabled: false,
+    name: null,
+    rateBps: 0,
+    pricesIncludeTax: false,
+    taxServicesByDefault: true,
+    taxAddOnsByDefault: true,
+    taxCustomByDefault: true,
+  },
+  currency: 'CAD',
+  timeZone: 'America/Toronto',
+  photoPolicy: { requireAfterPhotoToFinish: 'off' },
+  photos: [{ id: 'photo_1', imageUrl: '/after.jpg', thumbnailUrl: null, photoType: 'after' }],
+  payments: [],
+  balance: { totalDueCents: 0, amountPaidCents: 0, balanceCents: 0 },
+  etransfer: {
+    enabled: false,
+    recipient: null,
+    recipientName: null,
+    autodepositEnabled: false,
+    instructions: null,
+    requireReference: true,
+    qrPageEnabled: false,
+  },
+  paymentReference: 'LSTR-APPT01',
+  permissions: {
+    canEditItems: true,
+    canApplyDiscount: true,
+    canRecordPayment: true,
+    canTaxExempt: false,
+    canMarkComp: false,
+  },
+};
+
 describe('ActionBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('opens the completion form and uses the real completion route', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: {
-          services: [{ id: 'service_1', name: 'BIAB Short', category: 'nails', priceCents: 6500, durationMinutes: 75 }],
-          addOns: [],
-        },
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: {
-          appointment: {
-            id: 'appt_1',
-            status: 'completed',
+  it('opens the shared checkout flow and completes through the real completion route', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/checkout')) {
+        return Promise.resolve(new Response(JSON.stringify({ data: CHECKOUT_CONTEXT }), { status: 200 }));
+      }
+      if (url.includes('/complete') && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            appointment: { id: 'appt_1', status: 'completed', paymentStatus: 'paid', completedAt: new Date().toISOString() },
+            showReviewPrompt: false,
           },
-          showReviewPrompt: false,
-        },
-      }), { status: 200 }));
+        }), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
 
     vi.stubGlobal('fetch', fetchMock);
 
@@ -53,17 +132,35 @@ describe('ActionBar', () => {
 
     fireEvent.click(screen.getByTestId('staff-action-complete'));
 
-    await screen.findByRole('heading', { name: /complete appointment/i });
-    fireEvent.click(screen.getByRole('button', { name: 'Cash' }));
-    fireEvent.click(screen.getByTestId('staff-complete-submit'));
+    // The staff canvas now opens the SAME checkout sheet as every other surface.
+    await screen.findByTestId('checkout-sheet');
+    await screen.findByTestId('checkout-items-section');
+
+    expect(screen.getByText('BIAB Short')).toBeInTheDocument();
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$65.00');
+
+    fireEvent.click(screen.getByTestId('checkout-method-cash'));
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    fireEvent.click(await screen.findByTestId('checkout-complete-button'));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/complete', expect.objectContaining({
-        method: 'PATCH',
-        body: expect.stringContaining('"performedServiceIds":["service_1"]'),
-      }));
+      const completeCall = fetchMock.mock.calls.find(
+        ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH',
+      );
+
+      expect(completeCall).toBeTruthy();
+
+      const body = JSON.parse(String((completeCall![1] as RequestInit).body));
+
+      expect(body.finalItems).toEqual([
+        expect.objectContaining({ kind: 'service', catalogServiceId: 'service_1', unitPriceCents: 6500 }),
+      ]);
+      expect(body.payments).toEqual([{ amountCents: 6500, method: 'cash' }]);
     });
 
-    expect(onClose).toHaveBeenCalled();
+    // showReviewPrompt=false → the canvas closes as before.
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 });

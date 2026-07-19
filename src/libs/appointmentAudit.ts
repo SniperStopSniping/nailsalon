@@ -44,6 +44,26 @@ export type LogAppointmentChangeParams = {
   reason?: string;
 };
 
+/**
+ * Build the insert row for an audit entry. Exposed so callers that must write
+ * audit rows atomically with their change (e.g. the completion transaction)
+ * can `tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow(...))`.
+ */
+export function buildAppointmentAuditRow(params: LogAppointmentChangeParams) {
+  return {
+    id: `audit_${crypto.randomUUID()}`,
+    appointmentId: params.appointmentId,
+    salonId: params.salonId,
+    action: params.action,
+    performedBy: params.performedBy,
+    performedByRole: params.performedByRole,
+    performedByName: params.performedByName ?? null,
+    previousValue: params.previousValue ?? null,
+    newValue: params.newValue ?? null,
+    reason: params.reason ?? null,
+  };
+}
+
 // =============================================================================
 // Main Logging Function
 // =============================================================================
@@ -58,18 +78,7 @@ export async function logAppointmentChange(
   params: LogAppointmentChangeParams,
 ): Promise<void> {
   try {
-    await db.insert(appointmentAuditLogSchema).values({
-      id: `audit_${crypto.randomUUID()}`,
-      appointmentId: params.appointmentId,
-      salonId: params.salonId,
-      action: params.action,
-      performedBy: params.performedBy,
-      performedByRole: params.performedByRole,
-      performedByName: params.performedByName ?? null,
-      previousValue: params.previousValue ?? null,
-      newValue: params.newValue ?? null,
-      reason: params.reason ?? null,
-    });
+    await db.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow(params));
   } catch (error) {
     // Never throw - audit logging should not break operations
     console.error('[AUDIT LOG ERROR] Failed to log appointment change:', {

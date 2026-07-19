@@ -21,3 +21,9 @@ failOnConsole({
 
 // Set up environment variables for testing
 process.env.BILLING_PLAN_ENV = 'test';
+
+// Tests must never connect to a real database. vitest.config.mts already
+// strips DATABASE_URL from the .env files it loads; this covers values
+// inherited from the shell or a CI job's environment so the in-memory
+// PGlite database is always selected (src/libs/DB.ts).
+delete process.env.DATABASE_URL;

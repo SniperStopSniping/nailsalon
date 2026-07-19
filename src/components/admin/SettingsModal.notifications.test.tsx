@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SettingsModal } from './SettingsModal';
 
 const { fetchMock, refreshMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('next/navigation', () => ({
     push: vi.fn(),
     refresh: refreshMock,
   }),
+  useParams: () => ({ locale: 'en' }),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
@@ -41,8 +43,6 @@ vi.mock('./PageThemesSettings', () => ({
 vi.mock('./BookingFlowEditor', () => ({
   BookingFlowEditor: () => <div data-testid="booking-flow-editor" />,
 }));
-
-import { SettingsModal } from './SettingsModal';
 
 describe('SettingsModal booking notifications', () => {
   beforeEach(() => {
@@ -252,7 +252,11 @@ describe('SettingsModal booking notifications', () => {
   it('loads notification settings and saves both booking and cancellation preferences', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
+    // Settings is now an index of categories; open the Notifications view first.
+    fireEvent.click(await screen.findByText('Booking & cancellation alerts'));
+
     const ownerNewBookingToggle = await screen.findByLabelText('Notify salon owner for new booking alerts');
+
     expect(ownerNewBookingToggle).not.toBeChecked();
 
     fireEvent.click(ownerNewBookingToggle);

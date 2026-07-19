@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { canAddTechnician } from '@/libs/planLimits';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import { normalizeWeeklySchedule } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
@@ -176,7 +177,7 @@ export async function GET(request: Request): Promise<Response> {
         .select({
           technicianId: appointmentSchema.technicianId,
           count: sql<number>`count(*)`,
-          revenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+          revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         })
         .from(appointmentSchema)
         .where(
@@ -200,7 +201,7 @@ export async function GET(request: Request): Promise<Response> {
         .select({
           technicianId: appointmentSchema.technicianId,
           count: sql<number>`count(*)`,
-          revenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+          revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         })
         .from(appointmentSchema)
         .where(

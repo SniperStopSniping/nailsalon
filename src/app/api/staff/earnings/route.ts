@@ -20,6 +20,7 @@ import { and, eq, gte, lt, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import { requireStaffApiSession } from '@/libs/staffApiGuards';
 import { appointmentSchema, technicianSchema } from '@/models/Schema';
 
@@ -163,7 +164,7 @@ export async function GET(request: Request): Promise<Response> {
     const totalsResult = await db
       .select({
         count: sql<number>`count(*)`,
-        grossSales: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        grossSales: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
       })
       .from(appointmentSchema)
@@ -191,7 +192,7 @@ export async function GET(request: Request): Promise<Response> {
       .select({
         date: sql<string>`date_trunc('day', ${appointmentSchema.startTime})::date`,
         count: sql<number>`count(*)`,
-        grossSales: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        grossSales: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
       })
       .from(appointmentSchema)

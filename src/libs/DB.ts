@@ -161,6 +161,16 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
 
 let drizzle: NodePgDatabase<typeof schema> | PgliteDatabase<typeof schema>;
 
+// Safety backstop: automated tests must never touch a real database. Vitest
+// strips DATABASE_URL (vitest.config.mts + vitest-setup.ts) so tests run on
+// the in-memory PGlite below. If a connection string still reaches this
+// module under Vitest, fail loudly instead of silently connecting.
+if (process.env.VITEST && Env.DATABASE_URL) {
+  throw new Error(
+    '[DB] Refusing to connect to a real database during tests. Unset DATABASE_URL for test runs — Vitest uses the isolated in-memory PGlite database.',
+  );
+}
+
 if (Env.DATABASE_URL) {
   // Use real PostgreSQL database - data persists across restarts
   // Use Pool instead of Client for automatic connection management and reconnection

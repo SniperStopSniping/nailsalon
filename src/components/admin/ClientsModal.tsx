@@ -23,11 +23,14 @@ import {
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
+import { ClientHubPanel } from '@/components/admin/ClientHubPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
 
@@ -190,11 +193,8 @@ function formatPhone(phone: string): string {
 }
 
 function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(cents / 100);
+  // Platform currency is CAD (bookingConfig default) — was a USD hardcode.
+  return formatMoney(cents);
 }
 
 function formatDate(dateString: string | null, includeWeekday = false): string {
@@ -1329,19 +1329,12 @@ function ClientDetail({
         onSaveEdits={appointmentActions.saveEdits}
         onMoveToNextAvailable={appointmentActions.moveToNextAvailable}
         onCancelAppointment={args => appointmentActions.cancelAppointment(args as CancelArgs)}
-        onMarkCompleted={() => appointmentActions.completeAppointment()}
+        onMarkCompleted={() => appointmentActions.openCheckout()}
         onStartAppointment={appointmentActions.startAppointment}
         onConfirmAppointment={appointmentActions.confirmAppointment}
         onMarkNoShow={appointmentActions.markNoShow}
         onResendConfirmation={appointmentActions.resendConfirmation}
-        completionNeedsPhotoDecision={appointmentActions.completionNeedsPhotoDecision}
-        onResolvePhotoDecision={(skip) => {
-          if (skip) {
-            void appointmentActions.completeAppointment({ skipPhotoValidation: true });
-          } else {
-            appointmentActions.dismissPhotoDecision();
-          }
-        }}
+        onViewReceipt={appointmentActions.openReceipt}
         onRetryLoad={() => void appointmentActions.refreshDetail()}
         initialPendingAction={cancelIntent ? 'cancel' : null}
         onRebook={() => {
@@ -1349,6 +1342,27 @@ function ClientDetail({
           if (!prefill) {
             return;
           }
+          appointmentActions.closeAppointment();
+          openBookingModal(prefill);
+        }}
+      />
+
+      <CheckoutSheet
+        isOpen={appointmentActions.checkoutOpen}
+        appointmentId={appointmentActions.selectedAppointmentId}
+        salonSlug={salonSlug}
+        initialView={appointmentActions.checkoutInitialView}
+        onClose={appointmentActions.closeCheckout}
+        onCompleted={() => {
+          appointmentActions.handleCheckoutCompleted();
+          void fetchClientDetail(true);
+        }}
+        onRebook={() => {
+          const prefill = appointmentActions.buildRebookPrefill();
+          if (!prefill) {
+            return;
+          }
+          appointmentActions.closeCheckout();
           appointmentActions.closeAppointment();
           openBookingModal(prefill);
         }}
@@ -1385,6 +1399,7 @@ export function ClientsModal({
   const [hasMore, setHasMore] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(null);
+  const [showHub, setShowHub] = useState(false);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
@@ -1617,122 +1632,161 @@ export function ClientsModal({
     <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title="Clients"
-          subtitle={`${totalClients} total`}
+          title={showHub ? 'Client Hub' : 'Clients'}
+          subtitle={showHub ? 'Deeper information and reporting' : `${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
         <div className="space-y-3 px-4 pb-3">
-          <AdminSearchField
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search clients"
-            inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
-          />
-          <SortPills sortBy={sortBy} onChange={setSortBy} />
+          {/* Clients stays fast for daily work; Client Hub holds the deeper
+              reporting. Compact two-way toggle keeps mobile navigation tight. */}
+          <div className="bg-[#767680]/12 flex rounded-[10px] p-0.5" role="tablist" aria-label="Clients or Client Hub">
+            {([['clients', 'Clients'], ['hub', 'Client Hub']] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={showHub === (id === 'hub')}
+                data-testid={`clients-mode-${id}`}
+                onClick={() => setShowHub(id === 'hub')}
+                className={`min-h-9 flex-1 rounded-[8px] text-[14px] font-semibold ${showHub === (id === 'hub') ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#636366]'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {!showHub && (
+            <>
+              <AdminSearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search clients"
+                inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
+              />
+              <SortPills sortBy={sortBy} onChange={setSortBy} />
+            </>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-10">
-        {initialClientError && (
-          <AsyncStatePanel
-            tone="error"
-            title="Unable to open that client"
-            description={initialClientError}
-            className="mx-4 mt-4"
-            action={(
-              <Button
-                type="button"
-                variant="brandSoft"
-                size="pillSm"
-                onClick={() => {
-                  initialClientRequestRef.current = null;
-                  setInitialClientError(null);
-                  void fetchClients(1, true);
+      {showHub
+        ? (
+            <div className="flex-1 overflow-y-auto pt-2">
+              <ClientHubPanel
+                onOpenClient={(clientId) => {
+                  const listed = clients.find(client => client.id === clientId);
+                  setShowHub(false);
+                  if (listed) {
+                    setSelectedClient(listed);
+                  } else {
+                    setSelectedClient({ id: clientId } as ClientSummary);
+                  }
                 }}
-              >
-                Try again
-              </Button>
-            )}
-          />
-        )}
-        {loading && clients.length === 0
-          ? (
-              <div className="p-4">
-                <AsyncStatePanel
-                  loading
-                  title="Loading clients"
-                  description="Fetching the latest client list and spend history."
-                />
-              </div>
-            )
-          : error
-            ? (
+              />
+            </div>
+          )
+        : (
+            <div className="flex-1 overflow-y-auto pb-10">
+              {initialClientError && (
                 <AsyncStatePanel
                   tone="error"
-                  title="Unable to load clients"
-                  description={error}
-                  className="mx-4 my-8"
+                  title="Unable to open that client"
+                  description={initialClientError}
+                  className="mx-4 mt-4"
                   action={(
-                    <Button type="button" variant="brandSoft" size="pillSm" onClick={() => fetchClients(1, true)}>
+                    <Button
+                      type="button"
+                      variant="brandSoft"
+                      size="pillSm"
+                      onClick={() => {
+                        initialClientRequestRef.current = null;
+                        setInitialClientError(null);
+                        void fetchClients(1, true);
+                      }}
+                    >
                       Try again
                     </Button>
                   )}
                 />
-              )
-            : clients.length === 0
-              ? (
-                  <EmptyState searchQuery={searchQuery} />
-                )
-              : (
-                  <>
-                    {groupedClients
-                      ? (
-                          Array.from(groupedClients.entries()).map(([letter, letterClients]) => (
-                            <div key={letter}>
-                              <SectionHeader letter={letter} />
-                              <ListSurface className="mx-4 mb-2 rounded-[10px]">
-                                {letterClients.map((client, index) => (
-                                  <ClientRow
-                                    key={client.id}
-                                    client={client}
-                                    isLast={index === letterClients.length - 1}
-                                    onClick={() => setSelectedClient(client)}
-                                  />
-                                ))}
-                              </ListSurface>
-                            </div>
-                          ))
-                        )
-                      : (
-                          <ListSurface className="mx-4 rounded-[10px]">
-                            {clients.map((client, index) => (
-                              <ClientRow
-                                key={client.id}
-                                client={client}
-                                isLast={index === clients.length - 1}
-                                onClick={() => setSelectedClient(client)}
-                              />
-                            ))}
-                          </ListSurface>
+              )}
+              {loading && clients.length === 0
+                ? (
+                    <div className="p-4">
+                      <AsyncStatePanel
+                        loading
+                        title="Loading clients"
+                        description="Fetching the latest client list and spend history."
+                      />
+                    </div>
+                  )
+                : error
+                  ? (
+                      <AsyncStatePanel
+                        tone="error"
+                        title="Unable to load clients"
+                        description={error}
+                        className="mx-4 my-8"
+                        action={(
+                          <Button type="button" variant="brandSoft" size="pillSm" onClick={() => fetchClients(1, true)}>
+                            Try again
+                          </Button>
                         )}
+                      />
+                    )
+                  : clients.length === 0
+                    ? (
+                        <EmptyState searchQuery={searchQuery} />
+                      )
+                    : (
+                        <>
+                          {groupedClients
+                            ? (
+                                Array.from(groupedClients.entries()).map(([letter, letterClients]) => (
+                                  <div key={letter}>
+                                    <SectionHeader letter={letter} />
+                                    <ListSurface className="mx-4 mb-2 rounded-[10px]">
+                                      {letterClients.map((client, index) => (
+                                        <ClientRow
+                                          key={client.id}
+                                          client={client}
+                                          isLast={index === letterClients.length - 1}
+                                          onClick={() => setSelectedClient(client)}
+                                        />
+                                      ))}
+                                    </ListSurface>
+                                  </div>
+                                ))
+                              )
+                            : (
+                                <ListSurface className="mx-4 rounded-[10px]">
+                                  {clients.map((client, index) => (
+                                    <ClientRow
+                                      key={client.id}
+                                      client={client}
+                                      isLast={index === clients.length - 1}
+                                      onClick={() => setSelectedClient(client)}
+                                    />
+                                  ))}
+                                </ListSurface>
+                              )}
 
-                    {hasMore && (
-                      <div className="px-4 pt-3">
-                        <Button
-                          type="button"
-                          variant="brandSoft"
-                          size="pillSm"
-                          onClick={loadMore}
-                          disabled={loading}
-                          className="w-full"
-                        >
-                          {loading ? 'Loading...' : 'Load More Clients'}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-      </div>
+                          {hasMore && (
+                            <div className="px-4 pt-3">
+                              <Button
+                                type="button"
+                                variant="brandSoft"
+                                size="pillSm"
+                                onClick={loadMore}
+                                disabled={loading}
+                                className="w-full"
+                              >
+                                {loading ? 'Loading...' : 'Load More Clients'}
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+            </div>
+          )}
 
       <AnimatePresence>
         {selectedClient && (

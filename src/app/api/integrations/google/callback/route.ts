@@ -79,13 +79,15 @@ export async function GET(request: Request) {
         updatedAt: new Date(),
       },
     });
-    return Response.redirect(new URL(`/en/admin/luster?salon=${encodeURIComponent(state.salonSlug)}&google=connected`, request.url));
+    // Land on the Integrations app (Google view) so the owner can pick calendars.
+    return Response.redirect(new URL(`/en/admin?salon=${encodeURIComponent(state.salonSlug)}&app=integrations&google=connected`, request.url));
   } catch (error) {
     console.error('[Google OAuth callback]', error);
-    const returnUrl = new URL('/en/admin/luster', request.url);
+    const returnUrl = new URL('/en/admin', request.url);
     if (salonSlug) {
       returnUrl.searchParams.set('salon', salonSlug);
     }
+    returnUrl.searchParams.set('app', 'integrations');
     returnUrl.searchParams.set('google', error instanceof Error && error.message.includes('expired') ? 'expired' : 'error');
     return Response.redirect(returnUrl);
   }

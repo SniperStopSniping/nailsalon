@@ -76,10 +76,6 @@ describe('useAppointmentActions', () => {
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
     queueDetailFetch();
-    await act(async () => result.current.completeAppointment());
-
-    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
-    queueDetailFetch();
     await act(async () => result.current.confirmAppointment());
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
@@ -96,10 +92,6 @@ describe('useAppointmentActions', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/appointments/appt_1/complete?salonSlug=salon-a',
       expect.objectContaining({ method: 'POST' }),
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/appointments/appt_1/complete?salonSlug=salon-a',
-      expect.objectContaining({ method: 'PATCH' }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/appointments/appt_1?salonSlug=salon-a',
@@ -202,24 +194,41 @@ describe('useAppointmentActions', () => {
     expect(onMutationApplied).not.toHaveBeenCalled();
   });
 
-  it('turns a missing after-photo into a decision instead of an error, then retries with skipPhotoValidation', async () => {
-    const { result } = await renderOpenHook();
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { code: 'PHOTOS_REQUIRED', message: 'After photo required' } }, 400));
+  it('opens the checkout flow for Mark completed instead of finalizing immediately', async () => {
+    const onOptimisticStatus = vi.fn();
+    const { result } = await renderOpenHook({ onOptimisticStatus });
+    const fetchCallsBefore = fetchMock.mock.calls.length;
 
-    await act(async () => result.current.completeAppointment());
+    // Mark completed only opens the sheet — no network request, nothing finalized.
+    act(() => result.current.openCheckout());
 
-    expect(result.current.completionNeedsPhotoDecision).toBe(true);
-    expect(result.current.detailError).toBeNull();
+    expect(result.current.checkoutOpen).toBe(true);
+    expect(result.current.checkoutInitialView).toBe('edit');
+    expect(fetchMock.mock.calls.length).toBe(fetchCallsBefore);
+    expect(onOptimisticStatus).not.toHaveBeenCalled();
 
-    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
-    queueDetailFetch();
-    await act(async () => result.current.completeAppointment({ skipPhotoValidation: true }));
+    act(() => result.current.closeCheckout());
 
-    const completeCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH' && String(init?.body).includes('skipPhotoValidation'));
+    expect(result.current.checkoutOpen).toBe(false);
 
-    expect(completeCall).toBeTruthy();
-    expect(JSON.parse(completeCall![1].body)).toMatchObject({ paymentStatus: 'paid', skipPhotoValidation: true });
-    expect(result.current.completionNeedsPhotoDecision).toBe(false);
+    // View receipt opens the same sheet on the receipt view.
+    act(() => result.current.openReceipt());
+
+    expect(result.current.checkoutOpen).toBe(true);
+    expect(result.current.checkoutInitialView).toBe('receipt');
+  });
+
+  it('applies optimistic completion state when the checkout sheet reports success', async () => {
+    const onOptimisticStatus = vi.fn();
+    const { result } = await renderOpenHook({ onOptimisticStatus });
+
+    queueDetailFetch({ ...DETAIL, appointment: { ...DETAIL.appointment, status: 'completed' } });
+    act(() => result.current.handleCheckoutCompleted());
+
+    expect(onOptimisticStatus).toHaveBeenCalledWith('appt_1', 'completed');
+
+    await waitFor(() =>
+      expect(result.current.detail?.appointment.status).toBe('completed'));
   });
 
   it('appends the internal cancellation note to existing notes', async () => {

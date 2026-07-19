@@ -182,9 +182,9 @@ async function checkAppointmentFrequency(
 
 /**
  * Check points velocity for a client.
- * Sums totalPrice (cents) for completed+paid appointments in last 7 days,
- * EXCLUDING the current appointment to avoid double-counting.
- * Then adds pointsEarnedThisAppt.
+ * Sums the final charged price (falling back to the booked total for legacy
+ * rows) for completed+paid appointments in the last 7 days, EXCLUDING the
+ * current appointment to avoid double-counting. Then adds pointsEarnedThisAppt.
  */
 async function checkPointsVelocity(
   salonId: string,
@@ -194,10 +194,11 @@ async function checkPointsVelocity(
 ): Promise<VelocityCheckResult> {
   const cutoff7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // Sum totalPrice (cents) for other completed appointments in window
+  // Sum final (net-of-tax) revenue for other completed+paid appointments in
+  // window. The paid filter below already excludes comp rows.
   const result = await db
     .select({
-      sumCents: sql<number>`COALESCE(SUM(${appointmentSchema.totalPrice}), 0)::int`,
+      sumCents: sql<number>`COALESCE(SUM(COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice})), 0)::int`,
     })
     .from(appointmentSchema)
     .where(
@@ -296,6 +297,7 @@ async function createSignalIfNotExists(data: {
   } catch (error) {
     // Log at debug level only - conflicts are expected
     if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console -- dev-only diagnostic for expected conflicts
       console.debug('[FraudDetection] Signal insert conflict (expected):', error);
     }
   }

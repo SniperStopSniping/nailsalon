@@ -13,7 +13,7 @@
 import { useClerk } from '@clerk/nextjs';
 import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
@@ -28,6 +28,7 @@ import {
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
+import { formatMoney } from '@/libs/formatMoney';
 // =============================================================================
 // Main Page Component
 // =============================================================================
@@ -60,6 +61,7 @@ function getEmptyAnalytics(): PartialAnalytics {
     revenue: {
       total: 0,
       tips: 0,
+      taxCollected: 0,
       trend: 0,
       completed: 0,
       series: [],
@@ -119,6 +121,57 @@ function shiftAnchor(ymd: string, period: TimePeriod, dir: -1 | 1): string {
     return addMonths(ymd, dir);
   }
   return addYears(ymd, dir);
+}
+
+/**
+ * Apps that are deep-linkable via /admin?app=<id>. Opening one pushes a
+ * history entry so the browser Back button closes it again.
+ */
+const URL_APP_IDS = [
+  'bookings',
+  'settings',
+  'analytics',
+  'clients',
+  'staff',
+  'services',
+  'marketing',
+  'reviews',
+  'rewards',
+  'staff-ops',
+  'integrations',
+] as const;
+
+/** Bottom-nav destinations are hidden from the More grid but stay deep-linkable. */
+const NAV_ONLY_APP_IDS = ['schedule', 'bookings', 'clients', 'services'];
+
+function isUrlAppId(value: string | null): value is (typeof URL_APP_IDS)[number] {
+  return value !== null && (URL_APP_IDS as readonly string[]).includes(value);
+}
+
+/** One-time notice carried back from the Google/Twilio OAuth callbacks. */
+function resolveIntegrationsNotice(
+  googleParam: string | null,
+  twilioParam: string | null,
+): string | null {
+  if (googleParam === 'connected') {
+    return 'Google Calendar connected. Choose which calendars Luster should use.';
+  }
+  if (googleParam === 'not_configured') {
+    return 'Google Calendar setup is temporarily unavailable. Luster support has been notified; your bookings still work normally.';
+  }
+  if (googleParam === 'error') {
+    return 'Google could not finish connecting. Try again.';
+  }
+  if (googleParam === 'expired') {
+    return 'That Google connection link expired for your security. Start a fresh connection.';
+  }
+  if (twilioParam === 'authorized') {
+    return 'Twilio authorized. Choose a phone number to finish setup.';
+  }
+  if (twilioParam === 'error') {
+    return 'Twilio could not finish connecting. Try again.';
+  }
+  return null;
 }
 
 type AdminUser = {
@@ -910,7 +963,105 @@ function AdminDashboardContent() {
     return undefined;
   }, [authLoading, adminUser, showSalonSelector, fetchFraudSignals]);
 
-  // Handle app tile tap - all tiles now open modals
+  // Apps hidden from the More grid: bottom-nav destinations always, plus
+  // anything the salon's module entitlements do not allow.
+  const hiddenAppIds = useMemo(() => {
+    const moduleIsEnabled = (module: ModuleKey) =>
+      moduleReasons[module] === 'ENABLED';
+    const staffToolsEnabled
+      = moduleIsEnabled('scheduleOverrides') || moduleIsEnabled('staffEarnings');
+    const hidden: string[] = [...NAV_ONLY_APP_IDS];
+    if (!moduleIsEnabled('analyticsDashboard')) {
+      hidden.push('analytics');
+    }
+    // Retention settings and editable native Messages drafts are core Luster
+    // tools, including Free Luster. They do not depend on the paid Twilio SMS,
+    // referral, or rewards entitlements that previously hid this app tile.
+    if (!moduleIsEnabled('rewards')) {
+      hidden.push('rewards');
+    }
+    if (isFreeSolo) {
+      hidden.push('reviews');
+    }
+    if (isFreeSolo && !staffToolsEnabled) {
+      hidden.push('staff', 'staff-ops');
+    }
+    return hidden;
+  }, [moduleReasons, isFreeSolo]);
+
+  // Role/entitlement restrictions also apply to deep links — nav-only apps
+  // stay reachable via URL because their bottom-nav tabs are always allowed.
+  const urlBlockedAppIds = useMemo(
+    () => hiddenAppIds.filter(id => !NAV_ONLY_APP_IDS.includes(id)),
+    [hiddenAppIds],
+  );
+
+  const buildAdminUrl = useCallback(
+    (app: string | null) => {
+      const qs = new URLSearchParams();
+      if (requestedSalonSlug) {
+        qs.set('salon', requestedSalonSlug);
+      }
+      if (app) {
+        qs.set('app', app);
+      }
+      const query = qs.toString();
+      return `/${locale}/admin${query ? `?${query}` : ''}`;
+    },
+    [locale, requestedSalonSlug],
+  );
+
+  /** Open an app through the URL so it is deep-linkable and Back closes it. */
+  const openAppViaUrl = useCallback(
+    (appId: string) => {
+      router.push(buildAdminUrl(appId));
+    },
+    [router, buildAdminUrl],
+  );
+
+  // Tracks the app opened from the URL (vs. modals opened by tab/state flows)
+  const urlOpenedAppRef = useRef<string | null>(null);
+  // Tracks the last ?app value we reacted to, so state-driven modal switches
+  // (e.g. promotion settings hopping marketing→clients) are left alone.
+  const lastAppParamRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (authLoading || !adminUser || analyticsModuleStatus === 'loading') {
+      return;
+    }
+    const appParam = searchParams.get('app');
+    if (lastAppParamRef.current === appParam) {
+      return;
+    }
+    lastAppParamRef.current = appParam;
+    if (isUrlAppId(appParam) && !urlBlockedAppIds.includes(appParam)) {
+      urlOpenedAppRef.current = appParam;
+      setInitialAppointmentId(null);
+      setInitialClientId(null);
+      setInitialPromotionStage(null);
+      setPromotionSettingsReturnClientId(null);
+      setShowScheduleCalendar(false);
+      setWorkspaceTab('more');
+      setActiveModal(appParam);
+    } else if (!appParam) {
+      // URL lost its app segment (browser Back, or a close that stripped it):
+      // close the modal we opened from the URL. Capture the ref value before
+      // clearing it — the state updater runs later, during render.
+      const urlOpenedApp = urlOpenedAppRef.current;
+      if (urlOpenedApp) {
+        urlOpenedAppRef.current = null;
+        setActiveModal(current => (current === urlOpenedApp ? null : current));
+      }
+    }
+  }, [
+    searchParams,
+    authLoading,
+    adminUser,
+    analyticsModuleStatus,
+    urlBlockedAppIds,
+  ]);
+
+  // Handle app tile tap - grid apps open via URL (deep-linkable, Back closes)
   const handleAppTap = (appId: AppId) => {
     if (appId === 'luster') {
       router.push(
@@ -926,7 +1077,7 @@ function AdminDashboardContent() {
         setInitialPromotionStage(null);
         setPromotionSettingsReturnClientId(null);
       }
-      setActiveModal(appId);
+      openAppViaUrl(appId);
     }
   };
 
@@ -969,6 +1120,10 @@ function AdminDashboardContent() {
     setActiveModal(null);
     setInitialPromotionStage(null);
     setPromotionSettingsReturnClientId(null);
+    if (urlOpenedAppRef.current) {
+      urlOpenedAppRef.current = null;
+      router.replace(buildAdminUrl(null));
+    }
     setWorkspaceTab(tab);
     const resetOwnerViewport = () => {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -995,7 +1150,7 @@ function AdminDashboardContent() {
     if (tab === 'services') {
       setActiveModal('services');
     }
-  }, []);
+  }, [router, buildAdminUrl]);
 
   // Close modal
   const handleCloseModal = () => {
@@ -1004,6 +1159,12 @@ function AdminDashboardContent() {
     setInitialClientId(null);
     setInitialPromotionStage(null);
     setPromotionSettingsReturnClientId(null);
+    // If this modal was opened through the URL, strip ?app so the address bar,
+    // history, and reloads stay truthful.
+    if (urlOpenedAppRef.current) {
+      urlOpenedAppRef.current = null;
+      router.replace(buildAdminUrl(null));
+    }
   };
 
   const handleClosePromotionSettings = () => {
@@ -1073,32 +1234,6 @@ function AdminDashboardContent() {
     marketing: data.badges.marketing,
     reviews: data.badges.reviews,
   };
-  const moduleIsEnabled = (module: ModuleKey) =>
-    moduleReasons[module] === 'ENABLED';
-  const staffToolsEnabled
-    = moduleIsEnabled('scheduleOverrides') || moduleIsEnabled('staffEarnings');
-  const hiddenAppIds: string[] = [
-    'schedule',
-    'bookings',
-    'clients',
-    'services',
-  ];
-  if (!moduleIsEnabled('analyticsDashboard')) {
-    hiddenAppIds.push('analytics');
-  }
-  // Retention settings and editable native Messages drafts are core Luster
-  // tools, including Free Luster. They do not depend on the paid Twilio SMS,
-  // referral, or rewards entitlements that previously hid this app tile.
-  if (!moduleIsEnabled('rewards')) {
-    hiddenAppIds.push('rewards');
-  }
-  if (isFreeSolo) {
-    hiddenAppIds.push('reviews');
-  }
-  if (isFreeSolo && !staffToolsEnabled) {
-    hiddenAppIds.push('staff', 'staff-ops');
-  }
-
   // Staff data for analytics - use real data from API
   const avatarColors = [
     'bg-blue-100 text-blue-600',
@@ -1113,11 +1248,7 @@ function AdminDashboardContent() {
       id: index + 1,
       name: tech.name,
       role: tech.role || 'Technician',
-      revenue: new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0,
-      }).format(tech.revenue / 100),
+      revenue: formatMoney(tech.revenue),
       avatarColor: avatarColors[index % avatarColors.length]!,
     })) || [];
 
@@ -1279,10 +1410,7 @@ function AdminDashboardContent() {
                 onQuickAction={handleQuickAction}
                 onOpenBookings={() => setActiveModal('bookings')}
                 onOpenCalendar={() => setShowScheduleCalendar(true)}
-                onOpenIntegrations={() =>
-                  router.push(
-                    `/${locale}/admin/luster?salon=${encodeURIComponent(activeDashboardSalonSlug || '')}`,
-                  )}
+                onOpenIntegrations={() => openAppViaUrl('integrations')}
                 onOpenAppointment={(appointmentId) => {
                   setInitialClientId(null);
                   setInitialAppointmentId(appointmentId);
@@ -1307,6 +1435,16 @@ function AdminDashboardContent() {
       <AdminModalHost
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
+        activeSalonId={activeDashboardSalon?.id ?? null}
+        onOpenApp={openAppViaUrl}
+        activeSalonName={activeDashboardSalon?.name ?? null}
+        onOpenMarketingClient={(clientId) => {
+          setInitialAppointmentId(null);
+          setInitialClientId(clientId);
+          setInitialPromotionStage(null);
+          setPromotionSettingsReturnClientId(null);
+          setActiveModal('clients');
+        }}
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
         initialAppointmentId={initialAppointmentId}
@@ -1320,6 +1458,18 @@ function AdminDashboardContent() {
           setActiveModal('marketing');
         }}
         onClosePromotionSettings={handleClosePromotionSettings}
+        integrationsInitialView={
+          searchParams.get('google')
+            ? 'google'
+            : searchParams.get('twilio')
+              ? 'texting'
+              : 'home'
+        }
+        integrationsNotice={resolveIntegrationsNotice(
+          searchParams.get('google'),
+          searchParams.get('twilio'),
+        )}
+        onOpenSettingsFromIntegrations={() => openAppViaUrl('settings')}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
         showFraudSignals={showFraudSignals}

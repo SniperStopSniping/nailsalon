@@ -31,6 +31,11 @@ import {
   merchandisingSettingsUpdateSchema,
   resolveMerchandisingSettings,
 } from '@/libs/salonMerchandisingSettings';
+import {
+  mergePaymentsSettings,
+  readStoredPaymentsSettings,
+  salonPaymentsSettingsSchema,
+} from '@/libs/taxConfig';
 import { salonSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -47,6 +52,7 @@ const adminUpdateSchema = z.object({
   bookingConfig: bookingConfigSchema.partial().optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
   merchandising: merchandisingSettingsUpdateSchema.optional(),
+  payments: salonPaymentsSettingsSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -110,6 +116,9 @@ export async function GET(request: Request): Promise<Response> {
       bookingConfig,
       bookingNotifications,
       merchandising: resolveMerchandisingSettings(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
+      payments: readStoredPaymentsSettings(
         (salon.settings as SalonSettings | null | undefined) ?? null,
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
@@ -260,6 +269,17 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('notifications');
     }
 
+    const currentPayments = readStoredPaymentsSettings(currentSettings);
+    let mergedPayments: ReturnType<typeof mergePaymentsSettings> | null = null;
+    if (updates.payments) {
+      mergedPayments = mergePaymentsSettings(currentPayments, updates.payments);
+
+      before.payments = currentPayments;
+      after.payments = mergedPayments;
+      ensureNextSettings().payments = mergedPayments;
+      touchedSettingsKeys.push('payments');
+    }
+
     let mergedMerchandising: ReturnType<typeof merchandisingSettingsSchema.parse> | null = null;
     if (updates.merchandising) {
       mergedMerchandising = merchandisingSettingsSchema.parse({
@@ -274,15 +294,21 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     if (nextSettings) {
-      // Merchandising-only updates (e.g. the fire-and-forget promo dismissal)
-      // write just their key via jsonb_set so a concurrent booking/notification
-      // save is never clobbered by this read-modify-write.
+      // Single-key updates (merchandising promo dismissals, the Payments &
+      // taxes card) write just their key via jsonb_set so a concurrent
+      // booking/notification save is never clobbered by this read-modify-write.
       if (
         mergedMerchandising
         && touchedSettingsKeys.length === 1
         && touchedSettingsKeys[0] === 'merchandising'
       ) {
         dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{merchandising}', ${JSON.stringify(mergedMerchandising)}::jsonb)`;
+      } else if (
+        mergedPayments
+        && touchedSettingsKeys.length === 1
+        && touchedSettingsKeys[0] === 'payments'
+      ) {
+        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{payments}', ${JSON.stringify(mergedPayments)}::jsonb)`;
       } else {
         dbUpdates.settings = nextSettings;
       }
@@ -305,6 +331,7 @@ export async function PATCH(request: Request): Promise<Response> {
         bookingConfig: currentBookingConfig,
         bookingNotifications: currentBookingNotifications,
         merchandising: currentMerchandising,
+        payments: currentPayments,
         ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
         ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
         smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -364,6 +391,9 @@ export async function PATCH(request: Request): Promise<Response> {
       bookingConfig,
       bookingNotifications,
       merchandising: resolveMerchandisingSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
+      payments: readStoredPaymentsSettings(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,

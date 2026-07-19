@@ -122,6 +122,15 @@ export async function GET(
         totalPrice: appt.totalPrice,
         totalDurationMinutes: appt.totalDurationMinutes,
         notes: appt.notes,
+        // Checkout record (0058): NULL = not recorded on legacy rows.
+        finalPriceCents: appt.finalPriceCents,
+        tipCents: appt.tipCents,
+        paymentStatus: appt.paymentStatus,
+        paymentMethod: appt.paymentMethod,
+        amountPaidCents: appt.amountPaidCents,
+        taxNameSnapshot: appt.taxNameSnapshot,
+        taxRateBps: appt.taxRateBps,
+        taxAmountCents: appt.taxAmountCents,
         createdAt: appt.createdAt.toISOString(),
       })),
       referrals: referrals.map(ref => ({

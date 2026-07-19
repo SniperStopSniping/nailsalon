@@ -4,6 +4,7 @@ import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
 import { ClientsModal } from '@/components/admin/ClientsModal';
 import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSignalsModal';
+import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
@@ -55,6 +56,11 @@ type AnalyticsWidgetProps = {
 type AdminModalHostProps = {
   activeModal: AppId | null;
   activeSalonSlug: string | null;
+  activeSalonId?: string | null;
+  onOpenApp?: (appId: string) => void;
+  activeSalonName?: string | null;
+  /** Open a client profile from the Marketing follow-ups list. */
+  onOpenMarketingClient?: (clientId: string) => void;
   isFreeSolo: boolean;
   onCloseModal: () => void;
   initialAppointmentId?: string | null;
@@ -65,6 +71,9 @@ type AdminModalHostProps = {
     clientId: string,
   ) => void;
   onClosePromotionSettings?: () => void;
+  integrationsInitialView?: IntegrationsView;
+  integrationsNotice?: string | null;
+  onOpenSettingsFromIntegrations?: () => void;
   showNotifications: boolean;
   setShowNotifications: (value: boolean) => void;
   showFraudSignals: boolean;
@@ -87,6 +96,10 @@ type AdminModalHostProps = {
 export function AdminModalHost({
   activeModal,
   activeSalonSlug,
+  activeSalonId = null,
+  onOpenApp,
+  activeSalonName = null,
+  onOpenMarketingClient,
   isFreeSolo,
   onCloseModal,
   initialAppointmentId,
@@ -94,6 +107,9 @@ export function AdminModalHost({
   initialPromotionStage,
   onOpenPromotionSettings,
   onClosePromotionSettings,
+  integrationsInitialView,
+  integrationsNotice,
+  onOpenSettingsFromIntegrations,
   showNotifications,
   setShowNotifications,
   showFraudSignals,
@@ -133,9 +149,11 @@ export function AdminModalHost({
         <SettingsModal
           onClose={onCloseModal}
           salonSlug={activeSalonSlug}
+          salonId={activeSalonId}
           userName={userName}
           userInitials={userInitial}
           isFreeSolo={isFreeSolo}
+          onOpenApp={onOpenApp}
         />
       </AppModal>
 
@@ -178,6 +196,23 @@ export function AdminModalHost({
         <MarketingModal
           onClose={onClosePromotionSettings ?? onCloseModal}
           initialPromotionStage={initialPromotionStage}
+          salonName={activeSalonName ?? undefined}
+          onOpenApp={onOpenApp}
+          onOpenClient={onOpenMarketingClient}
+        />
+      </AppModal>
+
+      <AppModal
+        isOpen={activeModal === 'integrations'}
+        onClose={onCloseModal}
+        allowDragToDismiss={false}
+      >
+        <IntegrationsModal
+          onClose={onCloseModal}
+          salonSlug={activeSalonSlug}
+          initialView={integrationsInitialView}
+          initialNotice={integrationsNotice}
+          onOpenSettings={onOpenSettingsFromIntegrations}
         />
       </AppModal>
 

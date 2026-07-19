@@ -225,8 +225,8 @@ describe('AppointmentQuickEditSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('offers a complete-anyway decision when no after photo exists', () => {
-    const onResolvePhotoDecision = vi.fn();
+  it('routes Mark completed into the checkout flow without finalizing here', () => {
+    const onMarkCompleted = vi.fn();
 
     render(
       <AppointmentQuickEditSheet
@@ -239,18 +239,77 @@ describe('AppointmentQuickEditSheet', () => {
         onSaveEdits={vi.fn(async () => {})}
         onMoveToNextAvailable={vi.fn(async () => {})}
         onCancelAppointment={vi.fn(async () => {})}
-        onMarkCompleted={vi.fn(async () => {})}
+        onMarkCompleted={onMarkCompleted}
         onStartAppointment={vi.fn(async () => {})}
-        completionNeedsPhotoDecision
-        onResolvePhotoDecision={onResolvePhotoDecision}
       />,
     );
 
-    expect(screen.getByText('No after photo uploaded')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('appointment-sheet-mark-completed'));
 
-    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    expect(onMarkCompleted).toHaveBeenCalledTimes(1);
+    // The vague "complete anyway" dead-end is gone from Quick Edit — photo
+    // decisions live inside the checkout flow, next to a working uploader.
+    expect(screen.queryByText('No after photo uploaded')).not.toBeInTheDocument();
+  });
 
-    expect(onResolvePhotoDecision).toHaveBeenCalledWith(true);
+  it('always shows the photo uploader when wiring exists, even with zero photos', () => {
+    const onUploadPhoto = vi.fn();
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        photos={[]}
+        onUploadPhoto={onUploadPhoto}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    // The first photo used to be unreachable (buttons only rendered once a
+    // photo existed) — the uploader must render for an empty gallery too.
+    expect(screen.getByTestId('appointment-sheet-photos')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-upload-after'));
+
+    expect(onUploadPhoto).toHaveBeenCalledWith('after');
+  });
+
+  it('offers View receipt only for completed appointments', () => {
+    const onViewReceipt = vi.fn();
+    const completedDetail = {
+      ...baseDetail,
+      appointment: { ...baseDetail.appointment, status: 'completed' },
+      permissions: { ...baseDetail.permissions, canMarkCompleted: false },
+    };
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={completedDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onViewReceipt={onViewReceipt}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-view-receipt'));
+
+    expect(onViewReceipt).toHaveBeenCalledTimes(1);
   });
 
   it('shows the failure reason and a Try again action when detail cannot load', () => {

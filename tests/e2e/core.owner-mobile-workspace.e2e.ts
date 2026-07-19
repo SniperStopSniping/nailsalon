@@ -99,6 +99,24 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
     await expect
       .poll(() => page.evaluate(() => Math.round(window.scrollY)))
       .toBe(0);
+
+    // Integrations opens through a deep-linkable URL and browser Back closes it.
+    await expect(page.getByTestId('admin-app-tile-integrations')).toBeVisible();
+
+    await page.getByTestId('admin-app-tile-integrations').click();
+
+    await expect(page.getByTestId('integrations-modal')).toBeVisible();
+    await expect(page).toHaveURL(/app=integrations/);
+    await expect(page.getByTestId('integration-row-google')).toBeVisible();
+    await expect(page.getByTestId('integration-row-texting')).toBeVisible();
+
+    await page.goBack();
+
+    await expect(page).not.toHaveURL(/app=integrations/);
+    // The sheet animates off-screen on close; its node may briefly outlive the
+    // exit animation, so assert it left the viewport rather than the DOM.
+    await expect(page.getByTestId('integration-row-google')).not.toBeInViewport();
+    await expect(page.getByTestId('owner-more-workspace')).toBeVisible();
   } finally {
     await page.request.delete('/api/super-admin/impersonate');
   }
