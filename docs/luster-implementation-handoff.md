@@ -27,6 +27,18 @@
 
 **Standing rule:** never run `drizzle-kit generate` in this repo until the meta snapshots are rebuilt — hand-write migrations (0056–0058 precedent).
 
+## Phase 5 — Client Hub core — COMPLETE (2026-07-19, commit `6f42e62`)
+
+**Shipped:** Clients app gains a compact **Clients | Client Hub** toggle (no new nav destination, per the approved IA). Hub areas: **Overview / Follow-ups / Segments / Reports** (`ClientHubPanel.tsx` + admin-only `GET /api/admin/client-hub`).
+
+**Permissions:** route guarded by `requireAdminSalon` (salon isolation integration-tested, 403 cross-tenant); the Hub renders only inside the admin Clients modal, so staff surfaces never see it; financial figures (revenue/outstanding) only travel through this admin route.
+
+**Reporting calculations:** revenue = `revenueCentsSql()` over completed rows (net of tax, comp = 0, legacy fallback to booked total); discounts = `COALESCE(final_discount, discount_amount)`; tax collected, tips, amount paid reported separately — **tax never counted as revenue or spending**; outstanding = `final+tax+tip−amount_paid` only where a checkout recorded payments (legacy rows honestly excluded); rates = real counts over finished appointments, null → "Not enough data yet"; due/overdue reuse `buildRetentionQueue` (ONE follow-up definition with Marketing/Today); Follow-ups tab renders the same `/api/admin/marketing` groups. Segments computed only from persisted data — birthday/source segments absent (no fields).
+
+**Tests:** suite 979 → **982** (205 files): `client-hub/route.integration.test.ts` (PGlite — finalized-value metrics incl. tax/tips exclusion + outstanding math + no-show/cancellation rates, honest segments + shared-engine overdue + no fabricated segments, tenancy 403); existing ClientsModal suite (11) passes with the toggle. Typecheck/lint/build clean. Browser pass deferred alongside Phase 4's.
+
+**Deferred (rest of approved P5):** per-client Activity timeline (real audit events), profile field additions needing schema (tags beyond adminFlags, source, birthday, custom fields, products used), manual add-client route, shared phone-variant helper unification, and the profile-header quick-action rework — next session.
+
 ## Phase 4 — COMPLETE (2026-07-19, commit `7fc2035` on `feat/more-workspace-integrations`)
 
 **Shipped: Marketing + assisted manual messaging.** `MarketingModal` rebuilt from a bare "Retention" settings editor into **Home / Follow-ups / Campaigns / Results / Reviews** (schema: none; no Automations section because nothing new sends automatically).
