@@ -88,7 +88,7 @@ export function BookTechClient({
   const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
 
   // Use global booking state for technician persistence
-  const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState();
+  const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState(salonSlug);
 
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [pendingTechId, setPendingTechId] = useState<string | null>(null);

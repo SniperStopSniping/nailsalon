@@ -31,6 +31,7 @@ const {
   requireClientApiSession,
   requireStaffSession,
   sendBookingNotificationsForNewBooking,
+  GoogleCalendarAvailabilityError,
   hasGoogleCalendarConflict,
   syncGoogleCalendarEventForAppointment,
   deleteGoogleCalendarEventForAppointment,
@@ -67,6 +68,14 @@ const {
   requireClientApiSession: vi.fn(),
   requireStaffSession: vi.fn(),
   sendBookingNotificationsForNewBooking: vi.fn(),
+  GoogleCalendarAvailabilityError: class GoogleCalendarAvailabilityError extends Error {
+    reconnectRequired: boolean;
+
+    constructor(reconnectRequired = false) {
+      super('Google Calendar availability is unavailable');
+      this.reconnectRequired = reconnectRequired;
+    }
+  },
   hasGoogleCalendarConflict: vi.fn(),
   syncGoogleCalendarEventForAppointment: vi.fn(),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
@@ -154,6 +163,7 @@ vi.mock('@/libs/bookingNotifications', () => ({
 }));
 
 vi.mock('@/libs/googleCalendar', () => ({
+  GoogleCalendarAvailabilityError,
   hasGoogleCalendarConflict,
   syncGoogleCalendarEventForAppointment,
   deleteGoogleCalendarEventForAppointment,
@@ -552,6 +562,65 @@ describe('POST /api/appointments booking policy', () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('TIME_CONFLICT');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects booking writes when Google Calendar availability cannot be verified', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    hasGoogleCalendarConflict.mockRejectedValue(new GoogleCalendarAvailabilityError(false));
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('CALENDAR_UNAVAILABLE');
+    expect(body.error.message).toBe('Unable to confirm calendar availability. Please try again shortly.');
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledOnce();
+  });
+
+  it('does not suggest retrying shortly when Google Calendar must be reconnected', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    hasGoogleCalendarConflict.mockRejectedValue(new GoogleCalendarAvailabilityError(true));
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toEqual({
+      code: 'CALENDAR_UNAVAILABLE',
+      message: 'Unable to confirm this booking while the salon restores its calendar connection. Please try again later.',
+    });
     expect(db.insert).not.toHaveBeenCalled();
   });
 

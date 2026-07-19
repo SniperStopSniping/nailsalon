@@ -42,7 +42,7 @@ import {
   FIRST_VISIT_DISCOUNT_TYPE,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import { hasGoogleCalendarConflict } from '@/libs/googleCalendar';
+import { GoogleCalendarAvailabilityError, hasGoogleCalendarConflict } from '@/libs/googleCalendar';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
@@ -1489,12 +1489,16 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
     } catch (error) {
+      const reconnectRequired = error instanceof GoogleCalendarAvailabilityError
+        && error.reconnectRequired;
       console.error('[GoogleCalendar] Availability check failed before booking:', error);
       return Response.json(
         {
           error: {
             code: 'CALENDAR_UNAVAILABLE',
-            message: 'Unable to confirm calendar availability. Please try again shortly.',
+            message: reconnectRequired
+              ? 'Unable to confirm this booking while the salon restores its calendar connection. Please try again later.'
+              : 'Unable to confirm calendar availability. Please try again shortly.',
           },
         } satisfies ErrorResponse,
         { status: 503 },

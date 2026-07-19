@@ -1229,7 +1229,7 @@ export function BookConfirmClient({
   } = useClientSession();
 
   // Sync booking state from URL on mount (for consistency)
-  const { syncFromUrl } = useBookingState();
+  const { syncFromUrl } = useBookingState(salonSlug);
   useEffect(() => {
     syncFromUrl({
       techId: techId || null,

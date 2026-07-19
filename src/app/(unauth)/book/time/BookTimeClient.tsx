@@ -223,18 +223,16 @@ export function BookTimeClient({
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
 
-  // Use global booking state - this is the single source of truth
-  const { technicianId: stateTechId = null, syncFromUrl = () => {} } = useBookingState();
+  // Keep persisted booking state isolated to the active salon.
+  const { syncFromUrl = () => {} } = useBookingState(salonSlug);
+  const effectiveTechId = techId || technician?.id || 'any';
 
-  // Sync from URL params on mount (for deep links and reschedule flows)
+  // Keep the tenant-scoped state aligned with the server-validated technician.
   useEffect(() => {
-    const urlTechId = searchParams.get('techId');
-    if (urlTechId) {
-      syncFromUrl({
-        techId: urlTechId,
-        technicianSelectionSource,
-      });
-    }
+    syncFromUrl({
+      techId: effectiveTechId,
+      technicianSelectionSource,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
@@ -315,7 +313,6 @@ export function BookTimeClient({
 
   const buildAvailabilityUrl = useCallback((date: Date) => {
     const dateStr = getDateKey(date);
-    const effectiveTechId = techId || stateTechId;
     const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
     const durationParam = !baseServiceId ? `&durationMinutes=${totalDuration}` : '';
     const serviceParam = serviceIdsParam ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}` : '';
@@ -324,7 +321,7 @@ export function BookTimeClient({
     const locationParam = locationId ? `&locationId=${encodeURIComponent(locationId)}` : '';
     const rescheduleParam = originalAppointmentId ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}` : '';
     return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}`;
-  }, [baseServiceId, locationId, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, stateTechId, techId, totalDuration]);
+  }, [baseServiceId, effectiveTechId, locationId, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
@@ -659,8 +656,6 @@ export function BookTimeClient({
       return;
     }
 
-    // Use stateTechId if available, otherwise fall back to URL techId
-    const effectiveTechId = stateTechId || techId || 'any';
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
@@ -683,8 +678,6 @@ export function BookTimeClient({
   const handleBack = () => {
     const prevStep = getPrevStep('time', bookingFlow);
     if (prevStep) {
-      // Use stateTechId if available, otherwise fall back to URL techId
-      const effectiveTechId = stateTechId || techId;
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
         serviceIds: serviceIds.length > 0 ? serviceIds : undefined,

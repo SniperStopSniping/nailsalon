@@ -9,6 +9,7 @@ const {
   getTechnicianById,
   getTechniciansBySalonId,
   guardSalonApiRoute,
+  GoogleCalendarAvailabilityError,
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
   selectResults,
@@ -18,6 +19,14 @@ const {
   db,
 } = vi.hoisted(() => {
   const selectResults: Array<unknown[] | Error> = [];
+  class GoogleCalendarAvailabilityError extends Error {
+    reconnectRequired: boolean;
+
+    constructor(reconnectRequired = false) {
+      super('Google Calendar availability is unavailable');
+      this.reconnectRequired = reconnectRequired;
+    }
+  }
 
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
@@ -53,6 +62,7 @@ const {
     getTechnicianById: vi.fn(),
     getTechniciansBySalonId: vi.fn(),
     guardSalonApiRoute: vi.fn(),
+    GoogleCalendarAvailabilityError,
     getGoogleCalendarBusyWindows: vi.fn(),
     isBusyWindowConflict: vi.fn((startTime: Date, endTime: Date, busyWindows: Array<{ startTime: Date; endTime: Date }>) =>
       busyWindows.some(window => startTime < window.endTime && endTime > window.startTime),
@@ -89,6 +99,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/googleCalendar', () => ({
+  GoogleCalendarAvailabilityError,
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
 }));
@@ -246,6 +257,50 @@ describe('GET /api/appointments/availability', () => {
       tags: expect.objectContaining({ route: '/api/appointments/availability' }),
     }));
     expect(errorSpy).toHaveBeenCalledOnce();
+  });
+
+  it('returns a sanitized non-retryable 503 when Google Calendar must be reconnected', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    selectResults.push([], [], [], []);
+    getGoogleCalendarBusyWindows.mockRejectedValue(new GoogleCalendarAvailabilityError(true));
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toEqual({
+      kind: 'temporary_failure',
+      message: 'Online booking is temporarily unavailable while the salon restores its calendar connection. Please try again later.',
+      canRetry: false,
+      canReselectTechnician: false,
+    });
+    expect(captureException).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Availability API] Google Calendar unavailable',
+      expect.objectContaining({ salonSlug: 'salon-a' }),
+    );
+  });
+
+  it('returns a sanitized retryable 503 for a transient Google Calendar outage', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    selectResults.push([], [], [], []);
+    getGoogleCalendarBusyWindows.mockRejectedValue(new GoogleCalendarAvailabilityError(false));
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toEqual({
+      kind: 'temporary_failure',
+      message: 'Live calendar availability is temporarily unavailable. Please try again shortly.',
+      canRetry: true,
+      canReselectTechnician: false,
+    });
+    expect(captureException).not.toHaveBeenCalled();
   });
 
   it('excludes the original appointment from conflict checks during reschedule availability', async () => {

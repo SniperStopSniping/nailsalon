@@ -204,6 +204,74 @@ describe('BookTimePage', () => {
     );
   });
 
+  it('canonicalizes the auto-selected technician for a free-solo flow without an artist step', async () => {
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'time', 'confirm'],
+        freeSoloEnabled: true,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getPrimaryLocation.mockResolvedValue(null);
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        services: [{ id: 'svc_1', name: 'Russian Manicure', priceCents: 4500, durationMinutes: 60 }],
+        addOns: [],
+        totalPriceCents: 4500,
+        visibleDurationMinutes: 60,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 1,
+      compatibleTechnicianIds: ['tech_daniela'],
+      soleCompatibleTechnician: {
+        id: 'tech_daniela',
+        name: 'Daniela',
+        imageUrl: null,
+        specialties: [],
+        rating: 5,
+        reviewCount: 0,
+        enabledServiceIds: ['svc_1'],
+        serviceIds: ['svc_1'],
+        primaryLocationId: null,
+      },
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: 'tech_daniela',
+      effectiveTechnician: {
+        id: 'tech_daniela',
+        name: 'Daniela',
+        imageUrl: null,
+        specialties: [],
+        rating: 5,
+        reviewCount: 0,
+        enabledServiceIds: ['svc_1'],
+        serviceIds: ['svc_1'],
+        primaryLocationId: null,
+      },
+      effectiveTechnicianSelectionSource: 'auto',
+      shouldAutoSkipTech: true,
+    });
+
+    await expect(BookTimePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_1',
+      },
+    })).rejects.toThrow(
+      'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_1&techId=tech_daniela',
+    );
+
+    expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
+      allowAutoSkip: true,
+    }));
+  });
+
   it('restores the normal artist step when multiple compatible technicians exist and the client skipped it', async () => {
     getPublicPageContext.mockResolvedValue({
       appearance: null,
