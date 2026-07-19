@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { zonedTimeToUtc } from '@/libs/timeZone';
 import * as schema from '@/models/Schema';
 
@@ -148,6 +149,24 @@ async function seedNeighborAppointment(args: {
     blockedDurationMinutes: visibleMinutes + bufferMinutes,
   });
   return id;
+}
+
+async function seedManageToken(appointmentId: string, opts?: {
+  salonId?: string;
+  expiresAt?: Date;
+  revokedAt?: Date | null;
+}): Promise<string> {
+  const { token, tokenHash } = createOpaqueToken();
+  appointmentCounter += 1;
+  await db.insert(schema.appointmentAccessTokenSchema).values({
+    id: `token_sf_${appointmentCounter}`,
+    salonId: opts?.salonId ?? SALON_ID,
+    appointmentId,
+    tokenHash,
+    expiresAt: opts?.expiresAt ?? new Date(Date.now() + 7 * 86_400_000),
+    revokedAt: opts?.revokedAt ?? null,
+  });
+  return token;
 }
 
 async function queryAvailability(params: Record<string, string>): Promise<any> {
@@ -544,8 +563,11 @@ describe('availability × Smart Fit — qualifying slots are annotated', () => {
 });
 
 describe('availability × Smart Fit — reschedules and privacy', () => {
-  // Matrix 15: self-neighbor exclusion using server-derived identity.
-  it('excludes the rescheduling client\'s own appointments from adjacency', async () => {
+  // Matrix 15: self-neighbor exclusion requires PROVEN ownership — a session
+  // phone match, exactly like the booking POST's clientOwnsOriginal check.
+  // (Prompt 9: the bare-id path this test used to exercise is now covered by
+  // the "unproven" test below, which pins the fixed, safer behavior.)
+  it('excludes the rescheduling client\'s own appointments from adjacency when session-verified', async () => {
     const date = futureDate(17);
     // The client's own second appointment forms the only adjacency.
     await seedNeighborAppointment({
@@ -561,6 +583,7 @@ describe('availability × Smart Fit — reschedules and privacy', () => {
       salonClientId: 'sc_self',
       clientPhone: '4165550111',
     });
+    holder.clientSessionPhone = '4165550111';
 
     const selfBody = await queryAvailability({ date, originalAppointmentId: originalId });
 
@@ -590,6 +613,129 @@ describe('availability × Smart Fit — reschedules and privacy', () => {
     });
 
     expect(annotatedTimes(controlBody)).toContain('10:15');
+  });
+
+  // Prompt 9 fix: the P7.2 self-adjacency signal previously trusted a bare
+  // originalAppointmentId with no ownership proof at all. An unverified id
+  // must now get NO special treatment — neither self-adjacency exclusion nor
+  // slot exclusion — otherwise the endpoint is a schedule/identity oracle for
+  // someone else's appointment.
+  it('ignores originalAppointmentId entirely (no exclusion, no self-adjacency) when ownership is unproven', async () => {
+    const date = futureDate(41);
+    await seedNeighborAppointment({
+      date,
+      startTime: '9:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const originalId = await seedNeighborAppointment({
+      date,
+      startTime: '14:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+
+    // No session, no manageToken: the bare id must not be trusted. Pinned to
+    // TECH_1 (who holds both appointments) so blocking is observable.
+    const body = await queryAvailability({ date, technicianId: TECH_1, originalAppointmentId: originalId });
+
+    // Without exclusion, BOTH of the client's appointments are real
+    // neighbors just like anyone else's: 10:15 fits tight after the 9:00
+    // block, and the still-blocking 14:00 appointment mints its own tight
+    // fits at 12:45 (before) and 15:15 (after) — byte-identical to what any
+    // anonymous caller with no id at all would see.
+    expect(annotatedTimes(body)).toEqual(['10:15', '12:45', '15:15']);
+    // The appointment being "rescheduled" stays blocked — an unverified
+    // caller cannot make another client's slot appear open.
+    expect(body.bookedSlots).toContain('14:00');
+  });
+
+  // Matrix 15 via the guest manage-token path (Prompt 9 / P7.5 follow-up): a
+  // token that verifies for this exact appointment+salon proves ownership
+  // just like a session match, so guest reschedules from a manage link get
+  // the same correct, honest behavior a logged-in client already had.
+  it('excludes the rescheduling guest\'s own appointments from adjacency when a valid manage token is presented', async () => {
+    const date = futureDate(42);
+    await seedNeighborAppointment({
+      date,
+      startTime: '9:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const originalId = await seedNeighborAppointment({
+      date,
+      startTime: '14:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const manageToken = await seedManageToken(originalId);
+
+    const body = await queryAvailability({ date, technicianId: TECH_1, originalAppointmentId: originalId, manageToken });
+
+    expect(annotatedTimes(body)).toEqual([]);
+    expect(body.bookedSlots).not.toContain('14:00');
+  });
+
+  // A token that does not verify for the requested appointment (wrong id, in
+  // this case) must fall back to the unproven-id behavior, not be trusted.
+  it('ignores a manage token that does not verify for the requested appointment', async () => {
+    const date = futureDate(43);
+    await seedNeighborAppointment({
+      date,
+      startTime: '9:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const originalId = await seedNeighborAppointment({
+      date,
+      startTime: '14:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const otherAppointmentId = await seedNeighborAppointment({
+      date,
+      startTime: '15:00',
+      salonClientId: 'sc_neighbor',
+      clientPhone: '4165550999',
+    });
+    // A real, validly-signed token — but scoped to a different appointment.
+    const manageToken = await seedManageToken(otherAppointmentId);
+
+    const body = await queryAvailability({ date, technicianId: TECH_1, originalAppointmentId: originalId, manageToken });
+
+    // Unverified ⇒ both untrusted appointments block AND act as ordinary
+    // Smart Fit neighbors (10:15 after the 9:00 block, 12:45 before the
+    // 14:00 block; 15:15 is occupied by the 15:00 appointment here).
+    expect(annotatedTimes(body)).toEqual(['10:15', '12:45']);
+    expect(body.bookedSlots).toContain('14:00');
+  });
+
+  // An expired token must not be trusted either — mirrors
+  // verifyAppointmentAccessToken's own expiry check, exercised end-to-end
+  // through the availability endpoint.
+  it('ignores an expired manage token', async () => {
+    const date = futureDate(44);
+    await seedNeighborAppointment({
+      date,
+      startTime: '9:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const originalId = await seedNeighborAppointment({
+      date,
+      startTime: '14:00',
+      salonClientId: 'sc_self',
+      clientPhone: '4165550111',
+    });
+    const manageToken = await seedManageToken(originalId, {
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    const body = await queryAvailability({ date, technicianId: TECH_1, originalAppointmentId: originalId, manageToken });
+
+    // Same fully-anonymous view as the unproven-id case above.
+    expect(annotatedTimes(body)).toEqual(['10:15', '12:45', '15:15']);
+    expect(body.bookedSlots).toContain('14:00');
   });
 
   // Matrix 16: no private neighbor data in the response.

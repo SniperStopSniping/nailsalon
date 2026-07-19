@@ -34,6 +34,7 @@ type ChangeAppointmentClientProps = {
   dateStr: string;
   timeStr: string;
   originalAppointmentId?: string;
+  manageToken?: string;
 };
 
 // =============================================================================
@@ -165,6 +166,7 @@ export function ChangeAppointmentClient({
   dateStr,
   timeStr,
   originalAppointmentId,
+  manageToken,
 }: ChangeAppointmentClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -274,8 +276,11 @@ export function ChangeAppointmentClient({
       const rescheduleParam = originalAppointmentId
         ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}`
         : '';
+      const manageTokenParam = manageToken
+        ? `&manageToken=${encodeURIComponent(manageToken)}`
+        : '';
       const response = await fetch(
-        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${locationParam}${rescheduleParam}`,
+        `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${locationParam}${rescheduleParam}${manageTokenParam}`,
         { cache: 'no-store' },
       );
 
@@ -305,7 +310,7 @@ export function ChangeAppointmentClient({
         setLoadingSlots(false);
       }
     }
-  }, [locationId, originalAppointmentId, salonSlug, serviceIdsParam, techId, totalDuration]);
+  }, [locationId, manageToken, originalAppointmentId, salonSlug, serviceIdsParam, techId, totalDuration]);
 
   useEffect(() => {
     setMounted(true);
@@ -474,6 +479,7 @@ export function ChangeAppointmentClient({
       time: selectedTime,
       locationId,
       originalAppointmentId,
+      manageToken,
     }, {
       routeSalonSlug,
       locale,
@@ -485,6 +491,7 @@ export function ChangeAppointmentClient({
       salonSlug,
       locationId,
       originalAppointmentId,
+      manageToken,
     }, {
       routeSalonSlug,
       locale,

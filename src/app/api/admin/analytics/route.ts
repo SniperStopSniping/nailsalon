@@ -2,6 +2,8 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAnalyticsDateRange } from '@/libs/analyticsDateRange';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { revenueCentsSql } from '@/libs/revenueSql';
@@ -43,67 +45,8 @@ type ErrorResponse = {
 // HELPERS
 // =============================================================================
 
-/**
- * Calculate date ranges for the requested period.
- *
- * @param period - 'daily' | 'weekly' | 'monthly' | 'yearly'
- * @param anchor - Optional anchor date (YYYY-MM-DD). If provided, compute the range
- *                 containing that date. If not provided, use today.
- *
- * NOTE: This uses server's local timezone for date boundaries.
- */
-function getDateRange(period: string, anchor?: string): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
-  // Parse anchor or use today
-  const anchorDate = anchor
-    ? new Date(`${anchor}T00:00:00`)
-    : new Date();
-  const baseDay = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
-
-  let start: Date;
-  let end: Date;
-  let previousStart: Date;
-  let previousEnd: Date;
-
-  switch (period) {
-    case 'weekly': {
-      const dayOfWeek = baseDay.getDay();
-      start = new Date(baseDay);
-      start.setDate(baseDay.getDate() - dayOfWeek);
-      end = new Date(start);
-      end.setDate(start.getDate() + 7);
-      previousStart = new Date(start);
-      previousStart.setDate(previousStart.getDate() - 7);
-      previousEnd = new Date(start);
-      break;
-    }
-    case 'monthly': {
-      start = new Date(baseDay.getFullYear(), baseDay.getMonth(), 1);
-      end = new Date(baseDay.getFullYear(), baseDay.getMonth() + 1, 1);
-      previousStart = new Date(baseDay.getFullYear(), baseDay.getMonth() - 1, 1);
-      previousEnd = new Date(start);
-      break;
-    }
-    case 'yearly': {
-      start = new Date(baseDay.getFullYear(), 0, 1);
-      end = new Date(baseDay.getFullYear() + 1, 0, 1);
-      previousStart = new Date(baseDay.getFullYear() - 1, 0, 1);
-      previousEnd = new Date(start);
-      break;
-    }
-    case 'daily':
-    default: {
-      start = baseDay;
-      end = new Date(baseDay);
-      end.setDate(baseDay.getDate() + 1);
-      previousStart = new Date(baseDay);
-      previousStart.setDate(previousStart.getDate() - 1);
-      previousEnd = new Date(baseDay);
-      break;
-    }
-  }
-
-  return { start, end, previousStart, previousEnd };
-}
+// Date-range computation lives in @/libs/analyticsDateRange (salon-timezone
+// aware — Prompt 9 audit fix; route files cannot export helpers).
 
 /**
  * Bucket completed-appointment revenue into an evenly spaced series over
@@ -180,7 +123,10 @@ export async function GET(request: Request): Promise<Response> {
       return moduleGuard;
     }
 
-    const { start, end, previousStart, previousEnd } = getDateRange(period, anchor);
+    const salonTimeZone = resolveBookingConfigFromSettings(
+      (salon.settings as Parameters<typeof resolveBookingConfigFromSettings>[0]) ?? null,
+    ).timezone;
+    const { start, end, previousStart, previousEnd } = getAnalyticsDateRange(period, salonTimeZone, anchor);
 
     const [
       currentRevenueResult,

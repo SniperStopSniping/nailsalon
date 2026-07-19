@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 
+import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import type { RequestedService } from '@/libs/bookingPolicy';
@@ -103,6 +104,7 @@ export async function GET(request: Request): Promise<Response> {
   const salonSlug = searchParams.get('salonSlug');
   const technicianId = searchParams.get('technicianId');
   const originalAppointmentId = searchParams.get('originalAppointmentId');
+  const manageToken = searchParams.get('manageToken');
   const durationParam = searchParams.get('durationMinutes');
   const locationId = searchParams.get('locationId');
   const serviceIdList = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
@@ -298,6 +300,45 @@ export async function GET(request: Request): Promise<Response> {
 
     technicians = compatibleTechnicians;
 
+    // Reschedules: `originalAppointmentId` only earns the right to exclude
+    // that appointment's own blocked window (and to suppress Smart Fit
+    // self-adjacency below) once ownership is proven server-side — either a
+    // logged-in client session whose phone matches the appointment, or a
+    // manage token scoped to this exact appointment+salon. This endpoint is
+    // public and unauthenticated, so a bare, unverified id is never trusted:
+    // without proof, the appointment stays fully "in the way" like anyone
+    // else's, which keeps this endpoint from being used as a schedule oracle
+    // or identity oracle for someone else's booking.
+    //
+    // The session lookup is lazy and memoized: plain requests (no reschedule,
+    // Smart Fit dark) never touch cookies at all, preserving the original
+    // behavior and cost profile of the common path.
+    let sessionPhonePromise: Promise<string | null> | null = null;
+    const getSessionPhoneOnce = (): Promise<string | null> => {
+      sessionPhonePromise ??= getClientSession().then(session => session?.phone ?? null);
+      return sessionPhonePromise;
+    };
+    let verifiedOriginalAppointment: Awaited<ReturnType<typeof getAppointmentById>> | null = null;
+    if (originalAppointmentId) {
+      const candidateAppointment = await getAppointmentById(originalAppointmentId, salon.id);
+      if (candidateAppointment) {
+        const sessionPhone = await getSessionPhoneOnce();
+        const sessionOwnsIt = sessionPhone
+          ? normalizePhone(candidateAppointment.clientPhone) === normalizePhone(sessionPhone)
+          : false;
+        const tokenOwnsIt = !sessionOwnsIt && manageToken
+          ? Boolean(await verifyAppointmentAccessToken(manageToken, {
+            appointmentId: candidateAppointment.id,
+            salonId: salon.id,
+          }))
+          : false;
+        if (sessionOwnsIt || tokenOwnsIt) {
+          verifiedOriginalAppointment = candidateAppointment;
+        }
+      }
+    }
+    const excludedAppointmentId = verifiedOriginalAppointment?.id ?? null;
+
     const capabilityMode = baseServiceId
       ? 'service_assignments'
       : resolveTechnicianCapabilityMode(
@@ -312,7 +353,7 @@ export async function GET(request: Request): Promise<Response> {
       selectedDate,
       startOfDay,
       endOfDay,
-      excludedAppointmentId: originalAppointmentId,
+      excludedAppointmentId,
     });
     const googleBusyWindows = await getGoogleCalendarBusyWindows({
       salonId: salon.id,
@@ -340,48 +381,48 @@ export async function GET(request: Request): Promise<Response> {
     let smartFitCandidateClientKeys: string[] | undefined;
     // Reschedules: derive the client's identity server-side from their own
     // appointment so their remaining bookings cannot mint self-adjacency.
-    let smartFitOriginalAppointment: Awaited<ReturnType<typeof getAppointmentById>> | null = null;
-    if (smartFitActive && originalAppointmentId) {
-      smartFitOriginalAppointment = await getAppointmentById(originalAppointmentId, salon.id);
-      if (smartFitOriginalAppointment) {
-        const keys = buildSmartFitClientKeys({
-          salonClientId: smartFitOriginalAppointment.salonClientId,
-          clientPhone: smartFitOriginalAppointment.clientPhone,
-        });
-        smartFitCandidateClientKeys = keys.length > 0 ? keys : undefined;
-      }
+    // Only a verified reschedule (session- or token-proven above) ever
+    // contributes an identity here — an unverified id is ignored, same as
+    // everywhere else `verifiedOriginalAppointment` is used in this handler.
+    if (smartFitActive && verifiedOriginalAppointment) {
+      const keys = buildSmartFitClientKeys({
+        salonClientId: verifiedOriginalAppointment.salonClientId,
+        clientPhone: verifiedOriginalAppointment.clientPhone,
+      });
+      smartFitCandidateClientKeys = keys.length > 0 ? keys : undefined;
     }
     // Identity-aware annotation (P7.5): when the request carries a PROVEN
-    // client identity (logged-in session cookie), run the SAME automatic
-    // discount resolution the confirm step and booking POST use. A
-    // higher-priority discount (reward / first-visit / preserved first-visit)
-    // outranks Smart Fit at confirmation — applySmartFitOverlay only upgrades
-    // `kind: 'none'` — so annotating those slots would advertise savings this
-    // client can never book. Suppression changes nothing about pricing
-    // authority: the booking POST still recomputes everything in-transaction.
+    // client identity — a logged-in session cookie, or (for guest
+    // reschedules) a manage token verified against this exact appointment
+    // above — run the SAME automatic discount resolution the confirm step
+    // and booking POST use. A higher-priority discount (reward / first-visit
+    // / preserved first-visit) outranks Smart Fit at confirmation —
+    // applySmartFitOverlay only upgrades `kind: 'none'` — so annotating
+    // those slots would advertise savings this client can never book.
+    // Suppression changes nothing about pricing authority: the booking POST
+    // still recomputes everything in-transaction.
     //
-    // The bare originalAppointmentId query param is NOT identity proof — this
-    // endpoint is public, so treating it as one would let anyone probe another
-    // client's reward/first-visit state by diffing annotation presence. The
-    // reschedule appointment only contributes here when the session phone
-    // matches it (the same ownership rule the booking POST enforces);
-    // manage-token reschedules stay identity-blind at this step and rely on
-    // the honest confirm-step handling, exactly like before P7.5.
+    // The bare originalAppointmentId query param is NEVER identity proof on
+    // its own — this endpoint is public, so treating it as one would let
+    // anyone probe another client's reward/first-visit state by diffing
+    // annotation presence. Only `verifiedOriginalAppointment` (session- or
+    // token-proven) ever contributes an identity here; an unverified guest
+    // reschedule falls back to the fully anonymous annotation path (like a
+    // fresh booking), and the confirm step still recomputes everything
+    // honestly with no 409 surprise.
     if (smartFitActive) {
-      const sessionPhone = (await getClientSession())?.phone ?? null;
-      if (sessionPhone) {
-        const ownsOriginalAppointment = smartFitOriginalAppointment
-          ? normalizePhone(smartFitOriginalAppointment.clientPhone) === normalizePhone(sessionPhone)
-          : false;
+      const identityPhone = (await getSessionPhoneOnce())
+        ?? verifiedOriginalAppointment?.clientPhone
+        ?? null;
+      if (identityPhone) {
         try {
           const automaticDiscount = await resolveAutomaticBookingDiscount({
             salonId: salon.id,
             services: pricedRequestedServices,
             subtotalBeforeDiscountCents,
-            clientPhone: sessionPhone,
-            originalAppointmentId: ownsOriginalAppointment ? originalAppointmentId : null,
-            preserveFirstVisitDiscount: ownsOriginalAppointment
-              && smartFitOriginalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
+            clientPhone: identityPhone,
+            originalAppointmentId: verifiedOriginalAppointment?.id ?? null,
+            preserveFirstVisitDiscount: verifiedOriginalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
           });
           if (automaticDiscount.kind !== 'none') {
             smartFitActive = false;
@@ -449,7 +490,7 @@ export async function GET(request: Request): Promise<Response> {
           primaryLocationId: tech.primaryLocationId ?? null,
           locationBusinessHours: location?.businessHours ?? null,
           existingAppointments: [],
-          excludedAppointmentId: originalAppointmentId,
+          excludedAppointmentId,
           bufferMinutes: 0,
         });
 
@@ -488,7 +529,7 @@ export async function GET(request: Request): Promise<Response> {
           primaryLocationId: tech.primaryLocationId ?? null,
           locationBusinessHours: location?.businessHours ?? null,
           existingAppointments: bookingPolicy.appointmentsByTechnician.get(tech.id) ?? [],
-          excludedAppointmentId: originalAppointmentId,
+          excludedAppointmentId,
           bufferMinutes: 0,
         });
 
@@ -521,7 +562,7 @@ export async function GET(request: Request): Promise<Response> {
               technicianId: smartFitRequestedTechnicianId,
               locationId: location?.id ?? null,
               clientKeys: smartFitCandidateClientKeys,
-              excludeAppointmentId: originalAppointmentId,
+              excludeAppointmentId: excludedAppointmentId,
             },
             day: dayContext,
           });

@@ -1060,6 +1060,7 @@ describe('POST /api/appointments booking policy', () => {
 
     const committedAppointments: string[] = [];
     const committedCancelledAppointments: string[] = [];
+    let cancelOriginalSetPayload: Record<string, unknown> | null = null;
 
     db.transaction.mockImplementationOnce(async (callback: (tx: {
       insert: typeof db.insert;
@@ -1110,18 +1111,21 @@ describe('POST /api/appointments booking policy', () => {
         update: vi.fn()
           // Reschedules cancel the original first, then revoke its tokens.
           .mockImplementationOnce(() => ({
-            set: vi.fn(() => ({
-              where: vi.fn(() => ({
-                returning: vi.fn(async () => {
-                  staged.cancelledAppointmentId = 'appt_original';
-                  return [{
-                    id: 'appt_original',
-                    status: 'cancelled',
-                    cancelReason: 'rescheduled',
-                  }];
-                }),
-              })),
-            })),
+            set: vi.fn((payload: Record<string, unknown>) => {
+              cancelOriginalSetPayload = payload;
+              return {
+                where: vi.fn(() => ({
+                  returning: vi.fn(async () => {
+                    staged.cancelledAppointmentId = 'appt_original';
+                    return [{
+                      id: 'appt_original',
+                      status: 'cancelled',
+                      cancelReason: 'rescheduled',
+                    }];
+                  }),
+                })),
+              };
+            }),
           }))
           .mockImplementationOnce(() => ({
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
@@ -1165,6 +1169,16 @@ describe('POST /api/appointments booking policy', () => {
     expect(committedAppointments).toEqual(['appt_rescheduled']);
     expect(committedCancelledAppointments).toEqual(['appt_original']);
     expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    // The reschedule-cancel of the original must sync BOTH the legacy status
+    // and the staff-facing canvas column, or the row lingers as a 'waiting'
+    // card on the canvas board while reading 'cancelled' everywhere else.
+    expect(cancelOriginalSetPayload).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'rescheduled',
+      canvasState: 'cancelled',
+    });
+    expect((cancelOriginalSetPayload as Record<string, unknown> | null)?.canvasStateUpdatedAt)
+      .toBeInstanceOf(Date);
   });
 
   it('rolls back a reschedule when cancelling the original appointment fails', async () => {

@@ -22,6 +22,7 @@ export default async function ChangeAppointmentPage({
     date?: string;
     time?: string;
     originalAppointmentId?: string;
+    manageToken?: string;
     salonSlug?: string;
   };
   params?: { locale?: string; slug?: string };
@@ -37,6 +38,7 @@ export default async function ChangeAppointmentPage({
   const dateStr = searchParams.date || '';
   const timeStr = searchParams.time || '';
   const originalAppointmentId = searchParams.originalAppointmentId || '';
+  const manageToken = searchParams.manageToken || '';
 
   // Fetch the selected services from the database
   const dbServices = await getServicesByIds(serviceIdList, context.salon.id);
@@ -76,6 +78,7 @@ export default async function ChangeAppointmentPage({
         dateStr={dateStr}
         timeStr={timeStr}
         originalAppointmentId={originalAppointmentId}
+        manageToken={manageToken}
       />
     </PublicSalonPageShell>
   );

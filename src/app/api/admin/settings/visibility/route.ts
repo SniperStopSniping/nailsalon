@@ -149,11 +149,25 @@ export async function PUT(request: Request): Promise<Response> {
       );
     }
 
+    // Merge into the stored policy rather than replacing the whole column, so
+    // a partial update (e.g. only some `staff` toggles) never silently reverts
+    // the unspecified toggles to their defaults. Mirrors the deep-merge the
+    // salon/settings PATCH performs for its JSON keys.
+    const current = (salon.visibility as SalonVisibilityPolicy | null) ?? {};
+    const mergedVisibility: SalonVisibilityPolicy = {
+      ...current,
+      ...visibility,
+      staff: {
+        ...(current.staff ?? {}),
+        ...(visibility.staff ?? {}),
+      },
+    };
+
     // Update visibility settings
     const [updated] = await db
       .update(salonSchema)
       .set({
-        visibility: visibility as SalonVisibilityPolicy,
+        visibility: mergedVisibility,
       })
       .where(eq(salonSchema.id, salon.id))
       .returning();

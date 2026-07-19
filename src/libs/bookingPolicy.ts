@@ -1,5 +1,6 @@
 import { and, eq, gte, inArray, lt, lte, ne } from 'drizzle-orm';
 
+import { BLOCKING_APPOINTMENT_STATUSES } from '@/libs/bookingConflictGuard';
 import { db } from '@/libs/DB';
 import { normalizeScheduleDay } from '@/libs/weeklySchedule';
 import {
@@ -616,9 +617,10 @@ export async function loadBookingPolicy(args: {
     gte(appointmentSchema.startTime, startOfDay),
     lt(appointmentSchema.startTime, endOfDay),
     // in_progress still occupies the technician (e.g. long services started
-    // early); keep in sync with BLOCKING_APPOINTMENT_STATUSES in
-    // bookingConflictGuard.ts and the 0054 migration predicate.
-    inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
+    // early). Uses the single BLOCKING_APPOINTMENT_STATUSES source of truth
+    // (shared with the double-booking guard); both must stay in sync with the
+    // 0054 migration partial-index predicate, which an integration test pins.
+    inArray(appointmentSchema.status, [...BLOCKING_APPOINTMENT_STATUSES]),
   ];
 
   if (excludedAppointmentId) {

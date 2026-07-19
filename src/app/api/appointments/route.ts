@@ -1927,6 +1927,14 @@ export async function POST(request: Request): Promise<Response> {
             .set({
               status: 'cancelled',
               cancelReason: 'rescheduled',
+              // Keep the staff-facing canvas column in lockstep with the
+              // legacy status column (the two-column invariant the state
+              // machine documents). Without this the rescheduled-away row
+              // would linger as a 'waiting' card on the staff board while
+              // reading 'cancelled' everywhere else — the same sync the
+              // cancel and transition routes already perform.
+              canvasState: 'cancelled',
+              canvasStateUpdatedAt: new Date(),
               updatedAt: new Date(),
             })
             .where(

@@ -12,7 +12,10 @@ import { zonedTimeToUtc } from '@/libs/timeZone';
 import type { WeeklySchedule } from '@/models/Schema';
 
 // bookingPolicy (schedule resolution helpers) transitively imports the DB
-// module; the builder itself never touches the database.
+// module and — since it now sources BLOCKING_APPOINTMENT_STATUSES from the
+// server-only bookingConflictGuard — the server-only guard; the builder
+// itself never touches the database.
+vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: null }));
 
 const DATE = '2026-07-22'; // a Wednesday

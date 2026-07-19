@@ -8,6 +8,9 @@ const {
   getLocationById,
   getTechnicianById,
   getTechniciansBySalonId,
+  getAppointmentById,
+  getClientSession,
+  verifyAppointmentAccessToken,
   guardSalonApiRoute,
   GoogleCalendarAvailabilityError,
   getGoogleCalendarBusyWindows,
@@ -61,6 +64,9 @@ const {
     getLocationById: vi.fn(),
     getTechnicianById: vi.fn(),
     getTechniciansBySalonId: vi.fn(),
+    getAppointmentById: vi.fn(),
+    getClientSession: vi.fn(),
+    verifyAppointmentAccessToken: vi.fn(),
     guardSalonApiRoute: vi.fn(),
     GoogleCalendarAvailabilityError,
     getGoogleCalendarBusyWindows: vi.fn(),
@@ -88,6 +94,18 @@ vi.mock('@/libs/queries', () => ({
   getLocationById,
   getTechnicianById,
   getTechniciansBySalonId,
+  getAppointmentById,
+}));
+
+// Reschedule ownership proof (Prompt 9): the route only excludes the original
+// appointment when a client session or manage token verifies ownership. These
+// doubles default to "guest, no token" so each test opts into ownership.
+vi.mock('@/libs/clientAuth', () => ({
+  getClientSession,
+}));
+
+vi.mock('@/libs/appointmentAccess', () => ({
+  verifyAppointmentAccessToken,
 }));
 
 vi.mock('@/libs/salonStatus', () => ({
@@ -147,6 +165,9 @@ describe('GET /api/appointments/availability', () => {
       primaryLocationId: null,
     });
     getTechniciansBySalonId.mockResolvedValue([]);
+    getAppointmentById.mockResolvedValue(null);
+    getClientSession.mockResolvedValue(null);
+    verifyAppointmentAccessToken.mockResolvedValue(null);
     guardSalonApiRoute.mockResolvedValue(null);
     getGoogleCalendarBusyWindows.mockResolvedValue([]);
     findService.mockResolvedValue(null);
@@ -308,7 +329,24 @@ describe('GET /api/appointments/availability', () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
-  it('excludes the original appointment from conflict checks during reschedule availability', async () => {
+  // Prompt 9: exclusion now requires PROVEN ownership. A logged-in client
+  // whose session phone matches the appointment gets the original slot back.
+  it('excludes the original appointment from conflict checks when the session owns it', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    getClientSession.mockResolvedValue({
+      phone: '4165551234',
+      clientName: null,
+      clientEmail: null,
+      sessionId: 'sess_1',
+    });
     selectResults.push(
       [],
       [],
@@ -327,6 +365,87 @@ describe('GET /api/appointments/availability', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(body.visibleSlots).toContain('10:00');
+    expect(body.bookedSlots).not.toContain('10:00');
+  });
+
+  // Prompt 9: an unauthenticated caller passing a bare originalAppointmentId
+  // must NOT be able to make that appointment's window appear open — the
+  // public endpoint would otherwise be a schedule oracle for any guessed id.
+  it('keeps the original appointment blocking when ownership is unproven', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    // No session, no manage token (beforeEach defaults).
+    selectResults.push(
+      [],
+      [],
+      [],
+      [{
+        id: 'appt_1',
+        technicianId: 'tech_1',
+        startTime: new Date('2026-03-13T10:00:00'),
+        endTime: new Date('2026-03-13T11:00:00'),
+        totalDurationMinutes: 60,
+        bufferMinutes: 10,
+        blockedDurationMinutes: 70,
+      }],
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60&originalAppointmentId=appt_1'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookedSlots).toContain('10:00');
+  });
+
+  // Prompt 9: a manage token that verifies for this exact appointment proves
+  // ownership for a guest — same exclusion a logged-in owner gets.
+  it('excludes the original appointment when a valid manage token is presented', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    verifyAppointmentAccessToken.mockResolvedValue({
+      tokenId: 'token_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+    });
+    selectResults.push(
+      [],
+      [],
+      [],
+      [{
+        id: 'appt_1',
+        technicianId: 'tech_1',
+        startTime: new Date('2026-03-13T10:00:00'),
+        endTime: new Date('2026-03-13T11:00:00'),
+      }],
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60&originalAppointmentId=appt_1&manageToken=tok_abcdefghijklmnopqrstuv'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(verifyAppointmentAccessToken).toHaveBeenCalledWith('tok_abcdefghijklmnopqrstuv', {
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+    });
     expect(body.visibleSlots).toContain('10:00');
     expect(body.bookedSlots).not.toContain('10:00');
   });

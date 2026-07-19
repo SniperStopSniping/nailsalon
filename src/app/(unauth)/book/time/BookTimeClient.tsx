@@ -372,8 +372,9 @@ export function BookTimeClient({
     const addOnsParam = selectedAddOns.length > 0 ? `&selectedAddOns=${encodeURIComponent(JSON.stringify(selectedAddOns))}` : '';
     const locationParam = locationId ? `&locationId=${encodeURIComponent(locationId)}` : '';
     const rescheduleParam = originalAppointmentId ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}` : '';
-    return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}`;
-  }, [baseServiceId, effectiveTechId, locationId, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
+    const manageTokenParam = manageToken ? `&manageToken=${encodeURIComponent(manageToken)}` : '';
+    return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}${manageTokenParam}`;
+  }, [baseServiceId, effectiveTechId, locationId, manageToken, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
