@@ -354,4 +354,44 @@ describe('SmartFitSettingsCard', () => {
 
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   });
+
+  it('links out to Smart Fit results only when the host wires the callback (P7.5)', async () => {
+    mockLoad({ smartFit: {} });
+    const onViewResults = vi.fn();
+    render(<SmartFitSettingsCard salonSlug="salon-a" onViewResults={onViewResults} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('smart-fit-enabled')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('smart-fit-view-results'));
+
+    expect(onViewResults).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the results link without a callback', async () => {
+    mockLoad({ smartFit: {} });
+    await renderCard();
+
+    expect(screen.queryByTestId('smart-fit-view-results')).not.toBeInTheDocument();
+  });
+
+  it('blocks the results link while there are unsaved changes', async () => {
+    mockLoad({ smartFit: {} });
+    const onViewResults = vi.fn();
+    render(<SmartFitSettingsCard salonSlug="salon-a" onViewResults={onViewResults} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('smart-fit-enabled')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('smart-fit-enabled')); // dirty now
+
+    const link = screen.getByTestId('smart-fit-view-results') as HTMLButtonElement;
+
+    expect(link).toBeDisabled();
+    expect(screen.getByTestId('smart-fit-view-results-blocked')).toBeInTheDocument();
+
+    fireEvent.click(link);
+
+    expect(onViewResults).not.toHaveBeenCalled();
+  });
 });

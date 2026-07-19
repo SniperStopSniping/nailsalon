@@ -1437,6 +1437,7 @@ function AdminDashboardContent() {
         activeSalonSlug={activeDashboardSalonSlug}
         activeSalonId={activeDashboardSalon?.id ?? null}
         onOpenApp={openAppViaUrl}
+        analyticsAppAvailable={!hiddenAppIds.includes('analytics')}
         activeSalonName={activeDashboardSalon?.name ?? null}
         onOpenMarketingClient={(clientId) => {
           setInitialAppointmentId(null);

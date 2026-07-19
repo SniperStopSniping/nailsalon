@@ -163,6 +163,28 @@ const getSalonToday = (timeZone: string) => {
   return salonNow;
 };
 
+// Restore a previously selected calendar date from the URL (set on date
+// selection below) so returning to this step — browser back, slot-taken
+// recovery, or the stale-Smart-Fit flow — keeps the client's date instead of
+// resetting to today. Returns null (caller falls back to salon-today) for
+// absent, malformed, impossible, or past values.
+const resolveRestoredCalendarDate = (dateParam: string, timeZone: string): Date | null => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+    return null;
+  }
+  const [year = 0, month = 0, day = 0] = dateParam.split('-').map(Number);
+  const candidate = new Date(year, month - 1, day);
+  candidate.setHours(0, 0, 0, 0);
+  if (
+    candidate.getFullYear() !== year
+    || candidate.getMonth() !== month - 1
+    || candidate.getDate() !== day
+  ) {
+    return null;
+  }
+  return candidate.getTime() < getSalonToday(timeZone).getTime() ? null : candidate;
+};
+
 // Short human label for the salon timezone, e.g. "EDT" or "GMT-5".
 const getTimeZoneLabel = (timeZone: string) => {
   try {
@@ -261,11 +283,16 @@ export function BookTimeClient({
 
   // "Today" is defined by the salon's timezone, not the visitor's device.
   const today = getSalonToday(salonTimeZone);
+  const restoredCalendarDate = resolveRestoredCalendarDate(
+    searchParams.get('date') || '',
+    salonTimeZone,
+  );
+  const initialCalendarDate = restoredCalendarDate ?? today;
 
   const [mounted, setMounted] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
+  const [currentMonth, setCurrentMonth] = useState(initialCalendarDate.getMonth());
+  const [currentYear, setCurrentYear] = useState(initialCalendarDate.getFullYear());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(initialCalendarDate);
   const [visibleSlots, setVisibleSlots] = useState<AvailabilitySlot[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
@@ -289,7 +316,9 @@ export function BookTimeClient({
   const scrollTargetDateRef = useRef<string | null>(null); // Track which date the scroll is for
   const isMountedRef = useRef(true);
   const autoAdvancedTodayRef = useRef(false);
-  const allowTodayAutoAdvanceRef = useRef(true);
+  // A date restored from the URL is an explicit prior choice — never
+  // auto-advance it away, exactly like a manual calendar selection.
+  const allowTodayAutoAdvanceRef = useRef(restoredCalendarDate === null);
   const availabilityRequestIdRef = useRef(0);
 
   // Track mount/unmount for cleanup
@@ -428,6 +457,19 @@ export function BookTimeClient({
     }
   }, [buildAvailabilityUrl, campaignToken, salonSlug, totalDuration]);
 
+  // Mirror the active date into the URL (shallow — no navigation) so any
+  // return to this step restores it. Applies identically to the slot-taken
+  // and stale-Smart-Fit recovery flows, which both history-back, and to
+  // page refreshes. Every committed date change goes through this.
+  const syncSelectedDateToUrl = useCallback((dateKey: string) => {
+    const newParams = new URLSearchParams(searchParams.toString());
+    if (newParams.get('date') === dateKey) {
+      return;
+    }
+    newParams.set('date', dateKey);
+    window.history.replaceState(null, '', `?${newParams.toString()}`);
+  }, [searchParams]);
+
   const findNextAvailableDate = useCallback(async () => {
     if (!selectedDate || findingNextAvailable) {
       return;
@@ -452,6 +494,7 @@ export function BookTimeClient({
           setSelectedDate(candidate);
           setCurrentMonth(candidate.getMonth());
           setCurrentYear(candidate.getFullYear());
+          syncSelectedDateToUrl(getDateKey(candidate));
           pendingScrollRef.current = true;
           scrollRequestIdRef.current += 1;
           scrollTargetDateRef.current = getDateKey(candidate);
@@ -464,7 +507,7 @@ export function BookTimeClient({
     } finally {
       setFindingNextAvailable(false);
     }
-  }, [buildAvailabilityUrl, findingNextAvailable, selectedDate]);
+  }, [buildAvailabilityUrl, findingNextAvailable, selectedDate, syncSelectedDateToUrl]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -532,7 +575,8 @@ export function BookTimeClient({
     setSelectedDate(tomorrow);
     setCurrentMonth(tomorrow.getMonth());
     setCurrentYear(tomorrow.getFullYear());
-  }, [availabilityError, loadingSlots, mounted, salonTimeZone, selectedDate, visibleSlots]);
+    syncSelectedDateToUrl(getDateKey(tomorrow));
+  }, [availabilityError, loadingSlots, mounted, salonTimeZone, selectedDate, syncSelectedDateToUrl, visibleSlots]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -701,6 +745,7 @@ export function BookTimeClient({
 
     // Update selected date (triggers fetch → loadingSlots → useEffect scroll)
     setSelectedDate(dateAtMidnight);
+    syncSelectedDateToUrl(nextDateKey);
   };
 
   const handleTimeSelect = (slot: DisplayTimeSlot) => {

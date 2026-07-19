@@ -84,6 +84,8 @@ type AdminModalHostProps = {
   setShowWalkIn: (value: boolean) => void;
   userName: string;
   userInitial: string;
+  /** Whether the Analytics app is available to this salon (module-gated). */
+  analyticsAppAvailable?: boolean;
   analyticsProps: AnalyticsWidgetProps;
   fraudSignals: FraudSignal[];
   fraudSignalsTotalCount: number;
@@ -120,6 +122,7 @@ export function AdminModalHost({
   setShowWalkIn,
   userName,
   userInitial,
+  analyticsAppAvailable = false,
   analyticsProps,
   fraudSignals,
   fraudSignalsTotalCount,
@@ -154,6 +157,7 @@ export function AdminModalHost({
           userInitials={userInitial}
           isFreeSolo={isFreeSolo}
           onOpenApp={onOpenApp}
+          smartFitResultsAvailable={analyticsAppAvailable}
         />
       </AppModal>
 
@@ -161,7 +165,11 @@ export function AdminModalHost({
         isOpen={activeModal === 'analytics'}
         onClose={onCloseModal}
       >
-        <AnalyticsWidgets {...analyticsProps} />
+        <AnalyticsWidgets
+          {...analyticsProps}
+          salonSlug={activeSalonSlug}
+          onOpenSmartFitSettings={onOpenApp ? () => onOpenApp('settings') : undefined}
+        />
       </AppModal>
 
       <AppModal

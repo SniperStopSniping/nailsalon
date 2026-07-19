@@ -541,4 +541,156 @@ describe('BookTimeClient', () => {
       expect(sessionStorage.getItem('luster_smart_fit_refresh')).toBeNull();
     });
   });
+
+  describe('selected-date preservation (P7.5)', () => {
+    const mockSlots = () => {
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [{ time: '10:00', startTime: '2026-03-20T14:00:00.000Z' }],
+        visibleSlots: ['10:00'],
+        bookedSlots: [],
+      }), { status: 200 })));
+    };
+
+    const renderStep = () => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    beforeEach(() => {
+      sessionStorage.clear();
+    });
+
+    it('restores a valid future date from the URL instead of resetting to today', async () => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-20';
+      mockSlots();
+
+      renderStep();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('date=2026-03-20');
+    });
+
+    it('ignores a past date and falls back to salon-today', async () => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-01';
+      mockSlots();
+
+      renderStep();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('date=2026-03-14');
+    });
+
+    it('ignores an impossible calendar date and falls back to salon-today', async () => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-02-31';
+      mockSlots();
+
+      renderStep();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('date=2026-03-14');
+    });
+
+    it('mirrors a manual date selection into the URL without navigating', async () => {
+      const replaceSpy = vi.spyOn(window.history, 'replaceState');
+      mockSlots();
+
+      renderStep();
+
+      fireEvent.click(await screen.findByTestId('calendar-day-2026-03-20'));
+
+      await waitFor(() => {
+        expect(replaceSpy).toHaveBeenCalled();
+      });
+
+      const replacedUrl = String(replaceSpy.mock.calls.at(-1)?.[2]);
+
+      expect(replacedUrl).toContain('date=2026-03-20');
+      // Existing params survive so recovery flows keep the full context.
+      expect(replacedUrl).toContain('serviceIds=srv_1');
+      expect(replacedUrl).toContain('techId=tech_1');
+      // No router navigation happened — this is a shallow URL update.
+      expect(routerPush).not.toHaveBeenCalled();
+    });
+
+    it('never auto-advances away from a restored date equal to today, even with no slots left', async () => {
+      // System time 2026-03-14T11:00Z = 07:00 EDT; a 06:00 slot is already past,
+      // so an unrestored "today" would auto-advance to the 15th.
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-14';
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [],
+        visibleSlots: [],
+        bookedSlots: [],
+      }), { status: 200 })));
+
+      renderStep();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      const dates = fetchMock.mock.calls.map(call => String(call[0]));
+
+      expect(dates.some(url => url.includes('date=2026-03-14'))).toBe(true);
+      expect(dates.some(url => url.includes('date=2026-03-15'))).toBe(false);
+    });
+
+    it('mirrors the today-auto-advance date into the URL', async () => {
+      // No restored date: an empty "today" auto-advances to tomorrow, and the
+      // URL must follow so recovery flows restore the date actually shown.
+      const replaceSpy = vi.spyOn(window.history, 'replaceState');
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [],
+        visibleSlots: [],
+        bookedSlots: [],
+      }), { status: 200 })));
+
+      renderStep();
+
+      await waitFor(() => {
+        const urls = fetchMock.mock.calls.map(call => String(call[0]));
+
+        expect(urls.some(url => url.includes('date=2026-03-15'))).toBe(true);
+      });
+
+      const replacedUrl = String(replaceSpy.mock.calls.at(-1)?.[2]);
+
+      expect(replacedUrl).toContain('date=2026-03-15');
+    });
+
+    it('keeps the restored date through the stale-Smart-Fit recovery return', async () => {
+      markSmartFitAvailabilityRefresh('salon-a');
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-20';
+      mockSlots();
+
+      renderStep();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('date=2026-03-20');
+
+      // The one-shot refresh flag is still consumed on this path.
+      await waitFor(() => {
+        expect(sessionStorage.getItem('luster_smart_fit_refresh')).toBeNull();
+      });
+    });
+  });
 });

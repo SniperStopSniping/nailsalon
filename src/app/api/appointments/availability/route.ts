@@ -14,11 +14,17 @@ import {
   getPublicTechnicianCompatibility,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
+import { getClientSession } from '@/libs/clientAuth';
+import {
+  FIRST_VISIT_DISCOUNT_TYPE,
+  resolveAutomaticBookingDiscount,
+} from '@/libs/firstVisitDiscount';
 import {
   getGoogleCalendarBusyWindows,
   GoogleCalendarAvailabilityError,
   isBusyWindowConflict,
 } from '@/libs/googleCalendar';
+import { normalizePhone } from '@/libs/phone';
 import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompatibility';
 import {
   getAppointmentById,
@@ -153,6 +159,8 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     let requestedServices: RequestedService[] = [];
+    // Same records with pricing, for the automatic-discount resolution below.
+    let pricedRequestedServices: Array<{ id: string; name: string; price: number }> = [];
     let visibleDurationMinutes = DEFAULT_DURATION_MINUTES;
     let bufferMinutes = bookingConfig.bufferMinutes;
     let subtotalBeforeDiscountCents = 0;
@@ -169,6 +177,7 @@ export async function GET(request: Request): Promise<Response> {
         });
 
         requestedServices = [validatedSelection.baseServiceRecord];
+        pricedRequestedServices = [validatedSelection.baseServiceRecord];
         visibleDurationMinutes = validatedSelection.quote.visibleDurationMinutes;
         bufferMinutes = validatedSelection.quote.bufferMinutes;
         subtotalBeforeDiscountCents = validatedSelection.quote.subtotalCents;
@@ -220,6 +229,7 @@ export async function GET(request: Request): Promise<Response> {
       }
 
       requestedServices = requestedLegacyServices;
+      pricedRequestedServices = requestedLegacyServices;
       visibleDurationMinutes = durationParam
         ? Number.parseInt(durationParam, 10)
         : (requestedLegacyServices.length > 0
@@ -320,7 +330,7 @@ export async function GET(request: Request): Promise<Response> {
     const smartFitRequestedTechnicianId = technicianId && technicianId !== 'any'
       ? technicianId
       : null;
-    const smartFitActive = smartFitConfig.enabled
+    let smartFitActive = smartFitConfig.enabled
       && subtotalBeforeDiscountCents > 0
       && smartFitServiceScopeAllows(smartFitConfig, requestedServiceIds);
     const smartFitDayByTechnician = new Map<
@@ -328,6 +338,63 @@ export async function GET(request: Request): Promise<Response> {
       NonNullable<ReturnType<typeof buildSmartFitDayContext>>
     >();
     let smartFitCandidateClientKeys: string[] | undefined;
+    // Reschedules: derive the client's identity server-side from their own
+    // appointment so their remaining bookings cannot mint self-adjacency.
+    let smartFitOriginalAppointment: Awaited<ReturnType<typeof getAppointmentById>> | null = null;
+    if (smartFitActive && originalAppointmentId) {
+      smartFitOriginalAppointment = await getAppointmentById(originalAppointmentId, salon.id);
+      if (smartFitOriginalAppointment) {
+        const keys = buildSmartFitClientKeys({
+          salonClientId: smartFitOriginalAppointment.salonClientId,
+          clientPhone: smartFitOriginalAppointment.clientPhone,
+        });
+        smartFitCandidateClientKeys = keys.length > 0 ? keys : undefined;
+      }
+    }
+    // Identity-aware annotation (P7.5): when the request carries a PROVEN
+    // client identity (logged-in session cookie), run the SAME automatic
+    // discount resolution the confirm step and booking POST use. A
+    // higher-priority discount (reward / first-visit / preserved first-visit)
+    // outranks Smart Fit at confirmation — applySmartFitOverlay only upgrades
+    // `kind: 'none'` — so annotating those slots would advertise savings this
+    // client can never book. Suppression changes nothing about pricing
+    // authority: the booking POST still recomputes everything in-transaction.
+    //
+    // The bare originalAppointmentId query param is NOT identity proof — this
+    // endpoint is public, so treating it as one would let anyone probe another
+    // client's reward/first-visit state by diffing annotation presence. The
+    // reschedule appointment only contributes here when the session phone
+    // matches it (the same ownership rule the booking POST enforces);
+    // manage-token reschedules stay identity-blind at this step and rely on
+    // the honest confirm-step handling, exactly like before P7.5.
+    if (smartFitActive) {
+      const sessionPhone = (await getClientSession())?.phone ?? null;
+      if (sessionPhone) {
+        const ownsOriginalAppointment = smartFitOriginalAppointment
+          ? normalizePhone(smartFitOriginalAppointment.clientPhone) === normalizePhone(sessionPhone)
+          : false;
+        try {
+          const automaticDiscount = await resolveAutomaticBookingDiscount({
+            salonId: salon.id,
+            services: pricedRequestedServices,
+            subtotalBeforeDiscountCents,
+            clientPhone: sessionPhone,
+            originalAppointmentId: ownsOriginalAppointment ? originalAppointmentId : null,
+            preserveFirstVisitDiscount: ownsOriginalAppointment
+              && smartFitOriginalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
+          });
+          if (automaticDiscount.kind !== 'none') {
+            smartFitActive = false;
+          }
+        } catch (identityError) {
+          // Never let a discount-resolution failure take down availability.
+          // Fail closed for the annotation only: don't advertise savings we
+          // could not verify for this client; slots stay fully bookable.
+          Sentry.captureException(identityError);
+          smartFitActive = false;
+        }
+      }
+    }
     if (smartFitActive) {
       const nowMs = Date.now();
       for (const tech of technicians) {
@@ -349,18 +416,6 @@ export async function GET(request: Request): Promise<Response> {
         });
         if (dayContext) {
           smartFitDayByTechnician.set(tech.id, dayContext);
-        }
-      }
-      // Reschedules: derive the client's identity server-side from their own
-      // appointment so their remaining bookings cannot mint self-adjacency.
-      if (originalAppointmentId) {
-        const originalAppointment = await getAppointmentById(originalAppointmentId, salon.id);
-        if (originalAppointment) {
-          const keys = buildSmartFitClientKeys({
-            salonClientId: originalAppointment.salonClientId,
-            clientPhone: originalAppointment.clientPhone,
-          });
-          smartFitCandidateClientKeys = keys.length > 0 ? keys : undefined;
         }
       }
     }

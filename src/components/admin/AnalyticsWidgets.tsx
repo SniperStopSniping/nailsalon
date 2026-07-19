@@ -22,6 +22,7 @@ import { NestedRings, RingLegend } from './charts/ActivityRing';
 import { ChartLabels, RevenueChart } from './charts/RevenueChart';
 import { ServiceBars } from './charts/ServiceBars';
 import { QuickActionsWidget } from './QuickActionsWidget';
+import { SmartFitResultsCard } from './SmartFitResultsCard';
 
 // Animation variants
 const STAGGER_CONTAINER = {
@@ -97,6 +98,10 @@ type AnalyticsWidgetsProps = {
   onToday?: () => void;
   /** Callback when anchor date changes (from date picker) */
   onAnchorChange?: (date: string) => void;
+  /** When set, render the Smart Fit results card scoped to this salon */
+  salonSlug?: string | null;
+  /** Open the Settings app from the Smart Fit results card */
+  onOpenSmartFitSettings?: () => void;
 };
 
 /**
@@ -268,6 +273,8 @@ export function AnalyticsWidgets({
   onNext,
   onToday,
   onAnchorChange,
+  salonSlug = null,
+  onOpenSmartFitSettings,
 }: AnalyticsWidgetsProps) {
   // Use internal state if no external control
   const [internalPeriod, setInternalPeriod] = useState<TimePeriod>('Weekly');
@@ -625,6 +632,18 @@ export function AnalyticsWidgets({
             </button>
           </div>
         </motion.div>
+
+        {/* Smart Fit results (P7.5) — follows the same period/anchor range */}
+        {salonSlug && (
+          <motion.div variants={SPRING_ITEM}>
+            <SmartFitResultsCard
+              salonSlug={salonSlug}
+              period={activePeriod}
+              anchorDate={anchorDate}
+              onOpenSettings={onOpenSmartFitSettings}
+            />
+          </motion.div>
+        )}
       </motion.div>
     </div>
   );

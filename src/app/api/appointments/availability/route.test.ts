@@ -108,6 +108,11 @@ vi.mock('@sentry/nextjs', () => ({
   captureException,
 }));
 
+// The route imports @/libs/firstVisitDiscount ('server-only') for the
+// identity-aware Smart Fit annotation (P7.5); none of these fixtures enable
+// Smart Fit, so no identity resolution runs in this suite.
+vi.mock('server-only', () => ({}));
+
 import { GET } from './route';
 
 describe('GET /api/appointments/availability', () => {

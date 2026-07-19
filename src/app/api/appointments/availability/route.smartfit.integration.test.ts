@@ -14,6 +14,10 @@ vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({
   db: null as unknown,
   googleBusy: [] as Array<{ startTime: Date; endTime: Date }>,
+  /** Simulated logged-in client session for identity-aware annotation (P7.5). */
+  clientSessionPhone: null as string | null,
+  /** When set, resolveAutomaticBookingDiscount throws this once per call. */
+  discountResolutionError: null as Error | null,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -25,6 +29,31 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }));
+
+vi.mock('@/libs/clientAuth', () => ({
+  getClientSession: vi.fn(async () =>
+    holder.clientSessionPhone
+      ? {
+          phone: holder.clientSessionPhone,
+          clientName: null,
+          clientEmail: null,
+          sessionId: 'sess_sf_avail',
+        }
+      : null),
+}));
+
+vi.mock('@/libs/firstVisitDiscount', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/firstVisitDiscount')>();
+  return {
+    ...actual,
+    resolveAutomaticBookingDiscount: vi.fn(async (...args: Parameters<typeof actual.resolveAutomaticBookingDiscount>) => {
+      if (holder.discountResolutionError) {
+        throw holder.discountResolutionError;
+      }
+      return actual.resolveAutomaticBookingDiscount(...args);
+    }),
+  };
+});
 
 vi.mock('@/libs/googleCalendar', () => ({
   getGoogleCalendarBusyWindows: vi.fn(async () => holder.googleBusy),
@@ -249,6 +278,8 @@ function FULL_WEEK_HOURS(open: string, close: string) {
 
 beforeEach(async () => {
   holder.googleBusy = [];
+  holder.clientSessionPhone = null;
+  holder.discountResolutionError = null;
   await db.update(schema.salonSchema)
     .set({ settings: ENABLED_SMART_FIT_SETTINGS })
     .where(eq(schema.salonSchema.id, SALON_ID));
@@ -577,5 +608,207 @@ describe('availability × Smart Fit — reschedules and privacy', () => {
     expect(serialized).not.toContain('phone:');
     expect(serialized).not.toContain('neighbor');
     expect(serialized).not.toContain('reason');
+  });
+});
+
+describe('availability × Smart Fit — identity-aware annotation (P7.5)', () => {
+  // Guests (no session, no reschedule identity) keep the P7.2/P7.3 behavior —
+  // every earlier test in this file runs with a null session and still sees
+  // annotations; this pins the contrast case explicitly.
+  it('keeps annotations for guests with no known identity', async () => {
+    const date = futureDate(31);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    expect(annotatedTimes(body)).toEqual(['10:15']);
+  });
+
+  it('suppresses annotations for a logged-in client holding an active reward', async () => {
+    const date = futureDate(32);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_sf_identity',
+      salonId: SALON_ID,
+      clientPhone: '4165550777',
+      type: 'referral_referee',
+      status: 'active',
+      discountType: 'fixed_amount',
+      discountAmountCents: 500,
+    });
+    holder.clientSessionPhone = '4165550777';
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    // The tight slot is still bookable — it just is not advertised at a price
+    // this client's confirmation would replace with their better reward.
+    expect(annotatedTimes(body)).toEqual([]);
+    expect(slotByTime(body, '10:15')).toBeDefined();
+    expect(body.bookedSlots).not.toContain('10:15');
+  });
+
+  it('keeps annotations for a logged-in client with no higher-priority discount', async () => {
+    const date = futureDate(33);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    holder.clientSessionPhone = '4165550666'; // no rewards; first-visit disabled
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    expect(annotatedTimes(body)).toEqual(['10:15']);
+  });
+
+  it('suppresses annotations for a first-visit-eligible logged-in client', async () => {
+    const date = futureDate(34);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    await db.update(schema.salonSchema)
+      .set({
+        settings: {
+          ...ENABLED_SMART_FIT_SETTINGS,
+          booking: { firstVisitDiscountEnabled: true },
+        },
+      })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    holder.clientSessionPhone = '4165550555'; // brand-new phone → eligible
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    expect(annotatedTimes(body)).toEqual([]);
+  });
+
+  it('keeps annotations when first-visit is on but the client already had a paid visit', async () => {
+    const date = futureDate(35);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_sf_prior_visit',
+      salonId: SALON_ID,
+      technicianId: TECH_2,
+      clientPhone: '4165550444',
+      clientName: 'Returning Client',
+      startTime: at(futureDate(1), '9:00'),
+      endTime: at(futureDate(1), '10:00'),
+      status: 'completed',
+      paymentStatus: 'paid',
+      totalPrice: 6500,
+      totalDurationMinutes: 60,
+      bufferMinutes: 10,
+      blockedDurationMinutes: 70,
+    });
+    await db.update(schema.salonSchema)
+      .set({
+        settings: {
+          ...ENABLED_SMART_FIT_SETTINGS,
+          booking: { firstVisitDiscountEnabled: true },
+        },
+      })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    holder.clientSessionPhone = '4165550444';
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    expect(annotatedTimes(body)).toEqual(['10:15']);
+  });
+
+  it('suppresses annotations only for the OWNER rescheduling their first-visit appointment', async () => {
+    const date = futureDate(36);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_sf_fv_original',
+      salonId: SALON_ID,
+      technicianId: TECH_2,
+      clientPhone: '4165550333',
+      clientName: 'First Visit Client',
+      salonClientId: 'sc_self',
+      startTime: at(futureDate(37), '9:00'),
+      endTime: at(futureDate(37), '10:00'),
+      status: 'confirmed',
+      totalPrice: 4875,
+      subtotalBeforeDiscountCents: 6500,
+      discountAmountCents: 1625,
+      discountType: 'first_visit_25',
+      totalDurationMinutes: 60,
+      bufferMinutes: 10,
+      blockedDurationMinutes: 70,
+    });
+
+    // Logged in as the appointment's owner: the booking POST would preserve
+    // the first-visit discount, so Smart Fit savings are not advertised.
+    holder.clientSessionPhone = '4165550333';
+    const owner = await queryAvailability({
+      date,
+      technicianId: TECH_1,
+      originalAppointmentId: 'appt_sf_fv_original',
+    });
+
+    expect(annotatedTimes(owner)).toEqual([]);
+  });
+
+  it('never treats a bare originalAppointmentId as identity — no discount-state oracle', async () => {
+    const date = futureDate(38);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    // A victim appointment carrying the first-visit discount, plus an active
+    // reward on the victim's phone: the strongest possible signal set.
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_sf_victim',
+      salonId: SALON_ID,
+      technicianId: TECH_2,
+      clientPhone: '4165550222',
+      clientName: 'Victim Client',
+      startTime: at(futureDate(39), '9:00'),
+      endTime: at(futureDate(39), '10:00'),
+      status: 'confirmed',
+      totalPrice: 4875,
+      subtotalBeforeDiscountCents: 6500,
+      discountAmountCents: 1625,
+      discountType: 'first_visit_25',
+      totalDurationMinutes: 60,
+      bufferMinutes: 10,
+      blockedDurationMinutes: 70,
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_sf_victim',
+      salonId: SALON_ID,
+      clientPhone: '4165550222',
+      type: 'referral_referee',
+      status: 'active',
+      discountType: 'fixed_amount',
+      discountAmountCents: 500,
+    });
+
+    // Guest probing with the victim's appointment id: the response must be
+    // byte-identical in annotation behavior to a request without the id.
+    const probing = await queryAvailability({
+      date,
+      technicianId: TECH_1,
+      originalAppointmentId: 'appt_sf_victim',
+    });
+
+    expect(annotatedTimes(probing)).toEqual(['10:15']);
+
+    // A logged-in client probing with someone ELSE's appointment id gets only
+    // their OWN discount state applied (none here) — the victim's first-visit
+    // snapshot is never preserved through an unowned id.
+    holder.clientSessionPhone = '4165550666';
+    const loggedInProbe = await queryAvailability({
+      date,
+      technicianId: TECH_1,
+      originalAppointmentId: 'appt_sf_victim',
+    });
+
+    expect(annotatedTimes(loggedInProbe)).toEqual(['10:15']);
+  });
+
+  it('fails closed without a 500 when discount resolution throws', async () => {
+    const date = futureDate(40);
+    await seedNeighborAppointment({ date, startTime: '9:00' });
+    holder.clientSessionPhone = '4165550666';
+    holder.discountResolutionError = new Error('rewards table unavailable');
+
+    // queryAvailability asserts status 200 internally.
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    // Slots are fully served; only the savings annotation is withheld.
+    expect(annotatedTimes(body)).toEqual([]);
+    expect(slotByTime(body, '10:15')).toBeDefined();
+    expect(body.bookedSlots).not.toContain('10:15');
   });
 });

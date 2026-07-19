@@ -65,11 +65,14 @@ function parseCurrencyToCents(raw: string): number | null {
 type SmartFitSettingsCardProps = {
   salonSlug: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Jump to the Analytics app, where Smart Fit results live (P7.5). */
+  onViewResults?: () => void;
 };
 
 export function SmartFitSettingsCard({
   salonSlug,
   onDirtyChange,
+  onViewResults,
 }: SmartFitSettingsCardProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -326,6 +329,26 @@ export function SmartFitSettingsCard({
         Smart Fit can offer customers a discount for choosing times that reduce
         gaps in your schedule.
       </p>
+
+      {onViewResults && (
+        <div>
+          <button
+            type="button"
+            data-testid="smart-fit-view-results"
+            onClick={onViewResults}
+            disabled={dirty}
+            className="text-sm font-semibold text-rose-800 underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+          >
+            View Smart Fit results
+          </button>
+          {dirty && (
+            <p data-testid="smart-fit-view-results-blocked" className="mt-1 text-xs text-gray-500">
+              Save or discard your changes first — results open in the
+              Analytics app and leaving now would drop unsaved settings.
+            </p>
+          )}
+        </div>
+      )}
 
       <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
         <div className="space-y-1">

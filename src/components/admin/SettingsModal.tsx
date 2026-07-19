@@ -1141,6 +1141,8 @@ type SettingsModalProps = {
   userInitials?: string;
   /** Hop to another workspace app (e.g. Integrations, Staff). */
   onOpenApp?: (appId: string) => void;
+  /** Whether the Analytics app (home of Smart Fit results) is available. */
+  smartFitResultsAvailable?: boolean;
 };
 
 export function SettingsModal({
@@ -1151,6 +1153,7 @@ export function SettingsModal({
   userName = 'Salon owner',
   userInitials,
   onOpenApp,
+  smartFitResultsAvailable = false,
 }: SettingsModalProps) {
   const { salonSlug: providerSalonSlug } = useSalon();
   const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
@@ -2509,6 +2512,9 @@ export function SettingsModal({
             <SmartFitSettingsCard
               salonSlug={salonSlug}
               onDirtyChange={setSmartFitDirty}
+              onViewResults={onOpenApp && smartFitResultsAvailable
+                ? () => onOpenApp('analytics')
+                : undefined}
             />
           </Section>
         )}
