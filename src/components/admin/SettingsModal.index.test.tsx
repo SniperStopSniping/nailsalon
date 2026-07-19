@@ -173,7 +173,7 @@ describe('SettingsModal index', () => {
     mockEndpoints();
   });
 
-  it('shows the grouped index with no inputs and no Payments & Taxes controls', async () => {
+  it('shows the grouped index with no inputs; tax appears only via the Payments & taxes row', async () => {
     render(
       <SettingsModal
         onClose={vi.fn()}
@@ -191,8 +191,15 @@ describe('SettingsModal index', () => {
     expect(screen.getByText('Manage integrations')).toBeInTheDocument();
     expect(screen.getByText('Terms of Service')).toBeInTheDocument();
 
-    // Tax/payment settings have no backend yet — they must not be exposed.
-    expect(screen.queryByText(/tax/i)).not.toBeInTheDocument();
+    // Payments & taxes is a navigation row on the index; the only tax mention
+    // is that row (default state "Tax off"). No editing controls leak onto the
+    // index, and deposits (not implemented) never appear.
+    expect(screen.getByText('Payments & taxes')).toBeInTheDocument();
+    expect(screen.getByText('Tax off')).toBeInTheDocument();
+
+    const taxMentions = screen.getAllByText(/tax/i);
+
+    expect(taxMentions.length).toBe(2); // the row label + its "Tax off" value
     expect(screen.queryByText(/e-transfer/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/deposit/i)).not.toBeInTheDocument();
 

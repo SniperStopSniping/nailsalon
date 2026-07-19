@@ -9,6 +9,7 @@ import {
   AppointmentsDayView,
   type CalendarAppointment,
 } from '@/components/appointments/AppointmentsDayView';
+import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { StaffBottomNav, StaffHeader } from '@/components/staff';
 import type { StaffAppointmentData } from '@/components/staff/appointments/types';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -350,17 +351,18 @@ function StaffAppointmentsContent() {
         onSaveEdits={actions.saveEdits}
         onMoveToNextAvailable={actions.moveToNextAvailable}
         onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
-        onMarkCompleted={() => actions.completeAppointment()}
+        onMarkCompleted={() => actions.openCheckout()}
         onStartAppointment={actions.startAppointment}
-        completionNeedsPhotoDecision={actions.completionNeedsPhotoDecision}
-        onResolvePhotoDecision={(skip) => {
-          if (skip) {
-            void actions.completeAppointment({ skipPhotoValidation: true });
-          } else {
-            actions.dismissPhotoDecision();
-          }
-        }}
+        onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
+      />
+
+      <CheckoutSheet
+        isOpen={actions.checkoutOpen}
+        appointmentId={actions.selectedAppointmentId}
+        initialView={actions.checkoutInitialView}
+        onClose={actions.closeCheckout}
+        onCompleted={() => actions.handleCheckoutCompleted()}
       />
 
       <StaffBottomNav activeItem="photos" />

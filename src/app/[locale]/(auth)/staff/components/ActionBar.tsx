@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 
-import { CompleteAppointmentSheet } from './CompleteAppointmentSheet';
+import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+
 import { ReviewFollowupModal } from './ReviewFollowupModal';
 import type { AppointmentData } from './StaffAppointmentCard';
 
@@ -124,12 +125,14 @@ export function ActionBar({
 
   const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
 
-  // Completion form overlay (sits above the action bar)
+  // Completion checkout overlay (sits above the action bar) — the same
+  // Complete-appointment flow every other surface uses.
   if (view === 'completing') {
     return (
-      <CompleteAppointmentSheet
-        appointment={appointment}
-        onCancel={() => setView('actions')}
+      <CheckoutSheet
+        isOpen
+        appointmentId={appointment.id}
+        onClose={() => setView('actions')}
         onCompleted={({ showReviewPrompt }) => {
           if (showReviewPrompt) {
             setView('review');

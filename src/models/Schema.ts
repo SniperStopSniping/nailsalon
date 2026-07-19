@@ -576,9 +576,31 @@ export const appointmentSchema = pgTable(
 
     // Completion record (filled by the tech's Complete Appointment form)
     // Nullable until the appointment is completed; source of truth for revenue/tips.
+    // finalPriceCents is ALWAYS net-of-tax, post-discount service revenue —
+    // reporting reads COALESCE(final_price_cents, total_price) as tax-free revenue.
     finalPriceCents: integer('final_price_cents'), // Actual amount charged (defaults to booked total)
     tipCents: integer('tip_cents').notNull().default(0),
-    paymentMethod: text('payment_method'), // 'cash' | 'debit' | 'credit' | 'e_transfer' | 'other'
+    paymentMethod: text('payment_method'), // PaymentMethod ('cash' | 'debit' | ... | 'other')
+
+    // Checkout record (0058). All nullable: NULL = not recorded (historic rows
+    // are never recalculated). totalDue = finalPriceCents + taxAmountCents + tipCents.
+    actualStartAt: timestamp('actual_start_at', { mode: 'date', withTimezone: true }),
+    actualEndAt: timestamp('actual_end_at', { mode: 'date', withTimezone: true }),
+    finalSubtotalCents: integer('final_subtotal_cents'), // final items sum (as displayed), pre-discount
+    finalDiscountCents: integer('final_discount_cents'), // checkout-time discount on displayed prices
+    finalDiscountReason: text('final_discount_reason'),
+    amountPaidCents: integer('amount_paid_cents'), // SUM of non-voided appointment_payment rows
+
+    // Tax snapshot at completion — frozen forever; changing salon tax settings
+    // must never recalculate completed appointments.
+    taxEnabledSnapshot: boolean('tax_enabled_snapshot'),
+    taxNameSnapshot: text('tax_name_snapshot'),
+    taxRateBps: integer('tax_rate_bps'), // basis points (13% = 1300)
+    taxInclusive: boolean('tax_inclusive'), // true = prices include tax; false = tax added at checkout
+    taxAmountCents: integer('tax_amount_cents'),
+    taxableSubtotalCents: integer('taxable_subtotal_cents'),
+    taxExempt: boolean('tax_exempt'),
+    taxExemptReason: text('tax_exempt_reason'),
 
     // Post-appointment review follow-up (what the tech chose to send)
     reviewFollowupAction: text('review_followup_action'), // 'satisfaction_question' | 'google_review_link' | 'skipped' | 'already_reviewed'
@@ -707,6 +729,97 @@ export const appointmentAddOnSchema = pgTable(
   table => ({
     appointmentIdx: index('appointment_add_on_appointment_idx').on(table.appointmentId),
     addOnIdx: index('appointment_add_on_add_on_idx').on(table.addOnId),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AppointmentFinalItem - What was actually performed, captured at checkout.
+// The booked snapshot (appointment_services / appointment_add_on) is IMMUTABLE;
+// final items are a separate record so the original booking is never lost.
+// Display rule: finalItems.length ? finalItems : bookedItems.
+// -----------------------------------------------------------------------------
+export const appointmentFinalItemSchema = pgTable(
+  'appointment_final_item',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+    kind: text('kind').notNull(), // 'service' | 'addon' | 'custom'
+    catalogServiceId: text('catalog_service_id').references(() => serviceSchema.id),
+    catalogAddOnId: text('catalog_add_on_id').references(() => addOnSchema.id),
+    name: text('name').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    unitPriceCents: integer('unit_price_cents').notNull(),
+    lineTotalCents: integer('line_total_cents').notNull(),
+    durationMinutes: integer('duration_minutes'),
+    taxable: boolean('taxable').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    appointmentIdx: index('appt_final_item_appointment_idx').on(table.appointmentId),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AppointmentPayment - One row per recorded payment. Multiple payments per
+// appointment are supported (partial payments); corrections are voids, never
+// deletes. appointment.amount_paid_cents is recomputed from non-voided rows.
+// -----------------------------------------------------------------------------
+export const appointmentPaymentSchema = pgTable(
+  'appointment_payment',
+  {
+    id: text('id').primaryKey(),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id),
+    amountCents: integer('amount_cents').notNull(), // > 0 (CHECK in migration)
+    method: text('method'), // PaymentMethod
+    reference: text('reference'), // e.g. e-Transfer confirmation number
+    note: text('note'),
+    recordedByType: text('recorded_by_type').notNull(), // 'admin' | 'staff' | 'system'
+    recordedById: text('recorded_by_id'),
+    recordedByName: text('recorded_by_name'),
+    recordedAt: timestamp('recorded_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    voidedAt: timestamp('voided_at', { mode: 'date', withTimezone: true }),
+    voidedBy: text('voided_by'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    appointmentIdx: index('appt_payment_appointment_idx').on(table.appointmentId),
+    salonRecordedIdx: index('appt_payment_salon_recorded_idx').on(table.salonId, table.recordedAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AppointmentPaymentLink - Opaque token for the public payment-instruction
+// page (QR). Token stored sha256-hashed; page shows salon-side data only.
+// Revoked when the appointment is fully paid or reopened.
+// -----------------------------------------------------------------------------
+export const appointmentPaymentLinkSchema = pgTable(
+  'appointment_payment_link',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    appointmentId: text('appointment_id')
+      .notNull()
+      .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    tokenIdx: uniqueIndex('appointment_payment_link_token_idx').on(table.tokenHash),
+    appointmentIdx: index('appointment_payment_link_appointment_idx').on(table.salonId, table.appointmentId),
   }),
 );
 
@@ -1960,6 +2073,15 @@ export type NewServiceAddOn = typeof serviceAddOnSchema.$inferInsert;
 export type AppointmentAddOn = typeof appointmentAddOnSchema.$inferSelect;
 export type NewAppointmentAddOn = typeof appointmentAddOnSchema.$inferInsert;
 
+export type AppointmentFinalItem = typeof appointmentFinalItemSchema.$inferSelect;
+export type NewAppointmentFinalItem = typeof appointmentFinalItemSchema.$inferInsert;
+
+export type AppointmentPayment = typeof appointmentPaymentSchema.$inferSelect;
+export type NewAppointmentPayment = typeof appointmentPaymentSchema.$inferInsert;
+
+export type AppointmentPaymentLink = typeof appointmentPaymentLinkSchema.$inferSelect;
+export type NewAppointmentPaymentLink = typeof appointmentPaymentLinkSchema.$inferInsert;
+
 export type AppointmentPhoto = typeof appointmentPhotoSchema.$inferSelect;
 export type NewAppointmentPhoto = typeof appointmentPhotoSchema.$inferInsert;
 
@@ -2075,8 +2197,14 @@ export const APPOINTMENT_STATUSES = [
 ] as const;
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 
-export const PAYMENT_STATUSES = ['pending', 'paid'] as const;
+// 'pending' = unpaid, 'partially_paid' = payments recorded but balance remains,
+// 'paid' = fully collected (fraud/points only ever count completed+paid rows),
+// 'comp' = complimentary (admin-only; counts 0 revenue; requires no payments).
+export const PAYMENT_STATUSES = ['pending', 'partially_paid', 'paid', 'comp'] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_METHODS = ['cash', 'debit', 'credit', 'e_transfer', 'online', 'gift_card', 'other'] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const PHOTO_TYPES = ['before', 'after'] as const;
 export type PhotoType = (typeof PHOTO_TYPES)[number];
@@ -2379,6 +2507,18 @@ export const APPOINTMENT_AUDIT_ACTIONS = [
   'completed',
   'arrived',
   'admin_override',
+  // Checkout phase (0058)
+  'items_changed',
+  'discount_applied',
+  'payment_recorded',
+  'payment_voided',
+  'payment_status_changed',
+  'tax_overridden',
+  'tax_exempted',
+  'times_recorded',
+  'photo_uploaded',
+  'photo_removed',
+  'reopened',
 ] as const;
 export type AppointmentAuditAction = (typeof APPOINTMENT_AUDIT_ACTIONS)[number];
 

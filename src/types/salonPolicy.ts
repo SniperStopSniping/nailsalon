@@ -204,6 +204,36 @@ export type SalonSettings = {
     firstVisitDiscountEnabled?: boolean;
     clientChangeCutoffHours?: number;
   };
+  // Checkout payments & taxes (0058). Tax defaults OFF for every salon and is
+  // never inferred from the address; completed appointments snapshot the
+  // resolved config, so edits here never recalculate history. Canonical zod
+  // shapes live in src/libs/taxConfig.ts.
+  payments?: {
+    tax?: {
+      enabled?: boolean;
+      name?: string;
+      rateBps?: number; // 13% = 1300
+      pricesIncludeTax?: boolean;
+      taxServicesByDefault?: boolean;
+      taxAddOnsByDefault?: boolean;
+      taxCustomByDefault?: boolean;
+      scheduledChange?: {
+        rateBps: number;
+        name?: string;
+        effectiveFrom: string; // ISO date
+      } | null;
+    };
+    etransfer?: {
+      enabled?: boolean;
+      recipient?: string; // email or mobile — never banking credentials
+      recipientName?: string;
+      autodepositEnabled?: boolean; // informational only
+      instructions?: string;
+      requireReference?: boolean;
+      qrPageEnabled?: boolean;
+    };
+  };
+
   // Booking-page merchandising (featured services, owner promos).
   merchandising?: {
     featureLusterManicure?: boolean; // default: true

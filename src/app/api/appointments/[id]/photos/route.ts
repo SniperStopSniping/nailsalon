@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { logAppointmentChange } from '@/libs/appointmentAudit';
 import { isCloudinaryConfigured, uploadAppointmentPhoto } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
@@ -184,6 +185,19 @@ export async function POST(
       uploadedByTechId,
       createdAt: now,
     });
+
+    if (access.actorRole !== 'client') {
+      void logAppointmentChange({
+        appointmentId,
+        salonId: appointment.salonId,
+        action: 'photo_uploaded',
+        performedBy: access.actorRole === 'staff'
+          ? `staff:${access.session.technicianId}`
+          : access.admin.id,
+        performedByRole: access.actorRole,
+        newValue: { photoType: validatedInput.data.photoType },
+      });
+    }
 
     // 11. Return success response
     const response: SuccessResponse = {

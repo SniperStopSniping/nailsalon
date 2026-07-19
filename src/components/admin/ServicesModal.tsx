@@ -30,6 +30,7 @@ import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
+import { formatMoney } from '@/libs/formatMoney';
 import type { ServiceTemplate } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -98,11 +99,8 @@ const CATEGORIES = [
 
 // Format currency
 function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(cents / 100);
+  // Platform currency is CAD (bookingConfig default) — was a USD hardcode.
+  return formatMoney(cents);
 }
 
 // Format duration

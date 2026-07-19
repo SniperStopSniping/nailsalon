@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import { appointmentSchema, clientSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -96,7 +97,7 @@ export async function GET(
         clientPhone: appointmentSchema.clientPhone,
         clientName: appointmentSchema.clientName,
         totalVisits: sql<number>`count(*)`,
-        totalSpent: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        totalSpent: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         lastVisit: sql<string>`max(${appointmentSchema.startTime})`,
         firstVisit: sql<string>`min(${appointmentSchema.startTime})`,
       })

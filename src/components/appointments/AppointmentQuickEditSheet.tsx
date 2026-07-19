@@ -34,15 +34,15 @@ type AppointmentQuickEditSheetProps = {
   }) => Promise<void>;
   onMoveToNextAvailable: () => Promise<void>;
   onCancelAppointment: (args: { reason: string; internalNote?: string }) => Promise<void>;
-  onMarkCompleted: () => Promise<void>;
+  /** Opens the dedicated Complete-appointment checkout flow. */
+  onMarkCompleted: () => void | Promise<void>;
   onStartAppointment: () => Promise<void>;
   onConfirmAppointment?: () => Promise<void>;
   onMarkNoShow?: () => Promise<void>;
   onResendConfirmation?: () => Promise<void>;
   onRebook?: () => void;
-  /** Set when completion needs an explicit no-photo decision (see useAppointmentActions). */
-  completionNeedsPhotoDecision?: boolean;
-  onResolvePhotoDecision?: (skip: boolean) => void;
+  /** Opens the snapshot receipt for a completed appointment. */
+  onViewReceipt?: () => void;
   /** Called when the detail failed to load and the user wants to retry. */
   onRetryLoad?: () => void;
   /** Opens the given confirmation as soon as detail loads (e.g. a Cancel button on an appointment card). */
@@ -98,8 +98,7 @@ export function AppointmentQuickEditSheet({
   onMarkNoShow,
   onResendConfirmation,
   onRebook,
-  completionNeedsPhotoDecision = false,
-  onResolvePhotoDecision,
+  onViewReceipt,
   onRetryLoad,
   initialPendingAction = null,
 }: AppointmentQuickEditSheetProps) {
@@ -516,25 +515,31 @@ export function AppointmentQuickEditSheet({
                         </div>
                       </div>
 
-                      {photos.length > 0 && (
-                        <div className="rounded-2xl border border-neutral-200 p-4">
+                      {/* Photos render whenever an uploader is wired — the first
+                          photo must be addable from here, not only once one
+                          already exists. */}
+                      {(photos.length > 0 || onUploadPhoto) && (
+                        <div className="rounded-2xl border border-neutral-200 p-4" data-testid="appointment-sheet-photos">
                           <div className="mb-3 text-sm font-semibold text-neutral-900">Photos</div>
-                          <div className="mb-3 flex gap-2 overflow-x-auto">
-                            {photos.map(photo => (
-                              <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
-                                <Image
-                                  src={photo.thumbnailUrl || photo.imageUrl}
-                                  alt={photo.photoType}
-                                  fill
-                                  className="object-cover"
-                                />
-                              </div>
-                            ))}
-                          </div>
+                          {photos.length > 0 && (
+                            <div className="mb-3 flex gap-2 overflow-x-auto">
+                              {photos.map(photo => (
+                                <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
+                                  <Image
+                                    src={photo.thumbnailUrl || photo.imageUrl}
+                                    alt={photo.photoType}
+                                    fill
+                                    className="object-cover"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {onUploadPhoto && (
                             <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
+                                data-testid="appointment-sheet-upload-before"
                                 onClick={() => onUploadPhoto('before')}
                                 disabled={uploadingPhoto}
                                 className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
@@ -543,6 +548,7 @@ export function AppointmentQuickEditSheet({
                               </button>
                               <button
                                 type="button"
+                                data-testid="appointment-sheet-upload-after"
                                 onClick={() => onUploadPhoto('after')}
                                 disabled={uploadingPhoto}
                                 className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
@@ -597,11 +603,23 @@ export function AppointmentQuickEditSheet({
                           {detail.permissions.canMarkCompleted && (
                             <button
                               type="button"
+                              data-testid="appointment-sheet-mark-completed"
                               onClick={() => void onMarkCompleted()}
                               disabled={saving}
                               className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
                             >
                               Mark completed
+                            </button>
+                          )}
+                          {detail.appointment.status === 'completed' && onViewReceipt && (
+                            <button
+                              type="button"
+                              data-testid="appointment-sheet-view-receipt"
+                              onClick={onViewReceipt}
+                              disabled={saving}
+                              className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
+                            >
+                              View receipt
                             </button>
                           )}
                           {detail.permissions.canMarkNoShow && onMarkNoShow && (
@@ -731,17 +749,6 @@ export function AppointmentQuickEditSheet({
           setPendingConfirm(null);
           void onMarkNoShow?.();
         }}
-      />
-
-      <ConfirmDialog
-        isOpen={completionNeedsPhotoDecision}
-        title="No after photo uploaded"
-        busy={saving}
-        confirmLabel="Complete anyway"
-        cancelLabel="Go back"
-        description="This appointment has no after photo. You can complete it without one, or go back and add the photo first."
-        onClose={() => onResolvePhotoDecision?.(false)}
-        onConfirm={() => onResolvePhotoDecision?.(true)}
       />
     </DialogShell>
   );

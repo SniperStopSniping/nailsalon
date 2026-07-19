@@ -430,3 +430,111 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe('/api/admin/salon/settings payments settings', () => {
+  const baseSalon = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: {},
+    settings: {},
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+
+    requireAdmin.mockResolvedValue({
+      ok: true,
+      admin: { id: 'admin_1' },
+    });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({});
+    getDefaultLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+    resolveSalonLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+  });
+
+  it('returns empty payments settings by default (tax off, nothing inferred)', async () => {
+    getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.payments).toEqual({});
+  });
+
+  it('persists a payments-only update through a targeted jsonb_set write', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        payments: {
+          etransfer: { enabled: true, recipient: 'pay@salon.ca' },
+        },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        payments: {
+          tax: { enabled: true, name: 'HST', rateBps: 1300 },
+          etransfer: { enabled: true, recipient: 'pay@salon.ca' },
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.payments.tax).toMatchObject({ enabled: true, name: 'HST', rateBps: 1300 });
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+
+    // Payments-only updates use the same single-key jsonb_set pattern as
+    // merchandising so a concurrent booking/notification save is never
+    // clobbered — and the merge preserves the untouched etransfer sub-object.
+    expect(setPayload.settings).toBeDefined();
+    expect(setPayload.settings.payments).toBeUndefined();
+
+    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const paramValues = sqlChunks.filter(
+      (chunk): chunk is string => typeof chunk === 'string',
+    );
+
+    expect(paramValues.some(value => value.includes('"rateBps":1300'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"recipient":"pay@salon.ca"'))).toBe(true);
+    expect(logAuditEvent).toHaveBeenCalled();
+  });
+
+  it('rejects an out-of-range tax rate', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payments: { tax: { enabled: true, rateBps: 99999 } },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+  });
+});

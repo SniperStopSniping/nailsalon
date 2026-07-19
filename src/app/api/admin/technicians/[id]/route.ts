@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import { roundTechnicianRating } from '@/libs/technicianRating';
 import { normalizeWeeklySchedule, resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import {
@@ -196,7 +197,7 @@ export async function GET(
     const todayAppts = await db
       .select({
         count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         completed: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'completed')`,
       })
       .from(appointmentSchema)
@@ -213,7 +214,7 @@ export async function GET(
     const weekAppts = await db
       .select({
         count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
       })
       .from(appointmentSchema)
       .where(
@@ -229,7 +230,7 @@ export async function GET(
     const monthAppts = await db
       .select({
         count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
       })
       .from(appointmentSchema)
       .where(
@@ -265,7 +266,7 @@ export async function GET(
         noShow: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'no_show')`,
         cancelled: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'cancelled')`,
         totalBooked: sql<number>`count(*) filter (where ${appointmentSchema.status} in ('completed', 'no_show', 'cancelled'))`,
-        totalRevenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}) filter (where ${appointmentSchema.status} = 'completed'), 0)`,
+        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}) filter (where ${appointmentSchema.status} = 'completed'), 0)`,
       })
       .from(appointmentSchema)
       .where(eq(appointmentSchema.technicianId, id));

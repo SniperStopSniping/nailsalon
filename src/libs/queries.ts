@@ -1084,7 +1084,12 @@ export async function updateSalonClientStats(
   const stats = await db
     .select({
       totalVisits: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
-      totalSpent: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}) FILTER (WHERE ${appointmentSchema.status} = 'completed'), 0)::int`,
+      // Client spending = final charged price (net of tax; booked total for
+      // legacy rows), counted only once the appointment is fully PAID — an
+      // unpaid/partial/comp completion is a visit but not spend, and loyalty
+      // points derive from this figure. Tax is excluded by construction
+      // (finalPriceCents never includes it).
+      totalSpent: sql<number>`COALESCE(sum(COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice})) FILTER (WHERE ${appointmentSchema.status} = 'completed' AND ${appointmentSchema.paymentStatus} = 'paid'), 0)::int`,
       noShowCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'no_show')::int`,
       lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (WHERE ${appointmentSchema.status} = 'completed')`,
     })
@@ -1106,7 +1111,10 @@ export async function updateSalonClientStats(
     previousCompletedSpendCents: salonClient.totalSpent,
     nextCompletedSpendCents: totalSpentCents,
   });
-  const lastVisitAt = clientStats?.lastVisitAt ?? null;
+  // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
+  // others (pg) — normalize before doing Date math or writing back.
+  const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
+  const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
   const nextRebookDueAt = lastVisitAt && salonClient.rebookIntervalDays
     ? new Date(lastVisitAt.getTime() + salonClient.rebookIntervalDays * 86_400_000)
     : null;

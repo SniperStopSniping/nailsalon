@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { useSalon } from '@/providers/SalonProvider';
@@ -1115,19 +1116,12 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         onSaveEdits={actions.saveEdits}
         onMoveToNextAvailable={actions.moveToNextAvailable}
         onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
-        onMarkCompleted={() => actions.completeAppointment()}
+        onMarkCompleted={() => actions.openCheckout()}
         onStartAppointment={actions.startAppointment}
         onConfirmAppointment={actions.confirmAppointment}
         onMarkNoShow={actions.markNoShow}
         onResendConfirmation={actions.resendConfirmation}
-        completionNeedsPhotoDecision={actions.completionNeedsPhotoDecision}
-        onResolvePhotoDecision={(skip) => {
-          if (skip) {
-            void actions.completeAppointment({ skipPhotoValidation: true });
-          } else {
-            actions.dismissPhotoDecision();
-          }
-        }}
+        onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
         onRebook={() => {
           const prefill = actions.buildRebookPrefill();
@@ -1135,6 +1129,25 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
             return;
           }
           setRebookPrefill(prefill);
+          actions.closeAppointment();
+          setShowNewAppointmentModal(true);
+        }}
+      />
+
+      <CheckoutSheet
+        isOpen={actions.checkoutOpen}
+        appointmentId={actions.selectedAppointmentId}
+        salonSlug={salonSlug}
+        initialView={actions.checkoutInitialView}
+        onClose={actions.closeCheckout}
+        onCompleted={() => actions.handleCheckoutCompleted()}
+        onRebook={() => {
+          const prefill = actions.buildRebookPrefill();
+          if (!prefill) {
+            return;
+          }
+          setRebookPrefill(prefill);
+          actions.closeCheckout();
           actions.closeAppointment();
           setShowNewAppointmentModal(true);
         }}

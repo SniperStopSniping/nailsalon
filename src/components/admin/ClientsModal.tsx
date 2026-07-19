@@ -24,10 +24,12 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
+import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
 
@@ -190,11 +192,8 @@ function formatPhone(phone: string): string {
 }
 
 function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(cents / 100);
+  // Platform currency is CAD (bookingConfig default) — was a USD hardcode.
+  return formatMoney(cents);
 }
 
 function formatDate(dateString: string | null, includeWeekday = false): string {
@@ -1329,19 +1328,12 @@ function ClientDetail({
         onSaveEdits={appointmentActions.saveEdits}
         onMoveToNextAvailable={appointmentActions.moveToNextAvailable}
         onCancelAppointment={args => appointmentActions.cancelAppointment(args as CancelArgs)}
-        onMarkCompleted={() => appointmentActions.completeAppointment()}
+        onMarkCompleted={() => appointmentActions.openCheckout()}
         onStartAppointment={appointmentActions.startAppointment}
         onConfirmAppointment={appointmentActions.confirmAppointment}
         onMarkNoShow={appointmentActions.markNoShow}
         onResendConfirmation={appointmentActions.resendConfirmation}
-        completionNeedsPhotoDecision={appointmentActions.completionNeedsPhotoDecision}
-        onResolvePhotoDecision={(skip) => {
-          if (skip) {
-            void appointmentActions.completeAppointment({ skipPhotoValidation: true });
-          } else {
-            appointmentActions.dismissPhotoDecision();
-          }
-        }}
+        onViewReceipt={appointmentActions.openReceipt}
         onRetryLoad={() => void appointmentActions.refreshDetail()}
         initialPendingAction={cancelIntent ? 'cancel' : null}
         onRebook={() => {
@@ -1349,6 +1341,27 @@ function ClientDetail({
           if (!prefill) {
             return;
           }
+          appointmentActions.closeAppointment();
+          openBookingModal(prefill);
+        }}
+      />
+
+      <CheckoutSheet
+        isOpen={appointmentActions.checkoutOpen}
+        appointmentId={appointmentActions.selectedAppointmentId}
+        salonSlug={salonSlug}
+        initialView={appointmentActions.checkoutInitialView}
+        onClose={appointmentActions.closeCheckout}
+        onCompleted={() => {
+          appointmentActions.handleCheckoutCompleted();
+          void fetchClientDetail(true);
+        }}
+        onRebook={() => {
+          const prefill = appointmentActions.buildRebookPrefill();
+          if (!prefill) {
+            return;
+          }
+          appointmentActions.closeCheckout();
           appointmentActions.closeAppointment();
           openBookingModal(prefill);
         }}

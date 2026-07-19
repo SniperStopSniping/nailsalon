@@ -295,3 +295,51 @@ test('admin service change recalculates values, removes incompatible add-ons, an
     await cancelAppointmentAsAdmin(booked.appointmentId);
   }
 });
+
+test('admin completes an appointment through the checkout flow with a custom item and partial payment', async ({ browser, page }) => {
+  test.slow();
+
+  const staffTechnician = await getStaffTechnicianProfile();
+  const appointment = await createAssignedAppointment(browser, { technicianId: staffTechnician.id });
+
+  await openAdminBookings(page);
+  await openAdminAppointmentSheet(page, appointment.id, appointment.dateString);
+
+  // Mark completed opens the dedicated checkout flow instead of finalizing.
+  await page.getByTestId('appointment-sheet-mark-completed').click();
+
+  await expect(page.getByTestId('checkout-sheet')).toBeVisible();
+  await expect(page.getByTestId('checkout-items-section')).toBeVisible();
+  // The after-photo uploader is visible right in the flow.
+  await expect(page.getByTestId('checkout-upload-after')).toBeVisible();
+
+  // Add a custom line item and take a partial payment.
+  await page.getByTestId('checkout-add-custom').click();
+  await page.getByTestId('checkout-custom-name').fill('Nail repair');
+  await page.getByLabel('Price for Nail repair').fill('10');
+  await page.getByTestId('checkout-method-cash').click();
+  await page.getByTestId('checkout-amount-received').fill('5');
+
+  await page.getByTestId('checkout-review-button').click();
+
+  await expect(page.getByTestId('checkout-remaining-balance')).toBeVisible();
+
+  await page.getByTestId('checkout-complete-button').click();
+
+  // No after photo: the in-flow decision offers a real choice.
+  await page.getByTestId('confirm-dialog-confirm').click(); // Complete without photo
+
+  await expect(page.getByTestId('checkout-success')).toBeVisible();
+  await expect(page.getByTestId('checkout-success-status')).toContainText(/partially paid/i);
+
+  // Record the remaining balance from the success screen.
+  await expect(page.getByTestId('checkout-record-payment')).toBeVisible();
+
+  // Receipt renders from the stored snapshots.
+  await page.getByTestId('checkout-success-view-receipt').click();
+
+  await expect(page.getByTestId('checkout-receipt')).toBeVisible();
+  await expect(page.getByTestId('checkout-receipt')).toContainText('Nail repair');
+
+  await page.getByTestId('checkout-close').click();
+});

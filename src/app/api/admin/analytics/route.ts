@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -191,8 +192,9 @@ export async function GET(request: Request): Promise<Response> {
     ] = await Promise.all([
       db
         .select({
-          total: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}), 0)::int`,
+          total: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
           tips: sql<number>`COALESCE(sum(${appointmentSchema.tipCents}), 0)::int`,
+          taxCollected: sql<number>`COALESCE(sum(${appointmentSchema.taxAmountCents}), 0)::int`,
           count: sql<number>`count(*)::int`,
         })
         .from(appointmentSchema)
@@ -206,7 +208,7 @@ export async function GET(request: Request): Promise<Response> {
         ),
       db
         .select({
-          total: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}), 0)::int`,
+          total: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
         })
         .from(appointmentSchema)
         .where(
@@ -238,7 +240,7 @@ export async function GET(request: Request): Promise<Response> {
           name: technicianSchema.name,
           role: technicianSchema.role,
           avatarUrl: technicianSchema.avatarUrl,
-          revenue: sql<number>`COALESCE(sum(${appointmentSchema.totalPrice}), 0)::int`,
+          revenue: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
           appointmentCount: sql<number>`count(${appointmentSchema.id})::int`,
         })
         .from(technicianSchema)
@@ -258,7 +260,7 @@ export async function GET(request: Request): Promise<Response> {
           ),
         )
         .groupBy(technicianSchema.id)
-        .orderBy(sql`sum(${appointmentSchema.totalPrice}) DESC NULLS LAST`)
+        .orderBy(sql`sum(${revenueCentsSql()}) DESC NULLS LAST`)
         .limit(5),
       db
         .select({
@@ -284,7 +286,7 @@ export async function GET(request: Request): Promise<Response> {
       db
         .select({
           startTime: appointmentSchema.startTime,
-          totalPrice: appointmentSchema.totalPrice,
+          totalPrice: sql<number>`${revenueCentsSql()}::int`,
         })
         .from(appointmentSchema)
         .where(
@@ -347,6 +349,7 @@ export async function GET(request: Request): Promise<Response> {
         revenue: {
           total: currentRevenue,
           tips: currentRevenueResult[0]?.tips ?? 0,
+          taxCollected: currentRevenueResult[0]?.taxCollected ?? 0,
           trend: revenueTrend,
           completed: currentRevenueResult[0]?.count ?? 0,
           series: revenueSeries,

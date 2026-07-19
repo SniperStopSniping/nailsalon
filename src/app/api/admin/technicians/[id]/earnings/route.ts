@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { revenueCentsSql } from '@/libs/revenueSql';
 import { appointmentSchema, technicianSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -116,7 +117,7 @@ export async function GET(
     const summaryResult = await db
       .select({
         count: sql<number>`count(*)`,
-        totalRevenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
       })
       .from(appointmentSchema)
       .where(
@@ -152,7 +153,7 @@ export async function GET(
       .select({
         date: dateGroupSql.as('date'),
         count: sql<number>`count(*)`,
-        totalRevenue: sql<number>`coalesce(sum(${appointmentSchema.totalPrice}), 0)`,
+        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
       })
       .from(appointmentSchema)
       .where(

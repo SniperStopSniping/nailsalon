@@ -1060,6 +1060,7 @@ type SettingsView
   | 'branding'
   | 'booking'
   | 'booking-flow'
+  | 'payments'
   | 'notifications'
   | 'features'
   | 'visibility';
@@ -1071,10 +1072,62 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'branding': 'Branding',
   'booking': 'Booking rules',
   'booking-flow': 'Booking flow',
+  'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'features': 'Features',
   'visibility': 'Staff visibility',
 };
+
+type PaymentsFormState = {
+  taxEnabled: boolean;
+  taxName: string;
+  /** Kept as the typed string; converted to basis points on save. */
+  taxRatePercent: string;
+  pricesIncludeTax: boolean;
+  taxServicesByDefault: boolean;
+  taxAddOnsByDefault: boolean;
+  taxCustomByDefault: boolean;
+  scheduledRatePercent: string;
+  scheduledEffectiveFrom: string;
+  etransferEnabled: boolean;
+  etransferRecipient: string;
+  etransferRecipientName: string;
+  etransferAutodeposit: boolean;
+  etransferInstructions: string;
+  etransferRequireReference: boolean;
+  etransferQrEnabled: boolean;
+};
+
+const DEFAULT_PAYMENTS_FORM: PaymentsFormState = {
+  taxEnabled: false,
+  taxName: '',
+  taxRatePercent: '',
+  pricesIncludeTax: false,
+  taxServicesByDefault: true,
+  taxAddOnsByDefault: true,
+  taxCustomByDefault: true,
+  scheduledRatePercent: '',
+  scheduledEffectiveFrom: '',
+  etransferEnabled: false,
+  etransferRecipient: '',
+  etransferRecipientName: '',
+  etransferAutodeposit: false,
+  etransferInstructions: '',
+  etransferRequireReference: true,
+  etransferQrEnabled: false,
+};
+
+function bpsToPercentString(bps: number | undefined): string {
+  return bps === undefined || bps === null ? '' : String(bps / 100);
+}
+
+function percentStringToBps(value: string): number {
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return 0;
+  }
+  return Math.min(30000, Math.round(parsed * 100));
+}
 
 type SettingsModalProps = {
   onClose: () => void;
@@ -1113,6 +1166,12 @@ export function SettingsModal({
   const [bookingConfigDirty, setBookingConfigDirty] = useState(false);
   const [notificationsDirty, setNotificationsDirty] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
+  const [paymentsDirty, setPaymentsDirty] = useState(false);
+
+  // Payments & taxes state (explicit-save)
+  const [paymentsSaving, setPaymentsSaving] = useState(false);
+  const [paymentsSaved, setPaymentsSaved] = useState(false);
+  const [paymentsForm, setPaymentsForm] = useState<PaymentsFormState>(DEFAULT_PAYMENTS_FORM);
 
   // Booking flow state
   const [bookingFlowEnabled, setBookingFlowEnabled] = useState(false);
@@ -1369,6 +1428,29 @@ export function SettingsModal({
           smsChannelAvailable: data.smsChannelAvailable ?? false,
           emailChannelAvailable: data.emailChannelAvailable ?? false,
         });
+        setPaymentsForm({
+          taxEnabled: data.payments?.tax?.enabled ?? false,
+          taxName: data.payments?.tax?.name ?? '',
+          taxRatePercent: bpsToPercentString(data.payments?.tax?.rateBps),
+          pricesIncludeTax: data.payments?.tax?.pricesIncludeTax ?? false,
+          taxServicesByDefault: data.payments?.tax?.taxServicesByDefault ?? true,
+          taxAddOnsByDefault: data.payments?.tax?.taxAddOnsByDefault ?? true,
+          taxCustomByDefault: data.payments?.tax?.taxCustomByDefault ?? true,
+          scheduledRatePercent: bpsToPercentString(
+            data.payments?.tax?.scheduledChange?.rateBps,
+          ),
+          scheduledEffectiveFrom:
+            data.payments?.tax?.scheduledChange?.effectiveFrom?.slice(0, 10) ?? '',
+          etransferEnabled: data.payments?.etransfer?.enabled ?? false,
+          etransferRecipient: data.payments?.etransfer?.recipient ?? '',
+          etransferRecipientName: data.payments?.etransfer?.recipientName ?? '',
+          etransferAutodeposit: data.payments?.etransfer?.autodepositEnabled ?? false,
+          etransferInstructions: data.payments?.etransfer?.instructions ?? '',
+          etransferRequireReference:
+            data.payments?.etransfer?.requireReference ?? true,
+          etransferQrEnabled: data.payments?.etransfer?.qrPageEnabled ?? false,
+        });
+        setPaymentsDirty(false);
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
@@ -1475,6 +1557,77 @@ export function SettingsModal({
       setBookingConfigSaving(false);
     }
   }, [bookingConfigForm, bookingConfigSaving, featureLusterManicure, router, salonSlug]);
+
+  /** Field edits mark the payments view dirty so Back can warn about them. */
+  const updatePaymentsForm = (
+    updater: (prev: PaymentsFormState) => PaymentsFormState,
+  ) => {
+    setPaymentsForm(updater);
+    setPaymentsDirty(true);
+    setPaymentsSaved(false);
+  };
+
+  const savePayments = useCallback(async () => {
+    if (!salonSlug || paymentsSaving) {
+      return;
+    }
+
+    try {
+      setPaymentsSaving(true);
+      setPaymentsSaved(false);
+      const scheduledBps = percentStringToBps(paymentsForm.scheduledRatePercent);
+      const hasScheduledChange
+        = paymentsForm.scheduledRatePercent.trim() !== ''
+        && paymentsForm.scheduledEffectiveFrom.trim() !== '';
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payments: {
+              tax: {
+                enabled: paymentsForm.taxEnabled,
+                name: paymentsForm.taxName.trim(),
+                rateBps: percentStringToBps(paymentsForm.taxRatePercent),
+                pricesIncludeTax: paymentsForm.pricesIncludeTax,
+                taxServicesByDefault: paymentsForm.taxServicesByDefault,
+                taxAddOnsByDefault: paymentsForm.taxAddOnsByDefault,
+                taxCustomByDefault: paymentsForm.taxCustomByDefault,
+                scheduledChange: hasScheduledChange
+                  ? {
+                      rateBps: scheduledBps,
+                      effectiveFrom: `${paymentsForm.scheduledEffectiveFrom}T00:00:00`,
+                    }
+                  : null,
+              },
+              etransfer: {
+                enabled: paymentsForm.etransferEnabled,
+                recipient: paymentsForm.etransferRecipient.trim(),
+                recipientName: paymentsForm.etransferRecipientName.trim(),
+                autodepositEnabled: paymentsForm.etransferAutodeposit,
+                instructions: paymentsForm.etransferInstructions.trim(),
+                requireReference: paymentsForm.etransferRequireReference,
+                qrPageEnabled: paymentsForm.etransferQrEnabled,
+              },
+            },
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to save payments settings');
+      }
+
+      setPaymentsSaved(true);
+      setPaymentsDirty(false);
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to save payments settings:', error);
+    } finally {
+      setPaymentsSaving(false);
+    }
+  }, [paymentsForm, paymentsSaving, router, salonSlug]);
 
   const saveBookingNotifications = useCallback(async () => {
     if (!salonSlug || bookingNotificationsSaving) {
@@ -1832,6 +1985,7 @@ export function SettingsModal({
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
     location: locationDirty || parkingDirty,
     booking: bookingConfigDirty,
+    payments: paymentsDirty,
     notifications: notificationsDirty,
     account: profileDirty,
   };
@@ -1966,6 +2120,23 @@ export function SettingsModal({
                   isLast
                 />
               )}
+            </Section>
+
+            <Section title="Payments">
+              <Row
+                icon={CreditCard}
+                iconColor="bg-emerald-600"
+                label="Payments & taxes"
+                value={
+                  programsLoading
+                    ? undefined
+                    : paymentsForm.taxEnabled
+                      ? `${paymentsForm.taxName.trim() || 'Tax'} ${paymentsForm.taxRatePercent || '0'}%`
+                      : 'Tax off'
+                }
+                onClick={() => openView('payments')}
+                isLast
+              />
             </Section>
 
             {(hasEntitledModules || (onOpenApp && staffToolsAvailable)) && (
@@ -2317,6 +2488,382 @@ export function SettingsModal({
                   />
                 )}
           </Section>
+        )}
+
+        {view === 'payments' && (
+          <>
+            <Section
+              title="Sales tax"
+              footer="Tax stays off until you turn it on — it is never assumed from your address. Completed appointments keep the tax that was in effect when they were checked out."
+            >
+              {programsLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    </div>
+                  )
+                : (
+                    <div className="space-y-4 p-4">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Charge tax
+                          </span>
+                          <p className="text-sm text-gray-700">
+                            Add tax at checkout when completing appointments.
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          data-testid="payments-tax-enabled"
+                          checked={paymentsForm.taxEnabled}
+                          onChange={event =>
+                            updatePaymentsForm(prev => ({
+                              ...prev,
+                              taxEnabled: event.target.checked,
+                            }))}
+                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                        />
+                      </label>
+
+                      {paymentsForm.taxEnabled && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Tax name
+                            </span>
+                            <input
+                              type="text"
+                              data-testid="payments-tax-name"
+                              value={paymentsForm.taxName}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  taxName: event.target.value,
+                                }))}
+                              placeholder="HST"
+                              maxLength={40}
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            />
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Tax rate
+                            </span>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                data-testid="payments-tax-rate"
+                                value={paymentsForm.taxRatePercent}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                  }))}
+                                placeholder="13"
+                                className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              />
+                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                                %
+                              </span>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Prices include tax
+                              </span>
+                              <p className="text-sm text-gray-700">
+                                On: your listed prices already include tax. Off: tax is
+                                added at checkout.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              data-testid="payments-tax-inclusive"
+                              checked={paymentsForm.pricesIncludeTax}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  pricesIncludeTax: event.target.checked,
+                                }))}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                            />
+                          </label>
+
+                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Taxable by default
+                            </span>
+                            <div className="mt-2 space-y-2">
+                              {([
+                                ['taxServicesByDefault', 'Services'],
+                                ['taxAddOnsByDefault', 'Add-ons'],
+                                ['taxCustomByDefault', 'Custom items'],
+                              ] as const).map(([key, label]) => (
+                                <label key={key} className="flex items-center justify-between gap-3">
+                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentsForm[key]}
+                                    onChange={event =>
+                                      updatePaymentsForm(prev => ({
+                                        ...prev,
+                                        [key]: event.target.checked,
+                                      }))}
+                                    className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                            <p className="mt-2 text-xs text-gray-500">
+                              You can still change tax on individual items at checkout.
+                            </p>
+                          </div>
+
+                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Scheduled rate change
+                            </span>
+                            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                              <label className="flex flex-col gap-1">
+                                <span className="text-xs text-gray-500">New rate</span>
+                                <div className="relative">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    data-testid="payments-tax-scheduled-rate"
+                                    value={paymentsForm.scheduledRatePercent}
+                                    onChange={event =>
+                                      updatePaymentsForm(prev => ({
+                                        ...prev,
+                                        scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                      }))}
+                                    placeholder="15"
+                                    className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  />
+                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                                    %
+                                  </span>
+                                </div>
+                              </label>
+                              <label className="flex flex-col gap-1">
+                                <span className="text-xs text-gray-500">Effective from</span>
+                                <input
+                                  type="date"
+                                  data-testid="payments-tax-scheduled-date"
+                                  value={paymentsForm.scheduledEffectiveFrom}
+                                  onChange={event =>
+                                    updatePaymentsForm(prev => ({
+                                      ...prev,
+                                      scheduledEffectiveFrom: event.target.value,
+                                    }))}
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                />
+                              </label>
+                            </div>
+                            <p className="mt-2 text-xs text-gray-500">
+                              Checkouts on or after this date use the new rate.
+                              Appointments completed earlier keep the old rate. Leave
+                              blank to cancel a scheduled change.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+            </Section>
+
+            <Section
+              title="Interac e-Transfer"
+              footer="Manual instructions only — payments are confirmed by you when the transfer arrives. Luster never asks for or stores banking passwords, and cannot verify bank deposits."
+            >
+              {programsLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    </div>
+                  )
+                : (
+                    <div className="space-y-4 p-4">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Accept e-Transfer
+                          </span>
+                          <p className="text-sm text-gray-700">
+                            Show e-Transfer instructions at checkout.
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          data-testid="payments-etransfer-enabled"
+                          checked={paymentsForm.etransferEnabled}
+                          onChange={event =>
+                            updatePaymentsForm(prev => ({
+                              ...prev,
+                              etransferEnabled: event.target.checked,
+                            }))}
+                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                        />
+                      </label>
+
+                      {paymentsForm.etransferEnabled && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Recipient email or mobile
+                            </span>
+                            <input
+                              type="text"
+                              data-testid="payments-etransfer-recipient"
+                              value={paymentsForm.etransferRecipient}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferRecipient: event.target.value,
+                                }))}
+                              placeholder="pay@yoursalon.ca"
+                              maxLength={200}
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            />
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Display name
+                            </span>
+                            <input
+                              type="text"
+                              value={paymentsForm.etransferRecipientName}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferRecipientName: event.target.value,
+                                }))}
+                              placeholder="Your salon name"
+                              maxLength={120}
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            />
+                          </label>
+
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Autodeposit is on
+                              </span>
+                              <p className="text-sm text-gray-700">
+                                Informational only — shown to clients so they know no
+                                security question is needed.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={paymentsForm.etransferAutodeposit}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferAutodeposit: event.target.checked,
+                                }))}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                            />
+                          </label>
+
+                          <label className="flex flex-col gap-1 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Instructions
+                            </span>
+                            <textarea
+                              value={paymentsForm.etransferInstructions}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferInstructions: event.target.value,
+                                }))}
+                              rows={3}
+                              maxLength={1000}
+                              placeholder="Please include the appointment reference in the message field."
+                              className="rounded-[10px] border border-gray-200 px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            />
+                          </label>
+
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Require reference
+                              </span>
+                              <p className="text-sm text-gray-700">
+                                Ask clients to include the appointment reference.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={paymentsForm.etransferRequireReference}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferRequireReference: event.target.checked,
+                                }))}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                            />
+                          </label>
+
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Payment QR page
+                              </span>
+                              <p className="text-sm text-gray-700">
+                                Let clients scan a QR code that opens payment
+                                instructions.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              data-testid="payments-etransfer-qr"
+                              checked={paymentsForm.etransferQrEnabled}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  etransferQrEnabled: event.target.checked,
+                                }))}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                        <div className="text-xs text-gray-500">
+                          Applies to new checkouts only — completed appointments are
+                          never recalculated.
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="payments-save"
+                          onClick={() => void savePayments()}
+                          disabled={paymentsSaving || !paymentsDirty}
+                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Save className="size-4" />
+                          <span>
+                            {paymentsSaving ? 'Saving...' : 'Save payments & taxes'}
+                          </span>
+                        </button>
+                      </div>
+
+                      {paymentsSaved && (
+                        <div className="text-right text-xs font-medium text-green-600">
+                          Payments & taxes saved.
+                        </div>
+                      )}
+                    </div>
+                  )}
+            </Section>
+          </>
         )}
 
         {view === 'notifications' && (

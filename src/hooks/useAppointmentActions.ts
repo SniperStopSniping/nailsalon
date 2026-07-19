@@ -84,7 +84,9 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
   const [detailError, setDetailError] = useState<string | null>(null);
   const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<ManageWarning[]>([]);
-  const [completionNeedsPhotoDecision, setCompletionNeedsPhotoDecision] = useState(false);
+  // "Mark completed" opens the dedicated checkout flow instead of finalizing.
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutInitialView, setCheckoutInitialView] = useState<'edit' | 'receipt'>('edit');
 
   const fetchDetail = useCallback(async (appointmentId: string) => {
     try {
@@ -114,7 +116,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       setDetailError(null);
       setAttemptedTimeLabel(null);
       setWarnings([]);
-      setCompletionNeedsPhotoDecision(false);
+      setCheckoutOpen(false);
       return;
     }
 
@@ -251,47 +253,41 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     }
   }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
 
-  const completeAppointment = useCallback(async (args: { skipPhotoValidation?: boolean } = {}) => {
+  /**
+   * "Mark completed" no longer finalizes anything — it opens the dedicated
+   * CheckoutSheet, which owns items/photos/tax/payment and submits the
+   * completion itself. This hook only tracks the open state and applies the
+   * optimistic updates when the sheet reports success.
+   */
+  const openCheckout = useCallback(() => {
     if (!selectedAppointmentId) {
       return;
     }
+    setCheckoutInitialView('edit');
+    setCheckoutOpen(true);
+  }, [selectedAppointmentId]);
 
-    setDetailSaving(true);
-    setDetailError(null);
-    setCompletionNeedsPhotoDecision(false);
-    try {
-      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/complete`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paymentStatus: 'paid',
-          ...(args.skipPhotoValidation ? { skipPhotoValidation: true } : {}),
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        // A missing after-photo is a decision, not a failure: the caller
-        // shows a confirm dialog that retries with skipPhotoValidation.
-        if (errorCode(result?.error) === 'PHOTOS_REQUIRED') {
-          setCompletionNeedsPhotoDecision(true);
-          return;
-        }
-        throw result.error ?? new Error('Unable to complete appointment');
-      }
-
-      onOptimisticStatus?.(selectedAppointmentId, 'completed');
-      notifyAppointmentDataChanged();
-      await fetchDetail(selectedAppointmentId);
-    } catch (completeError) {
-      setDetailError(errorMessage(completeError, 'Unable to complete appointment'));
-    } finally {
-      setDetailSaving(false);
+  const openReceipt = useCallback(() => {
+    if (!selectedAppointmentId) {
+      return;
     }
-  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+    setCheckoutInitialView('receipt');
+    setCheckoutOpen(true);
+  }, [selectedAppointmentId]);
 
-  const dismissPhotoDecision = useCallback(() => {
-    setCompletionNeedsPhotoDecision(false);
+  const closeCheckout = useCallback(() => {
+    setCheckoutOpen(false);
   }, []);
+
+  /** Called by CheckoutSheet after the server confirms the completion. */
+  const handleCheckoutCompleted = useCallback(() => {
+    if (!selectedAppointmentId) {
+      return;
+    }
+    onOptimisticStatus?.(selectedAppointmentId, 'completed');
+    notifyAppointmentDataChanged();
+    void fetchDetail(selectedAppointmentId);
+  }, [fetchDetail, onOptimisticStatus, selectedAppointmentId]);
 
   const confirmAppointment = useCallback(async () => {
     if (!selectedAppointmentId) {
@@ -413,14 +409,17 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     detailError,
     attemptedTimeLabel,
     warnings,
-    completionNeedsPhotoDecision,
-    dismissPhotoDecision,
+    checkoutOpen,
+    checkoutInitialView,
+    openCheckout,
+    openReceipt,
+    closeCheckout,
+    handleCheckoutCompleted,
     refreshDetail,
     runManageMutation,
     saveEdits,
     moveToNextAvailable,
     startAppointment,
-    completeAppointment,
     confirmAppointment,
     cancelAppointment,
     markNoShow,

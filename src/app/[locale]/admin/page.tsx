@@ -28,6 +28,7 @@ import {
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
+import { formatMoney } from '@/libs/formatMoney';
 // =============================================================================
 // Main Page Component
 // =============================================================================
@@ -60,6 +61,7 @@ function getEmptyAnalytics(): PartialAnalytics {
     revenue: {
       total: 0,
       tips: 0,
+      taxCollected: 0,
       trend: 0,
       completed: 0,
       series: [],
@@ -1246,11 +1248,7 @@ function AdminDashboardContent() {
       id: index + 1,
       name: tech.name,
       role: tech.role || 'Technician',
-      revenue: new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0,
-      }).format(tech.revenue / 100),
+      revenue: formatMoney(tech.revenue),
       avatarColor: avatarColors[index % avatarColors.length]!,
     })) || [];
 

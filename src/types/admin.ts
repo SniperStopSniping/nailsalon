@@ -16,8 +16,9 @@ export type { AppointmentStatus };
 export type AnalyticsResponse = {
   period: 'daily' | 'weekly' | 'monthly' | 'yearly';
   revenue: {
-    total: number; // cents
+    total: number; // cents — final (net-of-tax) revenue; comp appointments count 0
     tips: number; // cents — total tips for completed appointments in the period
+    taxCollected: number; // cents — tax collected in the period, reported separately from revenue
     trend: number; // percentage change from previous period
     completed: number; // count of completed appointments
     series: number[]; // revenue in cents bucketed evenly across the period
