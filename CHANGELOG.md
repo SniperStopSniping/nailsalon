@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.13.1...v1.14.0) (2026-07-19)
+
+
+### Features
+
+* **smart-fit:** add config resolver and pure eligibility evaluator ([ee83eea](https://github.com/SniperStopSniping/nailsalon/commit/ee83eea9c6224eb8c138f6f5437ee287d696fa0e))
+
 ## [1.13.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.13.0...v1.13.1) (2026-07-19)
 
 
