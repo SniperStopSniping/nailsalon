@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.13.0...v1.13.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **checkout:** seed itemized checkout from the booked discount ([d9c2834](https://github.com/SniperStopSniping/nailsalon/commit/d9c2834bdf100850cd1655d46560a251f0e3142b))
+
 # [1.13.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.12.1...v1.13.0) (2026-07-19)
 
 
