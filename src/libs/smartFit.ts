@@ -1,3 +1,4 @@
+import type { AutomaticBookingDiscountResult } from '@/libs/firstVisitDiscount';
 import type { ResolvedSmartFitConfig, SmartFitDiscountType } from '@/libs/smartFitConfig';
 
 /**
@@ -476,4 +477,91 @@ export function calculateSmartFitDiscountCents(
     fixed: config.value,
   };
   return Math.min(subtotalBeforeDiscountCents, Math.max(0, requested[config.discountType]));
+}
+
+// ---------------------------------------------------------------------------
+// Overlay (P7.2) — winner-take-all precedence on top of the existing resolver
+// ---------------------------------------------------------------------------
+
+/** Snapshot `discountType` value persisted on smart-fit appointments. */
+export const SMART_FIT_DISCOUNT_TYPE = 'smart_fit';
+/** Snapshot `discountLabel` shown at checkout and on receipts. */
+export const SMART_FIT_DISCOUNT_LABEL = 'Smart Fit Discount';
+
+export type SmartFitAppliedDiscount = {
+  kind: 'smart_fit';
+  subtotalBeforeDiscountCents: number;
+  discountAmountCents: number;
+  finalTotalCents: number;
+  reward: null;
+  firstVisit: null;
+  smartFit: {
+    discountType: typeof SMART_FIT_DISCOUNT_TYPE;
+    discountLabel: typeof SMART_FIT_DISCOUNT_LABEL;
+    /** The salon's configured mode/value that produced the amount. */
+    configDiscountType: SmartFitDiscountType;
+    configValue: number;
+    /** Percent snapshot column value: the percent in percent mode, null in fixed mode. */
+    discountPercent: number | null;
+    discountAppliedAt: Date;
+    evaluation: SmartFitEvaluation;
+  };
+};
+
+export type SmartFitOverlaidDiscount = AutomaticBookingDiscountResult | SmartFitAppliedDiscount;
+
+/**
+ * Upgrade a `kind:'none'` automatic-discount result to a Smart Fit discount
+ * when the server-evaluated slot qualifies. Precedence is structural and
+ * winner-take-all (campaign > reward > first_visit > smart_fit): campaign
+ * bookings never reach this overlay (the booking route overrides the resolver
+ * result before pricing), and any reward/first-visit result is returned
+ * UNCHANGED — Smart Fit never stacks and never replaces a higher offer.
+ *
+ * Inputs are never mutated; the smart-fit branch returns a fresh object. The
+ * discount amount is clamped to [0, subtotal] by
+ * `calculateSmartFitDiscountCents`, and checkout later re-clamps through the
+ * central pricing engine (`computeCheckoutTotals`).
+ */
+export function applySmartFitOverlay(args: {
+  base: AutomaticBookingDiscountResult;
+  config: ResolvedSmartFitConfig;
+  evaluation: SmartFitEvaluation | null | undefined;
+  /** Booking-time stamp for the snapshot; defaults to now. */
+  appliedAt?: Date;
+}): SmartFitOverlaidDiscount {
+  const { base, config, evaluation } = args;
+
+  if (base.kind !== 'none') {
+    return base;
+  }
+  if (!config.enabled || !evaluation?.eligible) {
+    return base;
+  }
+
+  const discountAmountCents = calculateSmartFitDiscountCents(
+    config,
+    base.subtotalBeforeDiscountCents,
+  );
+  if (discountAmountCents <= 0) {
+    return base;
+  }
+
+  return {
+    kind: 'smart_fit',
+    subtotalBeforeDiscountCents: base.subtotalBeforeDiscountCents,
+    discountAmountCents,
+    finalTotalCents: Math.max(0, base.subtotalBeforeDiscountCents - discountAmountCents),
+    reward: null,
+    firstVisit: null,
+    smartFit: {
+      discountType: SMART_FIT_DISCOUNT_TYPE,
+      discountLabel: SMART_FIT_DISCOUNT_LABEL,
+      configDiscountType: config.discountType,
+      configValue: config.value,
+      discountPercent: config.discountType === 'percent' ? config.value : null,
+      discountAppliedAt: args.appliedAt ?? new Date(),
+      evaluation,
+    },
+  };
 }

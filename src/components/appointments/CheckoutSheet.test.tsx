@@ -340,6 +340,24 @@ describe('CheckoutSheet', () => {
     expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$38.14');
   });
 
+  it('seeds a booked Smart Fit discount with tax applied after the discount (P7.2)', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        totalPrice: 4050,
+        discountType: 'smart_fit',
+        discountAmountCents: 450,
+        discountLabel: 'Smart Fit Discount',
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('4.50');
+    expect(screen.getByTestId('checkout-discount-reason')).toHaveValue('Smart Fit Discount');
+    // Discount before tax: 4500 − 450 = 4050 taxable → 13% = 526.5 → 527 (half-up) → 4577 due
+    expect(screen.getByTestId('checkout-tax-amount')).toHaveTextContent('$5.27');
+    expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$45.77');
+  });
+
   it('seeds a booked reward discount and keeps it while items are edited', async () => {
     await renderSheet(buildContext({
       appointment: {

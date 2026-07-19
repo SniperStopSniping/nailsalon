@@ -39,6 +39,12 @@ export type AppointmentWindow = {
   blockedDurationMinutes?: number | null;
   totalDurationMinutes?: number | null;
   bufferMinutes?: number | null;
+  /**
+   * Client identity of the occupying appointment — server-side only, consumed
+   * by Smart Fit self-adjacency exclusion. Never serialize these to clients.
+   */
+  salonClientId?: string | null;
+  clientPhone?: string | null;
 };
 
 export type BlockedSlotWindow = {
@@ -628,6 +634,8 @@ export async function loadBookingPolicy(args: {
       blockedDurationMinutes: appointmentSchema.blockedDurationMinutes,
       totalDurationMinutes: appointmentSchema.totalDurationMinutes,
       bufferMinutes: appointmentSchema.bufferMinutes,
+      salonClientId: appointmentSchema.salonClientId,
+      clientPhone: appointmentSchema.clientPhone,
     })
     .from(appointmentSchema)
     .where(and(...appointmentConditions));
@@ -655,6 +663,8 @@ export async function loadBookingPolicy(args: {
       blockedDurationMinutes: appointment.blockedDurationMinutes,
       totalDurationMinutes: appointment.totalDurationMinutes,
       bufferMinutes: appointment.bufferMinutes,
+      salonClientId: appointment.salonClientId,
+      clientPhone: appointment.clientPhone,
     });
     appointmentsByTechnician.set(appointment.technicianId, existing);
   }

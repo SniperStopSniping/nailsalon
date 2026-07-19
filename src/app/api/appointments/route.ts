@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -15,8 +15,10 @@ import {
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
+  BLOCKING_APPOINTMENT_STATUSES,
   isSlotConstraintViolation,
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
@@ -26,6 +28,7 @@ import {
   canTechnicianTakeAppointment,
   getTorontoDateString,
   loadBookingPolicy,
+  type LoadedBookingPolicy,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import {
@@ -42,7 +45,13 @@ import {
   FIRST_VISIT_DISCOUNT_TYPE,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import { GoogleCalendarAvailabilityError, hasGoogleCalendarConflict } from '@/libs/googleCalendar';
+import {
+  getGoogleCalendarBusyWindows,
+  GoogleCalendarAvailabilityError,
+  type GoogleCalendarBusyWindow,
+  hasGoogleCalendarConflict,
+  isBusyWindowConflict,
+} from '@/libs/googleCalendar';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
@@ -69,6 +78,19 @@ import {
 } from '@/libs/retentionCampaigns';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
+  applySmartFitOverlay,
+  evaluateSmartFitSlot,
+  SMART_FIT_DISCOUNT_LABEL,
+  SMART_FIT_DISCOUNT_TYPE,
+  type SmartFitEvaluation,
+} from '@/libs/smartFit';
+import {
+  buildSmartFitClientKeys,
+  buildSmartFitDayContext,
+  smartFitServiceScopeAllows,
+} from '@/libs/smartFitBooking';
+import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
+import {
   sendBookingConfirmationToClient,
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
@@ -80,6 +102,7 @@ import {
   APPOINTMENT_STATUSES,
   appointmentAccessTokenSchema,
   appointmentAddOnSchema,
+  appointmentAuditLogSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
@@ -204,6 +227,12 @@ const createAppointmentSchema = z.object({
   durationMinutesOverride: z.number().int().min(1).max(1440).optional(),
   notes: z.string().trim().max(2000).optional(),
   campaignToken: z.string().trim().min(32).max(200).regex(/^[\w-]+$/).optional(),
+  // Optional client expectations from a previously displayed offer (Smart
+  // Fit). When present, the in-transaction recompute must match them exactly
+  // or the booking is rejected with 409 SMART_FIT_CHANGED — a displayed price
+  // is never silently changed. Absent fields keep legacy behavior.
+  expectedDiscountType: z.string().trim().max(50).nullable().optional(),
+  expectedTotalCents: z.number().int().min(0).max(50_000_000).optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -254,6 +283,46 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+/** Approved user-facing copy for a stale Smart Fit expectation (P7.2). */
+const SMART_FIT_STALE_MESSAGE = 'This discounted time is no longer available. Please choose from the latest times.';
+
+type SmartFitPricingBreakdown = {
+  subtotalBeforeDiscountCents: number;
+  discountAmountCents: number;
+  discountType: string | null;
+  discountLabel: string | null;
+  finalTotalCents: number;
+};
+
+/**
+ * Thrown inside the booking transaction when the client's expected discount or
+ * total no longer matches the authoritative in-transaction recompute. Rolls
+ * the transaction back; the catch maps it to 409 SMART_FIT_CHANGED with the
+ * fresh breakdown so the caller can re-confirm at the current price.
+ */
+class SmartFitStaleError extends Error {
+  constructor(public readonly breakdown: SmartFitPricingBreakdown) {
+    super('SMART_FIT_CHANGED');
+    this.name = 'SmartFitStaleError';
+  }
+}
+
+function smartFitStaleResponse(error: SmartFitStaleError): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'SMART_FIT_CHANGED',
+        message: SMART_FIT_STALE_MESSAGE,
+        details: {
+          refreshAvailability: true,
+          breakdown: error.breakdown,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
 
 function campaignFailureResponse(code: CampaignValidationFailureCode): Response {
   const status = code === 'CAMPAIGN_EXPIRED' || code === 'PROMOTION_DISABLED'
@@ -506,6 +575,12 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const bookingConfig = await getBookingConfigForSalon(salon.id);
+    // Smart Fit (P7.2): resolves to the inert disabled default unless the
+    // salon explicitly enabled `settings.smartFit` — every smart-fit branch
+    // below is skipped when disabled, keeping the legacy path unchanged.
+    const smartFitConfig = resolveSmartFitConfig(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
     const requestedDate = data.appointmentDate?.trim() || null;
     const requestedTime = data.appointmentTime?.trim() || null;
     const parsedStartTime = requestedDate && requestedTime
@@ -1187,6 +1262,143 @@ export async function POST(request: Request): Promise<Response> {
       excludedAppointmentId: normalizedOriginalApptId,
     });
 
+    // Smart Fit (P7.2) — request-level applicability. Campaign bookings keep
+    // strict precedence (campaign > reward > first_visit > smart_fit),
+    // Google-event conversions bypass all availability logic, and the whole
+    // service basket must be in the configured scope.
+    const smartFitScopeAllowed = smartFitConfig.enabled
+      && !normalizedCampaignToken
+      && !bypassAvailabilityGate
+      && subtotalBeforeDiscountCents > 0
+      && smartFitServiceScopeAllows(smartFitConfig, services.map(service => service.id));
+
+    // Day-wide Google busy windows, fetched ONCE and reused by the technician
+    // pick, the Google conflict check, and the in-transaction revalidation.
+    // Same fail-closed semantics as the existing per-window check below.
+    let smartFitGoogleBusyWindows: GoogleCalendarBusyWindow[] | null = null;
+    if (smartFitScopeAllowed) {
+      try {
+        smartFitGoogleBusyWindows = await getGoogleCalendarBusyWindows({
+          salonId: salon.id,
+          startTime: bookingStartOfDay,
+          endTime: bookingEndOfDay,
+          timeZone: bookingConfig.timezone,
+        });
+      } catch (error) {
+        const reconnectRequired = error instanceof GoogleCalendarAvailabilityError
+          && error.reconnectRequired;
+        console.error('[GoogleCalendar] Availability check failed before booking:', error);
+        return Response.json(
+          {
+            error: {
+              code: 'CALENDAR_UNAVAILABLE',
+              message: reconnectRequired
+                ? 'Unable to confirm this booking while the salon restores its calendar connection. Please try again later.'
+                : 'Unable to confirm calendar availability. Please try again shortly.',
+            },
+          } satisfies ErrorResponse,
+          { status: 503 },
+        );
+      }
+    }
+
+    const smartFitVisibleDurationMinutes = totalDurationMinutes;
+    // Derive the buffer from the blocked window so the evaluator sees exactly
+    // the window the conflict guards enforce.
+    const smartFitBufferMinutes = Math.max(0, blockedDurationMinutes - totalDurationMinutes);
+
+    const buildSmartFitCandidate = (clientKeys: string[] | undefined) => ({
+      startMs: startTime.getTime(),
+      visibleDurationMinutes: smartFitVisibleDurationMinutes,
+      bufferMinutes: smartFitBufferMinutes,
+      serviceId: services[0]?.id ?? '',
+      technicianId: normalizedTechnicianId,
+      locationId: validatedLocationId,
+      clientKeys,
+      excludeAppointmentId: normalizedOriginalApptId,
+    });
+
+    const buildSmartFitDayContextForTech = (args: {
+      tech: (typeof candidateTechnicians)[number];
+      policy: LoadedBookingPolicy;
+      appointments?: Parameters<typeof buildSmartFitDayContext>[0]['appointments'];
+      nowMs: number;
+    }) => buildSmartFitDayContext({
+      technicianId: args.tech.id,
+      weeklySchedule: args.tech.weeklySchedule as WeeklySchedule | null,
+      override: args.policy.overridesByTechnician.get(args.tech.id) ?? null,
+      isOnTimeOff: args.policy.timeOffTechnicianIds.has(args.tech.id),
+      appointments: args.appointments ?? args.policy.appointmentsByTechnician.get(args.tech.id) ?? [],
+      blockedSlots: args.policy.blockedSlotsByTechnician.get(args.tech.id) ?? [],
+      googleBusyWindows: smartFitGoogleBusyWindows ?? [],
+      locationId: validatedLocationId,
+      locationBusinessHours: validatedLocation?.businessHours ?? null,
+      date: bookingDate,
+      timeZone: bookingConfig.timezone,
+      slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+      gridAnchorMs: bookingStartOfDay.getTime(),
+      nowMs: args.nowMs,
+    });
+
+    // Identity known pre-transaction: the booking phone. The in-transaction
+    // recompute adds the resolved salonClientId key as well.
+    const smartFitPreTxClientKeys = buildSmartFitClientKeys({ clientPhone: normalizedPhone });
+
+    // 'any'-technician resolution. With Smart Fit enabled the pick prefers the
+    // first AVAILABLE technician for whom this slot is a qualifying tight fit,
+    // falling back to the existing first-available behavior — the one place
+    // Smart Fit actively packs schedules (approved P6). Disabled salons keep
+    // the original first-fit expression untouched.
+    const pickAnyAvailableTechnician = (policy: LoadedBookingPolicy) => {
+      const isAvailable = (tech: (typeof candidateTechnicians)[number]): boolean => {
+        const decision = canTechnicianTakeAppointment({
+          startTime,
+          endTime: blockedEndTime,
+          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
+          override: policy.overridesByTechnician.get(tech.id),
+          isOnTimeOff: policy.timeOffTechnicianIds.has(tech.id),
+          blockedSlots: policy.blockedSlotsByTechnician.get(tech.id) ?? [],
+          requestedServices: services,
+          capabilityMode,
+          enabledServiceIds: tech.enabledServiceIds ?? [],
+          specialties: tech.specialties ?? [],
+          locationId: validatedLocationId,
+          primaryLocationId: tech.primaryLocationId ?? null,
+          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          existingAppointments: policy.appointmentsByTechnician.get(tech.id) ?? [],
+          excludedAppointmentId: normalizedOriginalApptId,
+          bufferMinutes: 0,
+        });
+
+        return decision.available;
+      };
+
+      if (!smartFitScopeAllowed || smartFitGoogleBusyWindows === null) {
+        return candidateTechnicians.find(isAvailable) ?? null;
+      }
+
+      const availableTechnicians = candidateTechnicians.filter(isAvailable);
+      const qualifying = availableTechnicians.find((tech) => {
+        const dayContext = buildSmartFitDayContextForTech({
+          tech,
+          policy,
+          nowMs: now.getTime(),
+        });
+        if (!dayContext) {
+          return false;
+        }
+        return evaluateSmartFitSlot({
+          config: smartFitConfig,
+          candidate: buildSmartFitCandidate(
+            smartFitPreTxClientKeys.length > 0 ? smartFitPreTxClientKeys : undefined,
+          ),
+          day: dayContext,
+        }).eligible;
+      });
+
+      return qualifying ?? availableTechnicians[0] ?? null;
+    };
+
     if (technician) {
       const decision = bypassAvailabilityGate
         ? null
@@ -1242,28 +1454,7 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
     } else {
-      technician = candidateTechnicians.find((tech) => {
-        const decision = canTechnicianTakeAppointment({
-          startTime,
-          endTime: blockedEndTime,
-          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
-          override: initialPolicy.overridesByTechnician.get(tech.id),
-          isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(tech.id),
-          blockedSlots: initialPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
-          requestedServices: services,
-          capabilityMode,
-          enabledServiceIds: tech.enabledServiceIds ?? [],
-          specialties: tech.specialties ?? [],
-          locationId: validatedLocationId,
-          primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: validatedLocation?.businessHours ?? null,
-          existingAppointments: initialPolicy.appointmentsByTechnician.get(tech.id) ?? [],
-          excludedAppointmentId: normalizedOriginalApptId,
-          bufferMinutes: 0,
-        });
-
-        return decision.available;
-      }) ?? null;
+      technician = pickAnyAvailableTechnician(initialPolicy);
 
       if (!technician) {
         return Response.json(
@@ -1378,28 +1569,7 @@ export async function POST(request: Request): Promise<Response> {
     // Conversions keep the technician resolved in the initial pass — the
     // soft-availability re-check below is for client-facing bookings only.
     if (!normalizedTechnicianId && !bypassAvailabilityGate) {
-      technician = candidateTechnicians.find((tech) => {
-        const decision = canTechnicianTakeAppointment({
-          startTime,
-          endTime: blockedEndTime,
-          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
-          override: finalPolicy.overridesByTechnician.get(tech.id),
-          isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(tech.id),
-          blockedSlots: finalPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
-          requestedServices: services,
-          capabilityMode,
-          enabledServiceIds: tech.enabledServiceIds ?? [],
-          specialties: tech.specialties ?? [],
-          locationId: validatedLocationId,
-          primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: validatedLocation?.businessHours ?? null,
-          existingAppointments: finalPolicy.appointmentsByTechnician.get(tech.id) ?? [],
-          excludedAppointmentId: normalizedOriginalApptId,
-          bufferMinutes: 0,
-        });
-
-        return decision.available;
-      }) ?? null;
+      technician = pickAnyAvailableTechnician(finalPolicy);
     }
 
     if (!technician) {
@@ -1468,14 +1638,18 @@ export async function POST(request: Request): Promise<Response> {
       // second synced calendar), so another busy Google row must not block
       // the import. Only a genuine overlap with an active CRM appointment
       // blocks, via lockTechnicianAndAssertSlotFree in the transaction below.
+      // When Smart Fit already fetched the day's busy windows, reuse them for
+      // the same overlap decision instead of a second freeBusy call.
       const googleCalendarConflict = googleReviewEvent
         ? false
-        : await hasGoogleCalendarConflict({
-          salonId: salon.id,
-          startTime,
-          endTime: blockedEndTime,
-          timeZone: bookingConfig.timezone,
-        });
+        : smartFitGoogleBusyWindows !== null
+          ? isBusyWindowConflict(startTime, blockedEndTime, smartFitGoogleBusyWindows)
+          : await hasGoogleCalendarConflict({
+            salonId: salon.id,
+            startTime,
+            endTime: blockedEndTime,
+            timeZone: bookingConfig.timezone,
+          });
 
       if (googleCalendarConflict) {
         return Response.json(
@@ -1560,6 +1734,172 @@ export async function POST(request: Request): Promise<Response> {
       discountAppliedAt = new Date();
     }
 
+    // Smart Fit (P7.2) — authoritative in-transaction pricing finalization.
+    // Runs after `lockTechnicianAndAssertSlotFree` in both transaction
+    // branches. Order: fresh tx-scoped day windows → evaluator → existing
+    // automatic-discount resolver → overlay (strict precedence, no stacking)
+    // → expectation guard. When Smart Fit is disabled the pre-transaction
+    // pricing stands untouched and only the expectation guard runs (and only
+    // if the caller sent expectations).
+    const smartFitExpectationProvided = data.expectedTotalCents !== undefined
+      || data.expectedDiscountType !== undefined;
+    const normalizedExpectedDiscountType = data.expectedDiscountType === undefined
+      ? undefined
+      : (data.expectedDiscountType?.trim() || null);
+    let smartFitGrantEvaluation: SmartFitEvaluation | null = null;
+
+    type BookingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+    const finalizeBookingPricingInTx = async (tx: BookingTx): Promise<void> => {
+      const lockedTechnician = technician;
+      smartFitGrantEvaluation = null;
+
+      if (smartFitScopeAllowed && smartFitGoogleBusyWindows !== null && lockedTechnician) {
+        const freshWindowConditions = [
+          eq(appointmentSchema.salonId, salon.id),
+          eq(appointmentSchema.technicianId, lockedTechnician.id),
+          gte(appointmentSchema.startTime, bookingStartOfDay),
+          lt(appointmentSchema.startTime, bookingEndOfDay),
+          inArray(appointmentSchema.status, [...BLOCKING_APPOINTMENT_STATUSES]),
+        ];
+        if (normalizedOriginalApptId) {
+          freshWindowConditions.push(ne(appointmentSchema.id, normalizedOriginalApptId));
+        }
+        const freshDayWindows = await tx
+          .select({
+            id: appointmentSchema.id,
+            startTime: appointmentSchema.startTime,
+            endTime: appointmentSchema.endTime,
+            blockedDurationMinutes: appointmentSchema.blockedDurationMinutes,
+            totalDurationMinutes: appointmentSchema.totalDurationMinutes,
+            bufferMinutes: appointmentSchema.bufferMinutes,
+            salonClientId: appointmentSchema.salonClientId,
+            clientPhone: appointmentSchema.clientPhone,
+          })
+          .from(appointmentSchema)
+          .where(and(...freshWindowConditions));
+
+        const dayContext = buildSmartFitDayContextForTech({
+          tech: lockedTechnician,
+          policy: finalPolicy,
+          appointments: freshDayWindows,
+          nowMs: Date.now(),
+        });
+
+        const finalClientKeys = Array.from(new Set([
+          ...buildSmartFitClientKeys({
+            salonClientId: salonClient.id,
+            clientPhone: salonClient.phone,
+          }),
+          ...smartFitPreTxClientKeys,
+        ]));
+
+        const evaluation = dayContext
+          ? evaluateSmartFitSlot({
+            config: smartFitConfig,
+            candidate: buildSmartFitCandidate(
+              finalClientKeys.length > 0 ? finalClientKeys : undefined,
+            ),
+            day: dayContext,
+          })
+          : null;
+
+        // Overlay base = this request's automatic-discount resolution (the
+        // existing :automaticDiscount call site) — the same freshness model
+        // reward/first-visit writes already have. The resolver cannot be
+        // re-run here: it reads through the global db handle, which inside
+        // this transaction would deadlock the single-connection PGlite
+        // driver (dev server and tests), and P7.2 forbids modifying its
+        // internals to accept a transaction. Only the schedule state (the
+        // input that concurrent bookings actually change) is re-read
+        // transaction-scoped above.
+        const finalDiscount = applySmartFitOverlay({
+          base: automaticDiscount,
+          config: smartFitConfig,
+          evaluation,
+          appliedAt: new Date(),
+        });
+
+        totalPrice = finalDiscount.finalTotalCents;
+        discountAmountCents = finalDiscount.discountAmountCents;
+        switch (finalDiscount.kind) {
+          case 'reward':
+            appliedReward = finalDiscount.reward;
+            appointmentDiscountType = 'reward';
+            appointmentDiscountLabel = 'Reward applied';
+            appointmentDiscountPercent = null;
+            discountAppliedAt = new Date();
+            break;
+          case 'first_visit':
+            appliedReward = null;
+            appointmentDiscountType = finalDiscount.firstVisit.discountType;
+            appointmentDiscountLabel = finalDiscount.firstVisit.discountLabel;
+            appointmentDiscountPercent = finalDiscount.firstVisit.discountPercent;
+            discountAppliedAt = finalDiscount.firstVisit.discountAppliedAt;
+            break;
+          case 'smart_fit':
+            appliedReward = null;
+            appointmentDiscountType = SMART_FIT_DISCOUNT_TYPE;
+            appointmentDiscountLabel = SMART_FIT_DISCOUNT_LABEL;
+            appointmentDiscountPercent = finalDiscount.smartFit.discountPercent;
+            discountAppliedAt = finalDiscount.smartFit.discountAppliedAt;
+            smartFitGrantEvaluation = finalDiscount.smartFit.evaluation;
+            break;
+          default:
+            appliedReward = null;
+            appointmentDiscountType = null;
+            appointmentDiscountLabel = null;
+            appointmentDiscountPercent = null;
+            discountAppliedAt = null;
+            break;
+        }
+      }
+
+      if (smartFitExpectationProvided) {
+        const totalMismatch = data.expectedTotalCents !== undefined
+          && data.expectedTotalCents !== totalPrice;
+        const typeMismatch = normalizedExpectedDiscountType !== undefined
+          && normalizedExpectedDiscountType !== (appointmentDiscountType ?? null);
+        if (totalMismatch || typeMismatch) {
+          throw new SmartFitStaleError({
+            subtotalBeforeDiscountCents,
+            discountAmountCents,
+            discountType: appointmentDiscountType,
+            discountLabel: appointmentDiscountLabel,
+            finalTotalCents: totalPrice,
+          });
+        }
+      }
+    };
+
+    const insertSmartFitAuditRowInTx = async (tx: BookingTx, createdAppointmentId: string): Promise<void> => {
+      const grantedEvaluation = smartFitGrantEvaluation;
+      const lockedTechnician = technician;
+      if (!grantedEvaluation || appointmentDiscountType !== SMART_FIT_DISCOUNT_TYPE || !lockedTechnician) {
+        return;
+      }
+      await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({
+        appointmentId: createdAppointmentId,
+        salonId: salon.id,
+        action: 'discount_applied',
+        performedBy: 'system',
+        performedByRole: 'system',
+        newValue: {
+          type: SMART_FIT_DISCOUNT_TYPE,
+          discountType: smartFitConfig.discountType,
+          value: smartFitConfig.value,
+          discountAmountCents,
+          technicianId: lockedTechnician.id,
+          remainingGapMinutes: grantedEvaluation.remainingGapMinutes,
+          improvementMinutes: grantedEvaluation.improvementMinutes,
+          consolidatedMinutes: grantedEvaluation.consolidatedMinutes,
+          qualifyingSides: grantedEvaluation.qualifyingSides,
+          maxRemainingGapMinutes: smartFitConfig.maxRemainingGapMinutes,
+          minImprovementMinutes: smartFitConfig.minImprovementMinutes,
+        },
+      }));
+    };
+
     // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
     const managementCapability = createOpaqueToken();
@@ -1612,6 +1952,8 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
 
+          await finalizeBookingPricingInTx(tx);
+
           const [createdAppointment] = await tx
             .insert(appointmentSchema)
             .values({
@@ -1663,6 +2005,8 @@ export async function POST(request: Request): Promise<Response> {
               eq(appointmentAccessTokenSchema.appointmentId, normalizedOriginalApptId),
               isNull(appointmentAccessTokenSchema.revokedAt),
             ));
+
+          await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
 
           const insertedServices: AppointmentService[] = [];
           for (const service of services) {
@@ -1740,6 +2084,10 @@ export async function POST(request: Request): Promise<Response> {
           );
         }
 
+        if (error instanceof SmartFitStaleError) {
+          return smartFitStaleResponse(error);
+        }
+
         if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
           return Response.json(
             {
@@ -1768,6 +2116,8 @@ export async function POST(request: Request): Promise<Response> {
               blockedEndTime,
             });
           }
+
+          await finalizeBookingPricingInTx(tx);
 
           let lockedRetentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
           if (retentionCampaign) {
@@ -1857,6 +2207,8 @@ export async function POST(request: Request): Promise<Response> {
               metadata: { appointmentId: createdAppointment.id },
             });
           }
+
+          await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
 
           const insertedServices: AppointmentService[] = [];
           for (const service of services) {
@@ -1976,6 +2328,10 @@ export async function POST(request: Request): Promise<Response> {
         appointmentServices = transactionalResult.appointmentServices;
         appointmentAddOns = transactionalResult.appointmentAddOns;
       } catch (error) {
+        if (error instanceof SmartFitStaleError) {
+          return smartFitStaleResponse(error);
+        }
+
         if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
           return Response.json(
             {
