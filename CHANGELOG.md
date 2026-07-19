@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.17.0...v1.18.0) (2026-07-19)
+
+
+### Features
+
+* **smart-fit:** reporting + attribution, identity-aware availability, date preservation (P7.5) ([b739e33](https://github.com/SniperStopSniping/nailsalon/commit/b739e33ff4bae596fee949e24e7b0f260773540b))
+
 # [1.17.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.16.0...v1.17.0) (2026-07-19)
 
 
