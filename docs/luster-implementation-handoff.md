@@ -3,9 +3,17 @@
 > Produced by the Phase-0 audit session (2026-07-18). Read this before touching anything.
 > Audit method: 11 read-only domain audits + adversarial verification (213 status claims, 2 corrected) + plan synthesis.
 
-## ⚠️ FOREIGN MIGRATION 0059 — DO NOT APPLY (found 2026-07-19, uncommitted)
+## Foreign migration 0059 — REMOVED (2026-07-19 cleanup session)
 
-Untracked `migrations/0059_outstanding_nighthawk.sql` + `migrations/meta/0059_snapshot.json` and a 0059 journal entry appeared mid-session, NOT created by this session (timestamps match a concurrent codex agent; drizzle meta snapshots stop at 0009, so `drizzle-kit generate` emits a full-schema dump). The file re-creates every enum/table — `CREATE TYPE` without `IF NOT EXISTS` would **fail against the shared prod DB** and abort any `db:migrate` run mid-stream. Before any migration run: delete the two 0059 files and drop the 0059 entry from `migrations/meta/_journal.json` (keep the 0058 entry), or coordinate with whoever generated them. Never run `drizzle-kit generate` in this repo until the meta snapshots are rebuilt — hand-write migrations (0056–0058 precedent).
+**What happened:** untracked `migrations/0059_outstanding_nighthawk.sql` (1,386 lines) + `migrations/meta/0059_snapshot.json` and an uncommitted idx-59 `_journal.json` entry appeared mid-Phase-3, not created by the Claude session (consistent with the concurrent codex agent running `drizzle-kit generate`; drizzle meta snapshots stop at 0009, so `generate` emits a full-schema dump).
+
+**Why it was unsafe:** it re-created the entire schema — 43 `CREATE TABLE` statements and **10 `CREATE TYPE` statements with no `IF NOT EXISTS`**, which would fail immediately against the shared prod DB (all 10 enums already exist) and abort a `db:migrate` run mid-stream; it also contained `DROP INDEX IF EXISTS "unique_client_salon_prefs"`, which would have silently dropped a live index. It was fully redundant with committed history (it even re-created the 0058 objects).
+
+**Cleanup (all three pieces were uncommitted, so removal changed no tracked history):** deleted `migrations/0059_outstanding_nighthawk.sql` and `migrations/meta/0059_snapshot.json`; restored `migrations/meta/_journal.json` to its committed state (ends at idx 58, `0058_checkout_payments_tax`). Repo-wide scan confirms zero remaining 0059 references. **0058 was inspected and left untouched** — additive-only (23 `IF NOT EXISTS` adds, zero DROP/ALTER-COLUMN/DELETE), valid, and required by Phase 3 code; it is the next migration to apply to the shared DB.
+
+**Verified after removal:** migration-dependent PGlite integration suites (checkout, pay-page, client-stats, booking-conflict-guard, DB isolation — 29/29, each applying the full `migrations/` folder), Phase 3 unit/component suites (108/108 across 15 files), typecheck clean.
+
+**Standing rule:** never run `drizzle-kit generate` in this repo until the meta snapshots are rebuilt — hand-write migrations (0056–0058 precedent).
 
 ## Phase 3 (P3a+P3b) — COMPLETE (2026-07-19, commit `7d214f3` on `feat/more-workspace-integrations`)
 
