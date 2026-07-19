@@ -1,12 +1,34 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { Check, ExternalLink, MailCheck, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, MailCheck, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { getStarterTemplates } from '@/libs/serviceTemplateCatalog';
+
 type DayName = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
-type ServiceDraft = { id: string; name: string; price: string; duration: string; category: 'manicure' | 'builder_gel' | 'extensions' | 'pedicure' | 'combo' };
+type StarterReviewRow = {
+  templateKey: string;
+  name: string;
+  priceDisplayText: string | null;
+  price: string;
+  duration: string;
+  enabled: boolean;
+};
 const DAYS: DayName[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function buildStarterReviewRows(): StarterReviewRow[] {
+  return getStarterTemplates()
+    .filter(template => template.serviceType !== 'addon')
+    .map(template => ({
+      templateKey: template.systemKey,
+      name: template.name,
+      priceDisplayText: template.priceDisplayText,
+      price: (template.defaultPriceCents / 100).toString(),
+      duration: String(template.defaultDurationMinutes),
+      enabled: true,
+    }));
+}
 
 const defaultHours = Object.fromEntries(DAYS.map(day => [day, ['saturday', 'sunday'].includes(day) ? null : { open: '09:00', close: '17:00' }])) as Record<DayName, { open: string; close: string } | null>;
 
@@ -23,9 +45,7 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
   const [postalCode, setPostalCode] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
   const [hours, setHours] = useState(defaultHours);
-  const [services, setServices] = useState<ServiceDraft[]>([
-    { id: 'starter-builder-gel', name: 'Builder Gel Overlay', price: '65', duration: '90', category: 'builder_gel' },
-  ]);
+  const [starterServices, setStarterServices] = useState<StarterReviewRow[]>(buildStarterReviewRows);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{
@@ -98,10 +118,6 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
 
   const suggestedSlug = useMemo(() => salonName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 47), [salonName]);
   const shownSlug = slug || suggestedSlug;
-
-  function addService() {
-    setServices(items => [...items, { id: crypto.randomUUID(), name: '', price: '', duration: '60', category: 'manicure' }]);
-  }
 
   function clerkErrorMessage(cause: unknown, fallback: string) {
     if (cause && typeof cause === 'object' && 'errors' in cause) {
@@ -191,11 +207,11 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
           postalCode,
           logoUrl,
           businessHours: hours,
-          services: services.map(service => ({
-            name: service.name,
+          serviceOverrides: starterServices.map(service => ({
+            templateKey: service.templateKey,
             priceCents: Math.round(Number(service.price) * 100),
             durationMinutes: Number(service.duration),
-            category: service.category,
+            enabled: service.enabled,
           })),
         }),
       });
@@ -329,43 +345,33 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
           </section>
 
           <section className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm lg:col-span-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-stone-900">4. Services and pricing</h2>
-                <p className="mt-1 text-sm text-stone-500">The Builder Gel starter is generic and fully editable.</p>
-              </div>
-              <button type="button" onClick={addService} className="inline-flex items-center gap-1 rounded-full border border-stone-300 px-3 py-2 text-sm">
-                <Plus size={15} />
-                {' '}
-                Add
-              </button>
+            <div>
+              <h2 className="text-lg font-semibold text-stone-900">4. Your starter menu</h2>
+              <p className="mt-1 text-sm text-stone-500">
+                We pre-filled the most popular services (plus common add-ons behind the scenes).
+                Adjust any price or duration, or turn off anything you don’t offer — everything
+                stays editable from your dashboard.
+              </p>
             </div>
             <div className="mt-4 space-y-3">
-              {services.map((service, index) => (
-                <div key={service.id} className="grid gap-3 rounded-2xl bg-stone-50 p-3 sm:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+              {starterServices.map((service, index) => (
+                <div key={service.templateKey} data-testid={`starter-review-${service.templateKey}`} className={`grid gap-3 rounded-2xl p-3 sm:grid-cols-[2fr_1fr_1fr_auto] ${service.enabled ? 'bg-stone-50' : 'bg-stone-100 opacity-60'}`}>
+                  <div className="text-xs font-medium text-stone-600">
+                    Service
+                    <div className="mt-1 rounded-xl px-1 py-2 text-sm font-semibold text-stone-900">{service.name}</div>
+                  </div>
                   <label className="text-xs font-medium text-stone-600">
-                    Service name
-                    <input aria-label="Service name" placeholder="Builder Gel Overlay" className={inputClass} value={service.name} onChange={event => setServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} />
-                  </label>
-                  <label className="text-xs font-medium text-stone-600">
-                    Price (CAD $)
-                    <input aria-label="Price (CAD dollars)" type="number" min="0" step="0.01" placeholder="65" inputMode="decimal" className={inputClass} value={service.price} onChange={event => setServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item))} />
+                    {service.priceDisplayText ? `Price (from, CAD $)` : 'Price (CAD $)'}
+                    <input aria-label={`Price for ${service.name}`} type="number" min="0" step="0.01" inputMode="decimal" className={inputClass} value={service.price} disabled={!service.enabled} onChange={event => setStarterServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item))} />
                   </label>
                   <label className="text-xs font-medium text-stone-600">
                     Duration (minutes)
-                    <input aria-label="Duration (minutes)" type="number" min="15" max="480" step="5" placeholder="90" inputMode="numeric" className={inputClass} value={service.duration} onChange={event => setServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, duration: event.target.value } : item))} />
+                    <input aria-label={`Duration for ${service.name}`} type="number" min="15" max="480" step="5" inputMode="numeric" className={inputClass} value={service.duration} disabled={!service.enabled} onChange={event => setStarterServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, duration: event.target.value } : item))} />
                   </label>
-                  <label className="text-xs font-medium text-stone-600">
-                    Category
-                    <select aria-label="Category" className={inputClass} value={service.category} onChange={event => setServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, category: event.target.value as ServiceDraft['category'] } : item))}>
-                      <option value="builder_gel">Builder gel</option>
-                      <option value="manicure">Manicure</option>
-                      <option value="extensions">Extensions</option>
-                      <option value="pedicure">Pedicure</option>
-                      <option value="combo">Combo</option>
-                    </select>
+                  <label className="mt-1 flex items-center gap-2 self-center text-xs font-medium text-stone-600">
+                    <input aria-label={`Offer ${service.name}`} type="checkbox" className="size-4" checked={service.enabled} onChange={event => setStarterServices(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />
+                    Offer
                   </label>
-                  <button type="button" aria-label="Remove service" disabled={services.length === 1} onClick={() => setServices(items => items.filter((_, itemIndex) => itemIndex !== index))} className="mt-1 self-center rounded-full p-2 text-stone-500 disabled:opacity-30"><Trash2 size={18} /></button>
                 </div>
               ))}
             </div>

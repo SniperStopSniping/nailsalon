@@ -43,10 +43,19 @@ const {
   };
 });
 
+const { seedStarterMenuForSalon } = vi.hoisted(() => ({
+  seedStarterMenuForSalon: vi.fn(async () => ({
+    createdServiceIds: ['svc_seeded'],
+    createdAddOnIds: [],
+    skippedTemplateKeys: [],
+  })),
+}));
+
 vi.mock('@clerk/nextjs/server', () => ({ currentUser }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('@/libs/clerkIdentity.server', () => ({ isClerkUserMissing }));
+vi.mock('@/libs/starterMenu', () => ({ seedStarterMenuForSalon }));
 vi.mock('server-only', () => ({}));
 
 import { POST } from './route';
@@ -137,6 +146,58 @@ describe('POST /api/onboarding/luster', () => {
       slug: 'isla-nails',
       publicUrl: 'https://isla-nails.luster.com/',
     });
+  });
+
+  it('seeds the starter menu with owner overrides when no manual services are sent', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_1',
+        invitedEmail: 'owner@example.com',
+        campaignSource: 'builder-gel-sample',
+      }],
+      [],
+      [],
+    );
+
+    const { services: _legacyServices, ...withoutServices } = validSetup;
+    const response = await POST(request({
+      ...withoutServices,
+      serviceOverrides: [
+        { templateKey: 'luster_manicure', priceCents: 5500 },
+        { templateKey: 'gel_x_extensions', enabled: false },
+      ],
+    } as never));
+
+    expect(response.status).toBe(201);
+    expect(seedStarterMenuForSalon).toHaveBeenCalledWith(expect.objectContaining({
+      db: tx,
+      mode: 'initial',
+      overrides: [
+        { templateKey: 'luster_manicure', priceCents: 5500 },
+        { templateKey: 'gel_x_extensions', enabled: false },
+      ],
+    }));
+  });
+
+  it('still honors a legacy manual services payload without touching the starter seeder', async () => {
+    queueSelectResults(
+      [{
+        id: 'invite_1',
+        invitedEmail: 'owner@example.com',
+        campaignSource: 'builder-gel-sample',
+      }],
+      [],
+      [],
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(201);
+    expect(seedStarterMenuForSalon).not.toHaveBeenCalled();
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Builder Gel',
+      bookingCategory: 'manicure',
+    }));
   });
 
   it('claims an unowned salon in place without changing its id or slug', async () => {
