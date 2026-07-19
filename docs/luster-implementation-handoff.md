@@ -3,7 +3,7 @@
 > Produced by the Phase-0 audit session (2026-07-18). Read this before touching anything.
 > Audit method: 11 read-only domain audits + adversarial verification (213 status claims, 2 corrected) + plan synthesis.
 
-## Phases 3–4 production readiness — VERIFIED (2026-07-19 07:35 EDT)
+## Phases 3–5 production readiness — VERIFIED (2026-07-19 pre-deployment)
 
 **Database and migration state:** migration `0058_checkout_payments_tax` is already applied to, and recorded exactly once in, the intended shared Neon database. A read-only PostgreSQL-catalog audit verified every object introduced by 0058: all 14 additive nullable `appointment` columns; the `appointment_final_item`, `appointment_payment`, and `appointment_payment_link` tables; their expected column types, nullability, and safe defaults; all five indexes (including the unique payment-link token index); primary keys; eight foreign keys with the expected delete actions; and all six named CHECK constraints. No migration was executed during this readiness pass.
 
@@ -11,9 +11,9 @@
 
 **Production connection and deployment:** Vercel Production `DATABASE_URL` was refreshed from the intended Neon pooled connection, preserving Production scope and the variable name. Production was redeployed after that refresh. The latest Production deployment reports `READY`; its public `/api/health` endpoint returns HTTP 200 / `status: ok`, with the database and required Clerk/password-auth, Redis, Resend, and Google Calendar checks passing. Read-only browser smoke checks confirmed the public landing page and owner sign-in route render without application-error markers. No customer data was created, edited, or deleted.
 
-**Validation:** full Vitest suite **979/979 passing across 204 files**, with `DATABASE_URL` removed and the repository's fail-closed Vitest guard forcing isolated in-memory PGlite; typecheck clean (`tsc --noEmit`); full lint clean (`eslint .`); production build clean (`DATABASE_URL` forced empty; final Next.js build artifact produced). No automated test or build connected to Neon.
+**Validation:** Phase 5 reports the full Vitest suite at **982/982 passing across 205 files**, with `DATABASE_URL` removed and the repository's fail-closed Vitest guard forcing isolated in-memory PGlite; typecheck clean (`tsc --noEmit`); full lint clean (`eslint .`); production build clean (`DATABASE_URL` forced empty; final Next.js build artifact produced). No automated test or build connected to Neon. Final isolated verification is repeated immediately before deployment.
 
-**Readiness status:** Phase 3 and Phase 4 are **ready to deploy**. They are **not yet ready to use in Production** because the currently healthy Production deployment commit predates both phase commits. Remaining deployment step: deploy the approved branch/commit containing Phase 3 (`7d214f3`) and Phase 4 (`7fc2035`), then repeat non-mutating health and UI smoke checks. Limitation: no state-changing Production workflow or real-customer checkout was exercised, by design.
+**Readiness status:** Phase 3, Phase 4, and the Phase 5 Client Hub core are **ready to deploy**. They are **not yet live in Production** because the currently healthy Production deployment commit predates all three phase commits. Remaining deployment step: deploy the approved branch containing Phase 3 (`7d214f3`), Phase 4 (`7fc2035`), and Phase 5 (`f06472b`), then repeat non-mutating health and UI smoke checks. Feature-level browser verification for Phases 4–5 remains part of that deployment smoke pass. Limitation: no state-changing Production workflow or real-customer checkout is exercised, by design.
 
 ## Foreign migration 0059 — REMOVED (2026-07-19 cleanup session)
 
@@ -27,7 +27,7 @@
 
 **Standing rule:** never run `drizzle-kit generate` in this repo until the meta snapshots are rebuilt — hand-write migrations (0056–0058 precedent).
 
-## Phase 5 — Client Hub core — COMPLETE (2026-07-19, commit `6f42e62`)
+## Phase 5 — Client Hub core — COMPLETE (2026-07-19, commit `f06472b`)
 
 **Shipped:** Clients app gains a compact **Clients | Client Hub** toggle (no new nav destination, per the approved IA). Hub areas: **Overview / Follow-ups / Segments / Reports** (`ClientHubPanel.tsx` + admin-only `GET /api/admin/client-hub`).
 
@@ -51,7 +51,7 @@
 
 **Data usage / Results (measurable only):** manual ledger counts (Opened for sending = prepared / Marked sent / Not sent / Booking linked = converted, 30d), win-back campaigns per stage (minted, redeemed, discounts given, completed visits, **finalized revenue via `revenueCentsSql()` with tax reported separately and labeled "not revenue"**), automatic `notification_delivery` counts labeled as appointment messages, not marketing. Link clicks and manual delivery are not tracked and are absent by design. Reviews view keeps the Google-link config + honest copy (no sent/posted claims); directions live only in Settings → Locations.
 
-**Tests:** suite 965 → **979 passing** (204 files); typecheck/lint/build clean. New: `textingStatus.test.ts` (Ready-requires-both ladder, malformed-payload safety), `marketing/route.integration.test.ts` (PGlite: live-engine grouping + future-booking exclusion + consent/last-service enrichment; finalized-revenue/tax separation off a redeemed campaign; server-side tenancy 403), `MarketingModal.test.tsx` rewritten (12 tests: home honesty incl. no-email-toggle, follow-up row fields, prepared-not-sent contract with edited-body sms: URL, desktop copy fallback, unconfigured-offer routing, results honesty incl. no click metrics, staged-sequence save-shape preservation, promo deep-link focus, 8w≥6w validation, reviews honesty + no parking duplicate). IntegrationsModal/ClientCommunicationActions suites pass unchanged (refactors behavior-neutral). The production-readiness pass above subsequently repeated the full isolated suite and completed non-mutating Production browser/health smoke checks.
+**Tests:** suite 965 → **979 passing** (204 files); typecheck/lint/build clean. New: `textingStatus.test.ts` (Ready-requires-both ladder, malformed-payload safety), `marketing/route.integration.test.ts` (PGlite: live-engine grouping + future-booking exclusion + consent/last-service enrichment; finalized-revenue/tax separation off a redeemed campaign; server-side tenancy 403), `MarketingModal.test.tsx` rewritten (12 tests: home honesty incl. no-email-toggle, follow-up row fields, prepared-not-sent contract with edited-body sms: URL, desktop copy fallback, unconfigured-offer routing, results honesty incl. no click metrics, staged-sequence save-shape preservation, promo deep-link focus, 8w≥6w validation, reviews honesty + no parking duplicate). IntegrationsModal/ClientCommunicationActions suites pass unchanged (refactors behavior-neutral). Platform health and public landing-page smoke checks passed during the earlier readiness pass; authenticated Phase 4 feature verification remains for the deployment smoke pass alongside Phase 5.
 
 **Deferred:** appointment-change composer template; bulk campaign sending (unsupported — not added); birthday/cancelled cohorts (need schema/product decisions); marketing-email delivery.
 
@@ -123,7 +123,7 @@
 
 1. **RESOLVED (commit `c9769ab`) — vitest can no longer reach a real database.** The risk was real: `vitest.config.mts` loaded `DATABASE_URL` from `.env.local`/`.env.development` into every worker, and CI's test job injects it from secrets, so `DB.ts` selected a real `pg` Pool. Now three independent layers force PGlite for all Vitest runs: the config strips `DATABASE_URL` from loaded `.env` files, `vitest-setup.ts` deletes shell/CI-inherited values, and `DB.ts` throws (never connects) if a URL still reaches it under `process.env.VITEST`. `src/libs/DB.testIsolation.test.ts` pins the contract. Verified: full suite (190 files / 872 tests) passes by default with the real `.env.local` in place, and with a fake shell-exported `DATABASE_URL`. Local dev, production runtime, drizzle CLI migrations, and CI's e2e server (which legitimately uses the job-level `DATABASE_URL`) are untouched. Remaining limitation: Playwright e2e intentionally runs against a live server whose database is the environment's choice — that is out of scope for unit-test isolation; typecheck and `next build` create no DB clients (no static page imports `DB.ts`).
 2. **Dev and prod share one Neon database.** Every migration/seed/backfill script is a production operation. All `db:*` scripts target real data.
-3. **Migrations 0056/0057 (upstream)**: code assumes they are applied to the shared DB — confirm before authoring 0058.
+3. **RESOLVED — shared migration history is verified through 0058.** Migration 0058 is already applied and schema-verified on the intended shared Neon database; do not reapply it. Migration 0059 is absent.
 
 ## Architecture map (condensed)
 
