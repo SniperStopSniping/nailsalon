@@ -8,11 +8,13 @@ const {
   fetchMock,
   routerBack,
   routerPush,
+  searchParamsState,
   syncFromUrl,
 } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   routerBack: vi.fn(),
   routerPush: vi.fn(),
+  searchParamsState: { value: 'serviceIds=srv_1&techId=tech_1' },
   syncFromUrl: vi.fn(),
 }));
 
@@ -28,7 +30,7 @@ vi.mock('next/navigation', () => ({
     push: routerPush,
   }),
   useParams: () => ({ locale: 'en' }),
-  useSearchParams: () => new URLSearchParams('serviceIds=srv_1&techId=tech_1'),
+  useSearchParams: () => new URLSearchParams(searchParamsState.value),
 }));
 
 vi.mock('@/components/booking/BookingStepHeader', () => ({
@@ -58,6 +60,7 @@ vi.mock('@/hooks/useClientSession', () => ({
 vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => ({
     technicianId: 'stale_tech',
+    isHydrated: true,
     syncFromUrl,
   }),
 }));
@@ -72,6 +75,7 @@ vi.mock('@/providers/SalonProvider', () => ({
 describe('BookTimeClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    searchParamsState.value = 'serviceIds=srv_1&techId=tech_1';
     vi.useRealTimers();
     vi.setSystemTime(new Date('2026-03-14T11:00:00Z'));
     vi.stubGlobal('fetch', fetchMock);
@@ -141,6 +145,63 @@ describe('BookTimeClient', () => {
 
     expect(String(url)).toContain('technicianId=tech_1');
     expect(String(url)).not.toContain('technicianId=stale_tech');
+  });
+
+  it('uses the server-resolved technician when the URL has no artist', async () => {
+    searchParamsState.value = 'serviceIds=srv_1';
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 })));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Russian Manicure', price: 45, duration: 60 }]}
+        totalPrice={45}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Daniela', imageUrl: null }}
+        technicianSelectionSource="auto"
+        bookingFlow={['service', 'time', 'confirm']}
+      />,
+    );
+
+    const timeButton = await screen.findByRole('button', { name: '9:00 AM' });
+    const [url] = fetchMock.mock.calls[0] ?? [];
+
+    expect(String(url)).toContain('technicianId=tech_1');
+    expect(String(url)).not.toContain('technicianId=stale_tech');
+
+    fireEvent.click(timeButton);
+
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=tech_1'));
+    expect(routerPush).not.toHaveBeenCalledWith(expect.stringContaining('techId=stale_tech'));
+  });
+
+  it('keeps an explicit any-artist URL authoritative', async () => {
+    searchParamsState.value = 'serviceIds=srv_1&techId=any';
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 })));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={null}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    const timeButton = await screen.findByRole('button', { name: '9:00 AM' });
+    const [url] = fetchMock.mock.calls[0] ?? [];
+
+    expect(String(url)).not.toContain('technicianId=');
+
+    fireEvent.click(timeButton);
+
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=any'));
   });
 
   it('shows the backend availability error instead of a fake no-slots state', async () => {

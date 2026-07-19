@@ -239,7 +239,7 @@ export function BookServiceClient({
     setLocationId = () => {},
     syncFromUrl = () => {},
     isHydrated = false,
-  } = useBookingState();
+  } = useBookingState(salonSlug);
 
   const primaryLocation = locations.find(l => l.isPrimary) || locations[0];
   const showLocationPicker = locations.length >= 2;

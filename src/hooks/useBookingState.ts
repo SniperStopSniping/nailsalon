@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { SelectedAddOnParam } from '@/libs/bookingParams';
 
-const BOOKING_STATE_KEY = 'booking_state';
+const BOOKING_STATE_KEY_PREFIX = 'booking_state:v2';
 
 export type BookingTechnicianSelectionSource = 'explicit' | 'auto' | null;
 
@@ -27,48 +27,62 @@ const defaultState: BookingState = {
 };
 
 /**
- * Global booking state hook that persists across page reloads and navigation.
- * This is the single source of truth for booking selections.
+ * Tenant-scoped booking state that persists across page reloads and navigation.
+ * Each salon receives an isolated storage key so selections cannot leak between tenants.
  */
-export function useBookingState() {
+export function useBookingState(salonSlug: string) {
+  const storageKey = useMemo(() => {
+    const normalizedSalonSlug = salonSlug.trim().toLowerCase();
+    return normalizedSalonSlug
+      ? `${BOOKING_STATE_KEY_PREFIX}:${normalizedSalonSlug}`
+      : null;
+  }, [salonSlug]);
   const [state, setState] = useState<BookingState>(defaultState);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
+  const isHydrated = storageKey === null || hydratedStorageKey === storageKey;
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsHydrated(true);
+    if (typeof window === 'undefined' || !storageKey) {
+      setState(defaultState);
+      setHydratedStorageKey(storageKey);
       return;
     }
 
+    let nextState = defaultState;
     try {
-      const stored = localStorage.getItem(BOOKING_STATE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<BookingState>;
-        setState({
+        nextState = {
           ...defaultState,
           ...parsed,
           technicianSelectionSource: parsed.technicianSelectionSource ?? (parsed.technicianId ? 'explicit' : null),
-        });
+        };
       }
     } catch {
       // Invalid stored state, use default
-    } finally {
-      setIsHydrated(true);
     }
-  }, []);
+
+    setState(nextState);
+    setHydratedStorageKey(storageKey);
+  }, [storageKey]);
 
   // Persist to localStorage whenever state changes
   useEffect(() => {
-    if (typeof window === 'undefined' || !isHydrated) {
+    if (
+      typeof window === 'undefined'
+      || !storageKey
+      || hydratedStorageKey !== storageKey
+    ) {
       return;
     }
 
     try {
-      localStorage.setItem(BOOKING_STATE_KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey, JSON.stringify(state));
     } catch {
       // localStorage might be disabled or full, ignore
     }
-  }, [isHydrated, state]);
+  }, [hydratedStorageKey, state, storageKey]);
 
   const setTechnicianId = useCallback((
     techId: string | null,
@@ -99,14 +113,14 @@ export function useBookingState() {
 
   const clearBookingState = useCallback(() => {
     setState(defaultState);
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && storageKey) {
       try {
-        localStorage.removeItem(BOOKING_STATE_KEY);
+        localStorage.removeItem(storageKey);
       } catch {
         // Ignore
       }
     }
-  }, []);
+  }, [storageKey]);
 
   // Sync from URL params on mount (for deep links and reschedule flows)
   const syncFromUrl = useCallback((params: {

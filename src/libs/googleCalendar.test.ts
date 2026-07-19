@@ -151,6 +151,142 @@ describe('googleCalendar', () => {
     expect(JSON.parse((freeBusyCall![1] as RequestInit).body as string).items).toEqual([{ id: 'primary' }]);
   });
 
+  it('marks an OAuth connection reconnect-required when freeBusy rejects its access token', async () => {
+    const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+    query.limit.mockResolvedValueOnce([{
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary',
+      busyCalendarIds: ['primary'],
+      tokenExpiresAt: null,
+    }]);
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'rejected_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        error: {
+          code: 401,
+          message: 'Request had invalid authentication credentials.',
+        },
+      }), { status: 401 });
+    });
+
+    await expect(getGoogleCalendarBusyWindows({
+      salonId: 'salon_1',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: true,
+    });
+
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'reconnect_required',
+      lastError: 'Google Calendar authorization is invalid. Reconnect required.',
+    }));
+  });
+
+  it('marks an OAuth connection degraded for a non-auth freeBusy failure', async () => {
+    const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+    query.limit.mockResolvedValueOnce([{
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary',
+      busyCalendarIds: ['primary'],
+      tokenExpiresAt: null,
+    }]);
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response('temporarily unavailable', { status: 503 });
+    });
+
+    await expect(getGoogleCalendarBusyWindows({
+      salonId: 'salon_1',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: false,
+    });
+
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'degraded',
+      lastError: 'Google Calendar availability check failed.',
+    }));
+  });
+
+  it('marks the connection degraded when Google returns malformed freeBusy JSON', async () => {
+    const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+    query.limit.mockResolvedValueOnce([{
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary',
+      busyCalendarIds: ['primary'],
+      tokenExpiresAt: null,
+    }]);
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response('<html>upstream error</html>', { status: 200 });
+    });
+
+    await expect(getGoogleCalendarBusyWindows({
+      salonId: 'salon_1',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: false,
+    });
+
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'degraded',
+      lastError: 'Google Calendar availability check failed.',
+    }));
+  });
+
+  it('marks the connection degraded when OAuth returns malformed JSON', async () => {
+    const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+    query.limit.mockResolvedValueOnce([{
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary',
+      busyCalendarIds: ['primary'],
+      tokenExpiresAt: null,
+    }]);
+    fetchMock.mockResolvedValue(new Response('<html>upstream error</html>', { status: 200 }));
+
+    await expect(getGoogleCalendarBusyWindows({
+      salonId: 'salon_1',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: false,
+    });
+
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'degraded',
+      lastError: 'Google Calendar availability check failed.',
+    }));
+  });
+
   it('creates calendar events and records the synced event id', async () => {
     const result = await syncGoogleCalendarEventForAppointment({
       appointmentId: 'appt_1',

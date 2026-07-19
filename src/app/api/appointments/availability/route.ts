@@ -16,6 +16,7 @@ import {
 } from '@/libs/bookingQuote';
 import {
   getGoogleCalendarBusyWindows,
+  GoogleCalendarAvailabilityError,
   isBusyWindowConflict,
 } from '@/libs/googleCalendar';
 import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompatibility';
@@ -390,6 +391,28 @@ export async function GET(request: Request): Promise<Response> {
       appointmentCount: bookedSlots.length,
     });
   } catch (error) {
+    if (error instanceof GoogleCalendarAvailabilityError) {
+      const publicMessage = error.reconnectRequired
+        ? 'Online booking is temporarily unavailable while the salon restores its calendar connection. Please try again later.'
+        : 'Live calendar availability is temporarily unavailable. Please try again shortly.';
+      console.warn('[Availability API] Google Calendar unavailable', {
+        salonSlug,
+        date,
+        reconnectRequired: error.reconnectRequired,
+      });
+      return Response.json(
+        {
+          error: {
+            kind: 'temporary_failure',
+            message: publicMessage,
+            canRetry: !error.reconnectRequired,
+            canReselectTechnician: false,
+          },
+        },
+        { status: 503 },
+      );
+    }
+
     console.error('[Availability API] Error:', {
       date,
       salonSlug,

@@ -118,6 +118,30 @@ class GoogleCalendarApiError extends Error {
   }
 }
 
+class GoogleCalendarConnectionError extends Error {
+  reconnectRequired: boolean;
+
+  constructor(reconnectRequired: boolean) {
+    super(reconnectRequired
+      ? 'Google Calendar reconnect is required'
+      : 'Google Calendar is temporarily unavailable');
+    this.name = 'GoogleCalendarConnectionError';
+    this.reconnectRequired = reconnectRequired;
+  }
+}
+
+export class GoogleCalendarAvailabilityError extends Error {
+  readonly reconnectRequired: boolean;
+
+  constructor(reconnectRequired = false) {
+    super(reconnectRequired
+      ? 'Google Calendar reconnect is required before availability can be checked'
+      : 'Google Calendar availability is temporarily unavailable');
+    this.name = 'GoogleCalendarAvailabilityError';
+    this.reconnectRequired = reconnectRequired;
+  }
+}
+
 let cachedToken: { token: string; expiresAtSeconds: number } | null = null;
 
 function getGoogleCalendarConfig(): GoogleCalendarConfig | null {
@@ -177,24 +201,34 @@ async function getGoogleAccessToken(config: GoogleCalendarConfig): Promise<strin
   }
 
   const assertion = buildServiceAccountAssertion(config, nowSeconds);
-  const response = await fetch(GOOGLE_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    });
+  } catch {
+    throw new GoogleCalendarApiError(503, 'Google OAuth token request failed');
+  }
 
   if (!response.ok) {
     throw new GoogleCalendarApiError(response.status, await response.text());
   }
 
-  const data = await response.json() as GoogleTokenResponse;
+  let data: GoogleTokenResponse;
+  try {
+    data = await response.json() as GoogleTokenResponse;
+  } catch {
+    throw new GoogleCalendarApiError(502, 'Google OAuth token response was invalid');
+  }
   if (!data.access_token) {
-    throw new Error('Google OAuth token response did not include an access token');
+    throw new GoogleCalendarApiError(502, 'Google OAuth token response did not include an access token');
   }
 
   cachedToken = {
@@ -210,21 +244,30 @@ async function googleCalendarFetchWithContext<T>(
   path: string,
   init: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${GOOGLE_CALENDAR_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      'Authorization': `Bearer ${context.accessToken}`,
-      'Content-Type': 'application/json',
-      ...init.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${GOOGLE_CALENDAR_API_BASE}${path}`, {
+      ...init,
+      headers: {
+        'Authorization': `Bearer ${context.accessToken}`,
+        'Content-Type': 'application/json',
+        ...init.headers,
+      },
+    });
+  } catch {
+    throw new GoogleCalendarApiError(503, 'Google Calendar request failed');
+  }
   if (response.status === 204) {
     return {} as T;
   }
   if (!response.ok) {
     throw new GoogleCalendarApiError(response.status, await response.text());
   }
-  return await response.json() as T;
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new GoogleCalendarApiError(502, 'Google Calendar response was invalid');
+  }
 }
 
 async function getGoogleCalendarRequestContext(salonId?: string): Promise<GoogleCalendarRequestContext | null> {
@@ -236,22 +279,32 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
       .limit(1);
     if (connection) {
       if (!['active', 'degraded'].includes(connection.status)) {
-        throw new Error('Google Calendar reconnect is required');
+        throw new GoogleCalendarConnectionError(true);
       }
       if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_CLIENT_SECRET) {
-        throw new Error('Google OAuth environment variables are incomplete');
+        throw new GoogleCalendarConnectionError(false);
       }
-      const response = await fetch(GOOGLE_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: Env.GOOGLE_OAUTH_CLIENT_ID,
-          client_secret: Env.GOOGLE_OAUTH_CLIENT_SECRET,
-          refresh_token: decryptIntegrationSecret(connection.encryptedRefreshToken),
-          grant_type: 'refresh_token',
-        }),
-      });
-      const data = await response.json() as GoogleTokenResponse;
+      let response: Response;
+      try {
+        response = await fetch(GOOGLE_TOKEN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: Env.GOOGLE_OAUTH_CLIENT_ID,
+            client_secret: Env.GOOGLE_OAUTH_CLIENT_SECRET,
+            refresh_token: decryptIntegrationSecret(connection.encryptedRefreshToken),
+            grant_type: 'refresh_token',
+          }),
+        });
+      } catch {
+        throw new GoogleCalendarConnectionError(false);
+      }
+      let data: GoogleTokenResponse;
+      try {
+        data = await response.json() as GoogleTokenResponse;
+      } catch {
+        throw new GoogleCalendarConnectionError(false);
+      }
       if (!response.ok || !data.access_token) {
         const reconnectRequired = data.error === 'invalid_grant';
         await db.update(salonGoogleCalendarConnectionSchema).set({
@@ -259,7 +312,7 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
           lastError: data.error_description || data.error || `Token refresh failed (${response.status})`,
           lastCheckedAt: new Date(),
         }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
-        throw new Error(reconnectRequired ? 'Google Calendar reconnect is required' : 'Google Calendar token refresh failed');
+        throw new GoogleCalendarConnectionError(reconnectRequired);
       }
       await db.update(salonGoogleCalendarConnectionSchema).set({
         status: 'active',
@@ -535,6 +588,32 @@ async function markGoogleConnectionDegraded(salonId: string, message: string) {
     .catch(() => undefined);
 }
 
+function isGoogleCalendarReconnectRequired(
+  error: GoogleCalendarApiError | GoogleCalendarConnectionError,
+): boolean {
+  return error instanceof GoogleCalendarConnectionError
+    ? error.reconnectRequired
+    : error.status === 401;
+}
+
+async function markGoogleAvailabilityFailure(
+  salonId: string,
+  error: GoogleCalendarApiError | GoogleCalendarConnectionError,
+) {
+  const reconnectRequired = isGoogleCalendarReconnectRequired(error);
+  await db
+    .update(salonGoogleCalendarConnectionSchema)
+    .set({
+      status: reconnectRequired ? 'reconnect_required' : 'degraded',
+      lastError: reconnectRequired
+        ? 'Google Calendar authorization is invalid. Reconnect required.'
+        : 'Google Calendar availability check failed.',
+      lastCheckedAt: new Date(),
+    })
+    .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+    .catch(() => undefined);
+}
+
 export function isBusyWindowConflict(
   startTime: Date,
   endTime: Date,
@@ -551,34 +630,48 @@ export async function getGoogleCalendarBusyWindows(args: {
   endTime: Date;
   timeZone: string;
 }): Promise<GoogleCalendarBusyWindow[]> {
-  const context = await getGoogleCalendarRequestContext(args.salonId);
-  if (!context) {
-    return [];
-  }
-
-  const data = await googleCalendarFetchWithContext<GoogleFreeBusyResponse>(
-    context,
-    '/freeBusy',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        timeMin: args.startTime.toISOString(),
-        timeMax: args.endTime.toISOString(),
-        timeZone: args.timeZone,
-        items: context.busyCalendarIds.map(id => ({ id })),
-      }),
-    },
-  );
-  return context.busyCalendarIds.flatMap((calendarId) => {
-    const calendar = data.calendars?.[calendarId];
-    if (calendar?.errors?.length) {
-      throw new Error(calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '));
+  try {
+    const context = await getGoogleCalendarRequestContext(args.salonId);
+    if (!context) {
+      return [];
     }
-    return (calendar?.busy ?? []).map(window => ({
-      startTime: new Date(window.start),
-      endTime: new Date(window.end),
-    }));
-  });
+
+    const data = await googleCalendarFetchWithContext<GoogleFreeBusyResponse>(
+      context,
+      '/freeBusy',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          timeMin: args.startTime.toISOString(),
+          timeMax: args.endTime.toISOString(),
+          timeZone: args.timeZone,
+          items: context.busyCalendarIds.map(id => ({ id })),
+        }),
+      },
+    );
+    return context.busyCalendarIds.flatMap((calendarId) => {
+      const calendar = data.calendars?.[calendarId];
+      if (calendar?.errors?.length) {
+        throw new GoogleCalendarApiError(
+          502,
+          calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '),
+        );
+      }
+      return (calendar?.busy ?? []).map(window => ({
+        startTime: new Date(window.start),
+        endTime: new Date(window.end),
+      }));
+    });
+  } catch (error) {
+    if (!(error instanceof GoogleCalendarApiError || error instanceof GoogleCalendarConnectionError)) {
+      throw error;
+    }
+    const reconnectRequired = isGoogleCalendarReconnectRequired(error);
+    if (args.salonId) {
+      await markGoogleAvailabilityFailure(args.salonId, error);
+    }
+    throw new GoogleCalendarAvailabilityError(reconnectRequired);
+  }
 }
 
 export async function hasGoogleCalendarConflict(args: {

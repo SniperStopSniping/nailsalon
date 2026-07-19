@@ -144,7 +144,7 @@ export default async function BookTimePage({
     }));
   }
 
-  if (techStepEnabled && resolvedTechnicianContext.shouldAutoSkipTech && resolvedTechnicianContext.soleCompatibleTechnician) {
+  if (resolvedTechnicianContext.shouldAutoSkipTech && resolvedTechnicianContext.soleCompatibleTechnician) {
     if (techId !== resolvedTechnicianContext.soleCompatibleTechnician.id) {
       redirect(buildBookingUrl('/book/time', {
         salonSlug: searchParams.salonSlug ?? salon.slug,
