@@ -2,7 +2,7 @@
 
 ## Luster Learn & Shop redesign — 2026-07-19
 
-Implemented on branch `codex/luster-learn-shop` (commit hash recorded after commit/push).
+Implemented on branch `codex/luster-learn-shop` in implementation commit `2cd245e`.
 
 - Corrected all Luster product and education destinations to the approved canonical `https://lusterstudio.ca` URLs. No client-side availability checks or local guide fallbacks are used; the public Luster Studio site owns publication and Coming soon states.
 - Reordered the internal Luster application to Promos → Shop → Learn. Promos has an honest empty state and links to `/promotions`; Shop links to `/shop`, `/wholesale`, and `/join`; Learn exposes the overview and all ten approved guide URLs.
