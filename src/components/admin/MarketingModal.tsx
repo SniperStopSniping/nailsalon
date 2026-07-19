@@ -5,7 +5,6 @@ import {
   Check,
   Gift,
   Loader2,
-  MapPin,
   RefreshCw,
   Save,
   Star,
@@ -645,7 +644,7 @@ export function MarketingModal({
                     <section className="rounded-[20px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
                       <div className="mb-4 flex items-center gap-2">
                         <Star className="size-5 text-[#FF9500]" />
-                        <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Reviews & directions</h2>
+                        <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Reviews</h2>
                       </div>
                       <div className="space-y-5">
                         <label htmlFor="google-review-url" className="block">
@@ -673,24 +672,10 @@ export function MarketingModal({
                           <FieldError id="google-review-url-error" message={validationErrors.googleReviewUrl} />
                         </label>
 
-                        <label htmlFor="parking-instructions" className="block">
-                          <span className="flex items-center gap-2 text-[15px] font-semibold text-[#1C1C1E]">
-                            <MapPin className="size-4 text-[#34C759]" />
-                            Parking & directions instructions
-                          </span>
-                          <textarea
-                            id="parking-instructions"
-                            value={settings.parkingInstructions || ''}
-                            onChange={event => updateSetting('parkingInstructions', event.target.value || null)}
-                            rows={3}
-                            maxLength={2000}
-                            className="mt-2 w-full resize-y rounded-[12px] border border-[#D1D1D6] p-3 text-[15px] leading-relaxed text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
-                            placeholder="Free parking behind the salon. Enter from Queen Street."
-                          />
-                          <span className="mt-1.5 block text-[12px] leading-relaxed text-[#8E8E93]">
-                            Added to the editable Directions text alongside the salon address and Maps link.
-                          </span>
-                        </label>
+                        <p className="text-[12px] leading-relaxed text-[#8E8E93]">
+                          Parking &amp; entry instructions moved to Settings → Locations, so directions live in
+                          one place.
+                        </p>
                       </div>
                     </section>
 

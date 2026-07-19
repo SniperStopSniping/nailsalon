@@ -1437,6 +1437,8 @@ function AdminDashboardContent() {
       <AdminModalHost
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
+        activeSalonId={activeDashboardSalon?.id ?? null}
+        onOpenApp={openAppViaUrl}
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
         initialAppointmentId={initialAppointmentId}

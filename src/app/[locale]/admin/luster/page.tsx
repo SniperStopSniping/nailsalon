@@ -13,10 +13,16 @@ import { ArrowLeft, BookOpen, ExternalLink, Plug, ShoppingBag, Sparkles } from '
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-const RESOURCES = [
+// Real Luster resources only — education and product links that exist today.
+// Do not add rewards, points, certifications, or ambassador programs here
+// unless the actual program (and its URL) exists.
+const LEARN_RESOURCES = [
   { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
   { id: 'technique-guides', title: 'Technique Guides', description: 'Practical service guides designed for working nail techs.', url: process.env.NEXT_PUBLIC_LUSTER_TECHNIQUE_GUIDES_URL || 'https://luster.com/pages/education', icon: Sparkles },
-  { id: 'wholesale-builder-gel', title: 'Shop Builder Gel', description: 'See Luster professional products and wholesale offers.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_SHOP_URL || 'https://luster.com/collections/builder-gel', icon: ShoppingBag },
+];
+
+const SHOP_RESOURCES = [
+  { id: 'wholesale-builder-gel', title: 'Shop Builder Gel', description: 'Professional products and wholesale offers for working techs.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_SHOP_URL || 'https://luster.com/collections/builder-gel', icon: ShoppingBag },
 ];
 
 export default function LusterOwnerPage() {
@@ -108,10 +114,33 @@ export default function LusterOwnerPage() {
           <p className="mt-2 text-stone-600">Your booking app stays free. Learn techniques, shop professional products, and grow your services.</p>
         </div>
 
-        <section className="mt-8">
-          <h2 className="text-2xl font-semibold">Grow your Builder Gel services</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            {RESOURCES.map((resource) => {
+        <section className="mt-8" aria-label="Learn">
+          <h2 className="text-2xl font-semibold">Learn</h2>
+          <p className="mt-1 text-sm text-stone-600">Builder Gel education and technique guides from Luster.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {LEARN_RESOURCES.map((resource) => {
+              const Icon = resource.icon;
+
+              return (
+                <a key={resource.id} href={`${resource.url}?utm_source=luster_booking&utm_medium=owner_dashboard&utm_campaign=free_booking`} target="_blank" rel="noreferrer" onClick={() => void trackResource(resource.id, resource.url)} className={card}>
+                  <Icon className="text-rose-700" />
+                  <h3 className="mt-4 font-semibold">{resource.title}</h3>
+                  <p className="mt-2 text-sm text-stone-600">{resource.description}</p>
+                  <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-rose-700">
+                    Open resource
+                    <ExternalLink size={14} />
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-8" aria-label="Shop">
+          <h2 className="text-2xl font-semibold">Shop &amp; wholesale</h2>
+          <p className="mt-1 text-sm text-stone-600">Luster professional products for your services.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {SHOP_RESOURCES.map((resource) => {
               const Icon = resource.icon;
 
               return (

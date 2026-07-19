@@ -56,6 +56,8 @@ type AnalyticsWidgetProps = {
 type AdminModalHostProps = {
   activeModal: AppId | null;
   activeSalonSlug: string | null;
+  activeSalonId?: string | null;
+  onOpenApp?: (appId: string) => void;
   isFreeSolo: boolean;
   onCloseModal: () => void;
   initialAppointmentId?: string | null;
@@ -91,6 +93,8 @@ type AdminModalHostProps = {
 export function AdminModalHost({
   activeModal,
   activeSalonSlug,
+  activeSalonId = null,
+  onOpenApp,
   isFreeSolo,
   onCloseModal,
   initialAppointmentId,
@@ -140,9 +144,11 @@ export function AdminModalHost({
         <SettingsModal
           onClose={onCloseModal}
           salonSlug={activeSalonSlug}
+          salonId={activeSalonId}
           userName={userName}
           userInitials={userInitial}
           isFreeSolo={isFreeSolo}
+          onOpenApp={onOpenApp}
         />
       </AppModal>
 

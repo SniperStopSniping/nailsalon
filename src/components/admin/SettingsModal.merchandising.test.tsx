@@ -14,6 +14,7 @@ vi.mock('next/navigation', () => ({
     push: vi.fn(),
     refresh: refreshMock,
   }),
+  useParams: () => ({ locale: 'en' }),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
@@ -197,6 +198,9 @@ describe('SettingsModal Luster merchandising toggle', () => {
 
   it('defaults the toggle on and saves an opt-out through the booking config PATCH', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    // Settings is now an index of categories; open the Booking rules view first.
+    fireEvent.click(await screen.findByText('Booking rules'));
 
     const toggle = await screen.findByTestId('feature-luster-manicure-toggle');
 

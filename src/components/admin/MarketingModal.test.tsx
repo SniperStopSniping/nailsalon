@@ -91,7 +91,10 @@ describe('MarketingModal retention settings', () => {
     render(<MarketingModal onClose={vi.fn()} />);
 
     expect(screen.getByText('Loading retention settings…')).toBeInTheDocument();
-    expect(await screen.findByDisplayValue('Park behind the salon.')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('https://g.page/r/salon-a/review')).toBeInTheDocument();
+    // Parking/directions moved to Settings → Locations; Marketing only points there.
+    expect(screen.getByText(/moved to Settings/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Parking/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Rebook clients after/)).toHaveValue(21);
     expect(screen.getByLabelText(/Appointment reminder/)).toHaveValue(24);
     expect(screen.getByLabelText(/Direct Google review link/)).toHaveValue('https://g.page/r/salon-a/review');
@@ -127,7 +130,7 @@ describe('MarketingModal retention settings', () => {
   it('saves fixed discounts as cents and selected service IDs', async () => {
     installSuccessfulFetch();
     render(<MarketingModal onClose={vi.fn()} />);
-    await screen.findByDisplayValue('Park behind the salon.');
+    await screen.findByDisplayValue('https://g.page/r/salon-a/review');
 
     fireEvent.change(screen.getByLabelText(/Rebook clients after/), { target: { value: '28' } });
     fireEvent.change(screen.getByLabelText('Six-week win-back discount'), { target: { value: '12.34' } });
@@ -165,7 +168,7 @@ describe('MarketingModal retention settings', () => {
     });
     installSuccessfulFetch(settings);
     render(<MarketingModal onClose={vi.fn()} />);
-    await screen.findByDisplayValue('Park behind the salon.');
+    await screen.findByDisplayValue('https://g.page/r/salon-a/review');
 
     fireEvent.change(screen.getByLabelText('Eight-week win-back discount'), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save retention settings' }));
@@ -185,7 +188,7 @@ describe('MarketingModal retention settings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-    expect(await screen.findByDisplayValue('Park behind the salon.')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('https://g.page/r/salon-a/review')).toBeInTheDocument();
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
