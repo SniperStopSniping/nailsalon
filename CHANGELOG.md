@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.15.0...v1.16.0) (2026-07-19)
+
+
+### Features
+
+* **smart-fit:** customer booking UI — grouping, one nearby suggestion, dismissal, stale UX (P7.3) ([d1e63a1](https://github.com/SniperStopSniping/nailsalon/commit/d1e63a1159b0343617410518c2aa7a447b1592b6))
+
 # [1.15.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.14.0...v1.15.0) (2026-07-19)
 
 
