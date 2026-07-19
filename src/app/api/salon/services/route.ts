@@ -10,11 +10,11 @@ import {
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
 import { getServicesBySalonId } from '@/libs/queries';
-import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import {
   ensureServiceAssignments,
   InvalidTechnicianAssignmentError,
 } from '@/libs/serviceAssignments';
+import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import {
   BOOKING_CATEGORIES,
   type Service,
