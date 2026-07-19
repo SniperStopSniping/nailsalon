@@ -31,7 +31,7 @@
 
 ## ⚠️ Critical hazards
 
-1. **Local vitest hits the real shared prod Neon DB.** `.env.local`/`.env.development` contain a live `DATABASE_URL`; `vitest.config.mts:20` loads all env (`loadEnv('', cwd, '')`); setup never clears it → `DB.ts` picks the real Pool, not PGlite. Until fixed (Phase 0): run tests with `DATABASE_URL=` blank.
+1. **RESOLVED (commit `c9769ab`) — vitest can no longer reach a real database.** The risk was real: `vitest.config.mts` loaded `DATABASE_URL` from `.env.local`/`.env.development` into every worker, and CI's test job injects it from secrets, so `DB.ts` selected a real `pg` Pool. Now three independent layers force PGlite for all Vitest runs: the config strips `DATABASE_URL` from loaded `.env` files, `vitest-setup.ts` deletes shell/CI-inherited values, and `DB.ts` throws (never connects) if a URL still reaches it under `process.env.VITEST`. `src/libs/DB.testIsolation.test.ts` pins the contract. Verified: full suite (190 files / 872 tests) passes by default with the real `.env.local` in place, and with a fake shell-exported `DATABASE_URL`. Local dev, production runtime, drizzle CLI migrations, and CI's e2e server (which legitimately uses the job-level `DATABASE_URL`) are untouched. Remaining limitation: Playwright e2e intentionally runs against a live server whose database is the environment's choice — that is out of scope for unit-test isolation; typecheck and `next build` create no DB clients (no static page imports `DB.ts`).
 2. **Dev and prod share one Neon database.** Every migration/seed/backfill script is a production operation. All `db:*` scripts target real data.
 3. **Migrations 0056/0057 (upstream)**: code assumes they are applied to the shared DB — confirm before authoring 0058.
 
