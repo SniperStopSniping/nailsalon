@@ -46,6 +46,65 @@ export const salonSmartFitSettingsSchema = z.object({
 
 export type SalonSmartFitSettings = z.infer<typeof salonSmartFitSettingsSchema>;
 
+/**
+ * Strict write-side schema for the owner settings surface. Unlike the lenient
+ * read schema above (which tolerates legacy blobs), saves must be integers
+ * inside the approved SMART_FIT_LIMITS so no NaN/negative/fractional value is
+ * ever persisted. The value-vs-discountType bound is cross-field and enforced
+ * in mergeSmartFitSettings.
+ */
+export const smartFitSettingsUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  discountType: z.enum(SMART_FIT_DISCOUNT_TYPES).optional(),
+  /** Whole percent (percent mode) or cents (fixed mode); must be > 0. */
+  value: z.number().int().positive().optional(),
+  maxRemainingGapMinutes: z.number().int().min(0).max(SMART_FIT_LIMITS.maxRemainingGapMinutesMax).optional(),
+  minImprovementMinutes: z.number().int().min(0).max(SMART_FIT_LIMITS.minImprovementMinutesMax).optional(),
+  eligibleServiceIds: z.array(z.string().min(1)).max(500).optional(),
+  eligibleTechnicianIds: z.array(z.string().min(1)).max(500).optional(),
+});
+
+export type SmartFitSettingsUpdate = z.infer<typeof smartFitSettingsUpdateSchema>;
+
+/**
+ * Merge a Smart Fit settings update into the stored value, field-by-field, so
+ * a partial save (e.g. just `enabled: false`) never drops the other saved
+ * fields — turning the feature back on restores the last configuration.
+ * Id arrays are deduplicated. Throws z.ZodError when the merged value would
+ * exceed the bound for the merged discount type (percent ≤ percentMax, fixed
+ * ≤ fixedCentsMax), which can only happen cross-field.
+ */
+export function mergeSmartFitSettings(
+  current: SalonSmartFitSettings,
+  update: SmartFitSettingsUpdate,
+): SalonSmartFitSettings {
+  const merged: SalonSmartFitSettings = { ...current, ...update };
+  if (update.eligibleServiceIds) {
+    merged.eligibleServiceIds = [...new Set(update.eligibleServiceIds)];
+  }
+  if (update.eligibleTechnicianIds) {
+    merged.eligibleTechnicianIds = [...new Set(update.eligibleTechnicianIds)];
+  }
+
+  const discountType = merged.discountType ?? 'percent';
+  const valueMax = discountType === 'percent'
+    ? SMART_FIT_LIMITS.percentMax
+    : SMART_FIT_LIMITS.fixedCentsMax;
+  if (merged.value !== undefined && merged.value > valueMax) {
+    throw new z.ZodError([
+      {
+        code: z.ZodIssueCode.custom,
+        path: ['value'],
+        message: discountType === 'percent'
+          ? `Percentage discounts cannot exceed ${SMART_FIT_LIMITS.percentMax}%.`
+          : 'Fixed discounts cannot exceed the maximum supported amount.',
+      },
+    ]);
+  }
+
+  return merged;
+}
+
 export type ResolvedSmartFitConfig = {
   enabled: boolean;
   discountType: SmartFitDiscountType;

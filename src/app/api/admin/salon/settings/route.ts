@@ -11,7 +11,7 @@
  * Any attempt to update billingMode or *PointsOverride returns 403 Forbidden.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
@@ -32,11 +32,16 @@ import {
   resolveMerchandisingSettings,
 } from '@/libs/salonMerchandisingSettings';
 import {
+  mergeSmartFitSettings,
+  readStoredSmartFitSettings,
+  smartFitSettingsUpdateSchema,
+} from '@/libs/smartFitConfig';
+import {
   mergePaymentsSettings,
   readStoredPaymentsSettings,
   salonPaymentsSettingsSchema,
 } from '@/libs/taxConfig';
-import { salonSchema } from '@/models/Schema';
+import { salonSchema, serviceSchema, technicianSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +58,7 @@ const adminUpdateSchema = z.object({
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
   merchandising: merchandisingSettingsUpdateSchema.optional(),
   payments: salonPaymentsSettingsSchema.optional(),
+  smartFit: smartFitSettingsUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -119,6 +125,9 @@ export async function GET(request: Request): Promise<Response> {
         (salon.settings as SalonSettings | null | undefined) ?? null,
       ),
       payments: readStoredPaymentsSettings(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
+      smartFit: readStoredSmartFitSettings(
         (salon.settings as SalonSettings | null | undefined) ?? null,
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
@@ -280,6 +289,76 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('payments');
     }
 
+    const currentSmartFit = readStoredSmartFitSettings(currentSettings);
+    let mergedSmartFit: ReturnType<typeof mergeSmartFitSettings> | null = null;
+    if (updates.smartFit) {
+      try {
+        mergedSmartFit = mergeSmartFitSettings(currentSmartFit, updates.smartFit);
+      } catch (mergeError) {
+        if (mergeError instanceof z.ZodError) {
+          return Response.json(
+            { error: 'Invalid request data', details: mergeError.flatten() },
+            { status: 400 },
+          );
+        }
+        throw mergeError;
+      }
+
+      // Ids supplied in THIS update must belong to this salon (ownership only,
+      // not isActive — a stale-but-owned archived id must never brick a save).
+      // Stored ids from earlier saves are not re-validated here.
+      const requestedServiceIds = [...new Set(updates.smartFit.eligibleServiceIds ?? [])];
+      if (requestedServiceIds.length > 0) {
+        const ownedServices = await db
+          .select({ id: serviceSchema.id })
+          .from(serviceSchema)
+          .where(and(
+            eq(serviceSchema.salonId, salon.id),
+            inArray(serviceSchema.id, requestedServiceIds),
+          ));
+        const ownedServiceIds = new Set(ownedServices.map(service => service.id));
+        const invalidServiceIds = requestedServiceIds.filter(id => !ownedServiceIds.has(id));
+        if (invalidServiceIds.length > 0) {
+          return Response.json(
+            {
+              error: 'INVALID_SERVICE',
+              message: 'One or more eligible services do not belong to this salon.',
+              details: { serviceIds: invalidServiceIds },
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      const requestedTechnicianIds = [...new Set(updates.smartFit.eligibleTechnicianIds ?? [])];
+      if (requestedTechnicianIds.length > 0) {
+        const ownedTechnicians = await db
+          .select({ id: technicianSchema.id })
+          .from(technicianSchema)
+          .where(and(
+            eq(technicianSchema.salonId, salon.id),
+            inArray(technicianSchema.id, requestedTechnicianIds),
+          ));
+        const ownedTechnicianIds = new Set(ownedTechnicians.map(technician => technician.id));
+        const invalidTechnicianIds = requestedTechnicianIds.filter(id => !ownedTechnicianIds.has(id));
+        if (invalidTechnicianIds.length > 0) {
+          return Response.json(
+            {
+              error: 'INVALID_TECHNICIAN',
+              message: 'One or more eligible technicians do not belong to this salon.',
+              details: { technicianIds: invalidTechnicianIds },
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      before.smartFit = currentSmartFit;
+      after.smartFit = mergedSmartFit;
+      ensureNextSettings().smartFit = mergedSmartFit;
+      touchedSettingsKeys.push('smartFit');
+    }
+
     let mergedMerchandising: ReturnType<typeof merchandisingSettingsSchema.parse> | null = null;
     if (updates.merchandising) {
       mergedMerchandising = merchandisingSettingsSchema.parse({
@@ -309,6 +388,12 @@ export async function PATCH(request: Request): Promise<Response> {
         && touchedSettingsKeys[0] === 'payments'
       ) {
         dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{payments}', ${JSON.stringify(mergedPayments)}::jsonb)`;
+      } else if (
+        mergedSmartFit
+        && touchedSettingsKeys.length === 1
+        && touchedSettingsKeys[0] === 'smartFit'
+      ) {
+        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{smartFit}', ${JSON.stringify(mergedSmartFit)}::jsonb)`;
       } else {
         dbUpdates.settings = nextSettings;
       }
@@ -332,6 +417,7 @@ export async function PATCH(request: Request): Promise<Response> {
         bookingNotifications: currentBookingNotifications,
         merchandising: currentMerchandising,
         payments: currentPayments,
+        smartFit: currentSmartFit,
         ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
         ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
         smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
@@ -394,6 +480,10 @@ export async function PATCH(request: Request): Promise<Response> {
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
       ),
       payments: readStoredPaymentsSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
+      // Read back through the shared parser so success reflects what was persisted.
+      smartFit: readStoredSmartFitSettings(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,

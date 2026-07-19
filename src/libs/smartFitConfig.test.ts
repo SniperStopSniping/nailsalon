@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DISABLED_SMART_FIT_CONFIG,
+  mergeSmartFitSettings,
   readStoredSmartFitSettings,
   resolveSmartFitConfig,
   SMART_FIT_LIMITS,
+  smartFitSettingsUpdateSchema,
 } from '@/libs/smartFitConfig';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -104,5 +106,110 @@ describe('readStoredSmartFitSettings', () => {
       .toEqual({ enabled: true, value: 15 });
     expect(readStoredSmartFitSettings(settingsWith('garbage'))).toEqual({});
     expect(readStoredSmartFitSettings(null)).toEqual({});
+  });
+});
+
+describe('smartFitSettingsUpdateSchema (P7.4 write-side validation)', () => {
+  it('accepts a full valid update', () => {
+    const parsed = smartFitSettingsUpdateSchema.safeParse({
+      enabled: true,
+      discountType: 'percent',
+      value: 10,
+      maxRemainingGapMinutes: 30,
+      minImprovementMinutes: 30,
+      eligibleServiceIds: ['svc_1'],
+      eligibleTechnicianIds: ['tech_1'],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects zero, negative, fractional, and NaN values', () => {
+    expect(smartFitSettingsUpdateSchema.safeParse({ value: 0 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ value: -5 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ value: 10.5 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ value: Number.NaN }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ value: '10' }).success).toBe(false);
+  });
+
+  it('rejects fractional, negative, and out-of-bounds minute settings', () => {
+    expect(smartFitSettingsUpdateSchema.safeParse({ maxRemainingGapMinutes: 12.5 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ maxRemainingGapMinutes: -1 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({
+      maxRemainingGapMinutes: SMART_FIT_LIMITS.maxRemainingGapMinutesMax + 1,
+    }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ minImprovementMinutes: -1 }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({
+      minImprovementMinutes: SMART_FIT_LIMITS.minImprovementMinutesMax + 1,
+    }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({
+      maxRemainingGapMinutes: 0,
+      minImprovementMinutes: 0,
+    }).success).toBe(true);
+  });
+
+  it('rejects empty-string ids and unknown discount types', () => {
+    expect(smartFitSettingsUpdateSchema.safeParse({ eligibleServiceIds: [''] }).success).toBe(false);
+    expect(smartFitSettingsUpdateSchema.safeParse({ discountType: 'bogo' }).success).toBe(false);
+  });
+});
+
+describe('mergeSmartFitSettings', () => {
+  it('merges field-by-field so a disable-only save preserves the configuration', () => {
+    const current = {
+      enabled: true,
+      discountType: 'fixed' as const,
+      value: 500,
+      maxRemainingGapMinutes: 15,
+      minImprovementMinutes: 45,
+      eligibleServiceIds: ['svc_1'],
+      eligibleTechnicianIds: ['tech_1'],
+    };
+
+    const merged = mergeSmartFitSettings(current, { enabled: false });
+
+    expect(merged).toEqual({ ...current, enabled: false });
+
+    // Re-enabling restores the last valid configuration untouched.
+    expect(mergeSmartFitSettings(merged, { enabled: true })).toEqual(current);
+  });
+
+  it('deduplicates id arrays and replaces (not unions) the stored lists', () => {
+    const merged = mergeSmartFitSettings(
+      { eligibleServiceIds: ['svc_old'] },
+      { eligibleServiceIds: ['svc_1', 'svc_1', 'svc_2'], eligibleTechnicianIds: [] },
+    );
+
+    expect(merged.eligibleServiceIds).toEqual(['svc_1', 'svc_2']);
+    // Explicit empty array persists as empty = "all eligible" per the parser.
+    expect(merged.eligibleTechnicianIds).toEqual([]);
+  });
+
+  it('enforces the percent ceiling cross-field, whichever side supplies the type', () => {
+    expect(() => mergeSmartFitSettings({ discountType: 'percent' }, { value: SMART_FIT_LIMITS.percentMax + 1 }))
+      .toThrowError();
+    expect(() => mergeSmartFitSettings({ value: 500 }, { discountType: 'percent' }))
+      .toThrowError();
+    expect(mergeSmartFitSettings({}, { discountType: 'fixed', value: 500 }).value).toBe(500);
+    expect(mergeSmartFitSettings({}, { value: SMART_FIT_LIMITS.percentMax }).value)
+      .toBe(SMART_FIT_LIMITS.percentMax);
+  });
+
+  it('round-trips through the shared parser with matching semantics', () => {
+    const merged = mergeSmartFitSettings({}, {
+      enabled: true,
+      discountType: 'percent',
+      value: 10,
+      eligibleServiceIds: [],
+      eligibleTechnicianIds: [],
+    });
+    const resolved = resolveSmartFitConfig(settingsWith(merged));
+
+    expect(resolved.enabled).toBe(true);
+    expect(resolved.value).toBe(10);
+    // Empty arrays mean every service/technician is eligible — the resolved
+    // config keeps them empty rather than expanding them.
+    expect(resolved.eligibleServiceIds).toEqual([]);
+    expect(resolved.eligibleTechnicianIds).toEqual([]);
   });
 });

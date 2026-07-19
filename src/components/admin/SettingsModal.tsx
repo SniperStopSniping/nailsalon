@@ -54,6 +54,7 @@ import type {
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
+import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 
 /**
  * Formats a Canadian postal code readably (`m5h2m9` → `M5H 2M9`). Values that
@@ -1060,6 +1061,7 @@ type SettingsView
   | 'branding'
   | 'booking'
   | 'booking-flow'
+  | 'smart-fit'
   | 'payments'
   | 'notifications'
   | 'features'
@@ -1072,6 +1074,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'branding': 'Branding',
   'booking': 'Booking rules',
   'booking-flow': 'Booking flow',
+  'smart-fit': 'Smart Fit discounts',
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'features': 'Features',
@@ -1167,6 +1170,7 @@ export function SettingsModal({
   const [notificationsDirty, setNotificationsDirty] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [paymentsDirty, setPaymentsDirty] = useState(false);
+  const [smartFitDirty, setSmartFitDirty] = useState(false);
 
   // Payments & taxes state (explicit-save)
   const [paymentsSaving, setPaymentsSaving] = useState(false);
@@ -1983,11 +1987,12 @@ export function SettingsModal({
     || entitledModules.staffEarnings;
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
-    location: locationDirty || parkingDirty,
-    booking: bookingConfigDirty,
-    payments: paymentsDirty,
-    notifications: notificationsDirty,
-    account: profileDirty,
+    'location': locationDirty || parkingDirty,
+    'booking': bookingConfigDirty,
+    'payments': paymentsDirty,
+    'smart-fit': smartFitDirty,
+    'notifications': notificationsDirty,
+    'account': profileDirty,
   };
   const currentViewDirty = viewDirty[view] === true;
 
@@ -1995,6 +2000,7 @@ export function SettingsModal({
     setConfirmingLeave(false);
     setLocationDirty(false);
     setParkingDirty(false);
+    setSmartFitDirty(false);
     setView('index');
   };
 
@@ -2109,7 +2115,6 @@ export function SettingsModal({
                     : `${bookingConfigForm.slotIntervalMinutes} min · ${bookingConfigForm.currency}`
                 }
                 onClick={() => openView('booking')}
-                isLast={isFreeSolo}
               />
               {!isFreeSolo && (
                 <Row
@@ -2117,9 +2122,15 @@ export function SettingsModal({
                   iconColor="bg-amber-500"
                   label="Booking flow"
                   onClick={() => openView('booking-flow')}
-                  isLast
                 />
               )}
+              <Row
+                icon={Gift}
+                iconColor="bg-teal-600"
+                label="Smart Fit discounts"
+                onClick={() => openView('smart-fit')}
+                isLast
+              />
             </Section>
 
             <Section title="Payments">
@@ -2487,6 +2498,18 @@ export function SettingsModal({
                     onSave={handleBookingFlowSave}
                   />
                 )}
+          </Section>
+        )}
+
+        {view === 'smart-fit' && salonSlug && (
+          <Section
+            title="Smart Fit discounts"
+            footer="Smart Fit only discounts times the server confirms improve your schedule. It never moves appointments, and existing bookings keep their original price."
+          >
+            <SmartFitSettingsCard
+              salonSlug={salonSlug}
+              onDirtyChange={setSmartFitDirty}
+            />
           </Section>
         )}
 
