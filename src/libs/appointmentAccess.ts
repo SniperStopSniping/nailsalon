@@ -43,3 +43,36 @@ export async function verifyAppointmentAccessToken(token: string, options?: {
     .limit(1);
   return result ?? null;
 }
+
+/**
+ * Why a capability token did not resolve, for error messaging only.
+ *
+ * `verifyAppointmentAccessToken` filters expiry in SQL, so a caller that only
+ * has its null result cannot tell "expired" from "never existed" — and telling
+ * a customer their link is invalid when it has simply aged out sends them
+ * hunting for a typo that isn't there.
+ *
+ * Grants nothing: it returns a reason, never the appointment. A revoked token
+ * is reported as `invalid` on purpose — a superseded link is not something the
+ * holder should be told more about.
+ */
+export type AppointmentAccessFailureReason = 'invalid' | 'expired';
+
+export async function describeAppointmentAccessFailure(
+  token: string,
+  now: Date = new Date(),
+): Promise<AppointmentAccessFailureReason> {
+  const [row] = await db
+    .select({
+      expiresAt: appointmentAccessTokenSchema.expiresAt,
+      revokedAt: appointmentAccessTokenSchema.revokedAt,
+    })
+    .from(appointmentAccessTokenSchema)
+    .where(eq(appointmentAccessTokenSchema.tokenHash, hashOpaqueToken(token)))
+    .limit(1);
+
+  if (row && !row.revokedAt && row.expiresAt <= now) {
+    return 'expired';
+  }
+  return 'invalid';
+}

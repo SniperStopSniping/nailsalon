@@ -7,6 +7,11 @@ type Slot = {
   time: string;
   startTime: string;
   availability?: 'available' | 'schedule_conflict';
+  smartFit?: {
+    discountAmountCents: number;
+    discountedPriceCents: number;
+    originalPriceCents: number;
+  };
 };
 
 type Props = {
@@ -26,7 +31,18 @@ type Props = {
   currentLabel: string;
   priceLabel: string;
   discountNote: string | null;
+  currency: string;
+  subtotalCents: number;
+  /** Discount already committed to this appointment, in cents. */
+  committedDiscountCents: number;
+  committedDiscountLabel: string | null;
+  /** True when the committed discount is a Smart Fit one. */
+  hasCommittedSmartFit: boolean;
 };
+
+function formatMoney(cents: number, currency: string): string {
+  return `$${(cents / 100).toFixed(2)} ${currency}`;
+}
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -141,6 +157,43 @@ export function RescheduleAppointmentClient(props: Props) {
   const selectedSlot = slots.find(slot => slot.time === selectedTime);
   const hasRealChange = !(isCurrentDate && selectedTime === props.currentTimeKey);
 
+  /**
+   * What the customer will actually pay at the selected time, following the
+   * same policy the server enforces on submit:
+   *  - a discount already committed to this appointment is preserved, and the
+   *    new slot does not have to qualify again;
+   *  - an undiscounted appointment only gains a discount when the slot the
+   *    availability API annotated says it qualifies.
+   * Nothing here is authoritative — the server recomputes on submit — but it
+   * must never promise a total the server would not honor.
+   */
+  const pricePreview = (() => {
+    if (props.committedDiscountCents > 0) {
+      return {
+        discountCents: props.committedDiscountCents,
+        totalCents: Math.max(0, props.subtotalCents - props.committedDiscountCents),
+        label: props.committedDiscountLabel,
+        note: props.hasCommittedSmartFit
+          ? 'Your Smart Fit discount stays applied at this new time.'
+          : 'Your discount stays applied at this new time.',
+      };
+    }
+    if (selectedSlot?.smartFit) {
+      return {
+        discountCents: selectedSlot.smartFit.discountAmountCents,
+        totalCents: selectedSlot.smartFit.discountedPriceCents,
+        label: 'Smart Fit Discount',
+        note: 'This time qualifies for a Smart Fit discount.',
+      };
+    }
+    return {
+      discountCents: 0,
+      totalCents: props.subtotalCents,
+      label: null,
+      note: null,
+    };
+  })();
+
   async function submit() {
     // The current slot is shown for orientation, never as a new choice.
     if (!hasRealChange) {
@@ -207,8 +260,29 @@ export function RescheduleAppointmentClient(props: Props) {
           {' '}
           {props.currentLabel}
         </p>
-        <p className="mt-3 text-stone-900">{props.priceLabel}</p>
-        {props.discountNote && <p className="mt-1 text-emerald-700">{props.discountNote}</p>}
+      </div>
+
+      <div data-testid="reschedule-price-summary" className="rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm">
+        <div className="flex justify-between text-stone-600">
+          <span>Subtotal</span>
+          <span>{formatMoney(props.subtotalCents, props.currency)}</span>
+        </div>
+        {pricePreview.discountCents > 0 && (
+          <div className="mt-1 flex justify-between text-emerald-700">
+            <span data-testid="reschedule-discount-label">{pricePreview.label ?? 'Discount'}</span>
+            <span>
+              −
+              {formatMoney(pricePreview.discountCents, props.currency)}
+            </span>
+          </div>
+        )}
+        <div className="mt-2 flex justify-between border-t border-stone-100 pt-2 text-base font-semibold text-stone-900">
+          <span>Total</span>
+          <span data-testid="reschedule-total">{formatMoney(pricePreview.totalCents, props.currency)}</span>
+        </div>
+        {pricePreview.note && (
+          <p data-testid="reschedule-discount-note" className="mt-2 text-emerald-700">{pricePreview.note}</p>
+        )}
       </div>
 
       <div className="rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">

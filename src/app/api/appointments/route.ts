@@ -93,6 +93,11 @@ import {
 } from '@/libs/smartFitBooking';
 import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
 import {
+  hasCommittedSmartFitDiscount,
+  type ReschedulePricingInputs,
+  resolveSmartFitRescheduleDiscount,
+} from '@/libs/smartFitReschedulePolicy';
+import {
   sendBookingConfirmationToClient,
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
@@ -1232,6 +1237,53 @@ export async function POST(request: Request): Promise<Response> {
       preserveFirstVisitDiscount: originalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
     });
 
+    // Smart Fit reschedule policy (shared with the manage-link in-place move,
+    // so the two reschedule paths cannot diverge): a Smart Fit discount already
+    // committed to this appointment survives a pure date/time/technician
+    // change, and is only re-evaluated when a pricing input actually moved.
+    const nextPricingInputs: ReschedulePricingInputs = {
+      subtotalBeforeDiscountCents,
+      serviceIds: services.map(service => service.id),
+      addOns: selectedAddOnsForBooking.map(addOn => ({
+        addOnId: addOn.addOnId,
+        quantity: addOn.quantity,
+      })),
+    };
+    let originalPricingInputs: ReschedulePricingInputs | null = null;
+    if (originalAppointment && hasCommittedSmartFitDiscount(originalAppointment)) {
+      const [originalServiceRows, originalAddOnRows] = await Promise.all([
+        db.select({ serviceId: appointmentServicesSchema.serviceId })
+          .from(appointmentServicesSchema)
+          .where(eq(appointmentServicesSchema.appointmentId, originalAppointment.id)),
+        db.select({
+          addOnId: appointmentAddOnSchema.addOnId,
+          quantity: appointmentAddOnSchema.quantitySnapshot,
+        })
+          .from(appointmentAddOnSchema)
+          .where(eq(appointmentAddOnSchema.appointmentId, originalAppointment.id)),
+      ]);
+      originalPricingInputs = {
+        subtotalBeforeDiscountCents: originalAppointment.subtotalBeforeDiscountCents
+          ?? originalAppointment.totalPrice + (originalAppointment.discountAmountCents ?? 0),
+        serviceIds: originalServiceRows.map(row => row.serviceId).filter((id): id is string => Boolean(id)),
+        addOns: originalAddOnRows.map(row => ({ addOnId: row.addOnId, quantity: row.quantity })),
+      };
+    }
+    const preservedSmartFitDecision = originalAppointment
+      ? resolveSmartFitRescheduleDiscount({
+        base: automaticDiscount,
+        config: smartFitConfig,
+        committed: originalAppointment,
+        originalPricing: originalPricingInputs,
+        nextPricing: nextPricingInputs,
+        // Preservation must never depend on the new slot re-qualifying. When
+        // nothing is preserved, the in-transaction overlay below does the
+        // honest evaluation for this slot.
+        newSlotEvaluation: null,
+      })
+      : null;
+    const preservesCommittedSmartFit = preservedSmartFitDecision?.preservesCommittedDiscount === true;
+
     let appliedReward = automaticDiscount.kind === 'reward' ? automaticDiscount.reward : null;
     totalPrice = automaticDiscount.finalTotalCents;
     discountAmountCents = automaticDiscount.discountAmountCents;
@@ -1247,6 +1299,23 @@ export async function POST(request: Request): Promise<Response> {
       appointmentDiscountPercent = null;
       discountAppliedAt = new Date();
     }
+
+    // Carry the committed Smart Fit discount over unchanged. Deliberately does
+    // NOT consume a reward: the customer is moving a booking they already
+    // agreed a price for, not making a new one.
+    const applyPreservedSmartFit = () => {
+      if (!preservedSmartFitDecision || !preservesCommittedSmartFit) {
+        return;
+      }
+      appliedReward = null;
+      totalPrice = preservedSmartFitDecision.finalTotalCents;
+      discountAmountCents = preservedSmartFitDecision.discountAmountCents;
+      appointmentDiscountType = preservedSmartFitDecision.discountType;
+      appointmentDiscountLabel = preservedSmartFitDecision.discountLabel;
+      appointmentDiscountPercent = preservedSmartFitDecision.discountPercent;
+      discountAppliedAt = originalAppointment?.discountAppliedAt ?? new Date();
+    };
+    applyPreservedSmartFit();
 
     if (googleReviewEvent) {
       totalDurationMinutes = data.durationMinutesOverride ?? googleReviewEvent.durationMinutes;
@@ -1845,7 +1914,14 @@ export async function POST(request: Request): Promise<Response> {
       const lockedTechnician = technician;
       smartFitGrantEvaluation = null;
 
-      if (smartFitScopeAllowed && smartFitGoogleBusyWindows !== null && lockedTechnician) {
+      // A preserved discount is authoritative: re-evaluating the new slot here
+      // is exactly the divergence this policy exists to prevent. Re-apply it so
+      // the transaction-final pricing matches what the customer was shown.
+      if (preservesCommittedSmartFit) {
+        applyPreservedSmartFit();
+      }
+
+      if (!preservesCommittedSmartFit && smartFitScopeAllowed && smartFitGoogleBusyWindows !== null && lockedTechnician) {
         const freshWindowConditions = [
           eq(appointmentSchema.salonId, salon.id),
           eq(appointmentSchema.technicianId, lockedTechnician.id),

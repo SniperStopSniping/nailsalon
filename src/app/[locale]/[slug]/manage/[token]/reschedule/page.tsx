@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import {
@@ -20,13 +21,13 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-function ErrorCard({ title, body, href }: { title: string; body: string; href: string }) {
+function ErrorCard({ title, body, href, cta }: { title: string; body: string; href: string; cta: string }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 py-14">
       <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-sm">
         <h1 className="text-2xl font-semibold text-stone-900">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-stone-600">{body}</p>
-        <a href={href} className="mt-6 inline-flex rounded-full bg-rose-800 px-5 py-3 text-sm font-semibold text-white">Email me a fresh link</a>
+        <a href={href} className="mt-6 inline-flex rounded-full bg-rose-800 px-5 py-3 text-sm font-semibold text-white">{cta}</a>
       </div>
     </main>
   );
@@ -57,6 +58,7 @@ export default async function RescheduleAppointmentPage({
         title="This link is not valid"
         body="The link may have been copied incompletely, or it has already been replaced by a newer one. Request a fresh private link and we will email it to the address on file."
         href={findBookingHref}
+        cta="Email me a fresh link"
       />
     );
   }
@@ -70,6 +72,7 @@ export default async function RescheduleAppointmentPage({
         title="This appointment can no longer be changed"
         body="It has already been cancelled or completed. Open your appointment for the current details, or contact the salon."
         href={manageHref}
+        cta="Back to my appointment"
       />
     );
   }
@@ -82,6 +85,7 @@ export default async function RescheduleAppointmentPage({
         title="Online changes are closed"
         body={`Changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon for a late change.`}
         href={manageHref}
+        cta="Back to my appointment"
       />
     );
   }
@@ -141,11 +145,12 @@ export default async function RescheduleAppointmentPage({
             currentTimeKey={currentTimeKey}
             currentLabel={currentLabel}
             priceLabel={`Total $${(appointment.totalPrice / 100).toFixed(2)} ${bookingConfig.currency}`}
-            discountNote={
-              discountAmountCents > 0
-                ? `${appointment.discountLabel || 'Your discount'} stays applied when you move this appointment.`
-                : null
-            }
+            discountNote={null}
+            currency={bookingConfig.currency}
+            subtotalCents={appointment.subtotalBeforeDiscountCents ?? appointment.totalPrice + discountAmountCents}
+            committedDiscountCents={discountAmountCents}
+            committedDiscountLabel={appointment.discountLabel}
+            hasCommittedSmartFit={appointment.discountType === SMART_FIT_DISCOUNT_TYPE}
           />
         </div>
       </div>

@@ -25,13 +25,13 @@ const holder = vi.hoisted(() => ({ db: null as unknown }));
 const {
   sendTransactionalEmail,
   sendTransactionalEmailDetailed,
-  hasGoogleCalendarConflict,
+  getGoogleCalendarBusyWindows,
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
 } = vi.hoisted(() => ({
   sendTransactionalEmail: vi.fn(),
   sendTransactionalEmailDetailed: vi.fn(),
-  hasGoogleCalendarConflict: vi.fn(),
+  getGoogleCalendarBusyWindows: vi.fn(),
   enqueueGoogleCalendarUpsert: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
 }));
@@ -47,9 +47,14 @@ vi.mock('@/libs/email', () => ({
   sendTransactionalEmailDetailed,
 }));
 
-vi.mock('@/libs/googleCalendar', () => ({
-  hasGoogleCalendarConflict,
-}));
+vi.mock('@/libs/googleCalendar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/googleCalendar')>();
+  return {
+    getGoogleCalendarBusyWindows,
+    // The real overlap predicate — only the network fetch is stubbed.
+    isBusyWindowConflict: actual.isBusyWindowConflict,
+  };
+});
 
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert,
@@ -170,7 +175,7 @@ beforeEach(async () => {
     errorCode: null,
     providerMessageId: 'msg_resched',
   });
-  hasGoogleCalendarConflict.mockResolvedValue(false);
+  getGoogleCalendarBusyWindows.mockResolvedValue([]);
   await db.delete(schema.appointmentAccessTokenSchema);
   await db.delete(schema.appointmentServicesSchema);
   await db.delete(schema.notificationDeliverySchema);
@@ -297,8 +302,71 @@ describe('customer manage-link reschedule', () => {
     expect(row!.totalPrice).toBe(4500);
   });
 
+  it('does not invent a discount for an undiscounted booking on a loose slot', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const body = await response.json();
+
+    expect(body.data.smartFit).toBe('none');
+
+    const [row] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(row!.discountType).toBeNull();
+    expect(row!.discountAmountCents ?? 0).toBe(0);
+    expect(row!.totalPrice).toBe(4500);
+  });
+
+  it('leaves a reward discount alone instead of replacing it with Smart Fit', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken({
+      subtotalBeforeDiscountCents: 5000,
+      discountAmountCents: 1000,
+      discountType: 'reward',
+      discountLabel: 'Reward applied',
+      totalPrice: 4000,
+    });
+
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+
+    const [row] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(row!.discountType).toBe('reward');
+    expect(row!.discountAmountCents).toBe(1000);
+    expect(row!.totalPrice).toBe(4000);
+  });
+
+  it('cannot stack a second discount when the same reschedule is retried', async () => {
+    const { token } = await seedAppointmentWithToken({
+      subtotalBeforeDiscountCents: 5000,
+      discountAmountCents: 500,
+      discountType: 'smart_fit',
+      discountLabel: 'Smart Fit Discount',
+      totalPrice: 4500,
+    });
+
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const LATER = new Date('2026-09-01T21:00:00.000Z');
+    await POST(rescheduleRequest(LATER.toISOString()), { params: { token } });
+
+    const rows = await appointmentRows();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.discountAmountCents).toBe(500);
+    expect(rows[0]!.totalPrice).toBe(4500);
+    expect(rows[0]!.startTime.toISOString()).toBe(LATER.toISOString());
+  });
+
   it('rejects a slot Google Calendar reports as busy', async () => {
-    hasGoogleCalendarConflict.mockResolvedValue(true);
+    getGoogleCalendarBusyWindows.mockResolvedValue([{
+      startTime: NEW_START,
+      endTime: new Date(NEW_START.getTime() + 60 * 60 * 1000),
+    }]);
     const { token } = await seedAppointmentWithToken();
 
     const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
@@ -314,14 +382,14 @@ describe('customer manage-link reschedule', () => {
 
     await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
 
-    expect(hasGoogleCalendarConflict).toHaveBeenCalledWith(
+    expect(getGoogleCalendarBusyWindows).toHaveBeenCalledWith(
       expect.objectContaining({ excludeAppointmentId: appointmentId }),
     );
   });
 
   it('fails closed when Google availability cannot be verified', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    hasGoogleCalendarConflict.mockRejectedValue(new Error('google down'));
+    getGoogleCalendarBusyWindows.mockRejectedValue(new Error('google down'));
     const { token } = await seedAppointmentWithToken();
 
     const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
@@ -396,7 +464,7 @@ describe('customer manage-link reschedule', () => {
   it('never logs the capability token', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    hasGoogleCalendarConflict.mockRejectedValue(new Error('google down'));
+    getGoogleCalendarBusyWindows.mockRejectedValue(new Error('google down'));
     const { token } = await seedAppointmentWithToken();
 
     await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });

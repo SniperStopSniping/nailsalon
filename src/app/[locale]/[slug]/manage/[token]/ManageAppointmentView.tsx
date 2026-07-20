@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { CalendarDays, Clock, Download, ExternalLink, Scissors, Sparkles, User } from 'lucide-react';
 
-import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
@@ -72,15 +72,15 @@ export async function ManageAppointmentView({
   const findBookingHref = `/${locale}/${slug ?? capability?.salonSlug ?? ''}/find-booking`;
 
   if (!capability) {
-    return <ManageLinkError failure="invalid" findBookingHref={slug ? findBookingHref : `/${locale}`} />;
+    // Distinguish an aged-out link from a wrong one: the SQL filter in
+    // verifyAppointmentAccessToken hides expiry, and telling a customer their
+    // link is invalid when it merely expired sends them hunting for a typo.
+    const failure = await describeAppointmentAccessFailure(token);
+    return <ManageLinkError failure={failure} findBookingHref={slug ? findBookingHref : `/${locale}`} />;
   }
   if (capability.appointment.salonId !== capability.salonId || (slug && capability.salonSlug !== slug)) {
     return <ManageLinkError failure="invalid" findBookingHref={findBookingHref} />;
   }
-  if (capability.expiresAt <= new Date()) {
-    return <ManageLinkError failure="expired" findBookingHref={findBookingHref} />;
-  }
-
   const appointment = capability.appointment;
   const resolvedSlug = capability.salonSlug;
   const bookingConfig = resolveBookingConfigFromSettings(capability.salonSettings as SalonSettings | null);

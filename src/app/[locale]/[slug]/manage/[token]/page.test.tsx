@@ -9,14 +9,21 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { verifyAppointmentAccessToken, selectResults } = vi.hoisted(() => {
+const { verifyAppointmentAccessToken, describeAppointmentAccessFailure, selectResults } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
-  return { verifyAppointmentAccessToken: vi.fn(), selectResults };
+  return {
+    verifyAppointmentAccessToken: vi.fn(),
+    describeAppointmentAccessFailure: vi.fn(),
+    selectResults,
+  };
 });
 
 vi.mock('server-only', () => ({}));
 
-vi.mock('@/libs/appointmentAccess', () => ({ verifyAppointmentAccessToken }));
+vi.mock('@/libs/appointmentAccess', () => ({
+  verifyAppointmentAccessToken,
+  describeAppointmentAccessFailure,
+}));
 
 vi.mock('@/libs/DB', () => {
   const chain = () => {
@@ -79,6 +86,7 @@ describe('appointment management page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectResults.length = 0;
+    describeAppointmentAccessFailure.mockResolvedValue('invalid');
   });
 
   it('loads the appointment behind a valid token', async () => {
@@ -124,14 +132,29 @@ describe('appointment management page', () => {
     expect(hrefs.some(href => /\/book(?:\/|$)/.test(href))).toBe(false);
   });
 
-  it('shows a distinct expired-link error', async () => {
-    verifyAppointmentAccessToken.mockResolvedValue(
-      capability({ expiresAt: new Date('2020-01-01T00:00:00.000Z') }),
-    );
+  /**
+   * Regression (browser QA): verifyAppointmentAccessToken filters expiry in
+   * SQL, so an expired link resolves to null exactly like a bogus one. Without
+   * the dedicated lookup the customer is told their link is invalid and goes
+   * hunting for a typo that does not exist.
+   */
+  it('shows a distinct expired-link error rather than the generic one', async () => {
+    verifyAppointmentAccessToken.mockResolvedValue(null);
+    describeAppointmentAccessFailure.mockResolvedValue('expired');
 
     await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
 
     expect(screen.getByText('This link has expired')).toBeInTheDocument();
+    expect(screen.queryByText('This link is not valid')).not.toBeInTheDocument();
+  });
+
+  it('keeps a revoked or unknown token on the generic invalid message', async () => {
+    verifyAppointmentAccessToken.mockResolvedValue(null);
+    describeAppointmentAccessFailure.mockResolvedValue('invalid');
+
+    await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+    expect(screen.getByText('This link is not valid')).toBeInTheDocument();
   });
 
   it('rejects a token whose salon does not match the slug in the URL', async () => {
