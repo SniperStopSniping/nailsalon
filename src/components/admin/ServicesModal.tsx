@@ -12,7 +12,7 @@
  * - Fetches real data from /api/salon/services
  */
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   ChevronRight,
   Clock,
@@ -196,6 +196,7 @@ function ServiceRow({
     <motion.div
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
+      data-testid={`service-row-${service.id}`}
       className="flex min-h-[72px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
       onClick={onClick}
     >
@@ -859,12 +860,17 @@ function ServiceDetail({
   toggleActiveError: string | null;
 }) {
   return (
+    // In flow AFTER the sticky chrome (never an inset-0 overlay): the sticky
+    // header/tabs/chips paint above overlays, which hid the detail's first
+    // ~chrome-height pixels (hero icon) behind them with no way to scroll
+    // them into view. In flow, the detail starts exactly at the chrome's
+    // bottom edge at every width and the sheet scroller owns all scrolling.
     <motion.div
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
-      exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="absolute inset-0 overflow-y-auto bg-[#FFF8F5]"
+      data-testid="service-detail-root"
+      className="flex flex-1 flex-col bg-[#FFF8F5]"
     >
       <ModalHeader
         title={service.name}
@@ -885,6 +891,7 @@ function ServiceDetail({
         <AdminDetailCard className="mb-4 rounded-[22px]" contentClassName="p-6">
           <div className="flex flex-col items-center">
             <div
+              data-testid="service-detail-hero-icon"
               className={`size-20 rounded-[20px] bg-gradient-to-br ${getCategoryGradient(service.category)} mb-4 flex items-center justify-center shadow-lg`}
             >
               <Scissors className="size-10 text-white" />
@@ -1349,7 +1356,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-[#FFF8F5]/90 backdrop-blur-md">
+      <div data-testid="services-sticky-chrome" className="sticky top-0 z-20 bg-[#FFF8F5]/90 backdrop-blur-md">
         <ModalHeader
           title="Services"
           subtitle={`${services.length} services`}
@@ -1402,8 +1409,9 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto pb-10">
+      {/* Content — display:none while a detail is open so the detail owns the
+          flow slot below the sticky chrome (list state stays mounted). */}
+      <div className={`flex-1 overflow-y-auto pb-10 ${selectedService ? 'hidden' : ''}`}>
         {activeTab === 'library' && (
           <ServiceLibraryTab
             ownedTemplateKeys={ownedTemplateKeys}
@@ -1515,22 +1523,20 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
                 ))}
       </div>
 
-      {/* Service Detail Overlay */}
-      <AnimatePresence>
-        {selectedService && (
-          <ServiceDetail
-            service={selectedService}
-            onBack={() => {
-              setSelectedService(null);
-              setToggleActiveError(null);
-            }}
-            onEdit={() => setEditingService(selectedService)}
-            onToggleActive={() => void handleToggleActive()}
-            toggleActiveBusy={toggleActiveBusy}
-            toggleActiveError={toggleActiveError}
-          />
-        )}
-      </AnimatePresence>
+      {/* Service Detail — in flow below the sticky chrome */}
+      {selectedService && (
+        <ServiceDetail
+          service={selectedService}
+          onBack={() => {
+            setSelectedService(null);
+            setToggleActiveError(null);
+          }}
+          onEdit={() => setEditingService(selectedService)}
+          onToggleActive={() => void handleToggleActive()}
+          toggleActiveBusy={toggleActiveBusy}
+          toggleActiveError={toggleActiveError}
+        />
+      )}
 
       <AddServiceDialog
         isOpen={showAddDialog || Boolean(editingService)}
