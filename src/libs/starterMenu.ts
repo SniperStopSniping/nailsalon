@@ -40,6 +40,27 @@ function templateSlug(template: ServiceTemplate): string {
 }
 
 /**
+ * Primary key for a service→add-on mapping row.
+ *
+ * Derived from the service ROW id so a retired template copy holding ids built
+ * from the same template key can never mask a new mapping. The readable part is
+ * truncated to keep ids legible, so a hash of the FULL service id is folded in:
+ * on a UUID-keyed salon the prefix eats 41 characters, and without the hash
+ * `builder_refill_gel_pedicure` and `builder_refill_gel_toes` truncate to the
+ * same string — their shared add-ons would then collide on the primary key and
+ * `onConflictDoNothing` would silently drop the second service's rows.
+ */
+export function serviceAddOnRowId(serviceId: string, addOnKey: string): string {
+  let hash = 5381;
+  for (let i = 0; i < serviceId.length; i++) {
+    hash = ((hash * 33) ^ serviceId.charCodeAt(i)) >>> 0;
+  }
+
+  const readable = serviceId.replace(/[^a-z0-9]/gi, '_').slice(0, 48);
+  return `svcaddon_${readable}_${hash.toString(36)}_${addOnKey.replace(/_/g, '-')}`;
+}
+
+/**
  * Seeds the recommended starter menu (services + add-ons + compatibility
  * rules) as salon-owned records tagged with their template keys.
  *
@@ -244,9 +265,7 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
       }
 
       await db.insert(serviceAddOnSchema).values({
-        // Derived from the service ROW id so a retired template copy holding
-        // ids built from the same template key can never mask a new mapping.
-        id: `svcaddon_${serviceId.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${addOnKey.replace(/_/g, '-')}`,
+        id: serviceAddOnRowId(serviceId, addOnKey),
         salonId,
         serviceId,
         addOnId,

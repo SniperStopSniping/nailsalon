@@ -12,6 +12,7 @@ import { Client } from 'pg';
 
 import { LUSTER_MANICURE_TEMPLATE_KEY, LUSTER_PEDICURE_TEMPLATE_KEY } from '../src/libs/bookingMerchandising';
 import { getTemplateByKey, SERVICE_TEMPLATES } from '../src/libs/serviceTemplateCatalog';
+import { serviceAddOnRowId } from '../src/libs/starterMenu';
 import * as schema from '../src/models/Schema';
 
 /**
@@ -302,10 +303,8 @@ async function main() {
           continue;
         }
         await db.insert(schema.serviceAddOnSchema).values({
-          // Key the row id off the service's ROW id, not its template key: a
-          // retired copy may still own ids built from that template key, and a
-          // primary-key clash would silently skip a genuinely new mapping.
-          id: `svcaddon_${service.id.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${addOnKey.replace(/_/g, '-')}`,
+          // Shared with the seeder so both paths mint identical ids.
+          id: serviceAddOnRowId(service.id, addOnKey),
           salonId: salon.id,
           serviceId: service.id,
           addOnId: addOn.id,

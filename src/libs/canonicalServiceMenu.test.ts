@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import { getTemplateByKey, SERVICE_TEMPLATES } from '@/libs/serviceTemplateCatalog';
+import { serviceAddOnRowId } from '@/libs/starterMenu';
 
 function addOnKeys(serviceKey: string): string[] {
   const template = getTemplateByKey(serviceKey);
@@ -330,5 +331,46 @@ describe('removal-only and polish-change services', () => {
     }
 
     expect(addOnKeys('classic_pedicure_no_polish')).toContain('callus_treatment');
+  });
+});
+
+describe('service → add-on row ids', () => {
+  /**
+   * The readable half of the id is truncated, and on a UUID-keyed salon the
+   * `svc_<uuid>_` prefix eats most of the budget. Two long template slugs that
+   * share a prefix used to truncate to the same primary key; because the insert
+   * is onConflictDoNothing, the second service silently lost every add-on it
+   * shared with the first. Ids must stay distinct for every template pair.
+   */
+  it('never collides across templates on a UUID-keyed salon', () => {
+    const salonId = 'f898d50d-c0b5-4bb5-a143-9f35ff7edf2a';
+    const declaring = SERVICE_TEMPLATES.filter(t => t.compatibleAddOnKeys?.length);
+
+    const seen = new Map<string, string>();
+    for (const template of declaring) {
+      const serviceId = `svc_${salonId.replace(/[^a-z0-9]/gi, '_')}_${template.systemKey.replace(/_/g, '-')}`;
+      for (const addOnKey of template.compatibleAddOnKeys!) {
+        const id = serviceAddOnRowId(serviceId, addOnKey);
+        const owner = `${template.systemKey}:${addOnKey}`;
+
+        expect(seen.get(id) ?? owner).toBe(owner);
+
+        seen.set(id, owner);
+      }
+    }
+
+    expect(seen.size).toBeGreaterThan(0);
+  });
+
+  it('separates the pair that previously truncated to the same id', () => {
+    const salonId = 'f898d50d-c0b5-4bb5-a143-9f35ff7edf2a';
+    const idFor = (key: string) =>
+      serviceAddOnRowId(`svc_${salonId.replace(/[^a-z0-9]/gi, '_')}_${key.replace(/_/g, '-')}`, 'toenail_repair');
+
+    expect(idFor('builder_refill_gel_pedicure')).not.toBe(idFor('builder_refill_gel_toes'));
+  });
+
+  it('is deterministic so re-running the seeder is idempotent', () => {
+    expect(serviceAddOnRowId('svc_abc', 'french_tips')).toBe(serviceAddOnRowId('svc_abc', 'french_tips'));
   });
 });
