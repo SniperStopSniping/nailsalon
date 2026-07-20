@@ -244,7 +244,9 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
       }
 
       await db.insert(serviceAddOnSchema).values({
-        id: `svcaddon_${sanitizeSalonId(salonId)}_${addOnKey.replace(/_/g, '-')}_${serviceKey.replace(/_/g, '-')}`,
+        // Derived from the service ROW id so a retired template copy holding
+        // ids built from the same template key can never mask a new mapping.
+        id: `svcaddon_${serviceId.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${addOnKey.replace(/_/g, '-')}`,
         salonId,
         serviceId,
         addOnId,

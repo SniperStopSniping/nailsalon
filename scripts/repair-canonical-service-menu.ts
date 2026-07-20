@@ -44,8 +44,13 @@ const TEMPLATE_LINKS: Array<{ serviceId: string; templateKey: string }> = [
   { serviceId: 'svc_6_k3Q-ZQMxvo18tvUC05U', templateKey: 'gel_pedicure' },
 ];
 
-/** Unassigned template copy superseded by the live hand-created record. */
-const DEACTIVATE_DUPLICATES = ['svc_f898d50d_c0b5_4bb5_a143_9f35ff7edf2a_gel-pedicure'];
+/**
+ * Linking is blocked by the partial unique index on (salon_id, template_key):
+ * a template copy created by "Add recommended" already holds each key. The
+ * copies are unassigned, unbooked duplicates of the owner's real services, so
+ * linking releases the key from the copy and deactivates it. Reversible:
+ * reactivate the copy and move the key back.
+ */
 
 if (!salonSlug || salonSlug.startsWith('--')) {
   throw new Error('Usage: tsx scripts/repair-canonical-service-menu.ts --salon-slug <slug> [--apply]');
@@ -177,18 +182,43 @@ async function main() {
         };
       })
       : [];
+    // Each key is held by a template copy created by "Add recommended". The
+    // copy must release the key before the live row can take it. Only copies
+    // that are unassigned AND unbooked are safe to retire this way.
+    const technicianLinks = linkTemplates
+      ? await db.select().from(schema.technicianServicesSchema)
+        .innerJoin(schema.serviceSchema, eq(schema.serviceSchema.id, schema.technicianServicesSchema.serviceId))
+        .where(eq(schema.serviceSchema.salonId, salon.id))
+        .then(rows => rows.map(row => row.technician_services))
+      : [];
+    const bookedCountByService = new Map<string, number>();
+    if (linkTemplates) {
+      const booked = await db
+        .select({ serviceId: schema.appointmentServicesSchema.serviceId })
+        .from(schema.appointmentServicesSchema);
+      for (const row of booked) {
+        bookedCountByService.set(row.serviceId, (bookedCountByService.get(row.serviceId) ?? 0) + 1);
+      }
+    }
     const proposedDeactivations = linkTemplates
-      ? DEACTIVATE_DUPLICATES.map((id) => {
-        const service = serviceById.get(id);
-        const assigned = service ? rules.length >= 0 : false;
+      ? TEMPLATE_LINKS.map((link) => {
+        const copy = services.find(service => service.templateKey === link.templateKey && service.id !== link.serviceId);
+        const bookings = copy ? bookedCountByService.get(copy.id) ?? 0 : 0;
+        const assignedTechs = copy
+          ? technicianLinks.filter(row => row.serviceId === copy.id && row.enabled).length
+          : 0;
         return {
-          serviceId: id,
-          found: Boolean(service),
-          name: service?.name ?? null,
-          currentlyActive: service?.isActive ?? null,
-          note: assigned ? 'unassigned template copy — deactivating hides it from the owner menu only' : '',
+          releasesKeyFor: link.templateKey,
+          serviceId: copy?.id ?? null,
+          name: copy?.name ?? null,
+          currentlyActive: copy?.isActive ?? null,
+          bookings,
+          assignedTechnicians: assignedTechs,
+          // Retiring a copy that customers can book, or that has history,
+          // would be destructive — refuse and surface it for review.
+          safe: !copy || (bookings === 0 && assignedTechs === 0),
         };
-      })
+      }).filter(item => item.serviceId !== null)
       : [];
 
     console.log(JSON.stringify({
@@ -231,17 +261,26 @@ async function main() {
       if (unsafe.length > 0) {
         throw new Error(`Refusing to link — rows missing or already tagged differently: ${JSON.stringify(unsafe)}`);
       }
-      for (const link of proposedLinks) {
-        await db.update(schema.serviceSchema)
-          .set({ templateKey: link.templateKey })
-          .where(and(eq(schema.serviceSchema.id, link.serviceId), eq(schema.serviceSchema.salonId, salon.id)));
+      const unsafeCopies = proposedDeactivations.filter(item => !item.safe);
+      if (unsafeCopies.length > 0) {
+        throw new Error(`Refusing to retire a template copy that is bookable or has history: ${JSON.stringify(unsafeCopies)}`);
       }
-      for (const row of proposedDeactivations.filter(item => item.found)) {
-        await db.update(schema.serviceSchema)
-          .set({ isActive: false })
-          .where(and(eq(schema.serviceSchema.id, row.serviceId), eq(schema.serviceSchema.salonId, salon.id)));
-      }
-      console.log(`\nLinked ${proposedLinks.length} template keys; deactivated ${proposedDeactivations.filter(item => item.found).length} duplicate(s).`);
+
+      // One transaction: release each key from its copy, retire the copy, then
+      // move the key onto the live row. A partial failure rolls everything back.
+      await db.transaction(async (tx) => {
+        for (const copy of proposedDeactivations) {
+          await tx.update(schema.serviceSchema)
+            .set({ templateKey: null, isActive: false })
+            .where(and(eq(schema.serviceSchema.id, copy.serviceId!), eq(schema.serviceSchema.salonId, salon.id)));
+        }
+        for (const link of proposedLinks) {
+          await tx.update(schema.serviceSchema)
+            .set({ templateKey: link.templateKey })
+            .where(and(eq(schema.serviceSchema.id, link.serviceId), eq(schema.serviceSchema.salonId, salon.id)));
+        }
+      });
+      console.log(`\nRetired ${proposedDeactivations.length} template copies and linked ${proposedLinks.length} live services.`);
     }
 
     // Recompute after linking so rows tagged in this run are included.
@@ -263,7 +302,10 @@ async function main() {
           continue;
         }
         await db.insert(schema.serviceAddOnSchema).values({
-          id: `svcaddon_${salon.id.replace(/[^a-z0-9]/gi, '_')}_${addOnKey.replace(/_/g, '-')}_${service.templateKey.replace(/_/g, '-')}`,
+          // Key the row id off the service's ROW id, not its template key: a
+          // retired copy may still own ids built from that template key, and a
+          // primary-key clash would silently skip a genuinely new mapping.
+          id: `svcaddon_${service.id.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}_${addOnKey.replace(/_/g, '-')}`,
           salonId: salon.id,
           serviceId: service.id,
           addOnId: addOn.id,
