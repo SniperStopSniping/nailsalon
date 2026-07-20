@@ -1,3 +1,11 @@
+## [1.19.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.19.0...v1.19.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **smart-fit:** replace ambiguous eligibility checkboxes with explicit modes ([95a6941](https://github.com/SniperStopSniping/nailsalon/commit/95a6941a1759a5d3d699d01dbb4620e523327b2c))
+* **smart-fit:** stop the empty-state copy rendering in All mode ([f873c69](https://github.com/SniperStopSniping/nailsalon/commit/f873c6935656bb255af6a98b22a170d173e62a45))
+
 # [1.19.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.4...v1.19.0) (2026-07-20)
 
 
