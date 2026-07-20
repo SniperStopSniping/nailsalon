@@ -450,6 +450,88 @@ describe('GET /api/appointments/availability', () => {
     expect(body.bookedSlots).not.toContain('10:00');
   });
 
+  it('authorizes the Google Calendar mirror exclusion from the verified manage token', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    verifyAppointmentAccessToken.mockResolvedValue({
+      tokenId: 'token_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+    });
+    selectResults.push([], [], [], []);
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60&originalAppointmentId=appt_1&manageToken=tok_abcdefghijklmnopqrstuv'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getGoogleCalendarBusyWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ excludeAppointmentId: 'appt_1' }),
+    );
+  });
+
+  it('never excludes a Google Calendar mirror for an unproven appointment id', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    verifyAppointmentAccessToken.mockResolvedValue(null);
+    selectResults.push([], [], [], []);
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=60&originalAppointmentId=appt_1'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getGoogleCalendarBusyWindows).toHaveBeenCalledWith(
+      expect.objectContaining({ excludeAppointmentId: null }),
+    );
+  });
+
+  it('keeps unrelated Google busy windows blocking during a reschedule', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      technicianId: 'tech_1',
+      clientPhone: '4165551234',
+      salonClientId: 'sc_1',
+      startTime: new Date('2026-03-13T10:00:00'),
+      endTime: new Date('2026-03-13T11:00:00'),
+    });
+    verifyAppointmentAccessToken.mockResolvedValue({
+      tokenId: 'token_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+    });
+    // The library drops only the appointment's own mirror; anything it still
+    // returns is a real external conflict and must keep blocking.
+    getGoogleCalendarBusyWindows.mockResolvedValue([{
+      startTime: new Date('2026-03-13T14:00:00.000Z'),
+      endTime: new Date('2026-03-13T15:00:00.000Z'),
+    }]);
+    selectResults.push([], [], [], []);
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1&durationMinutes=30&originalAppointmentId=appt_1&manageToken=tok_abcdefghijklmnopqrstuv'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookedSlots).toContain('10:00');
+  });
+
   it('removes technician blocked slots from the visible slot range', async () => {
     selectResults.push(
       [],

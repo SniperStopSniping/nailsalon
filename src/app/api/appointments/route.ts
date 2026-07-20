@@ -16,6 +16,7 @@ import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
   BLOCKING_APPOINTMENT_STATUSES,
@@ -55,7 +56,6 @@ import {
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -1214,6 +1214,14 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // Ownership of the original appointment has been fully proven above (staff
+    // actor, matching client session, or a manage token scoped to this exact
+    // appointment+salon) — anything else already returned 403. Only from here
+    // may the reschedule suppress its own Google Calendar mirror.
+    const authorizedRescheduleAppointmentId = originalAppointment
+      ? normalizedOriginalApptId
+      : null;
+
     // 4e. Resolve automatic discount (existing active rewards win over first-visit)
     const automaticDiscount = await resolveAutomaticBookingDiscount({
       salonId: salon.id,
@@ -1364,6 +1372,7 @@ export async function POST(request: Request): Promise<Response> {
           startTime: bookingStartOfDay,
           endTime: bookingEndOfDay,
           timeZone: bookingConfig.timezone,
+          excludeAppointmentId: authorizedRescheduleAppointmentId,
         });
       } catch (error) {
         const reconnectRequired = error instanceof GoogleCalendarAvailabilityError
@@ -1730,6 +1739,7 @@ export async function POST(request: Request): Promise<Response> {
             startTime,
             endTime: blockedEndTime,
             timeZone: bookingConfig.timezone,
+            excludeAppointmentId: authorizedRescheduleAppointmentId,
           });
 
       if (googleCalendarConflict) {
@@ -2568,10 +2578,10 @@ export async function POST(request: Request): Promise<Response> {
     // 10. BUILD RESPONSE (single definition, used for cache AND return)
     // =========================================================================
     // Build response ONCE to guarantee cache and return are byte-for-byte identical
-    const manageUrl = buildSalonTenantPublicUrl(`/manage/${managementCapability.token}`, {
-      slug: salon.slug,
-      customDomain: salon.customDomain,
-    });
+    const manageUrl = buildAppointmentManageUrl(
+      { slug: salon.slug, customDomain: salon.customDomain },
+      managementCapability.token,
+    );
     const response: SuccessResponse = {
       data: {
         appointmentId: appointment.id,

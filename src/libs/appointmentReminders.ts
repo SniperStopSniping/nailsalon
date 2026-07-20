@@ -32,6 +32,7 @@ type ReminderCandidate = {
   clientName: string | null;
   clientPhone: string;
   startTime: Date;
+  endTime: Date;
   technicianName: string | null;
   salonClientEmail: string | null;
   appointmentEmail: string | null;
@@ -177,6 +178,7 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
       clientName: appointmentSchema.clientName,
       clientPhone: appointmentSchema.clientPhone,
       startTime: appointmentSchema.startTime,
+      endTime: appointmentSchema.endTime,
       technicianName: technicianSchema.name,
       salonClientEmail: salonClientSchema.email,
       appointmentEmail: appointmentSchema.clientEmail,
@@ -238,6 +240,7 @@ async function sendDayBeforeReminder(
         to: clientEmail,
         services: context.services,
         timeZone: context.timeZone,
+        manageUrl: await resolveReminderManageUrl(candidate),
       }),
     )
     : false;
@@ -279,6 +282,7 @@ async function sendSameDayReminder(
       to: clientEmail,
       services: context.services,
       timeZone: context.timeZone,
+      manageUrl: await resolveReminderManageUrl(candidate),
     }))
     : false;
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
@@ -320,9 +324,28 @@ async function resolveClientEmail(candidate: ReminderCandidate): Promise<string 
   return globalEmail || null;
 }
 
+/**
+ * Reminder emails carry the same private capability link as the booking
+ * confirmation, so "view, reschedule, or cancel" is always one tap away.
+ * A minting failure must never cost the customer their reminder: the email
+ * still goes out, just without the link.
+ */
+async function resolveReminderManageUrl(candidate: ReminderCandidate): Promise<string | null> {
+  try {
+    const { mintAppointmentManageLink } = await import('@/libs/appointmentManageLink');
+    return await mintAppointmentManageLink({
+      id: candidate.appointmentId,
+      salonId: candidate.salonId,
+      endTime: candidate.endTime,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function buildSameDayEmailPayload(
   candidate: ReminderCandidate,
-  args: { to: string; services: string[]; timeZone: string },
+  args: { to: string; services: string[]; timeZone: string; manageUrl: string | null },
 ) {
   const formattedTime = formatDateTime(candidate.startTime, args.timeZone, {
     hour: 'numeric',
@@ -335,6 +358,7 @@ function buildSameDayEmailPayload(
     `Your appointment at ${candidate.salonName} is today at ${formattedTime}.`,
     ...(args.services.length > 0 ? [`Services: ${args.services.join(', ')}`] : []),
     ...(candidate.technicianName ? [`Artist: ${candidate.technicianName}`] : []),
+    ...(args.manageUrl ? ['', `View, reschedule, or cancel: ${args.manageUrl}`] : []),
   ].join('\n');
   return {
     to: args.to,
@@ -350,6 +374,7 @@ function buildDayBeforeEmailPayload(
     to: string;
     services: string[];
     timeZone: string;
+    manageUrl: string | null;
   },
 ): {
     to: string;
@@ -377,7 +402,9 @@ function buildDayBeforeEmailPayload(
     ...(args.services.length > 0 ? [`Services: ${args.services.join(', ')}`] : []),
     ...(candidate.technicianName ? [`Artist: ${candidate.technicianName}`] : []),
     '',
-    'If you need to reschedule or cancel, please contact the salon as soon as possible.',
+    ...(args.manageUrl
+      ? [`Need to change it? View, reschedule, or cancel: ${args.manageUrl}`]
+      : ['If you need to reschedule or cancel, please contact the salon as soon as possible.']),
   ].join('\n');
 
   return {

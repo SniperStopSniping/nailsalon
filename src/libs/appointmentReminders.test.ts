@@ -9,6 +9,7 @@ import {
 vi.mock('server-only', () => ({}));
 
 const {
+  mintAppointmentManageLink,
   sendTransactionalEmail,
   getAppointmentServiceNames,
   getClientByPhone,
@@ -35,6 +36,7 @@ const {
   const update = vi.fn(() => ({ set: updateSet }));
 
   return {
+    mintAppointmentManageLink: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
     getClientByPhone: vi.fn(),
@@ -54,6 +56,10 @@ const {
 
 vi.mock('@/libs/email', () => ({
   sendTransactionalEmail,
+}));
+
+vi.mock('@/libs/appointmentManageLink', () => ({
+  mintAppointmentManageLink,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -80,6 +86,9 @@ describe('appointment reminders', () => {
     getClientByPhone.mockResolvedValue(null);
     sendTransactionalEmail.mockResolvedValue(true);
     sendAppointmentReminder.mockResolvedValue(true);
+    mintAppointmentManageLink.mockResolvedValue(
+      'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
+    );
   });
 
   it('detects the day-before 6 PM local reminder window', () => {
@@ -231,6 +240,68 @@ describe('appointment reminders', () => {
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'fallback@example.com',
     }));
+  });
+
+  it('puts the canonical management link in both reminder emails', async () => {
+    const candidate = {
+      appointmentId: 'appt_link',
+      salonId: 'salon_1',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: 'ava@example.com',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+
+    queueSelectResults([candidate]);
+    await processAppointmentReminders({ now: new Date('2026-03-31T22:05:00.000Z') });
+
+    queueSelectResults([{ ...candidate, dayBeforeReminderSentAt: new Date('2026-03-31T22:05:00.000Z') }]);
+    await processAppointmentReminders({ now: new Date('2026-04-01T16:55:00.000Z') });
+
+    expect(mintAppointmentManageLink).toHaveBeenCalledWith({
+      id: 'appt_link',
+      salonId: 'salon_1',
+      endTime: candidate.endTime,
+    });
+
+    const bodies = sendTransactionalEmail.mock.calls.map(call => (call[0] as { text: string }).text);
+
+    expect(bodies).toHaveLength(2);
+
+    for (const body of bodies) {
+      expect(body).toContain('https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY');
+      expect(body).not.toMatch(/\/book\//);
+    }
+  });
+
+  it('still sends the reminder when the management link cannot be minted', async () => {
+    mintAppointmentManageLink.mockRejectedValue(new Error('SALON_NOT_FOUND'));
+    queueSelectResults([{
+      appointmentId: 'appt_nolink',
+      salonId: 'salon_1',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: 'ava@example.com',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({ now: new Date('2026-03-31T22:05:00.000Z') });
+
+    expect(result.dayBeforeSent).toBe(1);
+    expect((sendTransactionalEmail.mock.calls[0]![0] as { text: string }).text)
+      .toContain('please contact the salon');
   });
 
   it('does not resend a day-before reminder that is already marked as sent', async () => {

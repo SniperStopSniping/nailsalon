@@ -438,6 +438,12 @@ export function buildChangeAppointmentUrl(params: {
   techId?: string | null;
   locationId?: string | null;
   originalAppointmentId: string;
+  /**
+   * Guest reschedules carry their capability token through, so the availability
+   * endpoint can authorize excluding the appointment being moved. Logged-in
+   * clients are covered by their session instead and may omit it.
+   */
+  manageToken?: string | null;
   startTime: string;
   basePath?: string;
   tenantRoute?: TenantRouteOptions;
@@ -454,6 +460,7 @@ export function buildChangeAppointmentUrl(params: {
     techId: params.techId ?? 'any',
     locationId: params.locationId,
     originalAppointmentId: params.originalAppointmentId,
+    manageToken: params.manageToken,
     date,
     time,
     startTime: params.startTime,

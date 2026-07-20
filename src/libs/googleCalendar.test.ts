@@ -319,4 +319,125 @@ describe('googleCalendar', () => {
       googleCalendarSyncError: null,
     }));
   });
+
+  describe('reschedule mirror exclusion', () => {
+    /**
+     * Queues one result per `db.select()` chain, in call order. The busy-window
+     * path selects: the salon connection, then the linked google_calendar_event
+     * row, then (only if that was empty) the appointment row.
+     */
+    function queueSelects(results: unknown[][]) {
+      const queue = [...results];
+      db.select.mockImplementation((() => {
+        const rows = queue.shift() ?? [];
+        const chain: Record<string, unknown> = {};
+        chain.from = () => chain;
+        chain.where = () => chain;
+        chain.limit = async () => rows;
+        return chain;
+      }) as unknown as typeof db.select);
+    }
+
+    const BUSY_WINDOW = {
+      startTime: new Date('2026-06-10T17:45:00.000Z'),
+      endTime: new Date('2026-06-10T18:45:00.000Z'),
+    };
+
+    it('drops the busy window belonging to the appointment being rescheduled', async () => {
+      queueSelects([
+        [], // no OAuth connection row -> legacy Env config
+        [{ startTime: BUSY_WINDOW.startTime, endTime: BUSY_WINDOW.endTime }],
+      ]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+        excludeAppointmentId: 'appt_1',
+      });
+
+      expect(windows).toEqual([]);
+    });
+
+    it('falls back to the appointment window for an outbound-only mirror', async () => {
+      queueSelects([
+        [],
+        [], // no google_calendar_event row
+        [{
+          startTime: BUSY_WINDOW.startTime,
+          endTime: BUSY_WINDOW.endTime,
+          googleCalendarEventId: 'gcal_event_1',
+        }],
+      ]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+        excludeAppointmentId: 'appt_1',
+      });
+
+      expect(windows).toEqual([]);
+    });
+
+    it('keeps a busy window that is not this appointment’s own mirror', async () => {
+      queueSelects([
+        [],
+        [{
+          // Same day, different window: a real external conflict.
+          startTime: new Date('2026-06-10T20:00:00.000Z'),
+          endTime: new Date('2026-06-10T21:00:00.000Z'),
+        }],
+      ]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+        excludeAppointmentId: 'appt_1',
+      });
+
+      expect(windows).toEqual([BUSY_WINDOW]);
+    });
+
+    it('suppresses nothing when the appointment has no Google mirror at all', async () => {
+      queueSelects([
+        [],
+        [],
+        [{
+          startTime: BUSY_WINDOW.startTime,
+          endTime: BUSY_WINDOW.endTime,
+          googleCalendarEventId: null,
+        }],
+      ]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+        excludeAppointmentId: 'appt_1',
+      });
+
+      expect(windows).toEqual([BUSY_WINDOW]);
+    });
+
+    it('leaves ordinary availability requests untouched', async () => {
+      queueSelects([[]]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+      });
+
+      expect(windows).toEqual([BUSY_WINDOW]);
+      // No mirror lookup happens without an authorized exclusion.
+      expect(db.select).toHaveBeenCalledTimes(1);
+    });
+  });
 });
