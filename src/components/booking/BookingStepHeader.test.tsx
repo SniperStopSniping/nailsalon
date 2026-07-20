@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { BookingStepHeader } from './BookingStepHeader';
+
 vi.mock('next/font/google', () => ({
   Playfair_Display: () => ({ className: 'font-playfair-display' }),
 }));
-
-import { BookingStepHeader } from './BookingStepHeader';
 
 describe('BookingStepHeader', () => {
   it('renders the compact mobile header treatment while preserving the step labels', () => {
@@ -49,9 +49,29 @@ describe('BookingStepHeader', () => {
       'font-playfair-display',
       'text-[1.36rem]',
       'font-normal',
-      'tracking-[0.05em]',
+      'tracking-wider',
     );
     expect(screen.getByTestId('booking-step-announcement')).toBeInTheDocument();
     expect(screen.getByText('✨ 25% off for new clients — until April 30')).toBeInTheDocument();
+  });
+
+  it('keeps the salon-name row clear of the top safe area on notched phones', () => {
+    render(
+      <BookingStepHeader
+        salonName="Isla Nail Studio"
+        mounted
+        title="Choose Your Service"
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        currentStep="service"
+        isFirstStep
+      />,
+    );
+
+    const topRow = screen.getByTestId('booking-salon-name').parentElement;
+
+    // The utility resolves to calc(1rem + env(safe-area-inset-top, 0px)) —
+    // plain 1rem on non-notched devices, pushed below the notch elsewhere.
+    expect(topRow).toHaveClass('booking-header-safe-top');
+    expect(topRow).not.toHaveClass('pt-4');
   });
 });

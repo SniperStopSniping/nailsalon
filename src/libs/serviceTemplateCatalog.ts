@@ -41,6 +41,10 @@ export type ServiceTemplate = {
   popularityRank?: number;
   /** Seeded for brand-new salons (never acrylic/dip). */
   isRecommendedStarter?: boolean;
+  /** Seeds the service with the introductory-price badge enabled. */
+  isIntroPrice?: boolean;
+  /** Badge label seeded alongside `isIntroPrice` (e.g. "Intro price"). */
+  introPriceLabel?: string | null;
   searchAliases?: string[];
   // addon-only fields
   addOnCategory?: AddOnCategory;
@@ -57,6 +61,8 @@ type RowOptions = Partial<
     | 'description'
     | 'popularityRank'
     | 'isRecommendedStarter'
+    | 'isIntroPrice'
+    | 'introPriceLabel'
     | 'searchAliases'
     | 'serviceCategory'
     | 'bookingCategory'
@@ -103,6 +109,8 @@ function expand(
     ...(options.description !== undefined ? { description: options.description } : {}),
     ...(options.popularityRank !== undefined ? { popularityRank: options.popularityRank } : {}),
     ...(options.isRecommendedStarter ? { isRecommendedStarter: true } : {}),
+    ...(options.isIntroPrice ? { isIntroPrice: true } : {}),
+    ...(options.introPriceLabel !== undefined ? { introPriceLabel: options.introPriceLabel } : {}),
     ...(options.searchAliases ? { searchAliases: options.searchAliases } : {}),
     ...(options.compatibleTemplateKeys ? { compatibleTemplateKeys: options.compatibleTemplateKeys } : {}),
   }));
@@ -134,9 +142,11 @@ const STARTER_COMBO_KEYS = [
 // Gel & Natural Nail Services
 // ---------------------------------------------------------------------------
 const GEL_NATURAL = expand([
-  [LUSTER_MANICURE_TEMPLATE_KEY, 'Luster Manicure', 4500, null, 60, {
+  [LUSTER_MANICURE_TEMPLATE_KEY, 'Luster Manicure', 5500, null, 60, {
     description: 'A premium structured manicure using Luster professional products.',
     isRecommendedStarter: true,
+    isIntroPrice: true,
+    introPriceLabel: 'Intro price',
     popularityRank: 1,
     searchAliases: ['luster', 'structured manicure'],
   }],

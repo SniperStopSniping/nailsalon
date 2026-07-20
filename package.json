@@ -16,7 +16,7 @@
     "check-types": "tsc --noEmit --pretty",
     "test": "node scripts/test-changed-source.mjs",
     "test:all": "vitest run",
-    "test:e2e": "playwright test tests/e2e/Sanity.check.e2e.ts tests/e2e/I18n.e2e.ts tests/e2e/Visual.e2e.ts tests/e2e/mobile-booking-footer.e2e.ts --project=chromium --project=mobile-webkit",
+    "test:e2e": "playwright test tests/e2e/Sanity.check.e2e.ts tests/e2e/I18n.e2e.ts tests/e2e/Visual.e2e.ts tests/e2e/mobile-booking-footer.e2e.ts tests/e2e/mobile-service-layout.e2e.ts --project=chromium --project=mobile-webkit",
     "test:e2e:all": "playwright test",
     "test:e2e:gate": "playwright test tests/e2e/core.*.e2e.ts --project=chromium",
     "test:e2e:local": "cross-env HOST=localhost PORT=3101 TWILIO_ACCOUNT_SID= TWILIO_AUTH_TOKEN= TWILIO_VERIFY_SERVICE_SID= playwright test --project=chromium",

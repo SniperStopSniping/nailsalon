@@ -23,8 +23,13 @@ describe('serviceTemplateCatalog', () => {
     expect(services).toHaveLength(14);
     expect(addOns).toHaveLength(16);
     expect(services[0]?.systemKey).toBe('luster_manicure');
-    expect(services[0]?.defaultPriceCents).toBe(4500);
+    expect(services[0]?.defaultPriceCents).toBe(5500);
     expect(services[0]?.defaultDurationMinutes).toBe(60);
+    // Luster seeds with the intro badge; the numeric price stays the single
+    // bookable source of truth (no display-text override).
+    expect(services[0]?.isIntroPrice).toBe(true);
+    expect(services[0]?.introPriceLabel).toBe('Intro price');
+    expect(services[0]?.priceDisplayText).toBeNull();
   });
 
   it('never marks acrylic or dip templates as recommended starters', () => {

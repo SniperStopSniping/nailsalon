@@ -1276,3 +1276,161 @@ describe('BookServiceClient', () => {
     replaceStateSpy.mockRestore();
   });
 });
+
+describe('BookServiceClient — Luster Manicure price consistency', () => {
+  const lusterService = {
+    id: 'svc-luster',
+    name: 'Luster Manicure',
+    description: null,
+    descriptionItems: ['A premium structured manicure'],
+    durationMinutes: 60,
+    priceCents: 5500,
+    priceDisplayText: null,
+    category: 'manicure' as const,
+    bookingCategory: 'manicure' as const,
+    templateKey: 'luster_manicure',
+    featuredOrder: null,
+    imageUrl: '/service-luster.jpg',
+    resolvedIntroPriceLabel: 'Intro price',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
+    clientSessionMock.isLoggedIn = false;
+    clientSessionMock.isCheckingSession = false;
+    bookingStateMock.values = {
+      technicianId: null,
+      technicianSelectionSource: null,
+      baseServiceId: null,
+      selectedAddOns: [],
+      locationId: null,
+      isHydrated: true,
+    };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows $55 on the featured card, the regular card, and the sticky footer', () => {
+    render(
+      <BookServiceClient
+        services={[lusterService, services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled
+      />,
+    );
+
+    const featuredCard = screen.getByTestId('featured-service-card-svc-luster');
+
+    expect(within(featuredCard).getByText('$55')).toBeInTheDocument();
+
+    const regularPrice = screen.getByTestId('service-card-price-svc-luster');
+
+    expect(regularPrice).toHaveTextContent('$55');
+
+    // The intro badge is a label, never a price substitute.
+    const regularCard = screen.getByTestId('service-card-svc-luster');
+
+    expect(within(regularCard).getByText('Intro price')).toBeInTheDocument();
+
+    fireEvent.click(regularCard);
+
+    const stickyBar = screen.getByTestId('service-sticky-bar');
+
+    expect(within(stickyBar).getByText('$55')).toBeInTheDocument();
+  });
+
+  it('documents the display contract: cards render priceDisplayText but the footer always charges priceCents', () => {
+    // The incident shape: a stale $45 bookable price masked by a "$75+"
+    // display override. The override changes card text only — the charged
+    // total (footer, POST, snapshot) always follows priceCents.
+    const staleService = {
+      ...lusterService,
+      id: 'svc-stale',
+      priceCents: 4500,
+      priceDisplayText: '$75+',
+      resolvedIntroPriceLabel: '$55',
+    };
+
+    render(
+      <BookServiceClient
+        services={[staleService, services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled
+      />,
+    );
+
+    const featuredCard = screen.getByTestId('featured-service-card-svc-stale');
+
+    expect(within(featuredCard).getByText('$75+')).toBeInTheDocument();
+    expect(screen.getByTestId('service-card-price-svc-stale')).toHaveTextContent('$75+');
+
+    fireEvent.click(screen.getByTestId('service-card-svc-stale'));
+
+    const stickyBar = screen.getByTestId('service-sticky-bar');
+
+    expect(within(stickyBar).getByText('$45')).toBeInTheDocument();
+    expect(within(stickyBar).queryByText('$75+')).not.toBeInTheDocument();
+  });
+
+  it('keeps featured cards inside narrow viewports and wraps long names intentionally', () => {
+    render(
+      <BookServiceClient
+        services={[lusterService, services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled
+      />,
+    );
+
+    const featuredCard = screen.getByTestId('featured-service-card-svc-luster');
+
+    // Viewport-aware width: 272px cap shrinks with the viewport at ≤320px
+    // while the sm: overrides keep tablet/desktop unchanged.
+    expect(featuredCard).toHaveClass(
+      'w-[min(272px,calc(100vw-4rem))]',
+      'shrink-0',
+      'sm:w-[280px]',
+    );
+    expect(within(featuredCard).getByText('Luster Manicure')).toHaveClass('line-clamp-2', 'break-words');
+
+    const regularCard = screen.getByTestId('service-card-svc-luster');
+
+    expect(within(regularCard).getByText('Luster Manicure')).toHaveClass('break-words');
+  });
+
+  it('keeps the sticky footer a single stable-height row so the reserved clearance always covers it', () => {
+    render(
+      <BookServiceClient
+        services={[lusterService, services[0]!]}
+        addOns={addOns}
+        serviceAddOnRules={[{
+          id: 'rule-luster',
+          serviceId: 'svc-luster',
+          addOnId: 'addon-1',
+          selectionMode: 'optional' as const,
+          defaultQuantity: null,
+          maxQuantityOverride: null,
+          displayOrder: 1,
+        }]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        lusterFeaturingEnabled
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-luster'));
+
+    const stickyBar = screen.getByTestId('service-sticky-bar');
+    const innerRow = stickyBar.querySelector('.mx-auto');
+
+    expect(innerRow).toHaveClass('flex-nowrap');
+    expect(within(stickyBar).getByText('1 service')).toHaveClass('truncate');
+    expect(screen.getByTestId('service-sticky-addon-note')).toHaveClass('truncate', 'text-[9px]');
+  });
+});

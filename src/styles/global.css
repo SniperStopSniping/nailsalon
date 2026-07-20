@@ -139,12 +139,29 @@
 @layer utilities {
   .service-page-viewport {
     min-height: 100vh;
+    /* Full-bleed carousels (-mx-4 + fixed-width cards) must scroll inside
+       their own containers; the page itself never scrolls horizontally. */
+    overflow-x: hidden;
   }
 
   @supports (min-height: 100dvh) {
     .service-page-viewport {
       min-height: 100dvh;
     }
+  }
+
+  /* `clip` avoids creating a scroll container, keeping fixed/absolute
+     descendants (sticky CTA bar, centered salon name) unaffected. */
+  @supports (overflow-x: clip) {
+    .service-page-viewport {
+      overflow-x: clip;
+    }
+  }
+
+  /* Booking-step header top row: base 1rem padding plus the notch/status-bar
+     inset so the salon name is never clipped on notched phones. */
+  .booking-header-safe-top {
+    padding-top: calc(1rem + env(safe-area-inset-top, 0px));
   }
 
   .scrollbar-hide {

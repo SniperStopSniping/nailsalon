@@ -202,7 +202,7 @@ describe('ServicesModal', () => {
     fireEvent.click(screen.getByTestId('luster-promo-cta'));
 
     expect(screen.getByLabelText('Name')).toHaveValue('Luster Manicure');
-    expect(screen.getByLabelText('Price')).toHaveValue(45);
+    expect(screen.getByLabelText('Price')).toHaveValue(55);
     expect(screen.getByLabelText('Duration')).toHaveValue(60);
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
@@ -217,6 +217,12 @@ describe('ServicesModal', () => {
     expect(body.templateKey).toBe('luster_manicure');
     expect(body.name).toBe('Luster Manicure');
     expect(body.bookingCategory).toBe('manicure');
+    // The bookable price and the badge come from the template catalog; the
+    // numeric price is authoritative and no display-text override is sent.
+    expect(body.price).toBe(5500);
+    expect(body.priceDisplayText).toBeNull();
+    expect(body.isIntroPrice).toBe(true);
+    expect(body.introPriceLabel).toBe('Intro price');
   });
 
   it('hides the Luster setup card when an active Luster service exists', async () => {
@@ -242,6 +248,66 @@ describe('ServicesModal', () => {
 
     expect(await screen.findByText('Luster Manicure')).toBeInTheDocument();
     expect(screen.queryByTestId('luster-promo-card')).not.toBeInTheDocument();
+  });
+
+  it('shows the numeric price with the intro badge on the detail view, and only a set display text overrides the shown price', async () => {
+    mockRoutes({
+      services: [
+        {
+          // Corrected production shape: numeric price is what renders.
+          id: 'svc_luster',
+          name: 'Luster Manicure',
+          description: null,
+          price: 5500,
+          priceDisplayText: null,
+          isIntroPrice: true,
+          introPriceLabel: 'Intro price',
+          durationMinutes: 60,
+          preparationBufferMinutes: 0,
+          cleanupBufferMinutes: 0,
+          category: 'manicure',
+          bookingCategory: 'manicure',
+          templateKey: 'luster_manicure',
+          imageUrl: null,
+          isActive: true,
+        },
+        {
+          // A display-text service: the override replaces the shown price.
+          id: 'svc_display',
+          name: 'Gel Pedicure',
+          description: null,
+          price: 5500,
+          priceDisplayText: '$55+',
+          isIntroPrice: false,
+          introPriceLabel: null,
+          durationMinutes: 60,
+          preparationBufferMinutes: 0,
+          cleanupBufferMinutes: 0,
+          category: 'pedicure',
+          bookingCategory: 'pedicure',
+          templateKey: null,
+          imageUrl: null,
+          isActive: true,
+        },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    // List rows: numeric price when no display text; override when set.
+    expect(await screen.findByText('Luster Manicure')).toBeInTheDocument();
+    expect(screen.getByText('$55.00')).toBeInTheDocument();
+    expect(screen.getByText('$55+')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Luster Manicure'));
+
+    // Detail view: PRICE card shows the bookable $55 and the badge is the
+    // intro label — never a second price.
+    expect(await screen.findByText('Price')).toBeInTheDocument();
+    expect(screen.getAllByText('$55.00').length).toBeGreaterThan(0);
+    expect(screen.getByText('Intro price')).toBeInTheDocument();
+    expect(screen.queryByText('$75+')).not.toBeInTheDocument();
   });
 
   it('hides the Luster setup card once dismissed and persists the dismissal', async () => {

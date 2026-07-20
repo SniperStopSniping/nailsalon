@@ -114,6 +114,8 @@ export async function seedStarterMenuForSalon(args: {
       descriptionItems: template.description ? [template.description] : null,
       price: override?.priceCents ?? template.defaultPriceCents,
       priceDisplayText: template.priceDisplayText,
+      isIntroPrice: template.isIntroPrice ?? false,
+      introPriceLabel: template.isIntroPrice ? template.introPriceLabel ?? null : null,
       durationMinutes: override?.durationMinutes ?? template.defaultDurationMinutes,
       category: template.serviceCategory,
       bookingCategory: template.bookingCategory,

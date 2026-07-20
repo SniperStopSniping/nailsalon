@@ -31,7 +31,7 @@ import { ListSurface } from '@/components/ui/list-surface';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { formatMoney } from '@/libs/formatMoney';
-import type { ServiceTemplate } from '@/libs/serviceTemplateCatalog';
+import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -69,6 +69,8 @@ type ServicePrefill = {
   category: ServiceCategory;
   bookingCategory?: BookingCategory;
   templateKey: string;
+  isIntroPrice?: boolean;
+  introPriceLabel?: string | null;
 };
 
 type ServicesModalProps = {
@@ -339,6 +341,8 @@ function AddServiceDialog({
       setCategory(prefill.category);
       setBookingCategory(prefill.bookingCategory ?? deriveBookingCategory(prefill.category));
       setBookingCategoryTouched(Boolean(prefill.bookingCategory));
+      setIsIntroPrice(Boolean(prefill.isIntroPrice));
+      setIntroPriceLabel(prefill.introPriceLabel ?? '');
       setError(null);
     } else if (!isOpen) {
       setName('');
@@ -761,13 +765,19 @@ function AddServiceDialog({
   );
 }
 
+// Derived from the template catalog so the promo-card setup flow can never
+// drift from the seeded defaults (price/intro badge must stay in sync).
+const lusterTemplate = getTemplateByKey(LUSTER_MANICURE_TEMPLATE_KEY);
+
 const LUSTER_PREFILL: ServicePrefill = {
-  name: 'Luster Manicure',
-  description: 'A premium structured manicure using Luster professional products.',
-  price: 4500,
-  durationMinutes: 60,
+  name: lusterTemplate?.name ?? 'Luster Manicure',
+  description: lusterTemplate?.description ?? 'A premium structured manicure using Luster professional products.',
+  price: lusterTemplate?.defaultPriceCents ?? 5500,
+  durationMinutes: lusterTemplate?.defaultDurationMinutes ?? 60,
   category: 'manicure',
   templateKey: LUSTER_MANICURE_TEMPLATE_KEY,
+  isIntroPrice: lusterTemplate?.isIntroPrice ?? true,
+  introPriceLabel: lusterTemplate?.introPriceLabel ?? 'Intro price',
 };
 
 /**
@@ -1157,6 +1167,8 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       category: template.serviceCategory as ServiceCategory,
       bookingCategory: template.bookingCategory,
       templateKey: template.systemKey,
+      isIntroPrice: template.isIntroPrice ?? false,
+      introPriceLabel: template.introPriceLabel ?? null,
     });
     setShowAddDialog(true);
   }, [salonSlug, fetchServices]);

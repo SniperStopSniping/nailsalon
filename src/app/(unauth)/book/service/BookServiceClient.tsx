@@ -115,6 +115,11 @@ const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = 
   combo: { label: 'Combo', icon: '✨' },
 };
 
+// Height reserved for the fixed CTA bar. The in-page spacer and the tenant
+// footer clearance var must stay byte-identical, or the last card / footer
+// links end up underneath the bar on short viewports.
+const STICKY_FOOTER_CLEARANCE = 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))';
+
 function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-CA', {
     style: 'currency',
@@ -586,7 +591,7 @@ export function BookServiceClient({
 
     document.documentElement.style.setProperty(
       footerClearanceProperty,
-      'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))',
+      STICKY_FOOTER_CLEARANCE,
     );
 
     return () => {
@@ -1095,7 +1100,7 @@ export function BookServiceClient({
                                 data-testid={`featured-service-card-${service.id}`}
                                 aria-pressed={isSelected}
                                 aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
-                                className={`relative w-[272px] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                   service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
                                 }`}
                                 style={{
@@ -1126,7 +1131,7 @@ export function BookServiceClient({
                                   </div>
                                 </div>
                                 <div className="p-2">
-                                  <div className="text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
+                                  <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
                                     {service.name}
                                   </div>
                                   <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
@@ -1272,7 +1277,7 @@ export function BookServiceClient({
                                   data-testid={`service-card-content-${service.id}`}
                                   className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
                                 >
-                                  <div className="text-[14px] font-bold leading-tight text-neutral-900">
+                                  <div className="break-words text-[14px] font-bold leading-tight text-neutral-900">
                                     {service.name}
                                   </div>
                                   <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
@@ -1444,7 +1449,7 @@ export function BookServiceClient({
           <div
             data-testid="service-sticky-spacer"
             aria-hidden="true"
-            style={{ height: 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))' }}
+            style={{ height: STICKY_FOOTER_CLEARANCE }}
           />
         )}
       </div>
@@ -1471,9 +1476,9 @@ export function BookServiceClient({
               }
             `}
           </style>
-          <div className="mx-auto flex max-w-[430px] items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
+          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <div className="text-[11px] leading-none text-neutral-500">
+              <div className="truncate text-[11px] leading-none text-neutral-500">
                 {selectedAddOnsState.length > 0
                   ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
                   : '1 service'}
@@ -1481,7 +1486,7 @@ export function BookServiceClient({
               {hasVisibleAddOns && (
                 <div
                   data-testid="service-sticky-addon-note"
-                  className="text-[9px] font-medium leading-none"
+                  className="truncate text-[9px] font-medium leading-none"
                   style={{ color: themeVars.accent }}
                 >
                   Optional add-ons available

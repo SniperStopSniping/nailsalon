@@ -1,5 +1,5 @@
 import { Playfair_Display } from 'next/font/google';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 import type { BookingStep } from '@/libs/bookingFlow';
 import { getStepIndex, getStepLabel } from '@/libs/bookingFlow';
@@ -44,7 +44,7 @@ export function BookingStepHeader({
   return (
     <div className={className} data-testid="booking-step-header">
       <div
-        className="relative flex items-center pb-1 pt-4"
+        className="booking-header-safe-top relative flex items-center pb-1"
         style={{
           opacity: mounted ? 1 : 0,
           transform: mounted ? 'translateY(0)' : 'translateY(-8px)',
@@ -68,7 +68,7 @@ export function BookingStepHeader({
           data-testid="booking-salon-name"
           className={`${
             isEditorialSalonName
-              ? `${playfairDisplay.className} text-[1.36rem] font-normal tracking-[0.05em] sm:text-[1.58rem]`
+              ? `${playfairDisplay.className} text-[1.36rem] font-normal tracking-wider sm:text-[1.58rem]`
               : 'text-base font-semibold tracking-tight sm:text-lg'
           } ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'} leading-none`}
           style={{ color: themeVars.accent }}

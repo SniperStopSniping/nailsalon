@@ -67,10 +67,19 @@ describe('seedStarterMenuForSalon', () => {
 
     expect(luster).toMatchObject({
       name: 'Luster Manicure',
-      price: 4500,
+      price: 5500,
+      priceDisplayText: null,
+      isIntroPrice: true,
+      introPriceLabel: 'Intro price',
       durationMinutes: 60,
       bookingCategory: 'manicure',
       isActive: true,
+    });
+
+    // Non-intro templates seed without the badge.
+    expect(services.find(service => service.templateKey === 'classic_pedicure')).toMatchObject({
+      isIntroPrice: false,
+      introPriceLabel: null,
     });
 
     // Overrides applied; disabling keeps the record but not bookable.

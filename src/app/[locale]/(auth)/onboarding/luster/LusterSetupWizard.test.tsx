@@ -37,7 +37,7 @@ describe('LusterSetupWizard', () => {
     render(<LusterSetupWizard inviteToken="invite-token" locale="en" />);
 
     // Luster Manicure leads the review with its spec defaults.
-    expect(await screen.findByLabelText('Price for Luster Manicure')).toHaveValue(45);
+    expect(await screen.findByLabelText('Price for Luster Manicure')).toHaveValue(55);
     expect(screen.getByLabelText('Duration for Luster Manicure')).toHaveValue(60);
     expect(screen.getByLabelText('Offer Luster Manicure')).toBeChecked();
 
@@ -48,9 +48,9 @@ describe('LusterSetupWizard', () => {
     expect(screen.queryByText(/acrylic/i)).not.toBeInTheDocument();
 
     // Rows are editable and can be turned off without disappearing.
-    fireEvent.change(screen.getByLabelText('Price for Luster Manicure'), { target: { value: '55' } });
+    fireEvent.change(screen.getByLabelText('Price for Luster Manicure'), { target: { value: '60' } });
 
-    expect(screen.getByLabelText('Price for Luster Manicure')).toHaveValue(55);
+    expect(screen.getByLabelText('Price for Luster Manicure')).toHaveValue(60);
 
     fireEvent.click(screen.getByLabelText('Offer Gel-X Extensions'));
 
