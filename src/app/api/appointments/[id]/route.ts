@@ -12,6 +12,7 @@ import {
 } from '@/libs/queries';
 import { REFERRAL_REFERRER_AMOUNT_CENTS, REFERRAL_REFERRER_EXPIRY_DAYS } from '@/libs/rewardRules';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
+import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
   APPOINTMENT_STATUSES,
@@ -253,6 +254,27 @@ export async function PATCH(
           services: serviceNames,
           startTime: existingAppointment.startTime.toISOString(),
           cancelReason: data.cancelReason ?? 'cancelled',
+        });
+      }
+
+      // A repeat PATCH on an already-cancelled appointment reaches here again;
+      // the notification dedupe key stops it from emailing twice.
+      try {
+        await sendSalonNotificationEmail({
+          salonId: existingAppointment.salonId,
+          appointmentId,
+          event: 'cancelled',
+          source: 'dashboard',
+          cancellation: {
+            reason: data.cancelReason ?? null,
+            cancelledAt: new Date().toISOString(),
+          },
+        });
+      } catch (notificationError) {
+        console.error('[SALON NOTIFICATION] Cancellation alert failed after the cancellation committed:', {
+          salonId: existingAppointment.salonId,
+          appointmentId,
+          error: notificationError,
         });
       }
     }

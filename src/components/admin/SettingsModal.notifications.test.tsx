@@ -264,9 +264,6 @@ describe('SettingsModal booking notifications', () => {
     fireEvent.change(screen.getByLabelText('Technician notification channel for new booking alerts'), {
       target: { value: 'both' },
     });
-    fireEvent.change(screen.getByLabelText('Owner notification channel for new booking alerts'), {
-      target: { value: 'both' },
-    });
     fireEvent.click(screen.getByRole('button', { name: /save alerts/i }));
 
     await waitFor(() => {
@@ -297,5 +294,56 @@ describe('SettingsModal booking notifications', () => {
 
     expect(await screen.findByText('Notification settings saved.')).toBeInTheDocument();
     expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it('saves the salon appointment notification toggles and recipient', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking & cancellation alerts'));
+
+    const cancellationEmails = await screen.findByLabelText('Cancellation emails');
+
+    expect(await screen.findByLabelText('New booking emails')).toBeChecked();
+    expect(cancellationEmails).toBeChecked();
+
+    fireEvent.click(cancellationEmails);
+    fireEvent.change(screen.getByLabelText('Salon notification email address'), {
+      target: { value: 'frontdesk@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save notifications/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/salon/settings?salonSlug=salon-a',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            salonEmailNotifications: {
+              newBooking: true,
+              rescheduled: true,
+              cancelled: false,
+              recipientEmail: 'frontdesk@example.com',
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  it('rejects an invalid notification email before saving', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking & cancellation alerts'));
+    fireEvent.change(
+      await screen.findByLabelText('Salon notification email address'),
+      { target: { value: 'not-an-email' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /save notifications/i }));
+
+    expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/admin/salon/settings?salonSlug=salon-a',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
   });
 });

@@ -7,6 +7,7 @@ const {
   getSalonById,
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
+  sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
   updateWhere,
@@ -65,6 +66,7 @@ const {
     getSalonById: vi.fn(),
     getTechnicianById: vi.fn(),
     sendBookingNotificationsForAppointmentCancelled: vi.fn(),
+    sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
     updateWhere,
@@ -109,6 +111,8 @@ vi.mock('@/libs/googleCalendar', () => ({
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+
+vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }));
 
 import { sendCancellationConfirmation } from '@/libs/SMS';
 

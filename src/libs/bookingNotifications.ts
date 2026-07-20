@@ -172,6 +172,10 @@ export async function sendBookingNotificationsForAppointmentCancelled(
   });
 }
 
+function toSmsOnlyChannel(channel: NotificationChannelSetting): 'sms' | null {
+  return channel === 'email' ? null : 'sms';
+}
+
 function resolveRecipients(args: {
   eventSettings: NotificationEventSettings;
   capabilities: ReturnType<typeof resolveBookingNotificationCapabilities>;
@@ -197,12 +201,17 @@ function resolveRecipients(args: {
     });
   }
 
-  if (args.eventSettings.ownerEnabled) {
+  // Salon-facing *email* alerts are owned entirely by
+  // `@/libs/salonNotificationEmail` (Settings → Notifications → Appointment
+  // notifications). This path is SMS-only so the owner can never receive two
+  // emails for one booking; an owner set to email-only gets nothing here.
+  const ownerSmsChannel = toSmsOnlyChannel(args.eventSettings.ownerChannel);
+  if (args.eventSettings.ownerEnabled && ownerSmsChannel) {
     addRecipientChannels({
       recipients,
-      requestedChannel: args.eventSettings.ownerChannel,
+      requestedChannel: ownerSmsChannel,
       phone: args.salon.ownerPhone,
-      email: args.salon.ownerEmail,
+      email: null,
       smsChannelAvailable: args.capabilities.smsChannelAvailable,
       emailChannelAvailable: args.capabilities.emailChannelAvailable,
       label: 'owner',

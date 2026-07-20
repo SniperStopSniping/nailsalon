@@ -6,6 +6,12 @@ import {
   type GoogleCalendarAppointmentEventInput,
   syncGoogleCalendarEventForAppointment,
 } from '@/libs/googleCalendar';
+import type {
+  SalonNotificationCancellation,
+  SalonNotificationEventKey,
+  SalonNotificationPreviousSchedule,
+  SalonNotificationSource,
+} from '@/libs/salonNotificationEmail';
 import {
   appointmentSchema,
   integrationOutboxSchema,
@@ -154,6 +160,33 @@ export async function processIntegrationOutbox(limit = 50) {
         result = { status: 'synced' as const };
       } else if (
         job.provider === 'email'
+        && job.operation === 'retry_salon_notification'
+      ) {
+        const payload = job.payload as {
+          deliveryId?: string;
+          event?: SalonNotificationEventKey;
+          source?: SalonNotificationSource;
+          previous?: SalonNotificationPreviousSchedule | null;
+          cancellation?: SalonNotificationCancellation | null;
+        };
+        if (!job.appointmentId || !payload.deliveryId || !payload.event) {
+          throw new Error('INVALID_SALON_NOTIFICATION_RETRY');
+        }
+        const { retrySalonNotificationEmail } = await import(
+          '@/libs/salonNotificationEmail'
+        );
+        await retrySalonNotificationEmail({
+          salonId: job.salonId,
+          appointmentId: job.appointmentId,
+          deliveryId: payload.deliveryId,
+          event: payload.event,
+          source: payload.source ?? 'unknown',
+          previous: payload.previous ?? undefined,
+          cancellation: payload.cancellation ?? undefined,
+        });
+        result = { status: 'synced' as const };
+      } else if (
+        job.provider === 'email'
         && job.operation === 'retry_booking_recovery'
       ) {
         const payload = job.payload as {
@@ -264,18 +297,30 @@ export async function processIntegrationOutbox(limit = 50) {
         if (recipient) {
           const { sendTransactionalEmail } = await import('@/libs/email');
           const isEmail = job.provider === 'email';
-          const text = isEmail
-            ? `Luster could not deliver a client booking confirmation after several retries. The appointment is still safe in Luster. Open the appointment to verify the email address and resend the confirmation.\n\nAppointment: ${job.appointmentId || 'unknown'}`
-            : `Google Calendar could not sync an appointment after several retries. The booking is still safe in Luster. Reconnect Calendar from the Luster area or contact support.\n\nAppointment: ${job.appointmentId || 'unknown'}`;
+          const isSalonNotification
+            = job.operation === 'retry_salon_notification';
+          const notice = isSalonNotification
+            ? {
+                subject: `${salon?.name || 'Your salon'} appointment alerts need attention`,
+                text: `Luster could not deliver a salon appointment alert after several retries. The appointment itself is unaffected and still safe in Luster. Check the notification email address in Settings → Notifications.\n\nAppointment: ${job.appointmentId || 'unknown'}`,
+                html: `<p>Luster could not deliver a salon appointment alert after several retries. The appointment itself is unaffected and still safe in Luster.</p><p>Check the notification email address in Settings &rarr; Notifications.</p>`,
+              }
+            : isEmail
+              ? {
+                  subject: `${salon?.name || 'Your salon'} client email needs attention`,
+                  text: `Luster could not deliver a client booking confirmation after several retries. The appointment is still safe in Luster. Open the appointment to verify the email address and resend the confirmation.\n\nAppointment: ${job.appointmentId || 'unknown'}`,
+                  html: `<p>Luster could not deliver a client booking confirmation after several retries. The appointment is still safe.</p><p>Open the appointment, verify the email address, and resend the confirmation.</p>`,
+                }
+              : {
+                  subject: `${salon?.name || 'Your salon'} Google Calendar needs attention`,
+                  text: `Google Calendar could not sync an appointment after several retries. The booking is still safe in Luster. Reconnect Calendar from the Luster area or contact support.\n\nAppointment: ${job.appointmentId || 'unknown'}`,
+                  html: `<p>Google Calendar could not sync an appointment after several retries. The booking is still safe in Luster.</p><p>Reconnect Calendar from the Luster area or contact support.</p>`,
+                };
           await sendTransactionalEmail({
             to: recipient,
-            subject: isEmail
-              ? `${salon?.name || 'Your salon'} client email needs attention`
-              : `${salon?.name || 'Your salon'} Google Calendar needs attention`,
-            text,
-            html: isEmail
-              ? `<p>Luster could not deliver a client booking confirmation after several retries. The appointment is still safe.</p><p>Open the appointment, verify the email address, and resend the confirmation.</p>`
-              : `<p>Google Calendar could not sync an appointment after several retries. The booking is still safe in Luster.</p><p>Reconnect Calendar from the Luster area or contact support.</p>`,
+            subject: notice.subject,
+            text: notice.text,
+            html: notice.html,
           }).catch(() => false);
         }
       } else {

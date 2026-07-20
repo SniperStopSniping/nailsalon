@@ -11,6 +11,7 @@ import {
   updateSalonClientStats,
 } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
+import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
 import { appointmentSchema, CANCEL_REASONS, rewardSchema, salonClientSchema } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
@@ -337,6 +338,16 @@ export async function PATCH(
               cancelReason: validated.data.cancelReason,
             })
             : Promise.resolve(),
+          sendSalonNotificationEmail({
+            salonId: appointment.salonId,
+            appointmentId,
+            event: 'cancelled',
+            source: 'dashboard',
+            cancellation: {
+              reason: validated.data.cancelReason ?? null,
+              cancelledAt: (transition.cancelledAt ?? new Date()).toISOString(),
+            },
+          }),
         ]);
 
         for (const result of notificationResults) {

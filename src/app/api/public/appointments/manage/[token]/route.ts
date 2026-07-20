@@ -5,6 +5,7 @@ import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import {
   appointmentAccessTokenSchema,
   appointmentSchema,
@@ -110,6 +111,28 @@ export async function PATCH(request: Request, context: { params: { token: string
       eq(appointmentAccessTokenSchema.appointmentId, managed.capability.appointmentId),
       ne(appointmentAccessTokenSchema.id, managed.capability.tokenId),
     ));
+
+  // The status guard above means `cancelled` is only set on a real transition,
+  // so an already-cancelled appointment returns 409 and never re-notifies.
+  // Failures here must not undo a cancellation the client already saw succeed.
+  try {
+    await sendSalonNotificationEmail({
+      salonId: cancelled.salonId,
+      appointmentId: cancelled.id,
+      event: 'cancelled',
+      source: 'client_manage_link',
+      cancellation: {
+        reason: cancelled.cancelReason,
+        cancelledAt: (cancelled.updatedAt ?? new Date()).toISOString(),
+      },
+    });
+  } catch (notificationError) {
+    console.error('[SALON NOTIFICATION] Cancellation alert failed after the cancellation committed:', {
+      salonId: cancelled.salonId,
+      appointmentId: cancelled.id,
+      error: notificationError,
+    });
+  }
 
   if (managed.capability.appointment.clientEmail) {
     const text = `Your appointment with ${managed.details.salonName} has been cancelled.`;

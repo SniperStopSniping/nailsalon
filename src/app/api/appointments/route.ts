@@ -59,6 +59,7 @@ import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
+  getAppointmentServiceNames,
   getClientByPhone,
   getLocationById,
   getOrCreateSalonClient,
@@ -76,6 +77,7 @@ import {
   hashRetentionCampaignToken,
   validateRetentionCampaign,
 } from '@/libs/retentionCampaigns';
+import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   applySmartFitOverlay,
@@ -376,6 +378,85 @@ async function markLatestRetentionOutreachConverted(args: {
     WHERE ${clientCommunicationSchema.id} IN (SELECT id FROM latest_eligible)
       AND ${clientCommunicationSchema.salonId} = ${args.salonId}
   `);
+}
+
+/**
+ * Salon-facing "new booking" / "rescheduled" alert.
+ *
+ * A reschedule in this codebase creates a brand new appointment and cancels the
+ * original with cancelReason='rescheduled', so the two events are mutually
+ * exclusive: a reschedule must never also announce itself as a new booking.
+ *
+ * Only customer-initiated reschedules notify — an owner moving an appointment
+ * in their own dashboard does not need an email about their own action.
+ *
+ * Never throws: the booking is already committed and the client has already
+ * been shown a confirmation.
+ */
+async function notifySalonAboutBooking(args: {
+  salonId: string;
+  appointmentId: string;
+  actorRole: 'guest' | 'client' | 'staff' | 'admin';
+  originalAppointment: Appointment | null;
+  newStartTime: Date;
+  newEndTime: Date;
+}): Promise<void> {
+  try {
+    const customerInitiated = args.actorRole === 'guest' || args.actorRole === 'client';
+
+    if (!args.originalAppointment) {
+      await sendSalonNotificationEmail({
+        salonId: args.salonId,
+        appointmentId: args.appointmentId,
+        event: 'newBooking',
+        source: customerInitiated ? 'online_booking' : 'dashboard',
+      });
+      return;
+    }
+
+    if (!customerInitiated) {
+      return;
+    }
+
+    const original = args.originalAppointment;
+    const scheduleChanged
+      = original.startTime.getTime() !== args.newStartTime.getTime()
+      || original.endTime.getTime() !== args.newEndTime.getTime();
+
+    if (!scheduleChanged) {
+      return;
+    }
+
+    const [previousTechnician, previousServiceNames] = await Promise.all([
+      original.technicianId
+        ? getTechnicianById(original.technicianId, args.salonId)
+        : Promise.resolve(null),
+      getAppointmentServiceNames(original.id),
+    ]);
+
+    await sendSalonNotificationEmail({
+      salonId: args.salonId,
+      appointmentId: args.appointmentId,
+      event: 'rescheduled',
+      source: 'client_manage_link',
+      previous: {
+        appointmentId: original.id,
+        startTime: original.startTime.toISOString(),
+        endTime: original.endTime.toISOString(),
+        technicianName: previousTechnician?.name ?? null,
+        serviceSummary: previousServiceNames.join(', ') || 'Appointment',
+        discountLabel: original.discountLabel,
+        discountAmountCents: original.discountAmountCents ?? 0,
+        totalPriceCents: original.totalPrice,
+      },
+    });
+  } catch (error) {
+    console.error('[SALON NOTIFICATION] Booking alert failed after the booking committed:', {
+      salonId: args.salonId,
+      appointmentId: args.appointmentId,
+      error,
+    });
+  }
 }
 
 type AppointmentDetailMaps = {
@@ -2574,6 +2655,19 @@ export async function POST(request: Request): Promise<Response> {
         manageUrl,
       });
     }
+
+    // Salon-facing appointment alert. Runs only after the insert committed and
+    // the response was cached, so abandoned sessions, holds, failed bookings
+    // and idempotent replays never reach it. Failures are swallowed: a
+    // notification must never undo a booking the client already saw succeed.
+    await notifySalonAboutBooking({
+      salonId: salon.id,
+      appointmentId: appointment.id,
+      actorRole,
+      originalAppointment,
+      newStartTime: startTime,
+      newEndTime: endTime,
+    });
 
     await sendBookingNotificationsForNewBooking({
       salon: {

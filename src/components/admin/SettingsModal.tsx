@@ -859,6 +859,62 @@ type BookingNotificationCapabilitiesState = {
   emailChannelAvailable: boolean;
 };
 
+type SalonEmailNotificationFormState = {
+  newBooking: boolean;
+  rescheduled: boolean;
+  cancelled: boolean;
+  recipientEmail: string;
+};
+
+type SalonNotificationRecipientState = {
+  email: string | null;
+  source: 'configured' | 'owner' | 'salon_account' | null;
+  missing: boolean;
+};
+
+const DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE: SalonEmailNotificationFormState = {
+  newBooking: true,
+  rescheduled: true,
+  cancelled: true,
+  recipientEmail: '',
+};
+
+const SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS: Array<{
+  key: 'newBooking' | 'rescheduled' | 'cancelled';
+  label: string;
+  description: string;
+}> = [
+  {
+    key: 'newBooking',
+    label: 'New booking emails',
+    description: 'Email the salon when a client books an appointment.',
+  },
+  {
+    key: 'rescheduled',
+    label: 'Reschedule emails',
+    description: 'Email the salon when a client moves an appointment.',
+  },
+  {
+    key: 'cancelled',
+    label: 'Cancellation emails',
+    description: 'Email the salon when an appointment is cancelled.',
+  },
+];
+
+const SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL: Record<
+  'configured' | 'owner' | 'salon_account',
+  string
+> = {
+  configured: 'the address above',
+  owner: 'your owner email',
+  salon_account: 'your salon account email',
+};
+
+function isValidNotificationEmail(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(trimmed);
+}
+
 const SLOT_INTERVAL_OPTIONS: Array<
   BookingConfigFormState['slotIntervalMinutes']
 > = [5, 10, 15, 30];
@@ -874,6 +930,13 @@ const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{
   { value: 'email', label: 'Email' },
   { value: 'both', label: 'Both' },
 ];
+
+// Owner alerts here are SMS-only: salon email alerts are configured in the
+// Appointment notifications card so one booking can never send two emails.
+const OWNER_NOTIFICATION_CHANNEL_OPTIONS: Array<{
+  value: BookingNotificationChannel;
+  label: string;
+}> = [{ value: 'sms', label: 'SMS' }];
 
 const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFormState
   = {
@@ -1275,6 +1338,24 @@ export function SettingsModal({
       smsChannelAvailable: false,
       emailChannelAvailable: false,
     });
+  const [salonEmailNotificationsForm, setSalonEmailNotificationsForm]
+    = useState<SalonEmailNotificationFormState>(
+      DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE,
+    );
+  const [salonNotificationRecipient, setSalonNotificationRecipient]
+    = useState<SalonNotificationRecipientState>({
+      email: null,
+      source: null,
+      missing: false,
+    });
+  const [salonEmailNotificationsDirty, setSalonEmailNotificationsDirty]
+    = useState(false);
+  const [salonEmailNotificationsSaving, setSalonEmailNotificationsSaving]
+    = useState(false);
+  const [salonEmailNotificationsSaved, setSalonEmailNotificationsSaved]
+    = useState(false);
+  const [salonEmailNotificationsError, setSalonEmailNotificationsError]
+    = useState<string | null>(null);
 
   const [visibility, setVisibility] = useState<SalonVisibilityPolicy>({
     staff: {
@@ -1435,6 +1516,19 @@ export function SettingsModal({
           smsChannelAvailable: data.smsChannelAvailable ?? false,
           emailChannelAvailable: data.emailChannelAvailable ?? false,
         });
+        setSalonEmailNotificationsForm({
+          newBooking: data.salonEmailNotifications?.newBooking ?? true,
+          rescheduled: data.salonEmailNotifications?.rescheduled ?? true,
+          cancelled: data.salonEmailNotifications?.cancelled ?? true,
+          recipientEmail: data.salonEmailNotifications?.recipientEmail ?? '',
+        });
+        setSalonNotificationRecipient({
+          email: data.salonNotificationRecipient?.email ?? null,
+          source: data.salonNotificationRecipient?.source ?? null,
+          missing: data.salonNotificationRecipientMissing ?? false,
+        });
+        setSalonEmailNotificationsDirty(false);
+        setSalonEmailNotificationsError(null);
         setPaymentsForm({
           taxEnabled: data.payments?.tax?.enabled ?? false,
           taxName: data.payments?.tax?.name ?? '',
@@ -1742,6 +1836,87 @@ export function SettingsModal({
     router,
     salonSlug,
   ]);
+
+  const saveSalonEmailNotifications = useCallback(async () => {
+    if (!salonSlug || salonEmailNotificationsSaving) {
+      return;
+    }
+
+    const trimmedRecipient = salonEmailNotificationsForm.recipientEmail.trim();
+    if (trimmedRecipient && !isValidNotificationEmail(trimmedRecipient)) {
+      setSalonEmailNotificationsError('Enter a valid email address.');
+      return;
+    }
+
+    try {
+      setSalonEmailNotificationsSaving(true);
+      setSalonEmailNotificationsSaved(false);
+      setSalonEmailNotificationsError(null);
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonEmailNotifications: {
+              newBooking: salonEmailNotificationsForm.newBooking,
+              rescheduled: salonEmailNotificationsForm.rescheduled,
+              cancelled: salonEmailNotificationsForm.cancelled,
+              recipientEmail: trimmedRecipient,
+            },
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to save appointment notification settings');
+      }
+
+      const data = await response.json();
+      setSalonEmailNotificationsForm({
+        newBooking:
+          data.salonEmailNotifications?.newBooking
+          ?? salonEmailNotificationsForm.newBooking,
+        rescheduled:
+          data.salonEmailNotifications?.rescheduled
+          ?? salonEmailNotificationsForm.rescheduled,
+        cancelled:
+          data.salonEmailNotifications?.cancelled
+          ?? salonEmailNotificationsForm.cancelled,
+        recipientEmail: data.salonEmailNotifications?.recipientEmail ?? '',
+      });
+      setSalonNotificationRecipient({
+        email: data.salonNotificationRecipient?.email ?? null,
+        source: data.salonNotificationRecipient?.source ?? null,
+        missing: data.salonNotificationRecipientMissing ?? false,
+      });
+      setSalonEmailNotificationsSaved(true);
+      setSalonEmailNotificationsDirty(false);
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to save appointment notifications:', error);
+      setSalonEmailNotificationsError(
+        'The settings could not be saved. Try again.',
+      );
+    } finally {
+      setSalonEmailNotificationsSaving(false);
+    }
+  }, [
+    router,
+    salonEmailNotificationsForm,
+    salonEmailNotificationsSaving,
+    salonSlug,
+  ]);
+
+  const updateSalonEmailNotifications = useCallback(
+    (updates: Partial<SalonEmailNotificationFormState>) => {
+      setSalonEmailNotificationsForm(prev => ({ ...prev, ...updates }));
+      setSalonEmailNotificationsDirty(true);
+      setSalonEmailNotificationsSaved(false);
+      setSalonEmailNotificationsError(null);
+    },
+    [],
+  );
 
   const updateBookingNotificationEvent = useCallback(
     (
@@ -3037,8 +3212,7 @@ export function SettingsModal({
                                   </span>
                                 </div>
                                 <p className="text-sm text-gray-600">
-                                  Use the owner phone and email saved on the salon
-                                  record.
+                                  Text the owner phone saved on the salon record.
                                 </p>
                               </div>
                               <input
@@ -3061,7 +3235,7 @@ export function SettingsModal({
                                 Channel
                               </span>
                               <select
-                                value={eventForm.ownerChannel}
+                                value="sms"
                                 onChange={event =>
                                   updateBookingNotificationEvent(
                                     notificationEvent.key,
@@ -3074,53 +3248,40 @@ export function SettingsModal({
                                 className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                                 aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
-                                {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
-                                  (option) => {
-                                    const smsUnavailable
-                                  = option.value === 'sms'
-                                  || option.value === 'both'
-                                    ? !bookingNotificationCapabilities.smsChannelAvailable
-                                    || !bookingNotificationCapabilities.ownerPhonePresent
-                                    : false;
-                                    const emailUnavailable
-                                  = option.value === 'email'
-                                  || option.value === 'both'
-                                    ? !bookingNotificationCapabilities.emailChannelAvailable
-                                    || !bookingNotificationCapabilities.ownerEmailPresent
-                                    : false;
-                                    const disabled
-                                  = smsUnavailable || emailUnavailable;
+                                {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
+                                  const disabled
+                                    = !bookingNotificationCapabilities.smsChannelAvailable
+                                    || !bookingNotificationCapabilities.ownerPhonePresent;
 
-                                    return (
-                                      <option
-                                        key={option.value}
-                                        value={option.value}
-                                        disabled={disabled}
-                                      >
-                                        {option.label}
-                                        {disabled ? ' (Unavailable)' : ''}
-                                      </option>
-                                    );
-                                  },
-                                )}
+                                  return (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                      disabled={disabled}
+                                    >
+                                      {option.label}
+                                      {disabled ? ' (Unavailable)' : ''}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </label>
+
+                            <p className="mt-2 text-xs text-gray-500">
+                              Owner emails now live in Appointment notifications
+                              below.
+                            </p>
                           </div>
                         </div>
                       );
                     })}
 
-                    {(!bookingNotificationCapabilities.ownerPhonePresent
-                      || !bookingNotificationCapabilities.ownerEmailPresent) && (
+                    {!bookingNotificationCapabilities.ownerPhonePresent && (
                       <div className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                         <AlertCircle className="mt-0.5 size-4 shrink-0" />
                         <div>
-                          Owner alerts use the salon owner contact on the salon
-                          record.
-                          {!bookingNotificationCapabilities.ownerPhonePresent
-                          && ' Phone is missing.'}
-                          {!bookingNotificationCapabilities.ownerEmailPresent
-                          && ' Email is missing.'}
+                          Owner text alerts use the owner phone on the salon
+                          record, and it is missing.
                         </div>
                       </div>
                     )}
@@ -3158,6 +3319,116 @@ export function SettingsModal({
                           {bookingNotificationsSaving ? 'Saving...' : 'Save alerts'}
                         </span>
                       </button>
+                    </div>
+
+                    <div className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
+                      <div className="space-y-1 px-1">
+                        <div className="text-sm font-semibold text-[#1C1C1E]">
+                          Appointment notifications
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Detailed emails to the salon when a client books,
+                          reschedules, or cancels. Separate from the confirmation
+                          and reminder emails your clients receive.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                        {SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS.map(option => (
+                          <div
+                            key={option.key}
+                            className="flex items-start justify-between gap-3"
+                          >
+                            <div className="space-y-0.5">
+                              <span className="text-sm font-semibold text-[#1C1C1E]">
+                                {option.label}
+                              </span>
+                              <p className="text-sm text-gray-600">
+                                {option.description}
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={salonEmailNotificationsForm[option.key]}
+                              onChange={event =>
+                                updateSalonEmailNotifications({
+                                  [option.key]: event.target.checked,
+                                })}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              aria-label={option.label}
+                            />
+                          </div>
+                        ))}
+
+                        <label className="flex flex-col gap-1 pt-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Send notifications to
+                          </span>
+                          <input
+                            type="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            placeholder="salon@example.com"
+                            value={salonEmailNotificationsForm.recipientEmail}
+                            onChange={event =>
+                              updateSalonEmailNotifications({
+                                recipientEmail: event.target.value,
+                              })}
+                            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            aria-label="Salon notification email address"
+                          />
+                        </label>
+
+                        {salonNotificationRecipient.missing
+                          ? (
+                              <div className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                                <div>
+                                  No valid notification email is configured, so these
+                                  alerts cannot be delivered. Bookings still work
+                                  normally.
+                                </div>
+                              </div>
+                            )
+                          : salonNotificationRecipient.email && (
+                            <p className="text-xs text-gray-500">
+                              {`Sending to ${salonNotificationRecipient.email}`}
+                              {salonNotificationRecipient.source
+                              && ` (${SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL[salonNotificationRecipient.source]})`}
+                              .
+                            </p>
+                          )}
+
+                        {salonEmailNotificationsError && (
+                          <p className="text-xs text-red-600">
+                            {salonEmailNotificationsError}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                        <div className="text-xs text-gray-500">
+                          {salonEmailNotificationsSaved
+                            ? 'Appointment notifications saved.'
+                            : 'Leave the address blank to use your owner email.'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void saveSalonEmailNotifications()}
+                          disabled={
+                            salonEmailNotificationsSaving
+                            || !salonEmailNotificationsDirty
+                          }
+                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Save className="size-4" />
+                          <span>
+                            {salonEmailNotificationsSaving
+                              ? 'Saving...'
+                              : 'Save notifications'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
 
                     {bookingNotificationsSaved && (
