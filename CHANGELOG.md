@@ -1,3 +1,10 @@
+## [1.22.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.22.0...v1.22.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **manage:** let host-relative /manage links reach their route ([5cda4f2](https://github.com/SniperStopSniping/nailsalon/commit/5cda4f22432a7e69f9233ad4147db601b5f85865)), closes [#28](https://github.com/SniperStopSniping/nailsalon/issues/28)
+
 # [1.22.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.21.0...v1.22.0) (2026-07-20)
 
 
