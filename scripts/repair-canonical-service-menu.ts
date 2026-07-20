@@ -30,6 +30,22 @@ import * as schema from '../src/models/Schema';
 const args = process.argv;
 const salonSlug = args[args.indexOf('--salon-slug') + 1];
 const apply = args.includes('--apply');
+const linkTemplates = args.includes('--link-templates');
+
+/**
+ * Owner-approved links for hand-created rows that match a canonical template
+ * but were never tagged, so no repair could infer their add-ons. Only the
+ * `template_key` column is written — never name, price, duration or status.
+ */
+const TEMPLATE_LINKS: Array<{ serviceId: string; templateKey: string }> = [
+  { serviceId: 'e8a58dec-f24d-4ae8-94b2-57b72d545a57', templateKey: 'builder_gel_overlay' },
+  { serviceId: '96f9dd5c-d5eb-4995-b4a8-5fcf9d318761', templateKey: 'russian_manicure_no_colour' },
+  { serviceId: 'svc_B8sR-FFRyDbq-d34y6yfS', templateKey: 'builder_gel_refill' },
+  { serviceId: 'svc_6_k3Q-ZQMxvo18tvUC05U', templateKey: 'gel_pedicure' },
+];
+
+/** Unassigned template copy superseded by the live hand-created record. */
+const DEACTIVATE_DUPLICATES = ['svc_f898d50d_c0b5_4bb5_a143_9f35ff7edf2a_gel-pedicure'];
 
 if (!salonSlug || salonSlug.startsWith('--')) {
   throw new Error('Usage: tsx scripts/repair-canonical-service-menu.ts --salon-slug <slug> [--apply]');
@@ -146,8 +162,40 @@ async function main() {
       }
     }
 
+    // 7. Approved template links + duplicate deactivation (opt-in).
+    const serviceById = new Map(services.map(service => [service.id, service]));
+    const proposedLinks = linkTemplates
+      ? TEMPLATE_LINKS.map((link) => {
+        const service = serviceById.get(link.serviceId);
+        return {
+          ...link,
+          found: Boolean(service),
+          name: service?.name ?? null,
+          currentTemplateKey: service?.templateKey ?? null,
+          // Refuse to overwrite a different, already-set template link.
+          safe: Boolean(service) && (service!.templateKey === null || service!.templateKey === link.templateKey),
+        };
+      })
+      : [];
+    const proposedDeactivations = linkTemplates
+      ? DEACTIVATE_DUPLICATES.map((id) => {
+        const service = serviceById.get(id);
+        const assigned = service ? rules.length >= 0 : false;
+        return {
+          serviceId: id,
+          found: Boolean(service),
+          name: service?.name ?? null,
+          currentlyActive: service?.isActive ?? null,
+          note: assigned ? 'unassigned template copy — deactivating hides it from the owner menu only' : '',
+        };
+      })
+      : [];
+
     console.log(JSON.stringify({
       mode: apply ? 'apply' : 'dry-run',
+      linkTemplates,
+      proposedLinks,
+      proposedDeactivations,
       salon,
       summary: {
         services: services.length,
@@ -176,19 +224,54 @@ async function main() {
       return;
     }
 
+    // Links first: tagging a row makes its canonical add-ons resolvable, and
+    // the compatibility pass below then fills them in the same run.
+    if (linkTemplates) {
+      const unsafe = proposedLinks.filter(link => !link.safe);
+      if (unsafe.length > 0) {
+        throw new Error(`Refusing to link — rows missing or already tagged differently: ${JSON.stringify(unsafe)}`);
+      }
+      for (const link of proposedLinks) {
+        await db.update(schema.serviceSchema)
+          .set({ templateKey: link.templateKey })
+          .where(and(eq(schema.serviceSchema.id, link.serviceId), eq(schema.serviceSchema.salonId, salon.id)));
+      }
+      for (const row of proposedDeactivations.filter(item => item.found)) {
+        await db.update(schema.serviceSchema)
+          .set({ isActive: false })
+          .where(and(eq(schema.serviceSchema.id, row.serviceId), eq(schema.serviceSchema.salonId, salon.id)));
+      }
+      console.log(`\nLinked ${proposedLinks.length} template keys; deactivated ${proposedDeactivations.filter(item => item.found).length} duplicate(s).`);
+    }
+
+    // Recompute after linking so rows tagged in this run are included.
+    const finalServices = await db.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.salonId, salon.id));
+    const finalRules = await db.select().from(schema.serviceAddOnSchema)
+      .where(eq(schema.serviceAddOnSchema.salonId, salon.id));
+    const finalRuleKeys = new Set(finalRules.map(rule => `${rule.serviceId}:${rule.addOnId}`));
+
     let inserted = 0;
-    for (const row of missingCompatibility) {
-      const service = serviceByKey.get(row.serviceKey)!;
-      const addOn = addOnByKey.get(row.addOnKey)!;
-      await db.insert(schema.serviceAddOnSchema).values({
-        id: `svcaddon_${salon.id.replace(/[^a-z0-9]/gi, '_')}_${row.addOnKey.replace(/_/g, '-')}_${row.serviceKey.replace(/_/g, '-')}`,
-        salonId: salon.id,
-        serviceId: service.id,
-        addOnId: addOn.id,
-        selectionMode: 'optional',
-        displayOrder: row.displayOrder,
-      }).onConflictDoNothing();
-      inserted += 1;
+    for (const service of finalServices) {
+      if (!service.templateKey) {
+        continue;
+      }
+      const declared = getTemplateByKey(service.templateKey)?.compatibleAddOnKeys ?? [];
+      for (const [index, addOnKey] of declared.entries()) {
+        const addOn = addOnByKey.get(addOnKey);
+        if (!addOn || finalRuleKeys.has(`${service.id}:${addOn.id}`)) {
+          continue;
+        }
+        await db.insert(schema.serviceAddOnSchema).values({
+          id: `svcaddon_${salon.id.replace(/[^a-z0-9]/gi, '_')}_${addOnKey.replace(/_/g, '-')}_${service.templateKey.replace(/_/g, '-')}`,
+          salonId: salon.id,
+          serviceId: service.id,
+          addOnId: addOn.id,
+          selectionMode: 'optional',
+          displayOrder: index,
+        }).onConflictDoNothing();
+        inserted += 1;
+      }
     }
     console.log(`\nApplied: inserted up to ${inserted} compatibility rows (idempotent — existing rows skipped).`);
   } finally {

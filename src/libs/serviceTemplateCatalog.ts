@@ -191,6 +191,70 @@ const TOE_POLISH_ONLY_ADDONS = [
   'gel_removal_toes',
   'outside_salon_removal_toes',
 ];
+/** Regular-polish hand service: French + simple art only (no gel-only art). */
+const REGULAR_POLISH_HAND_ADDONS = [
+  'french_tips',
+  'simple_nail_art',
+  'nail_repair',
+  'gel_removal',
+  'builder_gel_removal',
+  'removal_from_another_salon',
+  ...HAND_CARE,
+];
+/** No-colour hand service: care and removal only, never design work. */
+const NO_POLISH_HAND_ADDONS = [
+  'nail_repair',
+  'gel_removal',
+  'builder_gel_removal',
+  'removal_from_another_salon',
+  ...HAND_CARE,
+];
+/** Regular-polish toe service: French + simple toe art only. */
+const TOE_REGULAR_POLISH_ADDONS = [
+  'french_toes',
+  'simple_toe_art',
+  'toenail_repair',
+  'gel_removal_toes',
+  'outside_salon_removal_toes',
+];
+/** No-polish pedicure: care and removal only. */
+const TOE_NO_POLISH_ADDONS = [
+  'toenail_repair',
+  'gel_removal_toes',
+  'outside_salon_removal_toes',
+  ...PEDICURE_TREATMENTS,
+];
+/** Extension services add length/shape choices and their own removal. */
+const GEL_X_ADDONS = [
+  ...GEL_HAND_ART,
+  'nail_repair',
+  'gel_x_removal',
+  'removal_from_another_salon',
+  'russian_cuticle_upgrade',
+  'medium_length',
+  'long_length',
+  'extra_long_length',
+  'special_shape',
+];
+const HARD_GEL_EXTENSION_ADDONS = [
+  ...GEL_HAND_ART,
+  'nail_repair',
+  'builder_gel_removal',
+  'removal_from_another_salon',
+  'russian_cuticle_upgrade',
+  'medium_length',
+  'long_length',
+  'extra_long_length',
+  'special_shape',
+];
+
+/**
+ * A combo offers the union of its two halves, de-duplicated. Hand and toe
+ * add-ons are separate templates, so a combo never shows the same option twice.
+ */
+function comboAddOns(...sets: string[][]): string[] {
+  return [...new Set(sets.flat())];
+}
 const GEL_POLISH_ALIASES = ['shellac', 'gel polish'];
 const TIPS_ALIASES = ['tips'];
 
@@ -230,7 +294,6 @@ const GEL_NATURAL = expand([
   }],
   ['russian_manicure_no_colour', 'Russian Manicure — No Colour', 4500, null, 60, {
     description: 'Detailed dry manicure and precision cuticle care without colour application.',
-    isRecommendedStarter: true,
     sortOrder: 50,
     popularityRank: 3,
     searchAliases: ['dry manicure'],
@@ -254,6 +317,26 @@ const GEL_NATURAL = expand([
     compatibleAddOnKeys: [...GEL_HAND_ADDONS, 'luster_product_upgrade'],
   }],
   ['classic_manicure', 'Classic Manicure', 3500, null, 45],
+  ['classic_manicure_no_polish', 'Classic Manicure — No Polish', 2500, null, 30, {
+    description: 'Natural nail shaping, cuticle care and finishing oil without colour.',
+    isRecommendedStarter: true,
+    sortOrder: 20,
+    compatibleAddOnKeys: NO_POLISH_HAND_ADDONS,
+  }],
+  ['classic_manicure_regular_polish', 'Classic Manicure — Regular Polish', 3000, null, 45, {
+    description: 'Nail shaping, cuticle care and your choice of traditional regular polish.',
+    isRecommendedStarter: true,
+    sortOrder: 30,
+    compatibleAddOnKeys: REGULAR_POLISH_HAND_ADDONS,
+  }],
+  ['gel_removal_service_hands', 'Gel Removal — Hands', 1500, null, 30, {
+    description: 'Professional gel-polish removal and basic nail finishing without a new colour application.',
+    sortOrder: 140,
+  }],
+  ['builder_extension_removal_service', 'Builder / Extension Removal — Hands', 2500, '$25+', 45, {
+    description: 'Professional removal of builder gel, hard gel or soft-gel extensions without a new set.',
+    sortOrder: 150,
+  }],
   ['express_manicure', 'Express Manicure', 2500, null, 30],
   ['spa_manicure', 'Spa Manicure', 5000, null, 60],
   ['deluxe_spa_manicure', 'Deluxe Spa Manicure', 6000, null, 75],
@@ -263,8 +346,26 @@ const GEL_NATURAL = expand([
   ['japanese_manicure', 'Japanese Manicure', 4500, null, 60],
   ['ibx_treatment', 'IBX Treatment', 4000, null, 45],
   ['colour_change_hands', 'Colour Change — Hands', 2500, null, 30],
-  ['regular_polish_change_hands', 'Regular Polish Change — Hands', 2000, null, 25],
-  ['gel_polish_change_hands', 'Gel Polish Change — Hands', 3000, null, 40, { searchAliases: GEL_POLISH_ALIASES }],
+  ['regular_polish_change_hands', 'Regular Polish Change — Hands', 2000, null, 30, {
+    description: 'Regular polish removal and reapplication without a full manicure or cuticle service.',
+    sortOrder: 120,
+    compatibleAddOnKeys: ['french_tips', 'simple_nail_art', 'gel_removal'],
+  }],
+  ['gel_polish_change_hands', 'Gel Polish Change — Hands', 3000, null, 45, {
+    description: 'Gel colour application without a complete manicure or detailed cuticle service.',
+    sortOrder: 130,
+    searchAliases: GEL_POLISH_ALIASES,
+    compatibleAddOnKeys: [
+      'french_tips',
+      'chrome',
+      'cat_eye',
+      'simple_nail_art',
+      'detailed_nail_art',
+      'gel_removal',
+      'removal_from_another_salon',
+      'luster_product_upgrade',
+    ],
+  }],
   ['builder_gel_overlay', 'BIAB / Builder Gel Overlay', 6500, '$65+', 90, {
     description: 'A structured builder-gel overlay on natural nails for added strength, shape and durability.',
     isRecommendedStarter: true,
@@ -298,27 +399,38 @@ const GEL_NATURAL = expand([
 // Extensions
 // ---------------------------------------------------------------------------
 const EXTENSIONS = expand([
-  ['gel_x_extensions', 'Gel-X Extensions', 7000, '$70+', 120, {
-    description: 'Soft-gel extensions with your chosen shape and length.',
+  ['gel_x_extensions', 'Gel-X Extensions', 7500, '$75+', 105, {
+    description: 'Soft-gel extensions customized to your chosen shape and length.',
     isRecommendedStarter: true,
+    sortOrder: 80,
     popularityRank: 7,
     searchAliases: [...TIPS_ALIASES, 'gelx', 'soft gel'],
+    compatibleAddOnKeys: [...GEL_X_ADDONS, 'luster_product_upgrade'],
   }],
   ['gel_x_extensions_medium', 'Gel-X Extensions — Medium', 8000, '$80+', 135, { searchAliases: TIPS_ALIASES }],
   ['gel_x_extensions_long', 'Gel-X Extensions — Long', 9000, '$90+', 150, { searchAliases: TIPS_ALIASES }],
   ['gel_x_extensions_extra_long', 'Gel-X Extensions — Extra Long', 10500, '$105+', 165, { searchAliases: TIPS_ALIASES }],
   ['gel_x_fill', 'Gel-X Fill', 6000, '$60+', 105],
   ['gel_x_removal_new_set', 'Gel-X Removal + New Set', 8500, '$85+', 150],
-  ['hard_gel_overlay', 'Hard Gel Overlay', 6000, '$60+', 105],
-  ['hard_gel_extensions', 'Hard Gel Extensions', 7000, '$70+', 120, {
-    description: 'Structured hard-gel extensions with your chosen shape and length.',
-    isRecommendedStarter: true,
+  ['hard_gel_overlay', 'Hard Gel Overlay', 7000, '$70+', 90, {
+    description: 'A durable hard-gel overlay applied over the natural nails for added structure and strength.',
+    sortOrder: 90,
+    compatibleAddOnKeys: [...BUILDER_HAND_ADDONS, 'luster_product_upgrade'],
+  }],
+  ['hard_gel_extensions', 'Hard Gel Extensions', 8500, '$85+', 120, {
+    description: 'Sculpted hard-gel extensions customized to the client’s preferred length and shape.',
+    sortOrder: 100,
     popularityRank: 8,
     searchAliases: TIPS_ALIASES,
+    compatibleAddOnKeys: [...HARD_GEL_EXTENSION_ADDONS, 'luster_product_upgrade'],
   }],
   ['hard_gel_extensions_medium', 'Hard Gel Extensions — Medium', 8500, '$85+', 150],
   ['hard_gel_extensions_long', 'Hard Gel Extensions — Long', 9500, '$95+', 165],
-  ['hard_gel_fill', 'Hard Gel Fill', 6000, '$60+', 120],
+  ['hard_gel_fill', 'Hard Gel Refill', 6000, '$60+', 90, {
+    description: 'Maintenance and rebalancing for an existing hard-gel set.',
+    sortOrder: 110,
+    compatibleAddOnKeys: comboAddOns(REFILL_HAND_ADDONS, ['long_length', 'extra_long_length', 'luster_product_upgrade']),
+  }],
   ['hard_gel_rebalance', 'Hard Gel Rebalance', 7000, '$70+', 135],
   ['polygel_overlay', 'Polygel Overlay', 6000, '$60+', 105],
   ['polygel_full_set', 'Polygel Full Set', 7500, '$75+', 135],
@@ -345,7 +457,13 @@ const PEDICURES = expand([
     compatibleAddOnKeys: TOE_FULL_PEDICURE_ADDONS,
   }],
   ['express_pedicure', 'Express Pedicure', 4000, null, 45],
-  ['classic_pedicure', 'Classic Pedicure', 5000, null, 60, {
+  ['classic_pedicure_no_polish', 'Classic Pedicure — No Polish', 3500, null, 45, {
+    description: 'Foot soak, nail shaping, cuticle care and moisturizing finish without polish.',
+    isRecommendedStarter: true,
+    sortOrder: 20,
+    compatibleAddOnKeys: TOE_NO_POLISH_ADDONS,
+  }],
+  ['classic_pedicure', 'Classic Pedicure — Regular Polish', 4000, null, 60, {
     description: 'Complete pedicure care finished with your choice of traditional regular polish.',
     isRecommendedStarter: true,
     sortOrder: 30,
@@ -389,7 +507,26 @@ const PEDICURES = expand([
   ['mens_pedicure', 'Men’s Pedicure', 5000, null, 60],
   ['kids_pedicure', 'Kids’ Pedicure', 3000, null, 40],
   ['toenail_trim_shape', 'Toenail Trim and Shape', 2500, null, 30],
-  ['regular_polish_change_toes', 'Regular Polish Change — Toes', 2500, null, 30],
+  ['regular_polish_change_toes', 'Regular Polish Toes', 2000, null, 30, {
+    description: 'Traditional polish application on the toenails without a full pedicure.',
+    isRecommendedStarter: true,
+    sortOrder: 60,
+    compatibleAddOnKeys: ['french_toes', 'simple_toe_art', 'toenail_repair', 'gel_removal_toes'],
+  }],
+  ['deluxe_pedicure_regular_polish', 'Spa / Deluxe Pedicure — Regular Polish', 5500, null, 75, {
+    description: 'An upgraded pedicure with exfoliation, extended care and massage, finished with regular polish.',
+    sortOrder: 70,
+    compatibleAddOnKeys: comboAddOns(TOE_REGULAR_POLISH_ADDONS, PEDICURE_TREATMENTS),
+  }],
+  ['deluxe_gel_pedicure', 'Spa / Deluxe Gel Pedicure', 7000, null, 90, {
+    description: 'An upgraded pedicure with exfoliation, extended care and massage, finished with gel colour.',
+    sortOrder: 80,
+    compatibleAddOnKeys: [...TOE_FULL_PEDICURE_ADDONS, 'luster_product_upgrade'],
+  }],
+  ['gel_removal_service_toes', 'Gel Removal — Toes', 1500, null, 30, {
+    description: 'Professional gel removal from the toenails without a new colour application.',
+    sortOrder: 90,
+  }],
   ['gel_polish_change_toes', 'Gel Polish Change — Toes', 3500, null, 45, { searchAliases: GEL_POLISH_ALIASES }],
   ['french_gel_toes', 'French Gel Toes', 4500, null, 50],
   ['big_toe_extension', 'Big-Toe Extension', 1000, '$10+', 15],
@@ -406,27 +543,89 @@ const PEDICURES = expand([
 // Combos
 // ---------------------------------------------------------------------------
 const COMBOS = expand([
-  ['classic_mani_classic_pedi_combo', 'Classic Manicure + Classic Pedicure', 7500, null, 120, {
+  ['classic_mani_classic_pedi_combo', 'Classic Manicure + Classic Pedicure', 6500, null, 105, {
+    description: 'A classic regular-polish manicure and regular-polish pedicure booked together.',
     isRecommendedStarter: true,
+    sortOrder: 50,
     popularityRank: 12,
-    componentTemplateKeys: ['classic_manicure', 'classic_pedicure'],
+    componentTemplateKeys: ['classic_manicure_regular_polish', 'classic_pedicure'],
+    // Regular polish on both halves ⇒ no chrome or cat eye anywhere.
+    compatibleAddOnKeys: comboAddOns(REGULAR_POLISH_HAND_ADDONS, TOE_REGULAR_POLISH_ADDONS, PEDICURE_TREATMENTS),
   }],
   ['gel_mani_gel_pedi_combo', 'Gel Manicure + Gel Pedicure', 9000, null, 135, {
+    description: 'A complete gel manicure and gel pedicure booked together.',
     isRecommendedStarter: true,
+    isFeaturedDefault: true,
+    sortOrder: 10,
     popularityRank: 13,
     componentTemplateKeys: ['gel_manicure', 'gel_pedicure'],
+    compatibleAddOnKeys: comboAddOns(GEL_HAND_ADDONS, TOE_FULL_PEDICURE_ADDONS, ['luster_product_upgrade']),
   }],
   ['classic_mani_gel_pedi_combo', 'Classic Manicure + Gel Pedicure', 8500, null, 120, { componentTemplateKeys: ['classic_manicure', 'gel_pedicure'] }],
-  ['gel_mani_classic_pedi_combo', 'Gel Manicure + Classic Pedicure', 8500, null, 120, { componentTemplateKeys: ['gel_manicure', 'classic_pedicure'] }],
-  ['biab_classic_pedi_combo', 'BIAB / Builder Gel + Classic Pedicure', 8500, null, 120, {
+  ['gel_mani_classic_pedi_combo', 'Gel Manicure + Classic Pedicure — Regular Polish', 8000, null, 120, {
+    description: 'A gel manicure paired with a complete classic pedicure finished with regular polish.',
+    sortOrder: 70,
+    componentTemplateKeys: ['gel_manicure', 'classic_pedicure'],
+    compatibleAddOnKeys: comboAddOns(GEL_HAND_ADDONS, TOE_REGULAR_POLISH_ADDONS, PEDICURE_TREATMENTS, ['luster_product_upgrade']),
+  }],
+  ['gel_manicure_gel_toes', 'Gel Manicure + Gel Toes', 7000, null, 105, {
+    description: 'A complete gel manicure paired with gel colour application on the toes. This does not include a full pedicure.',
     isRecommendedStarter: true,
+    sortOrder: 60,
+    componentTemplateKeys: ['gel_manicure', 'shellac_gel_toes'],
+    // Gel Toes is not a pedicure — no callus, paraffin feet or foot massage.
+    compatibleAddOnKeys: comboAddOns(GEL_HAND_ADDONS, TOE_POLISH_ONLY_ADDONS, ['luster_product_upgrade']),
+  }],
+  ['builder_gel_regular_polish_toes', 'Builder Gel Nails + Regular Polish Toes', 8000, null, 120, {
+    description: 'A structured builder-gel manicure paired with regular polish application on the toes. This does not include a full pedicure.',
+    isRecommendedStarter: true,
+    sortOrder: 30,
+    searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_overlay', 'regular_polish_change_toes'],
+    compatibleAddOnKeys: comboAddOns(
+      BUILDER_HAND_ADDONS,
+      ['french_toes', 'simple_toe_art', 'toenail_repair', 'gel_removal_toes'],
+      ['luster_product_upgrade'],
+    ),
+  }],
+  ['builder_gel_gel_toes', 'Builder Gel Nails + Gel Toes', 9000, null, 135, {
+    description: 'A structured builder-gel manicure paired with gel colour application on the toes. This does not include a full pedicure.',
+    isRecommendedStarter: true,
+    sortOrder: 40,
+    searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_overlay', 'shellac_gel_toes'],
+    compatibleAddOnKeys: comboAddOns(BUILDER_HAND_ADDONS, TOE_POLISH_ONLY_ADDONS, ['luster_product_upgrade']),
+  }],
+  ['builder_refill_gel_pedicure', 'Builder Gel Refill + Gel Pedicure', 9500, null, 135, {
+    description: 'Builder-gel refill maintenance paired with a complete gel pedicure.',
+    sortOrder: 80,
+    searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_refill', 'gel_pedicure'],
+    compatibleAddOnKeys: comboAddOns(REFILL_HAND_ADDONS, TOE_FULL_PEDICURE_ADDONS, ['luster_product_upgrade']),
+  }],
+  ['builder_refill_gel_toes', 'Builder Gel Refill + Gel Toes', 7500, null, 120, {
+    description: 'Builder-gel refill maintenance paired with gel colour application on the toes.',
+    sortOrder: 90,
+    searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_refill', 'shellac_gel_toes'],
+    compatibleAddOnKeys: comboAddOns(REFILL_HAND_ADDONS, TOE_POLISH_ONLY_ADDONS, ['luster_product_upgrade']),
+  }],
+  ['biab_classic_pedi_combo', 'BIAB / Builder Gel + Classic Pedicure', 8500, null, 120, {
+    description: 'A structured builder-gel manicure paired with a complete classic pedicure finished with regular polish.',
+    isRecommendedStarter: true,
+    sortOrder: 100,
     searchAliases: BIAB_ALIASES,
     componentTemplateKeys: ['builder_gel_overlay', 'classic_pedicure'],
+    compatibleAddOnKeys: comboAddOns(BUILDER_HAND_ADDONS, TOE_REGULAR_POLISH_ADDONS, PEDICURE_TREATMENTS, ['luster_product_upgrade']),
   }],
-  ['biab_gel_pedi_combo', 'BIAB / Builder Gel + Gel Pedicure', 10000, null, 135, {
+  ['biab_gel_pedi_combo', 'Builder Gel Nails + Gel Pedicure', 10000, null, 135, {
+    description: 'A structured builder-gel manicure paired with a complete gel pedicure.',
     isRecommendedStarter: true,
+    isFeaturedDefault: true,
+    sortOrder: 20,
     searchAliases: BIAB_ALIASES,
     componentTemplateKeys: ['builder_gel_overlay', 'gel_pedicure'],
+    compatibleAddOnKeys: comboAddOns(BUILDER_HAND_ADDONS, TOE_FULL_PEDICURE_ADDONS, ['luster_product_upgrade']),
   }],
   ['biab_gel_colour_classic_pedi_combo', 'BIAB + Gel Colour + Classic Pedicure', 9500, null, 135, { searchAliases: BIAB_ALIASES, componentTemplateKeys: ['builder_gel_overlay', 'gel_manicure', 'classic_pedicure'] }],
   ['biab_gel_colour_gel_pedi_combo', 'BIAB + Gel Colour + Gel Pedicure', 10500, null, 150, { searchAliases: BIAB_ALIASES, componentTemplateKeys: ['builder_gel_overlay', 'gel_manicure', 'gel_pedicure'] }],

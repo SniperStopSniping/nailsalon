@@ -15,12 +15,12 @@ describe('serviceTemplateCatalog', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('contains the recommended starter menu: 15 services and 33 add-ons, Luster first', () => {
+  it('contains the recommended starter menu: 20 services and 33 add-ons, Luster first', () => {
     const starters = getStarterTemplates();
     const services = starters.filter(template => template.serviceType !== 'addon');
     const addOns = starters.filter(template => template.serviceType === 'addon');
 
-    expect(services).toHaveLength(15);
+    expect(services).toHaveLength(20);
     // Both Luster services lead their categories out of the box.
     expect(services.map(template => template.systemKey)).toEqual(
       expect.arrayContaining(['luster_manicure', 'luster_pedicure']),

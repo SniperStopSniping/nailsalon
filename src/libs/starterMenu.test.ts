@@ -49,12 +49,12 @@ describe('seedStarterMenuForSalon', () => {
       technicianId: TECH_ID,
       overrides: [
         { templateKey: 'gel_manicure', priceCents: 4200 },
-        { templateKey: 'hard_gel_extensions', enabled: false },
+        { templateKey: 'gel_x_extensions', enabled: false },
       ],
       mode: 'initial',
     });
 
-    expect(result.createdServiceIds).toHaveLength(15);
+    expect(result.createdServiceIds).toHaveLength(20);
     expect(result.createdAddOnIds).toHaveLength(33);
     expect(result.skippedTemplateKeys).toEqual([]);
 
@@ -86,7 +86,7 @@ describe('seedStarterMenuForSalon', () => {
 
     // Overrides applied; disabling keeps the record but not bookable.
     expect(services.find(service => service.templateKey === 'gel_manicure')?.price).toBe(4200);
-    expect(services.find(service => service.templateKey === 'hard_gel_extensions')?.isActive).toBe(false);
+    expect(services.find(service => service.templateKey === 'gel_x_extensions')?.isActive).toBe(false);
 
     // Combos land under the combo booking tab; pedicures under pedicure.
     expect(services.find(service => service.templateKey === 'gel_mani_gel_pedi_combo')?.bookingCategory).toBe('combo');
@@ -101,7 +101,7 @@ describe('seedStarterMenuForSalon', () => {
       .from(schema.technicianServicesSchema)
       .where(eq(schema.technicianServicesSchema.technicianId, TECH_ID));
 
-    expect(techLinks).toHaveLength(15);
+    expect(techLinks).toHaveLength(20);
 
     // Starter add-ons exist and are wired to compatible services.
     const addOns = await db
@@ -131,7 +131,7 @@ describe('seedStarterMenuForSalon', () => {
     );
 
     // Gel-finish hand services carry the full hand design set.
-    for (const serviceTemplate of ['luster_manicure', 'builder_gel_overlay', 'gel_manicure', 'gel_x_extensions', 'hard_gel_extensions']) {
+    for (const serviceTemplate of ['luster_manicure', 'builder_gel_overlay', 'gel_manicure', 'gel_x_extensions']) {
       const linked = linkedAddOnTemplates(serviceTemplate);
 
       expect(linked.has('french_tips'), serviceTemplate).toBe(true);
@@ -140,11 +140,10 @@ describe('seedStarterMenuForSalon', () => {
     }
 
     // No-colour services never advertise design work.
-    const russian = linkedAddOnTemplates('russian_manicure_no_colour');
-
-    expect(russian.has('nail_repair')).toBe(true);
-    expect(russian.has('french_tips')).toBe(false);
-    expect(russian.has('chrome')).toBe(false);
+    // Russian Manicure — No Colour is a library service, not a starter, so a
+    // brand-new salon does not get it. (Its add-on rules are pinned in
+    // canonicalServiceMenu.test.ts.)
+    expect(serviceIdByTemplate.has('russian_manicure_no_colour')).toBe(false);
 
     // Regular-polish pedicure: French and simple toe art only — chrome and cat
     // eye need a gel finish, and hand add-ons never appear on a pedicure.
@@ -196,7 +195,7 @@ describe('seedStarterMenuForSalon', () => {
 
     expect(rerun.createdServiceIds).toEqual([]);
     expect(rerun.createdAddOnIds).toEqual([]);
-    expect(rerun.skippedTemplateKeys).toHaveLength(46);
+    expect(rerun.skippedTemplateKeys).toHaveLength(51);
     expect(rerun.revivedServiceIds).toHaveLength(2);
 
     const gelManicure = await db
@@ -237,6 +236,106 @@ describe('seedStarterMenuForSalon', () => {
       .from(schema.serviceSchema)
       .where(eq(schema.serviceSchema.templateKey, 'classic_pedicure'));
 
-    expect(restored[0]?.name).toBe('Classic Pedicure');
+    expect(restored[0]?.name).toBe('Classic Pedicure — Regular Polish');
+  });
+});
+
+describe('seedStarterMenuForSalon — owner data and ordering guarantees', () => {
+  const SALON_B = 'salon_starter_guarantees';
+  let clientB: PGlite;
+  let dbB: PgliteDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    clientB = new PGlite();
+    await clientB.waitReady;
+    dbB = drizzle(clientB, { schema });
+    await migrate(dbB, { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    await dbB.insert(schema.salonSchema).values({ id: SALON_B, name: 'Guarantees', slug: 'guarantees-salon' });
+    await seedStarterMenuForSalon({ db: dbB, salonId: SALON_B, mode: 'initial' });
+  }, 60_000);
+
+  afterAll(async () => {
+    await clientB.close();
+  });
+
+  it('writes display_order from the canonical add-on order', async () => {
+    const [service] = await dbB.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.templateKey, 'gel_pedicure'));
+    const rules = await dbB.select().from(schema.serviceAddOnSchema)
+      .where(eq(schema.serviceAddOnSchema.serviceId, service!.id));
+    const addOns = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.salonId, SALON_B));
+    const nameByAddOnId = new Map(addOns.map(addOn => [addOn.id, addOn.templateKey]));
+    const ordered = rules
+      .slice()
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+      .map(rule => nameByAddOnId.get(rule.addOnId));
+
+    expect(ordered[0]).toBe('french_toes');
+    expect(ordered.indexOf('toenail_repair')).toBeLessThan(ordered.indexOf('callus_treatment'));
+    // Every rule carries a distinct position, so rendering is deterministic.
+    expect(new Set(rules.map(rule => rule.displayOrder)).size).toBe(rules.length);
+  });
+
+  it('gives every seeded service a real description — never a public placeholder', async () => {
+    const services = await dbB.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.salonId, SALON_B));
+
+    for (const service of services) {
+      expect(service.description, service.name).toBeTruthy();
+      expect(service.description, service.name).not.toMatch(/bookable base service/i);
+    }
+  });
+
+  it('preserves owner edits when the starter menu is re-run', async () => {
+    const [before] = await dbB.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.templateKey, 'gel_manicure'));
+    await dbB.update(schema.serviceSchema)
+      .set({ name: 'House Gel Mani', price: 9999, durationMinutes: 111, description: 'Owner copy' })
+      .where(eq(schema.serviceSchema.id, before!.id));
+
+    const rerun = await seedStarterMenuForSalon({ db: dbB, salonId: SALON_B, mode: 'restore' });
+
+    expect(rerun.createdServiceIds).toEqual([]);
+
+    const [after] = await dbB.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.id, before!.id));
+
+    expect(after).toMatchObject({
+      name: 'House Gel Mani',
+      price: 9999,
+      durationMinutes: 111,
+      description: 'Owner copy',
+    });
+  });
+
+  it('creates no duplicate services or compatibility rows on re-run', async () => {
+    const countRows = async () => ({
+      services: (await dbB.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, SALON_B))).length,
+      addOns: (await dbB.select().from(schema.addOnSchema).where(eq(schema.addOnSchema.salonId, SALON_B))).length,
+      rules: (await dbB.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.salonId, SALON_B))).length,
+    });
+    const before = await countRows();
+
+    await seedStarterMenuForSalon({ db: dbB, salonId: SALON_B, mode: 'restore' });
+
+    expect(await countRows()).toEqual(before);
+  });
+
+  it('keeps per-unit repair add-ons priced and timed per nail', async () => {
+    const addOns = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.salonId, SALON_B));
+
+    for (const key of ['nail_repair', 'toenail_repair']) {
+      const repair = addOns.find(addOn => addOn.templateKey === key);
+
+      expect(repair, key).toBeDefined();
+      expect(repair!.pricingType).toBe('per_unit');
+      expect(repair!.unitLabel).toBe('nail');
+      expect(repair!.maxQuantity).toBe(10);
+      // 3 nails ⇒ 3× price and 3× duration.
+      expect(repair!.priceCents * 3).toBe(1500);
+      expect(repair!.durationMinutes * 3).toBe(30);
+    }
   });
 });

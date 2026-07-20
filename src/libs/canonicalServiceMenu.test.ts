@@ -26,7 +26,7 @@ describe('canonical service templates', () => {
     ['builder_gel_overlay', 6500, 90, 'manicure'],
     ['builder_gel_refill', 5000, 90, 'manicure'],
     ['luster_pedicure', 6500, 75, 'pedicure'],
-    ['classic_pedicure', 5000, 60, 'pedicure'],
+    ['classic_pedicure', 4000, 60, 'pedicure'],
     ['gel_pedicure', 5500, 60, 'pedicure'],
     ['shellac_gel_toes', 3000, 45, 'pedicure'],
   ])('%s has the canonical price, duration and category', (key, cents, minutes, category) => {
@@ -217,5 +217,118 @@ describe('category ordering', () => {
 
     expect(featured[0]?.templateKey).toBe('luster_manicure');
     expect(featured[1]?.templateKey).toBe('luster_pedicure');
+  });
+});
+
+describe('combos', () => {
+  it.each([
+    ['gel_mani_gel_pedi_combo', 9000, 135],
+    ['biab_gel_pedi_combo', 10000, 135],
+    ['builder_gel_regular_polish_toes', 8000, 120],
+    ['builder_gel_gel_toes', 9000, 135],
+    ['classic_mani_classic_pedi_combo', 6500, 105],
+    ['gel_manicure_gel_toes', 7000, 105],
+    ['gel_mani_classic_pedi_combo', 8000, 120],
+    ['builder_refill_gel_pedicure', 9500, 135],
+    ['builder_refill_gel_toes', 7500, 120],
+  ])('%s carries the canonical package price and duration', (key, cents, minutes) => {
+    const template = getTemplateByKey(key as string)!;
+
+    expect(template.defaultPriceCents).toBe(cents);
+    expect(template.defaultDurationMinutes).toBe(minutes);
+    expect(template.bookingCategory).toBe('combo');
+  });
+
+  it('merges both halves without duplicating any add-on', () => {
+    for (const template of SERVICE_TEMPLATES.filter(candidate => candidate.serviceType === 'combo')) {
+      const keys = template.compatibleAddOnKeys ?? [];
+
+      expect(new Set(keys).size, template.systemKey).toBe(keys.length);
+    }
+  });
+
+  it('gives a gel mani + gel pedi combo both hand and toe options', () => {
+    const keys = addOnKeys('gel_mani_gel_pedi_combo');
+
+    expect(keys).toContain('french_tips');
+    expect(keys).toContain('french_toes');
+    expect(keys).toContain('nail_repair');
+    expect(keys).toContain('toenail_repair');
+    expect(keys).toContain('callus_treatment');
+  });
+
+  it('keeps pedicure treatments off combos whose toe half is polish-only', () => {
+    for (const comboKey of ['builder_gel_gel_toes', 'gel_manicure_gel_toes', 'builder_gel_regular_polish_toes', 'builder_refill_gel_toes']) {
+      const keys = addOnKeys(comboKey);
+
+      for (const treatment of ['callus_treatment', 'paraffin_wax', 'extended_foot_massage']) {
+        expect(keys, `${comboKey}/${treatment}`).not.toContain(treatment);
+      }
+    }
+  });
+
+  it('keeps chrome and cat eye off the all-regular-polish combo', () => {
+    const keys = addOnKeys('classic_mani_classic_pedi_combo');
+
+    expect(keys).toContain('french_tips');
+    expect(keys).toContain('french_toes');
+    expect(keys).not.toContain('chrome');
+    expect(keys).not.toContain('cat_eye');
+    expect(keys).not.toContain('chrome_toes');
+  });
+
+  it('never ships a dedicated Luster combo, seeded or featured', () => {
+    const combos = SERVICE_TEMPLATES.filter(template => template.serviceType === 'combo');
+
+    // No "Luster Combo" product exists…
+    expect(combos.some(template => /luster\s+combo/i.test(template.name))).toBe(false);
+
+    // …and no Luster-branded combo is seeded or featured by default. (Library
+    // combos that merely *include* Luster Manicure stay browsable.)
+    for (const combo of combos.filter(template => /luster/i.test(template.name))) {
+      expect(combo.isRecommendedStarter, combo.systemKey).toBeFalsy();
+      expect(combo.isFeaturedDefault, combo.systemKey).toBeFalsy();
+    }
+
+    // Regular combos may upsell the product upgrade instead.
+    expect(addOnKeys('gel_mani_gel_pedi_combo')).toContain('luster_product_upgrade');
+  });
+});
+
+describe('removal-only and polish-change services', () => {
+  it('files removal-only services under Manicure or Pedicure, never a new tab', () => {
+    for (const [key, category] of [['gel_removal_service_hands', 'manicure'], ['builder_extension_removal_service', 'manicure'], ['gel_removal_service_toes', 'pedicure']] as const) {
+      const template = getTemplateByKey(key)!;
+
+      expect(template.bookingCategory).toBe(category);
+      // A removal service needs no add-ons of its own.
+      expect(template.compatibleAddOnKeys ?? []).toEqual([]);
+    }
+  });
+
+  it('limits a regular polish change to French and simple art', () => {
+    const keys = addOnKeys('regular_polish_change_hands');
+
+    expect(keys).toEqual(['french_tips', 'simple_nail_art', 'gel_removal']);
+  });
+
+  it('gives a gel polish change the gel-compatible design set', () => {
+    const keys = addOnKeys('gel_polish_change_hands');
+
+    expect(keys).toContain('chrome');
+    expect(keys).toContain('cat_eye');
+    expect(keys).toContain('luster_product_upgrade');
+  });
+
+  it('gives no-polish services care and removal only', () => {
+    for (const key of ['classic_manicure_no_polish', 'classic_pedicure_no_polish']) {
+      const keys = addOnKeys(key);
+
+      for (const design of ['french_tips', 'french_toes', 'chrome', 'chrome_toes', 'simple_nail_art', 'simple_toe_art']) {
+        expect(keys, `${key}/${design}`).not.toContain(design);
+      }
+    }
+
+    expect(addOnKeys('classic_pedicure_no_polish')).toContain('callus_treatment');
   });
 });
