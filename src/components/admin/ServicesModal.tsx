@@ -91,6 +91,7 @@ type AddOnData = {
 type ServicesModalProps = {
   onClose: () => void;
   salonSlug: string | null;
+  onOpenStaff?: () => void;
 };
 
 type ServiceCategory =
@@ -870,6 +871,7 @@ function LusterPromoCard({
 function ServiceDetail({
   service,
   activeTechnicianCount,
+  onOpenStaff,
   onBack,
   onEdit,
   onToggleActive,
@@ -878,6 +880,7 @@ function ServiceDetail({
 }: {
   service: ServiceData;
   activeTechnicianCount: number;
+  onOpenStaff?: () => void;
   onBack: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
@@ -958,6 +961,16 @@ function ServiceDetail({
               {activeTechnicianCount === 0
                 ? 'Not visible in booking — add a technician before this service can be booked.'
                 : 'Not visible in booking — assign at least one technician (Team → technician → Services).'}
+              {activeTechnicianCount > 0 && onOpenStaff && (
+                <button
+                  type="button"
+                  className="mt-2 block font-semibold underline"
+                  onClick={onOpenStaff}
+                  data-testid="service-detail-open-staff"
+                >
+                  Open Team services
+                </button>
+              )}
             </div>
           </AdminDetailCard>
         )}
@@ -1279,7 +1292,7 @@ function AddOnEditDialog({
   );
 }
 
-export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
+export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModalProps) {
   const [services, setServices] = useState<ServiceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1302,6 +1315,11 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [activeTechnicianCount, setActiveTechnicianCount] = useState(0);
   const [addOns, setAddOns] = useState<AddOnData[]>([]);
   const [editingAddOn, setEditingAddOn] = useState<AddOnData | null>(null);
+  const [operationNotice, setOperationNotice] = useState<{
+    tone: 'warning' | 'error';
+    message: string;
+    assignmentRequired: boolean;
+  } | null>(null);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -1550,9 +1568,22 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salonSlug, templateKeys: [template.systemKey] }),
       });
+      const result = await response.json().catch(() => null);
       if (response.ok) {
         setOwnedTemplateKeys(current => new Set([...current, template.systemKey]));
         void fetchServices();
+        const data = result?.data;
+        setOperationNotice(data?.assignmentRequired || data?.noActiveTechnicianWarning
+          ? {
+              tone: 'warning',
+              assignmentRequired: Boolean(data.assignmentRequired),
+              message: data.noActiveTechnicianWarning
+                ? 'This add-on was added, but services will not appear in booking until a technician is added and assigned.'
+                : 'The add-on was added. Any new services still need technician assignment before booking.',
+            }
+          : null);
+      } else {
+        setOperationNotice({ tone: 'error', assignmentRequired: false, message: result?.error?.message ?? 'Unable to add this add-on.' });
       }
       return;
     }
@@ -1583,9 +1614,24 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salonSlug, templateKeys }),
       });
+      const result = await response.json().catch(() => null);
       if (response.ok) {
         setOwnedTemplateKeys(current => new Set([...current, ...templateKeys]));
         void fetchServices();
+        const data = result?.data;
+        setOperationNotice(data?.assignmentRequired || data?.noActiveTechnicianWarning || data?.assignmentFailures?.length
+          ? {
+              tone: data.assignmentFailures?.length ? 'error' : 'warning',
+              assignmentRequired: Boolean(data.assignmentRequired),
+              message: data.assignmentFailures?.length
+                ? 'Some services were added but technician assignment was incomplete.'
+                : data.noActiveTechnicianWarning
+                  ? 'These services were added, but they will not appear in booking until a technician is added and assigned.'
+                  : 'These services were added, but choose who can perform them before they appear in booking.',
+            }
+          : null);
+      } else {
+        setOperationNotice({ tone: 'error', assignmentRequired: false, message: result?.error?.message ?? 'Unable to add the selected templates.' });
       }
     } finally {
       setBulkAddBusy(false);
@@ -1704,6 +1750,27 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           />
         )}
       </div>
+
+      {operationNotice && (
+        <div
+          data-testid="service-operation-notice"
+          className={`mx-4 mt-3 rounded-2xl border p-3 text-[13px] leading-relaxed ${operationNotice.tone === 'error'
+            ? 'border-red-200 bg-red-50 text-red-800'
+            : 'border-amber-200 bg-amber-50 text-amber-800'}`}
+        >
+          <p>{operationNotice.message}</p>
+          {operationNotice.assignmentRequired && onOpenStaff && (
+            <button
+              type="button"
+              className="mt-2 font-semibold underline"
+              onClick={onOpenStaff}
+              data-testid="service-operation-open-staff"
+            >
+              Open Team services
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Content — display:none while a detail is open so the detail owns the
           flow slot below the sticky chrome (list state stays mounted). */}
@@ -1882,6 +1949,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         <ServiceDetail
           service={selectedService}
           activeTechnicianCount={activeTechnicianCount}
+          onOpenStaff={onOpenStaff}
           onBack={() => {
             setSelectedService(null);
             setToggleActiveError(null);

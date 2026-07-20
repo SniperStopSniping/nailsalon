@@ -244,8 +244,6 @@ describe('salon services route', () => {
     expect(insertValues).not.toHaveBeenCalled();
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       isActive: true,
-      price: 4500,
-      bookingCategory: 'manicure',
     }));
     expect(body.data.service).toEqual(expect.objectContaining({
       id: 'svc_dormant',

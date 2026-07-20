@@ -40,6 +40,8 @@ describe('salon services from-templates route', () => {
     seedStarterMenuForSalon.mockResolvedValue({
       createdServiceIds: ['svc_a'],
       createdAddOnIds: ['addon_a'],
+      revivedServiceIds: [],
+      revivedAddOnIds: [],
       skippedTemplateKeys: ['gel_manicure'],
     });
     ensureServiceAssignments.mockResolvedValue({
@@ -80,10 +82,14 @@ describe('salon services from-templates route', () => {
     expect(body.data).toEqual({
       createdServiceCount: 1,
       createdAddOnCount: 1,
+      revivedServiceCount: 0,
+      revivedAddOnCount: 0,
       skippedTemplateKeys: ['gel_manicure'],
       activeTechnicianCount: 1,
       autoAssignedServiceCount: 1,
       assignmentRequired: false,
+      noActiveTechnicianWarning: false,
+      assignmentFailures: [],
     });
     // Single-technician salon: created base services auto-assign so they are
     // publicly bookable immediately (never silently hidden).

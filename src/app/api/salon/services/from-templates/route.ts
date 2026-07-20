@@ -122,14 +122,26 @@ export async function POST(request: Request): Promise<Response> {
       .where(and(eq(technicianSchema.salonId, salon.id), eq(technicianSchema.isActive, true)));
 
     let autoAssignedServiceCount = 0;
+    const assignmentFailures: Array<{ serviceId: string; message: string }> = [];
+    const managedServiceIds = [
+      ...(result.createdServiceIds ?? []),
+      ...(result.revivedServiceIds ?? []),
+    ];
     if (activeTechnicians.length === 1) {
-      for (const serviceId of result.createdServiceIds) {
-        const assignment = await ensureServiceAssignments(db, {
-          salonId: salon.id,
-          serviceId,
-        });
-        if (assignment.assignedTechnicianIds.length > 0) {
-          autoAssignedServiceCount += 1;
+      for (const serviceId of managedServiceIds) {
+        try {
+          const assignment = await ensureServiceAssignments(db, {
+            salonId: salon.id,
+            serviceId,
+          });
+          if (assignment.assignedTechnicianIds.length > 0) {
+            autoAssignedServiceCount += 1;
+          }
+        } catch (assignmentError) {
+          assignmentFailures.push({
+            serviceId,
+            message: assignmentError instanceof Error ? assignmentError.message : 'Assignment failed',
+          });
         }
       }
     }
@@ -138,11 +150,14 @@ export async function POST(request: Request): Promise<Response> {
       data: {
         createdServiceCount: result.createdServiceIds.length,
         createdAddOnCount: result.createdAddOnIds.length,
+        revivedServiceCount: result.revivedServiceIds?.length ?? 0,
+        revivedAddOnCount: result.revivedAddOnIds?.length ?? 0,
         skippedTemplateKeys: result.skippedTemplateKeys,
         activeTechnicianCount: activeTechnicians.length,
         autoAssignedServiceCount,
-        assignmentRequired:
-          activeTechnicians.length > 1 && result.createdServiceIds.length > 0,
+        assignmentRequired: activeTechnicians.length > 1 && managedServiceIds.length > 0,
+        noActiveTechnicianWarning: activeTechnicians.length === 0 && managedServiceIds.length > 0,
+        assignmentFailures,
       },
     });
   } catch (error) {

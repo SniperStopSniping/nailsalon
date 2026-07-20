@@ -21,11 +21,15 @@ export type StarterMenuOverride = {
   enabled?: boolean;
 };
 
-type SeedResult = {
+export type SeedResult = {
   createdServiceIds: string[];
   createdAddOnIds: string[];
+  revivedServiceIds: string[];
+  revivedAddOnIds: string[];
   skippedTemplateKeys: string[];
 };
+
+type ExistingCatalogRow = { id: string; templateKey: string | null; isActive: boolean | null };
 
 function sanitizeSalonId(salonId: string): string {
   return salonId.replace(/[^a-z0-9]/gi, '_');
@@ -39,13 +43,9 @@ function templateSlug(template: ServiceTemplate): string {
  * Seeds the recommended starter menu (services + add-ons + compatibility
  * rules) as salon-owned records tagged with their template keys.
  *
- * Skip-by-templateKey makes this idempotent AND makes owner deletions stick:
- * it only ever runs at salon creation (`mode: 'initial'`) or through the
- * explicit "Restore recommended services" / library actions
- * (`mode: 'restore'`), and existing keys — active or not — are never touched,
- * so a starter record the owner disabled or removed is not resurrected or
- * reactivated. Never seeds acrylic/dip (the catalog marks no such template as
- * a starter).
+ * Existing active records are skipped. Matching inactive template records are
+ * reactivated without replacing any owner-edited fields. Never seeds
+ * acrylic/dip unless explicitly requested by a library action.
  */
 export async function seedStarterMenuForSalon(args: {
   db: any;
@@ -68,11 +68,11 @@ export async function seedStarterMenuForSalon(args: {
 
   const [existingServiceRows, existingAddOnRows] = await Promise.all([
     db
-      .select({ templateKey: serviceSchema.templateKey })
+      .select({ id: serviceSchema.id, templateKey: serviceSchema.templateKey, isActive: serviceSchema.isActive })
       .from(serviceSchema)
       .where(and(eq(serviceSchema.salonId, salonId), isNotNull(serviceSchema.templateKey))),
     db
-      .select({ templateKey: addOnSchema.templateKey })
+      .select({ id: addOnSchema.id, templateKey: addOnSchema.templateKey, isActive: addOnSchema.isActive })
       .from(addOnSchema)
       .where(and(eq(addOnSchema.salonId, salonId), isNotNull(addOnSchema.templateKey))),
   ]);
@@ -84,7 +84,8 @@ export async function seedStarterMenuForSalon(args: {
   const skippedTemplateKeys: string[] = [];
   const createdServiceIds: string[] = [];
   const createdAddOnIds: string[] = [];
-  const serviceIdsByKey = new Map<string, string>();
+  const revivedServiceIds: string[] = [];
+  const revivedAddOnIds: string[] = [];
 
   const maxSortRow = await db
     .select({ sortOrder: serviceSchema.sortOrder })
@@ -97,7 +98,20 @@ export async function seedStarterMenuForSalon(args: {
 
   for (const template of serviceTemplates) {
     if (existingKeys.has(template.systemKey)) {
-      skippedTemplateKeys.push(template.systemKey);
+      const existing = existingServiceRows.find((row: ExistingCatalogRow) => row.templateKey === template.systemKey);
+      if (existing?.id) {
+        if (!existing.isActive) {
+          await db
+            .update(serviceSchema)
+            .set({ isActive: true })
+            .where(and(eq(serviceSchema.id, existing.id), eq(serviceSchema.salonId, salonId)));
+          revivedServiceIds.push(existing.id);
+        } else {
+          skippedTemplateKeys.push(template.systemKey);
+        }
+      } else {
+        skippedTemplateKeys.push(template.systemKey);
+      }
       continue;
     }
 
@@ -125,7 +139,6 @@ export async function seedStarterMenuForSalon(args: {
     });
 
     createdServiceIds.push(id);
-    serviceIdsByKey.set(template.systemKey, id);
 
     if (technicianId) {
       await db.insert(technicianServicesSchema).values({
@@ -141,7 +154,20 @@ export async function seedStarterMenuForSalon(args: {
   for (const template of addOnTemplates) {
     addOnDisplayOrder += 1;
     if (existingKeys.has(template.systemKey)) {
-      skippedTemplateKeys.push(template.systemKey);
+      const existing = existingAddOnRows.find((row: ExistingCatalogRow) => row.templateKey === template.systemKey);
+      if (existing?.id) {
+        if (!existing.isActive) {
+          await db
+            .update(addOnSchema)
+            .set({ isActive: true })
+            .where(and(eq(addOnSchema.id, existing.id), eq(addOnSchema.salonId, salonId)));
+          revivedAddOnIds.push(existing.id);
+        } else {
+          skippedTemplateKeys.push(template.systemKey);
+        }
+      } else {
+        skippedTemplateKeys.push(template.systemKey);
+      }
       continue;
     }
 
@@ -167,39 +193,69 @@ export async function seedStarterMenuForSalon(args: {
     });
 
     createdAddOnIds.push(id);
+  }
 
-    for (const compatibleKey of template.compatibleTemplateKeys ?? []) {
-      const serviceId = serviceIdsByKey.get(compatibleKey)
-        ?? await lookupSalonServiceIdByTemplateKey(db, salonId, compatibleKey);
+  await reconcileSalonServiceAddOnCompatibility(db, salonId);
+
+  return {
+    createdServiceIds,
+    createdAddOnIds,
+    revivedServiceIds,
+    revivedAddOnIds,
+    skippedTemplateKeys,
+  };
+}
+
+/**
+ * Reconciles catalog-defined compatibility against salon-owned IDs. Existing
+ * mappings are never deleted, so custom owner links remain intact.
+ */
+export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: string): Promise<number> {
+  const [services, addOns] = await Promise.all([
+    db.select({ id: serviceSchema.id, templateKey: serviceSchema.templateKey })
+      .from(serviceSchema)
+      .where(and(eq(serviceSchema.salonId, salonId), isNotNull(serviceSchema.templateKey))),
+    db.select({ id: addOnSchema.id, templateKey: addOnSchema.templateKey })
+      .from(addOnSchema)
+      .where(and(eq(addOnSchema.salonId, salonId), isNotNull(addOnSchema.templateKey))),
+  ]);
+
+  const serviceByKey = new Map(services.map((service: { id: string; templateKey: string | null }) => [service.templateKey, service.id]));
+  const templatesByKey = new Map(SERVICE_TEMPLATES.map(template => [template.systemKey, template]));
+  let inserted = 0;
+
+  for (const addOn of addOns as Array<{ id: string; templateKey: string | null }>) {
+    const addOnTemplate = addOn.templateKey ? templatesByKey.get(addOn.templateKey) : undefined;
+    if (!addOnTemplate?.compatibleTemplateKeys?.length) {
+      continue;
+    }
+
+    const compatibleKeys = new Set(addOnTemplate.compatibleTemplateKeys);
+    for (const combo of SERVICE_TEMPLATES.filter(template => template.serviceType === 'combo')) {
+      if (combo.componentTemplateKeys?.some(component => compatibleKeys.has(component))) {
+        compatibleKeys.add(combo.systemKey);
+      }
+    }
+
+    for (const compatibleKey of compatibleKeys) {
+      const serviceId = serviceByKey.get(compatibleKey);
       if (!serviceId) {
         continue;
       }
 
       await db.insert(serviceAddOnSchema).values({
-        id: `svcaddon_${sanitizeSalonId(salonId)}_${templateSlug(template)}_${compatibleKey.replace(/_/g, '-')}`,
+        id: `svcaddon_${sanitizeSalonId(salonId)}_${templateSlug(addOnTemplate)}_${compatibleKey.replace(/_/g, '-')}`,
         salonId,
         serviceId,
-        addOnId: id,
+        addOnId: addOn.id,
         selectionMode: 'optional',
-        displayOrder: addOnDisplayOrder,
-      });
+        displayOrder: 0,
+      }).onConflictDoNothing();
+      inserted += 1;
     }
   }
 
-  return { createdServiceIds, createdAddOnIds, skippedTemplateKeys };
-}
-
-async function lookupSalonServiceIdByTemplateKey(
-  db: any,
-  salonId: string,
-  templateKey: string,
-): Promise<string | null> {
-  const [row] = await db
-    .select({ id: serviceSchema.id })
-    .from(serviceSchema)
-    .where(and(eq(serviceSchema.salonId, salonId), eq(serviceSchema.templateKey, templateKey)))
-    .limit(1);
-  return row?.id ?? null;
+  return inserted;
 }
 
 /** Template keys already present on the salon menu (services or add-ons). */

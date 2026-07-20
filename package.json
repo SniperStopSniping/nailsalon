@@ -34,6 +34,7 @@
     "db:seed:default-colour-change": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-default-colour-change.ts",
     "db:seed:default-combos": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-default-combos.ts",
     "db:repair:service-assignments": "tsx scripts/backfill-isla-daniela-service-assignments.ts",
+    "db:report:service-availability": "tsx scripts/report-service-availability.ts",
     "db:seed:isla-daniela-services": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-service-assignments.ts --salon-slug isla-nail-studio --technician-name Daniela --apply",
     "db:seed:isla-daniela-rating": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-rating.ts",
     "db:seed:e2e": "NODE_ENV=development dotenv -c development -- tsx scripts/seed-e2e-fixtures.ts",

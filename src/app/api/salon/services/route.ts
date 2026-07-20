@@ -286,23 +286,6 @@ export async function POST(request: Request): Promise<Response> {
         const [revivedService] = await db
           .update(serviceSchema)
           .set({
-            name: data.name,
-            description:
-              normalizedDescriptionItems
-              && normalizedDescriptionItems.length > 0
-                ? descriptionItemsToLegacyText(normalizedDescriptionItems)
-                : data.description,
-            descriptionItems: normalizedDescriptionItems,
-            price: data.price,
-            priceDisplayText: data.priceDisplayText,
-            durationMinutes: data.durationMinutes,
-            preparationBufferMinutes: data.preparationBufferMinutes,
-            cleanupBufferMinutes: data.cleanupBufferMinutes,
-            category: data.category,
-            bookingCategory: data.bookingCategory ?? deriveBookingCategory(data.category),
-            featuredOrder: data.featuredOrder ?? null,
-            isIntroPrice: data.isIntroPrice,
-            introPriceLabel: data.isIntroPrice ? data.introPriceLabel : null,
             isActive: true,
             updatedAt: new Date(),
           })
