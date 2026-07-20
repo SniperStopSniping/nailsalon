@@ -6,15 +6,28 @@ const {
   requireAdminSalon,
   getSalonTemplateKeys,
   seedStarterMenuForSalon,
+  ensureServiceAssignments,
+  activeTechnicianRows,
 } = vi.hoisted(() => ({
   requireAdminSalon: vi.fn(),
   getSalonTemplateKeys: vi.fn(),
   seedStarterMenuForSalon: vi.fn(),
+  ensureServiceAssignments: vi.fn(),
+  activeTechnicianRows: { rows: [] as Array<{ id: string }> },
 }));
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon }));
-vi.mock('@/libs/DB', () => ({ db: {} }));
+vi.mock('@/libs/DB', () => ({
+  db: {
+    select: () => ({
+      from: () => ({
+        where: async () => activeTechnicianRows.rows,
+      }),
+    }),
+  },
+}));
 vi.mock('@/libs/starterMenu', () => ({ getSalonTemplateKeys, seedStarterMenuForSalon }));
+vi.mock('@/libs/serviceAssignments', () => ({ ensureServiceAssignments }));
 
 describe('salon services from-templates route', () => {
   beforeEach(() => {
@@ -29,6 +42,11 @@ describe('salon services from-templates route', () => {
       createdAddOnIds: ['addon_a'],
       skippedTemplateKeys: ['gel_manicure'],
     });
+    ensureServiceAssignments.mockResolvedValue({
+      assignedTechnicianIds: ['tech_1'],
+      assignmentRequired: false,
+    });
+    activeTechnicianRows.rows = [{ id: 'tech_1' }];
   });
 
   it('returns the template keys already on the salon menu', async () => {
@@ -63,7 +81,56 @@ describe('salon services from-templates route', () => {
       createdServiceCount: 1,
       createdAddOnCount: 1,
       skippedTemplateKeys: ['gel_manicure'],
+      activeTechnicianCount: 1,
+      autoAssignedServiceCount: 1,
+      assignmentRequired: false,
     });
+    // Single-technician salon: created base services auto-assign so they are
+    // publicly bookable immediately (never silently hidden).
+    expect(ensureServiceAssignments).toHaveBeenCalledWith(expect.anything(), {
+      salonId: 'salon_1',
+      serviceId: 'svc_a',
+    });
+  });
+
+  it('does not auto-assign in a multi-technician salon and flags assignmentRequired', async () => {
+    activeTechnicianRows.rows = [{ id: 'tech_1' }, { id: 'tech_2' }];
+
+    const response = await POST(new Request('http://localhost/api/salon/services/from-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'isla-nail-studio',
+        templateKeys: ['classic_pedicure'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(ensureServiceAssignments).not.toHaveBeenCalled();
+    expect(body.data.assignmentRequired).toBe(true);
+    expect(body.data.activeTechnicianCount).toBe(2);
+    expect(body.data.autoAssignedServiceCount).toBe(0);
+  });
+
+  it('does not claim bookability in a salon with no active technicians', async () => {
+    activeTechnicianRows.rows = [];
+
+    const response = await POST(new Request('http://localhost/api/salon/services/from-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'isla-nail-studio',
+        templateKeys: ['classic_pedicure'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(ensureServiceAssignments).not.toHaveBeenCalled();
+    expect(body.data.activeTechnicianCount).toBe(0);
+    expect(body.data.assignmentRequired).toBe(false);
+    expect(body.data.autoAssignedServiceCount).toBe(0);
   });
 
   it('rejects template keys that are not in the catalog', async () => {

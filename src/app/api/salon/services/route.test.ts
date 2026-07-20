@@ -12,7 +12,10 @@ const {
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
-  const selectFrom = vi.fn(() => ({ where: selectWhere }));
+  const selectFrom = vi.fn(() => ({
+    where: selectWhere,
+    innerJoin: vi.fn(() => ({ where: selectWhere })),
+  }));
   const select = vi.fn(() => ({ from: selectFrom }));
 
   const insertReturning = vi.fn();
@@ -267,6 +270,11 @@ describe('salon services route', () => {
   });
 
   it('fetches services for the authorized salon on GET, including deactivated ones', async () => {
+    // GET runs two extra selects: active technicians, then assignment rows.
+    selectWhere.mockResolvedValueOnce([{ id: 'tech_1' }]);
+    selectWhere.mockResolvedValueOnce([
+      { serviceId: 'svc_1', technicianId: 'tech_1', enabled: true },
+    ]);
     getServicesBySalonIdIncludingInactive.mockResolvedValueOnce([
       {
         id: 'svc_1',
@@ -300,5 +308,9 @@ describe('salon services route', () => {
     expect(requireAdminSalon).toHaveBeenCalledWith('isla-nail-studio');
     expect(body.data.services).toHaveLength(2);
     expect(body.data.services[1]).toMatchObject({ id: 'svc_2', isActive: false });
+    // Truthful public-visibility signal: assigned count per service.
+    expect(body.data.services[0].assignedTechnicianCount).toBe(1);
+    expect(body.data.services[1].assignedTechnicianCount).toBe(0);
+    expect(body.data.activeTechnicianCount).toBe(1);
   });
 });

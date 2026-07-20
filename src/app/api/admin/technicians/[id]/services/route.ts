@@ -127,6 +127,8 @@ export async function GET(
         serviceId: service.id,
         serviceName: service.name,
         serviceCategory: service.category,
+        // Visible grouping shared with client booking and the owner menu.
+        serviceBookingCategory: service.bookingCategory ?? null,
         servicePrice: service.price,
         serviceDuration: service.durationMinutes,
         assigned: !!assignment,

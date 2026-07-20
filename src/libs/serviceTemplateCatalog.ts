@@ -517,6 +517,40 @@ export function getTemplatesByLibraryCategory(category: ServiceTemplateCategory)
   return SERVICE_TEMPLATES.filter(template => template.templateCategory === category);
 }
 
+/**
+ * Visible library shelves — the same three main categories the rest of the
+ * app shows, plus Popular and a separate Add-ons shelf. The 9-value
+ * `templateCategory` stays internal metadata (secondary card labels, search).
+ */
+export const LIBRARY_SHELVES = ['popular', 'manicure', 'pedicure', 'combo', 'addon'] as const;
+
+export type LibraryShelf = (typeof LIBRARY_SHELVES)[number];
+
+export const LIBRARY_SHELF_LABELS: Record<LibraryShelf, string> = {
+  popular: 'Popular',
+  manicure: 'Manicure',
+  pedicure: 'Pedicure',
+  combo: 'Combos',
+  addon: 'Add-ons',
+};
+
+/** The shelf a template belongs to: add-ons first, else its booking category. */
+export function getTemplateShelf(template: ServiceTemplate): Exclude<LibraryShelf, 'popular'> {
+  if (template.serviceType === 'addon') {
+    return 'addon';
+  }
+  return template.bookingCategory;
+}
+
+export function getTemplatesByShelf(shelf: LibraryShelf): ServiceTemplate[] {
+  if (shelf === 'popular') {
+    return SERVICE_TEMPLATES
+      .filter(template => template.popularityRank !== undefined)
+      .sort((a, b) => (a.popularityRank ?? 0) - (b.popularityRank ?? 0));
+  }
+  return SERVICE_TEMPLATES.filter(template => getTemplateShelf(template) === shelf);
+}
+
 function normalizeQuery(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }

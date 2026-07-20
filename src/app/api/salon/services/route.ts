@@ -20,6 +20,8 @@ import {
   type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
+  technicianSchema,
+  technicianServicesSchema,
 } from '@/models/Schema';
 import type { ServiceResponse } from '@/types/admin';
 
@@ -164,13 +166,45 @@ export async function GET(request: Request): Promise<Response> {
     // customer surfaces keep the active-only query.
     const services = await getServicesBySalonIdIncludingInactive(salon.id);
 
-    // Format response using shared type
-    const formattedServices: ServiceResponse[]
-      = services.map(buildServicePayload);
+    // Per-service enabled links to ACTIVE technicians, so the owner UI can
+    // truthfully explain why a service is hidden from public booking.
+    const [activeTechnicians, assignmentRows] = await Promise.all([
+      db
+        .select({ id: technicianSchema.id })
+        .from(technicianSchema)
+        .where(and(eq(technicianSchema.salonId, salon.id), eq(technicianSchema.isActive, true))),
+      db
+        .select({
+          serviceId: technicianServicesSchema.serviceId,
+          technicianId: technicianServicesSchema.technicianId,
+          enabled: technicianServicesSchema.enabled,
+        })
+        .from(technicianServicesSchema)
+        .innerJoin(serviceSchema, eq(serviceSchema.id, technicianServicesSchema.serviceId))
+        .where(eq(serviceSchema.salonId, salon.id)),
+    ]);
+    const activeTechnicianIds = new Set(activeTechnicians.map(technician => technician.id));
+    const assignedCounts = new Map<string, number>();
+    for (const row of assignmentRows) {
+      if (row.enabled && activeTechnicianIds.has(row.technicianId)) {
+        assignedCounts.set(row.serviceId, (assignedCounts.get(row.serviceId) ?? 0) + 1);
+      }
+    }
+    // Legacy unrestricted salons (no assignment rows at all) show every
+    // active service publicly — mirror getPublicBookableServiceIds.
+    const legacyUnrestricted = assignmentRows.length === 0;
+
+    const formattedServices: ServiceResponse[] = services.map(service => ({
+      ...buildServicePayload(service),
+      assignedTechnicianCount: legacyUnrestricted
+        ? Math.max(1, activeTechnicianIds.size)
+        : assignedCounts.get(service.id) ?? 0,
+    }));
 
     return Response.json({
       data: {
         services: formattedServices,
+        activeTechnicianCount: activeTechnicianIds.size,
       },
     });
   } catch (error) {

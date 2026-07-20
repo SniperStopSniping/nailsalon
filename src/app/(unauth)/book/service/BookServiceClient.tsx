@@ -105,16 +105,6 @@ type BookServiceClientProps = {
   lusterFeaturingEnabled?: boolean;
 };
 
-const CATEGORY_META: Record<ServiceCategory, { label: string; icon: string }> = {
-  manicure: { label: 'Manicure', icon: '💅' },
-  builder_gel: { label: 'Builder Gel', icon: '✨' },
-  extensions: { label: 'Extensions', icon: '💎' },
-  pedicure: { label: 'Pedicure', icon: '🦶' },
-  hands: { label: 'Hands', icon: '💅' },
-  feet: { label: 'Feet', icon: '🦶' },
-  combo: { label: 'Combo', icon: '✨' },
-};
-
 // Height reserved for the fixed CTA bar. The in-page spacer and the tenant
 // footer clearance var must stay byte-identical, or the last card / footer
 // links end up underneath the bar on short viewports.
@@ -1127,7 +1117,7 @@ export function BookServiceClient({
                                     {/* "Best value" only on the lead card — a badge on every card means nothing */}
                                     {featuredIndex === 0 && service.bookingCategory === 'combo'
                                       ? 'Best value'
-                                      : CATEGORY_META[service.category].label}
+                                      : BOOKING_CATEGORY_META[service.bookingCategory].label}
                                   </div>
                                 </div>
                                 <div className="p-2">

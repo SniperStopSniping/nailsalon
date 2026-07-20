@@ -31,13 +31,26 @@ type MockRoutes = {
   };
   createdService?: Record<string, unknown>;
   ownedTemplateKeys?: string[];
+  addOns?: unknown[];
+  activeTechnicianCount?: number;
   /** Non-2xx forces the service PATCH to fail with this status/message. */
   patchFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], patchFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, patchFailure }: MockRoutes) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.startsWith('/api/salon/add-ons')) {
+      if (init?.method === 'PATCH') {
+        const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
+        const { salonSlug: _slug, ...fields } = submitted;
+        return new Response(
+          JSON.stringify({ data: { addOn: { id: decodeURIComponent(url.split('/').pop()!), pricingType: 'fixed', category: 'nail_art', ...fields } } }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ data: { addOns } }), { status: 200 });
+    }
     if (url.startsWith('/api/admin/salon/settings')) {
       if (init?.method === 'PATCH') {
         return new Response(JSON.stringify({ merchandising: { lusterPromoDismissed: true } }), { status: 200 });
@@ -73,7 +86,7 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
       if (init?.method === 'POST') {
         return new Response(JSON.stringify({ data: { service: createdService ?? {} } }), { status: 201 });
       }
-      return new Response(JSON.stringify({ data: { services } }), { status: 200 });
+      return new Response(JSON.stringify({ data: { services, activeTechnicianCount } }), { status: 200 });
     }
     throw new Error(`Unexpected fetch: ${url}`);
   });
@@ -186,9 +199,9 @@ describe('ServicesModal', () => {
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     expect(await screen.findByText('Gel X / Hard Gel Extensions + Classic Pedicure')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /combo 1/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /combos 1/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /combo 1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /combos 1/i }));
 
     expect(screen.getByText('Gel X / Hard Gel Extensions + Classic Pedicure')).toBeInTheDocument();
     expect(screen.queryByText('Gel Manicure')).not.toBeInTheDocument();
@@ -445,8 +458,11 @@ describe('ServicesModal', () => {
     fireEvent.click(await screen.findByTestId('services-tab-library'));
     fireEvent.click(await screen.findByTestId('bulk-add-open'));
 
-    // Count excludes what the salon already owns (30 starters − 1 owned).
-    expect(await screen.findByTestId('bulk-add-confirm')).toHaveTextContent('Add 29 to menu');
+    // Count excludes what the salon already owns (30 starters − 1 owned) and
+    // is split truthfully: base services and add-ons are different records.
+    expect(await screen.findByTestId('bulk-add-confirm')).toHaveTextContent('Add 13 services · 16 add-ons');
+    expect(screen.getByTestId('bulk-add-summary')).toHaveTextContent('Add 13 services and 16 add-ons.');
+    expect(screen.getByTestId('bulk-add-summary')).toHaveTextContent('1 already on your menu is skipped.');
     expect(screen.getByTestId('bulk-add-check-gel_manicure')).toBeDisabled();
     expect(screen.queryByTestId('bulk-add-check-acrylic_full_set_short')).not.toBeInTheDocument();
 
@@ -660,6 +676,124 @@ describe('ServicesModal — service detail owner actions', () => {
     expect(screen.getByTestId('service-detail-toggle-active')).toHaveClass('w-full');
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+  });
+
+  it('exposes only All, Manicure, Pedicure, and Combos as owner filters', async () => {
+    mockRoutes({
+      services: [
+        { ...lusterService, id: 'svc_builder', name: 'Builder Gel Overlay', category: 'builder_gel', bookingCategory: 'manicure' },
+        { ...lusterService, id: 'svc_gelx', name: 'Gel-X Extensions', category: 'extensions', bookingCategory: 'manicure' },
+        { ...lusterService, id: 'svc_pedi', name: 'Gel Pedicure', category: 'pedicure', bookingCategory: 'pedicure' },
+        { ...lusterService, id: 'svc_combo', name: 'Mani + Pedi', category: 'combo', bookingCategory: 'combo' },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByRole('button', { name: /^All 4$/i })).toBeInTheDocument();
+    // Builder Gel and Gel-X roll up into Manicure — internal names never chip.
+    expect(screen.getByRole('button', { name: /^Manicure 2$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Pedicure 1$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Combos 1$/i })).toBeInTheDocument();
+
+    for (const banned of ['Builder Gel', 'Extensions', 'Hands', 'Feet', 'Gel & Natural']) {
+      expect(screen.queryByRole('button', { name: new RegExp(`^${banned}`, 'i') })).not.toBeInTheDocument();
+    }
+
+    // Filtering uses the same canonical grouping.
+    fireEvent.click(screen.getByRole('button', { name: /^Pedicure 1$/i }));
+
+    expect(screen.getByText('Gel Pedicure')).toBeInTheDocument();
+    expect(screen.queryByText('Builder Gel Overlay')).not.toBeInTheDocument();
+  });
+
+  it('counts services and add-ons separately and manages add-ons in their own tab', async () => {
+    mockRoutes({
+      services: [lusterService],
+      addOns: [
+        { id: 'addon_chrome', name: 'Chrome', priceCents: 1000, priceDisplayText: null, durationMinutes: 15, category: 'nail_art', pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true },
+        { id: 'addon_repair', name: 'Nail Repair', priceCents: 500, priceDisplayText: '$5 per nail', durationMinutes: 10, category: 'repair', pricingType: 'per_unit', unitLabel: 'nail', maxQuantity: 10, isActive: true },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    // Add-ons never inflate the service count.
+    expect(await screen.findByText('1 services · 2 add-ons')).toBeInTheDocument();
+    expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+    expect(await screen.findByTestId('addon-row-addon_chrome')).toHaveTextContent('Chrome');
+    expect(screen.getByTestId('addon-row-addon_repair')).toHaveTextContent('$5 per nail');
+
+    fireEvent.click(screen.getByTestId('addon-row-addon_repair'));
+    fireEvent.change(await screen.findByLabelText('Price'), { target: { value: '6' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Add-on' }));
+
+    await waitFor(() => {
+      const call = findCall((url, init) => url === '/api/salon/add-ons/addon_repair' && init?.method === 'PATCH');
+
+      expect(call).toBeTruthy();
+
+      const body = JSON.parse(String((call![1] as RequestInit).body));
+
+      expect(body.priceCents).toBe(600);
+      expect(body.maxQuantity).toBe(10);
+      expect(body.isActive).toBe(true);
+    });
+  });
+
+  it('tells an unassigned-service owner to assign a technician when the salon has staff', async () => {
+    mockRoutes({
+      services: [{ ...lusterService, assignedTechnicianCount: 0 }],
+      activeTechnicianCount: 2,
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByTestId('service-row-not-bookable-svc_luster')).toHaveTextContent('Not bookable');
+
+    fireEvent.click(screen.getByText('Luster Manicure'));
+
+    expect(await screen.findByTestId('service-detail-visibility-warning'))
+      .toHaveTextContent('Not visible in booking — assign at least one technician');
+  });
+
+  it('tells a staffless salon to add a technician rather than implying bookability', async () => {
+    mockRoutes({
+      services: [{ ...lusterService, assignedTechnicianCount: 0 }],
+      activeTechnicianCount: 0,
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByText('Luster Manicure'));
+
+    expect(await screen.findByTestId('service-detail-visibility-warning'))
+      .toHaveTextContent('add a technician before this service can be booked');
+  });
+
+  it('shows no visibility warning for an assigned service', async () => {
+    mockRoutes({
+      services: [{ ...lusterService, assignedTechnicianCount: 1 }],
+      activeTechnicianCount: 1,
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByText('Luster Manicure')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-row-not-bookable-svc_luster')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Luster Manicure'));
+
+    expect(await screen.findByTestId('service-detail-edit')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-detail-visibility-warning')).not.toBeInTheDocument();
   });
 
   it('keeps deactivated services in the owner list with an Inactive chip and a reactivation path', async () => {

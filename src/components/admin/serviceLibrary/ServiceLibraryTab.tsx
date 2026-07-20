@@ -13,25 +13,43 @@ import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import {
   getStarterTemplates,
-  getTemplatesByLibraryCategory,
+  getTemplatesByShelf,
+  LIBRARY_SHELF_LABELS,
+  LIBRARY_SHELVES,
+  type LibraryShelf,
   searchTemplates,
-  SERVICE_TEMPLATE_CATEGORIES,
   type ServiceTemplate,
   type ServiceTemplateCategory,
 } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
-const CATEGORY_LABELS: Record<ServiceTemplateCategory, string> = {
+/**
+ * Secondary service-type labels only — these describe WHAT a service is on
+ * the card. They are never navigation: the shelves are Popular / Manicure /
+ * Pedicure / Combos / Add-ons.
+ */
+const TEMPLATE_TYPE_LABELS: Record<ServiceTemplateCategory, string> = {
   popular: 'Popular',
-  gel_natural: 'Gel & Natural',
+  gel_natural: 'Gel & natural',
   extensions: 'Extensions',
-  pedicure: 'Pedicures',
-  combos: 'Combos',
-  nail_art: 'Add-ons',
-  removal_repair: 'Removal',
+  pedicure: 'Pedicure',
+  combos: 'Combo',
+  nail_art: 'Nail art',
+  removal_repair: 'Removal & repair',
   spa: 'Spa',
-  acrylic_dip: 'Acrylic & Dip',
+  acrylic_dip: 'Acrylic & dip',
 };
+
+/** Base service / Combo / Add-on — what kind of record this creates. */
+function templateKindLabel(template: ServiceTemplate): string {
+  if (template.serviceType === 'addon') {
+    return 'Add-on';
+  }
+  if (template.serviceType === 'combo' || template.bookingCategory === 'combo') {
+    return 'Combo';
+  }
+  return 'Base service';
+}
 
 function formatTemplatePrice(template: ServiceTemplate): string {
   return template.priceDisplayText ?? `$${(template.defaultPriceCents / 100).toFixed(0)}`;
@@ -57,8 +75,14 @@ function TemplateRow({
           <span>{formatTemplatePrice(template)}</span>
           <span>·</span>
           <span>{formatDuration(template.defaultDurationMinutes)}</span>
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px]">
-            {template.serviceType === 'addon' ? 'Add-on' : CATEGORY_LABELS[template.templateCategory]}
+          <span
+            data-testid={`library-kind-${template.systemKey}`}
+            className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px]"
+          >
+            {templateKindLabel(template)}
+          </span>
+          <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-[#8E8E93]">
+            {TEMPLATE_TYPE_LABELS[template.templateCategory]}
           </span>
         </div>
         {template.description && (
@@ -107,9 +131,11 @@ function BulkAddRecommendedDialog({
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
 
   const selectable = starters.filter(template => !ownedTemplateKeys.has(template.systemKey));
-  const selectedKeys = selectable
-    .filter(template => !unchecked.has(template.systemKey))
-    .map(template => template.systemKey);
+  const selected = selectable.filter(template => !unchecked.has(template.systemKey));
+  const selectedKeys = selected.map(template => template.systemKey);
+  const selectedServiceCount = selected.filter(template => template.serviceType !== 'addon').length;
+  const selectedAddOnCount = selected.length - selectedServiceCount;
+  const alreadyOwnedCount = starters.length - selectable.length;
 
   return (
     <DialogShell
@@ -126,11 +152,12 @@ function BulkAddRecommendedDialog({
       <div className="space-y-4">
         <div>
           <h2 className="text-xl font-semibold text-[#1C1C1E]">Add recommended services</h2>
-          <p className="mt-1 text-sm text-[#6B7280]">
-            {selectedKeys.length}
-            {' '}
-            services and add-ons will be created on your menu. Uncheck anything you don’t offer —
-            every price and duration stays editable afterwards.
+          <p data-testid="bulk-add-summary" className="mt-1 text-sm text-[#6B7280]">
+            {`Add ${selectedServiceCount} ${selectedServiceCount === 1 ? 'service' : 'services'} and ${selectedAddOnCount} ${selectedAddOnCount === 1 ? 'add-on' : 'add-ons'}.`}
+            {alreadyOwnedCount > 0
+              ? ` ${alreadyOwnedCount} already on your menu ${alreadyOwnedCount === 1 ? 'is' : 'are'} skipped.`
+              : ''}
+            {' Uncheck anything you don’t offer — every price and duration stays editable afterwards.'}
           </p>
         </div>
 
@@ -193,7 +220,7 @@ function BulkAddRecommendedDialog({
                     Adding...
                   </>
                 )
-              : `Add ${selectedKeys.length} to menu`}
+              : `Add ${selectedServiceCount} services · ${selectedAddOnCount} add-ons`}
           </Button>
         </div>
       </div>
@@ -215,13 +242,13 @@ export function ServiceLibraryTab({
   onCreateCustom: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<ServiceTemplateCategory>('popular');
+  const [activeCategory, setActiveCategory] = useState<LibraryShelf>('popular');
   const [showBulkAdd, setShowBulkAdd] = useState(false);
 
   const trimmedQuery = query.trim();
   const templates = trimmedQuery
     ? searchTemplates(trimmedQuery)
-    : getTemplatesByLibraryCategory(activeCategory);
+    : getTemplatesByShelf(activeCategory);
 
   return (
     <div data-testid="service-library-tab">
@@ -243,19 +270,19 @@ export function ServiceLibraryTab({
       {!trimmedQuery && (
         <div className="px-4 pb-2 pt-1">
           <div className="scrollbar-hide flex gap-2 overflow-x-auto pb-1">
-            {SERVICE_TEMPLATE_CATEGORIES.map(category => (
+            {LIBRARY_SHELVES.map(shelf => (
               <button
-                key={category}
+                key={shelf}
                 type="button"
-                data-testid={`library-chip-${category}`}
-                onClick={() => setActiveCategory(category)}
+                data-testid={`library-chip-${shelf}`}
+                onClick={() => setActiveCategory(shelf)}
                 className={`whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-medium transition-all ${
-                  activeCategory === category
+                  activeCategory === shelf
                     ? 'bg-rose-800 text-white shadow-sm'
                     : 'border border-gray-200 bg-white text-[#1C1C1E]'
                 }`}
               >
-                {CATEGORY_LABELS[category]}
+                {LIBRARY_SHELF_LABELS[shelf]}
               </button>
             ))}
           </div>
@@ -285,8 +312,10 @@ export function ServiceLibraryTab({
         </div>
       )}
 
-      {activeCategory === 'acrylic_dip' && !trimmedQuery && (
-        <p className="mx-4 mb-2 text-[12px] text-[#8E8E93]">Traditional enhancement services</p>
+      {activeCategory === 'addon' && !trimmedQuery && (
+        <p className="mx-4 mb-2 text-[12px] text-[#8E8E93]">
+          Add-ons appear for clients after they pick a compatible base service.
+        </p>
       )}
 
       <div className="mx-4 overflow-hidden rounded-[10px] bg-white shadow-sm">
