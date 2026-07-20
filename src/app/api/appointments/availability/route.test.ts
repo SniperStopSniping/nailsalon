@@ -338,8 +338,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     getClientSession.mockResolvedValue({
       phone: '4165551234',
@@ -354,8 +354,8 @@ describe('GET /api/appointments/availability', () => {
       [{
         id: 'appt_1',
         technicianId: 'tech_1',
-        startTime: new Date('2026-03-13T10:00:00'),
-        endTime: new Date('2026-03-13T11:00:00'),
+        startTime: new Date('2026-03-13T10:00:00-04:00'),
+        endTime: new Date('2026-03-13T11:00:00-04:00'),
       }],
     );
 
@@ -379,8 +379,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     // No session, no manage token (beforeEach defaults).
     selectResults.push(
@@ -390,8 +390,8 @@ describe('GET /api/appointments/availability', () => {
       [{
         id: 'appt_1',
         technicianId: 'tech_1',
-        startTime: new Date('2026-03-13T10:00:00'),
-        endTime: new Date('2026-03-13T11:00:00'),
+        startTime: new Date('2026-03-13T10:00:00-04:00'),
+        endTime: new Date('2026-03-13T11:00:00-04:00'),
         totalDurationMinutes: 60,
         bufferMinutes: 10,
         blockedDurationMinutes: 70,
@@ -416,8 +416,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     verifyAppointmentAccessToken.mockResolvedValue({
       tokenId: 'token_1',
@@ -431,8 +431,8 @@ describe('GET /api/appointments/availability', () => {
       [{
         id: 'appt_1',
         technicianId: 'tech_1',
-        startTime: new Date('2026-03-13T10:00:00'),
-        endTime: new Date('2026-03-13T11:00:00'),
+        startTime: new Date('2026-03-13T10:00:00-04:00'),
+        endTime: new Date('2026-03-13T11:00:00-04:00'),
       }],
     );
 
@@ -457,8 +457,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     verifyAppointmentAccessToken.mockResolvedValue({
       tokenId: 'token_1',
@@ -484,8 +484,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     verifyAppointmentAccessToken.mockResolvedValue(null);
     selectResults.push([], [], [], []);
@@ -507,8 +507,8 @@ describe('GET /api/appointments/availability', () => {
       technicianId: 'tech_1',
       clientPhone: '4165551234',
       salonClientId: 'sc_1',
-      startTime: new Date('2026-03-13T10:00:00'),
-      endTime: new Date('2026-03-13T11:00:00'),
+      startTime: new Date('2026-03-13T10:00:00-04:00'),
+      endTime: new Date('2026-03-13T11:00:00-04:00'),
     });
     verifyAppointmentAccessToken.mockResolvedValue({
       tokenId: 'token_1',
