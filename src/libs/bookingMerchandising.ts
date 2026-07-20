@@ -1,6 +1,16 @@
 import type { ServiceCategory } from '@/models/Schema';
 
 export const LUSTER_MANICURE_TEMPLATE_KEY = 'luster_manicure';
+export const LUSTER_PEDICURE_TEMPLATE_KEY = 'luster_pedicure';
+
+/**
+ * Luster's own services lead their category. Combos are deliberately excluded
+ * — there is no Luster combo, only an optional product upgrade.
+ */
+export const LUSTER_LEAD_TEMPLATE_KEYS: Record<'manicure' | 'pedicure', string> = {
+  manicure: LUSTER_MANICURE_TEMPLATE_KEY,
+  pedicure: LUSTER_PEDICURE_TEMPLATE_KEY,
+};
 
 export const FEATURED_SERVICE_CATEGORY_PRIORITY: ServiceCategory[] = [
   'combo',
@@ -39,8 +49,33 @@ function compareBaseline(serviceA: MerchandisedService, serviceB: MerchandisedSe
 }
 
 /**
+ * Orders one visible category for display. Luster's own service leads its
+ * category whenever it is active; everything else keeps the salon's own
+ * sortOrder. Combos never get a forced leader — there is no Luster combo.
+ */
+export function sortServicesForCategory<
+  T extends MerchandisedService & { bookingCategory?: string | null },
+>(services: T[], bookingCategory: 'manicure' | 'pedicure' | 'combo'): T[] {
+  const leadKey = bookingCategory === 'combo'
+    ? null
+    : LUSTER_LEAD_TEMPLATE_KEYS[bookingCategory];
+
+  return [...services].sort((serviceA, serviceB) => {
+    if (leadKey) {
+      const aLeads = serviceA.templateKey === leadKey && serviceA.isActive !== false;
+      const bLeads = serviceB.templateKey === leadKey && serviceB.isActive !== false;
+      if (aLeads !== bLeads) {
+        return aLeads ? -1 : 1;
+      }
+    }
+    return compareBaseline(serviceA, serviceB);
+  });
+}
+
+/**
  * Ordered featured services for the booking page:
- * 1. The active Luster Manicure service, when the salon has featuring enabled.
+ * 1. The active Luster Manicure, then the active Luster Pedicure, when the
+ *    salon has featuring enabled. There is deliberately no Luster combo.
  * 2. Manually featured services (featuredOrder ascending).
  * 3. Category heuristic fallback (combo → extensions → builder_gel).
  * Deduped by id; inactive services are never featured; no placeholders.
@@ -51,11 +86,11 @@ export function getFeaturedServices<T extends MerchandisedService>(
 ): T[] {
   const active = services.filter(service => service.isActive !== false);
 
-  const luster = options.lusterFeaturingEnabled === false
-    ? null
-    : active
-      .filter(service => service.templateKey === LUSTER_MANICURE_TEMPLATE_KEY)
-      .sort(compareBaseline)[0] ?? null;
+  const lusterLeads = options.lusterFeaturingEnabled === false
+    ? []
+    : [LUSTER_MANICURE_TEMPLATE_KEY, LUSTER_PEDICURE_TEMPLATE_KEY]
+        .map(key => active.filter(service => service.templateKey === key).sort(compareBaseline)[0])
+        .filter((service): service is T => Boolean(service));
 
   const manual = active
     .filter(service => service.featuredOrder != null)
@@ -84,7 +119,7 @@ export function getFeaturedServices<T extends MerchandisedService>(
 
   const featured: T[] = [];
   const seen = new Set<string>();
-  for (const service of [...(luster ? [luster] : []), ...manual, ...fallback]) {
+  for (const service of [...lusterLeads, ...manual, ...fallback]) {
     if (!seen.has(service.id)) {
       seen.add(service.id);
       featured.push(service);

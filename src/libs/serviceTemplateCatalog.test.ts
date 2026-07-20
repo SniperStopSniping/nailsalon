@@ -15,21 +15,34 @@ describe('serviceTemplateCatalog', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('contains the recommended starter menu: 14 services and 16 add-ons, Luster first', () => {
+  it('contains the recommended starter menu: 15 services and 33 add-ons, Luster first', () => {
     const starters = getStarterTemplates();
     const services = starters.filter(template => template.serviceType !== 'addon');
     const addOns = starters.filter(template => template.serviceType === 'addon');
 
-    expect(services).toHaveLength(14);
-    expect(addOns).toHaveLength(16);
+    expect(services).toHaveLength(15);
+    // Both Luster services lead their categories out of the box.
+    expect(services.map(template => template.systemKey)).toEqual(
+      expect.arrayContaining(['luster_manicure', 'luster_pedicure']),
+    );
+
+    // Every add-on a starter service maps to must itself be a starter,
+    // otherwise a freshly seeded salon shows services with no add-ons.
+    const starterAddOnKeys = new Set(addOns.map(template => template.systemKey));
+    for (const service of services) {
+      for (const addOnKey of service.compatibleAddOnKeys ?? []) {
+        expect(starterAddOnKeys.has(addOnKey), `${service.systemKey} → ${addOnKey}`).toBe(true);
+      }
+    }
+
+    expect(addOns).toHaveLength(33);
     expect(services[0]?.systemKey).toBe('luster_manicure');
     expect(services[0]?.defaultPriceCents).toBe(5500);
     expect(services[0]?.defaultDurationMinutes).toBe(60);
     // Luster seeds with the intro badge; the numeric price stays the single
-    // bookable source of truth (no display-text override).
+    // bookable source of truth.
     expect(services[0]?.isIntroPrice).toBe(true);
     expect(services[0]?.introPriceLabel).toBe('Intro price');
-    expect(services[0]?.priceDisplayText).toBeNull();
   });
 
   it('never marks acrylic or dip templates as recommended starters', () => {
@@ -45,8 +58,13 @@ describe('serviceTemplateCatalog', () => {
   it('curates Popular as a rank-sorted view over the same records, not duplicates', () => {
     const popular = getTemplatesByLibraryCategory('popular');
 
-    expect(popular.length).toBe(12);
+    expect(popular.length).toBe(13);
     expect(popular[0]?.systemKey).toBe('luster_manicure');
+
+    // Ranks are unique, so the curated order is deterministic.
+    const ranks = popular.map(template => template.popularityRank);
+
+    expect(new Set(ranks).size).toBe(ranks.length);
 
     // Same object references as the master list — no duplicate records.
     for (const template of popular) {

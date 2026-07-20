@@ -134,7 +134,9 @@ export async function seedStarterMenuForSalon(args: {
       category: template.serviceCategory,
       bookingCategory: template.bookingCategory,
       templateKey: template.systemKey,
-      sortOrder: nextSortOrder,
+      // Canonical position when the template declares one; otherwise append.
+      sortOrder: template.sortOrder ?? nextSortOrder,
+      featuredOrder: template.isFeaturedDefault ? template.sortOrder ?? nextSortOrder : null,
       isActive: override?.enabled ?? true,
     });
 
@@ -221,8 +223,37 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
   ]);
 
   const serviceByKey = new Map(services.map((service: { id: string; templateKey: string | null }) => [service.templateKey, service.id]));
+  const addOnByKey = new Map((addOns as Array<{ id: string; templateKey: string | null }>)
+    .map(addOn => [addOn.templateKey, addOn.id]));
   const templatesByKey = new Map(SERVICE_TEMPLATES.map(template => [template.systemKey, template]));
   let inserted = 0;
+
+  // Service→add-on is the authoritative direction: the declared array order
+  // becomes display_order, so every surface renders add-ons deterministically.
+  for (const [serviceKey, serviceId] of serviceByKey as Map<string, string>) {
+    const serviceTemplate = templatesByKey.get(serviceKey);
+    const declared = serviceTemplate?.compatibleAddOnKeys;
+    if (!declared?.length) {
+      continue;
+    }
+
+    for (const [index, addOnKey] of declared.entries()) {
+      const addOnId = addOnByKey.get(addOnKey);
+      if (!addOnId) {
+        continue;
+      }
+
+      await db.insert(serviceAddOnSchema).values({
+        id: `svcaddon_${sanitizeSalonId(salonId)}_${addOnKey.replace(/_/g, '-')}_${serviceKey.replace(/_/g, '-')}`,
+        salonId,
+        serviceId,
+        addOnId,
+        selectionMode: 'optional',
+        displayOrder: index,
+      }).onConflictDoNothing();
+      inserted += 1;
+    }
+  }
 
   for (const addOn of addOns as Array<{ id: string; templateKey: string | null }>) {
     const addOnTemplate = addOn.templateKey ? templatesByKey.get(addOn.templateKey) : undefined;
@@ -240,6 +271,13 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
     for (const compatibleKey of compatibleKeys) {
       const serviceId = serviceByKey.get(compatibleKey);
       if (!serviceId) {
+        continue;
+      }
+
+      // A service that declares its own add-on set is authoritative: the
+      // legacy add-on-side list must not widen it (e.g. a no-colour service
+      // must never inherit design add-ons).
+      if (templatesByKey.get(compatibleKey)?.compatibleAddOnKeys?.length) {
         continue;
       }
 

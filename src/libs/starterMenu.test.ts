@@ -54,8 +54,8 @@ describe('seedStarterMenuForSalon', () => {
       mode: 'initial',
     });
 
-    expect(result.createdServiceIds).toHaveLength(14);
-    expect(result.createdAddOnIds).toHaveLength(16);
+    expect(result.createdServiceIds).toHaveLength(15);
+    expect(result.createdAddOnIds).toHaveLength(33);
     expect(result.skippedTemplateKeys).toEqual([]);
 
     const services = await db
@@ -68,7 +68,9 @@ describe('seedStarterMenuForSalon', () => {
     expect(luster).toMatchObject({
       name: 'Luster Manicure',
       price: 5500,
-      priceDisplayText: null,
+      // Starting-price display AGREES with the numeric price (the incident was
+      // a display string that contradicted it). Totals still use `price`.
+      priceDisplayText: '$55+',
       isIntroPrice: true,
       introPriceLabel: 'Intro price',
       durationMinutes: 60,
@@ -99,7 +101,7 @@ describe('seedStarterMenuForSalon', () => {
       .from(schema.technicianServicesSchema)
       .where(eq(schema.technicianServicesSchema.technicianId, TECH_ID));
 
-    expect(techLinks).toHaveLength(14);
+    expect(techLinks).toHaveLength(15);
 
     // Starter add-ons exist and are wired to compatible services.
     const addOns = await db
@@ -107,7 +109,7 @@ describe('seedStarterMenuForSalon', () => {
       .from(schema.addOnSchema)
       .where(eq(schema.addOnSchema.salonId, SALON_ID));
 
-    expect(addOns).toHaveLength(16);
+    expect(addOns).toHaveLength(33);
     expect(addOns.find(addOn => addOn.templateKey === 'nail_repair')).toMatchObject({
       pricingType: 'per_unit',
       unitLabel: 'nail',
@@ -128,19 +130,44 @@ describe('seedStarterMenuForSalon', () => {
         .map(rule => addOns.find(addOn => addOn.id === rule.addOnId)?.templateKey),
     );
 
-    for (const serviceTemplate of ['luster_manicure', 'builder_gel_overlay', 'russian_manicure_no_colour', 'gel_manicure', 'gel_x_extensions', 'hard_gel_extensions']) {
+    // Gel-finish hand services carry the full hand design set.
+    for (const serviceTemplate of ['luster_manicure', 'builder_gel_overlay', 'gel_manicure', 'gel_x_extensions', 'hard_gel_extensions']) {
       const linked = linkedAddOnTemplates(serviceTemplate);
 
-      expect(linked.has('french_tips')).toBe(true);
-      expect(linked.has('chrome')).toBe(true);
-      expect(linked.has('nail_repair')).toBe(true);
+      expect(linked.has('french_tips'), serviceTemplate).toBe(true);
+      expect(linked.has('chrome'), serviceTemplate).toBe(true);
+      expect(linked.has('nail_repair'), serviceTemplate).toBe(true);
     }
 
+    // No-colour services never advertise design work.
+    const russian = linkedAddOnTemplates('russian_manicure_no_colour');
+
+    expect(russian.has('nail_repair')).toBe(true);
+    expect(russian.has('french_tips')).toBe(false);
+    expect(russian.has('chrome')).toBe(false);
+
+    // Regular-polish pedicure: French and simple toe art only — chrome and cat
+    // eye need a gel finish, and hand add-ons never appear on a pedicure.
     const pedicureAddOns = linkedAddOnTemplates('classic_pedicure');
 
-    expect(pedicureAddOns.has('french_tips')).toBe(true);
-    expect(pedicureAddOns.has('chrome')).toBe(true);
+    expect(pedicureAddOns.has('french_toes')).toBe(true);
+    expect(pedicureAddOns.has('simple_toe_art')).toBe(true);
+    expect(pedicureAddOns.has('toenail_repair')).toBe(true);
+    expect(pedicureAddOns.has('chrome_toes')).toBe(false);
+    expect(pedicureAddOns.has('cat_eye_toes')).toBe(false);
+    expect(pedicureAddOns.has('french_tips')).toBe(false);
     expect(pedicureAddOns.has('gel_removal')).toBe(false);
+
+    // Shellac / Gel Toes gets the full toe set but no full-pedicure treatments.
+    const gelToes = linkedAddOnTemplates('shellac_gel_toes');
+
+    for (const expected of ['french_toes', 'chrome_toes', 'cat_eye_toes', 'simple_toe_art', 'detailed_toe_art', 'three_d_toe_art_charms', 'toenail_repair', 'gel_removal_toes', 'outside_salon_removal_toes']) {
+      expect(gelToes.has(expected), expected).toBe(true);
+    }
+    for (const treatment of ['callus_treatment', 'paraffin_wax', 'extended_foot_massage']) {
+      expect(gelToes.has(treatment), treatment).toBe(false);
+    }
+
     expect(rules.filter(rule => rule.serviceId === serviceIdByTemplate.get('gel_mani_gel_pedi_combo'))
       .map(rule => rule.addOnId)).toEqual([...new Set(rules.filter(rule => rule.serviceId === serviceIdByTemplate.get('gel_mani_gel_pedi_combo')).map(rule => rule.addOnId))]);
     expect(addOnIdByTemplate.get('french_tips')).toBeDefined();
@@ -169,7 +196,7 @@ describe('seedStarterMenuForSalon', () => {
 
     expect(rerun.createdServiceIds).toEqual([]);
     expect(rerun.createdAddOnIds).toEqual([]);
-    expect(rerun.skippedTemplateKeys).toHaveLength(28);
+    expect(rerun.skippedTemplateKeys).toHaveLength(46);
     expect(rerun.revivedServiceIds).toHaveLength(2);
 
     const gelManicure = await db

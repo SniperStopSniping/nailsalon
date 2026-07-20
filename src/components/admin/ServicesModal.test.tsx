@@ -461,8 +461,8 @@ describe('ServicesModal', () => {
 
     // Count excludes what the salon already owns (30 starters − 1 owned) and
     // is split truthfully: base services and add-ons are different records.
-    expect(await screen.findByTestId('bulk-add-confirm')).toHaveTextContent('Add 13 services · 16 add-ons');
-    expect(screen.getByTestId('bulk-add-summary')).toHaveTextContent('Add 13 services and 16 add-ons.');
+    expect(await screen.findByTestId('bulk-add-confirm')).toHaveTextContent('Add 14 services · 33 add-ons');
+    expect(screen.getByTestId('bulk-add-summary')).toHaveTextContent('Add 14 services and 33 add-ons.');
     expect(screen.getByTestId('bulk-add-summary')).toHaveTextContent('1 already on your menu is skipped.');
     expect(screen.getByTestId('bulk-add-check-gel_manicure')).toBeDisabled();
     expect(screen.queryByTestId('bulk-add-check-acrylic_full_set_short')).not.toBeInTheDocument();
@@ -479,7 +479,7 @@ describe('ServicesModal', () => {
 
       const body = JSON.parse(String((call![1] as RequestInit).body));
 
-      expect(body.templateKeys).toHaveLength(28);
+      expect(body.templateKeys).toHaveLength(46);
       expect(body.templateKeys).not.toContain('hard_gel_extensions');
       expect(body.templateKeys).not.toContain('gel_manicure');
     });

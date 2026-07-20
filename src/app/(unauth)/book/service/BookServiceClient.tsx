@@ -12,7 +12,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
-import { getFeaturedServices } from '@/libs/bookingMerchandising';
+import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
 import { triggerHaptic } from '@/libs/haptics';
 import {
@@ -498,13 +498,12 @@ export function BookServiceClient({
     triggerHaptic('select');
   };
 
-  const filteredServices = services.filter((service) => {
-    if (searchQuery) {
-      return service.name.toLowerCase().includes(searchQuery.toLowerCase());
-    }
-
-    return service.bookingCategory === selectedCategory;
-  });
+  const filteredServices = searchQuery
+    ? services.filter(service => service.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : sortServicesForCategory(
+      services.filter(service => service.bookingCategory === selectedCategory),
+      selectedCategory,
+    );
 
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
   const selectedRules = selectedBaseServiceId
