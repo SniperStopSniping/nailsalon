@@ -120,6 +120,31 @@ describe('seedStarterMenuForSalon', () => {
 
     expect(rules.length).toBeGreaterThan(20);
 
+    const serviceIdByTemplate = new Map(services.map(service => [service.templateKey, service.id]));
+    const addOnIdByTemplate = new Map(addOns.map(addOn => [addOn.templateKey, addOn.id]));
+    const linkedAddOnTemplates = (templateKey: string) => new Set(
+      rules
+        .filter(rule => rule.serviceId === serviceIdByTemplate.get(templateKey))
+        .map(rule => addOns.find(addOn => addOn.id === rule.addOnId)?.templateKey),
+    );
+
+    for (const serviceTemplate of ['luster_manicure', 'builder_gel_overlay', 'russian_manicure_no_colour', 'gel_manicure', 'gel_x_extensions', 'hard_gel_extensions']) {
+      const linked = linkedAddOnTemplates(serviceTemplate);
+
+      expect(linked.has('french_tips')).toBe(true);
+      expect(linked.has('chrome')).toBe(true);
+      expect(linked.has('nail_repair')).toBe(true);
+    }
+
+    const pedicureAddOns = linkedAddOnTemplates('classic_pedicure');
+
+    expect(pedicureAddOns.has('french_tips')).toBe(true);
+    expect(pedicureAddOns.has('chrome')).toBe(true);
+    expect(pedicureAddOns.has('gel_removal')).toBe(false);
+    expect(rules.filter(rule => rule.serviceId === serviceIdByTemplate.get('gel_mani_gel_pedi_combo'))
+      .map(rule => rule.addOnId)).toEqual([...new Set(rules.filter(rule => rule.serviceId === serviceIdByTemplate.get('gel_mani_gel_pedi_combo')).map(rule => rule.addOnId))]);
+    expect(addOnIdByTemplate.get('french_tips')).toBeDefined();
+
     // The seeded Luster leads Featured Services on the client page.
     const featured = getFeaturedServices(
       services.filter(service => service.isActive),
@@ -129,7 +154,7 @@ describe('seedStarterMenuForSalon', () => {
     expect(featured[0]?.templateKey).toBe('luster_manicure');
   });
 
-  it('is idempotent: re-running skips every existing template and never reactivates', async () => {
+  it('is idempotent and revives inactive templates without replacing owner data', async () => {
     await db
       .update(schema.serviceSchema)
       .set({ isActive: false })
@@ -144,14 +169,15 @@ describe('seedStarterMenuForSalon', () => {
 
     expect(rerun.createdServiceIds).toEqual([]);
     expect(rerun.createdAddOnIds).toEqual([]);
-    expect(rerun.skippedTemplateKeys).toHaveLength(30);
+    expect(rerun.skippedTemplateKeys).toHaveLength(28);
+    expect(rerun.revivedServiceIds).toHaveLength(2);
 
     const gelManicure = await db
       .select()
       .from(schema.serviceSchema)
       .where(eq(schema.serviceSchema.templateKey, 'gel_manicure'));
 
-    expect(gelManicure[0]?.isActive).toBe(false);
+    expect(gelManicure[0]?.isActive).toBe(true);
   });
 
   it('restores only an explicitly deleted template on request, leaving the rest untouched', async () => {

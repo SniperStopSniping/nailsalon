@@ -53,6 +53,8 @@ export type ServiceTemplate = {
   maxQuantity?: number | null;
   /** Starter services this starter add-on is wired to at seed time. */
   compatibleTemplateKeys?: string[];
+  /** Base templates included by a combo; used to union compatible add-ons. */
+  componentTemplateKeys?: string[];
 };
 
 type RowOptions = Partial<
@@ -71,6 +73,7 @@ type RowOptions = Partial<
     | 'unitLabel'
     | 'maxQuantity'
     | 'compatibleTemplateKeys'
+    | 'componentTemplateKeys'
   >
 >;
 
@@ -113,6 +116,7 @@ function expand(
     ...(options.introPriceLabel !== undefined ? { introPriceLabel: options.introPriceLabel } : {}),
     ...(options.searchAliases ? { searchAliases: options.searchAliases } : {}),
     ...(options.compatibleTemplateKeys ? { compatibleTemplateKeys: options.compatibleTemplateKeys } : {}),
+    ...(options.componentTemplateKeys ? { componentTemplateKeys: options.componentTemplateKeys } : {}),
   }));
 }
 
@@ -289,30 +293,34 @@ const COMBOS = expand([
   ['classic_mani_classic_pedi_combo', 'Classic Manicure + Classic Pedicure', 7500, null, 120, {
     isRecommendedStarter: true,
     popularityRank: 11,
+    componentTemplateKeys: ['classic_manicure', 'classic_pedicure'],
   }],
   ['gel_mani_gel_pedi_combo', 'Gel Manicure + Gel Pedicure', 9000, null, 135, {
     isRecommendedStarter: true,
     popularityRank: 12,
+    componentTemplateKeys: ['gel_manicure', 'gel_pedicure'],
   }],
-  ['classic_mani_gel_pedi_combo', 'Classic Manicure + Gel Pedicure', 8500, null, 120],
-  ['gel_mani_classic_pedi_combo', 'Gel Manicure + Classic Pedicure', 8500, null, 120],
+  ['classic_mani_gel_pedi_combo', 'Classic Manicure + Gel Pedicure', 8500, null, 120, { componentTemplateKeys: ['classic_manicure', 'gel_pedicure'] }],
+  ['gel_mani_classic_pedi_combo', 'Gel Manicure + Classic Pedicure', 8500, null, 120, { componentTemplateKeys: ['gel_manicure', 'classic_pedicure'] }],
   ['biab_classic_pedi_combo', 'BIAB / Builder Gel + Classic Pedicure', 8500, null, 120, {
     isRecommendedStarter: true,
     searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_overlay', 'classic_pedicure'],
   }],
   ['biab_gel_pedi_combo', 'BIAB / Builder Gel + Gel Pedicure', 10000, null, 135, {
     isRecommendedStarter: true,
     searchAliases: BIAB_ALIASES,
+    componentTemplateKeys: ['builder_gel_overlay', 'gel_pedicure'],
   }],
-  ['biab_gel_colour_classic_pedi_combo', 'BIAB + Gel Colour + Classic Pedicure', 9500, null, 135, { searchAliases: BIAB_ALIASES }],
-  ['biab_gel_colour_gel_pedi_combo', 'BIAB + Gel Colour + Gel Pedicure', 10500, null, 150, { searchAliases: BIAB_ALIASES }],
-  ['gel_x_classic_pedi_combo', 'Gel-X + Classic Pedicure', 10500, '$105+', 155],
-  ['gel_x_gel_pedi_combo', 'Gel-X + Gel Pedicure', 11500, '$115+', 165],
-  ['hard_gel_classic_pedi_combo', 'Hard Gel Extensions + Classic Pedicure', 10500, '$105+', 155],
-  ['hard_gel_gel_pedi_combo', 'Hard Gel Extensions + Gel Pedicure', 11500, '$115+', 165],
-  ['luster_mani_classic_pedi_combo', 'Luster Manicure + Classic Pedicure', 8500, null, 120, { searchAliases: ['luster'] }],
-  ['luster_mani_gel_pedi_combo', 'Luster Manicure + Gel Pedicure', 9500, null, 135, { searchAliases: ['luster'] }],
-  ['kids_mani_pedi_combo', 'Kids’ Manicure + Pedicure', 4500, null, 60],
+  ['biab_gel_colour_classic_pedi_combo', 'BIAB + Gel Colour + Classic Pedicure', 9500, null, 135, { searchAliases: BIAB_ALIASES, componentTemplateKeys: ['builder_gel_overlay', 'gel_manicure', 'classic_pedicure'] }],
+  ['biab_gel_colour_gel_pedi_combo', 'BIAB + Gel Colour + Gel Pedicure', 10500, null, 150, { searchAliases: BIAB_ALIASES, componentTemplateKeys: ['builder_gel_overlay', 'gel_manicure', 'gel_pedicure'] }],
+  ['gel_x_classic_pedi_combo', 'Gel-X + Classic Pedicure', 10500, '$105+', 155, { componentTemplateKeys: ['gel_x_extensions', 'classic_pedicure'] }],
+  ['gel_x_gel_pedi_combo', 'Gel-X + Gel Pedicure', 11500, '$115+', 165, { componentTemplateKeys: ['gel_x_extensions', 'gel_pedicure'] }],
+  ['hard_gel_classic_pedi_combo', 'Hard Gel Extensions + Classic Pedicure', 10500, '$105+', 155, { componentTemplateKeys: ['hard_gel_extensions', 'classic_pedicure'] }],
+  ['hard_gel_gel_pedi_combo', 'Hard Gel Extensions + Gel Pedicure', 11500, '$115+', 165, { componentTemplateKeys: ['hard_gel_extensions', 'gel_pedicure'] }],
+  ['luster_mani_classic_pedi_combo', 'Luster Manicure + Classic Pedicure', 8500, null, 120, { searchAliases: ['luster'], componentTemplateKeys: [LUSTER_MANICURE_TEMPLATE_KEY, 'classic_pedicure'] }],
+  ['luster_mani_gel_pedi_combo', 'Luster Manicure + Gel Pedicure', 9500, null, 135, { searchAliases: ['luster'], componentTemplateKeys: [LUSTER_MANICURE_TEMPLATE_KEY, 'gel_pedicure'] }],
+  ['kids_mani_pedi_combo', 'Kids’ Manicure + Pedicure', 4500, null, 60, { componentTemplateKeys: ['kids_manicure', 'kids_pedicure'] }],
 ], {
   templateCategory: 'combos',
   bookingCategory: 'combo',
@@ -324,20 +332,21 @@ const COMBOS = expand([
 // Add-ons & Nail Art
 // ---------------------------------------------------------------------------
 const ART_COMPAT = [...STARTER_HAND_KEYS, ...STARTER_COMBO_KEYS];
+const TOE_ART_COMPAT = [...ART_COMPAT, ...STARTER_PEDI_KEYS];
 
 const NAIL_ART_ADDONS = expand([
-  ['french_tips', 'French Tips', 1000, '$10+', 15, { isRecommendedStarter: true, compatibleTemplateKeys: ART_COMPAT }],
+  ['french_tips', 'French Tips', 1000, '$10+', 15, { isRecommendedStarter: true, compatibleTemplateKeys: TOE_ART_COMPAT }],
   ['deep_french', 'Deep French', 1500, '$15+', 20],
   ['reverse_french', 'Reverse French', 1500, '$15+', 20],
   ['ombre_baby_boomer', 'Ombre / Baby Boomer', 1500, '$15+', 20],
-  ['chrome', 'Chrome', 1000, null, 15, { isRecommendedStarter: true, compatibleTemplateKeys: ART_COMPAT }],
+  ['chrome', 'Chrome', 1000, null, 15, { isRecommendedStarter: true, compatibleTemplateKeys: TOE_ART_COMPAT }],
   ['cat_eye', 'Cat Eye', 1000, null, 10],
   ['magnetic_velvet_effect', 'Magnetic Velvet Effect', 1000, null, 10],
-  ['simple_nail_art', 'Simple Nail Art', 1000, '$10+', 15, { isRecommendedStarter: true, compatibleTemplateKeys: ART_COMPAT }],
-  ['detailed_nail_art', 'Detailed Nail Art', 2000, '$20+', 30, { isRecommendedStarter: true, compatibleTemplateKeys: ART_COMPAT }],
+  ['simple_nail_art', 'Simple Nail Art', 1000, '$10+', 15, { isRecommendedStarter: true, compatibleTemplateKeys: TOE_ART_COMPAT }],
+  ['detailed_nail_art', 'Detailed Nail Art', 2000, '$20+', 30, { isRecommendedStarter: true, compatibleTemplateKeys: TOE_ART_COMPAT }],
   ['full_nail_art_set', 'Full Nail-Art Set', 3000, '$30+', 45],
   ['hand_painted_art', 'Hand-Painted Art', 500, '$5+ per nail', 10, { pricingType: 'per_unit', unitLabel: 'nail', maxQuantity: 10 }],
-  ['three_d_art_charms', '3D Art / Charms', 1500, '$15+', 20, { isRecommendedStarter: true, compatibleTemplateKeys: ART_COMPAT }],
+  ['three_d_art_charms', '3D Art / Charms', 1500, '$15+', 20, { isRecommendedStarter: true, compatibleTemplateKeys: TOE_ART_COMPAT }],
   ['rhinestones', 'Rhinestones', 500, '$5+', 10],
   ['encapsulation', 'Encapsulation', 1000, '$10+', 20],
   ['aura_nails', 'Aura Nails', 1500, '$15+', 20],
@@ -370,7 +379,7 @@ const REMOVAL_REPAIR = expand([
     unitLabel: 'nail',
     maxQuantity: 10,
     addOnCategory: 'repair',
-    compatibleTemplateKeys: STARTER_HAND_KEYS,
+    compatibleTemplateKeys: [...STARTER_HAND_KEYS, ...STARTER_PEDI_KEYS],
   }],
   ['broken_extension_replacement', 'Broken Extension Replacement', 700, '$7+ per nail', 15, {
     pricingType: 'per_unit',

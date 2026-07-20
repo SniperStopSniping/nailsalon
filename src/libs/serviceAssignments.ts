@@ -32,6 +32,16 @@ export async function ensureServiceAssignments(
     technicianIds?: string[];
   },
 ): Promise<EnsureServiceAssignmentsResult> {
+  const [service] = await database
+    .select({ id: serviceSchema.id })
+    .from(serviceSchema)
+    .where(and(eq(serviceSchema.id, args.serviceId), eq(serviceSchema.salonId, args.salonId)))
+    .limit(1);
+
+  if (!service) {
+    throw new InvalidTechnicianAssignmentError();
+  }
+
   const activeTechnicians = await database
     .select({ id: technicianSchema.id })
     .from(technicianSchema)

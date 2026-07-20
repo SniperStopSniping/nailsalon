@@ -33,11 +33,12 @@ type MockRoutes = {
   ownedTemplateKeys?: string[];
   addOns?: unknown[];
   activeTechnicianCount?: number;
+  templateAddResult?: Record<string, unknown>;
   /** Non-2xx forces the service PATCH to fail with this status/message. */
   patchFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, patchFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure }: MockRoutes) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.startsWith('/api/salon/add-ons')) {
@@ -62,7 +63,7 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
     if (url.startsWith('/api/salon/services/from-templates')) {
       if (init?.method === 'POST') {
         return new Response(JSON.stringify({
-          data: { createdServiceCount: 1, createdAddOnCount: 0, skippedTemplateKeys: [] },
+          data: { createdServiceCount: 1, createdAddOnCount: 0, skippedTemplateKeys: [], ...templateAddResult },
         }), { status: 200 });
       }
       return new Response(JSON.stringify({ data: { ownedTemplateKeys } }), { status: 200 });
@@ -482,6 +483,28 @@ describe('ServicesModal', () => {
       expect(body.templateKeys).not.toContain('hard_gel_extensions');
       expect(body.templateKeys).not.toContain('gel_manicure');
     });
+  });
+
+  it('shows a truthful assignment warning and opens Team services after a multi-technician add', async () => {
+    const onOpenStaff = vi.fn();
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true },
+      templateAddResult: { assignmentRequired: true, activeTechnicianCount: 2 },
+    });
+
+    render(<ServicesModal onClose={() => {}} onOpenStaff={onOpenStaff} salonSlug="isla-nail-studio" />);
+    fireEvent.click(await screen.findByTestId('services-tab-library'));
+    fireEvent.click(await screen.findByTestId('bulk-add-open'));
+    fireEvent.click(await screen.findByTestId('bulk-add-confirm'));
+
+    expect(await screen.findByTestId('service-operation-notice')).toHaveTextContent(
+      'choose who can perform them',
+    );
+
+    fireEvent.click(screen.getByTestId('service-operation-open-staff'));
+
+    expect(onOpenStaff).toHaveBeenCalledOnce();
   });
 
   it('shows the one-time library intro card until dismissed', async () => {

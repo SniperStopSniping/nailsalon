@@ -194,7 +194,11 @@ export function AdminModalHost({
         isOpen={activeModal === 'services'}
         onClose={onCloseModal}
       >
-        <ServicesModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
+        <ServicesModal
+          onClose={onCloseModal}
+          salonSlug={activeSalonSlug}
+          onOpenStaff={onOpenApp ? () => onOpenApp('staff') : undefined}
+        />
       </AppModal>
 
       <AppModal

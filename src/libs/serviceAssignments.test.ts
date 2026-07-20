@@ -7,9 +7,15 @@ vi.mock('@/libs/DB', () => ({ db: {} }));
 import { ensureServiceAssignments } from './serviceAssignments';
 
 function createDatabase(activeTechnicianIds: string[]) {
-  const where = vi.fn(async () => activeTechnicianIds.map(id => ({ id })));
-  const from = vi.fn(() => ({ where }));
-  const select = vi.fn(() => ({ from }));
+  let selectCount = 0;
+  const select = vi.fn(() => {
+    selectCount += 1;
+    const where = vi.fn(() => selectCount === 1
+      ? { limit: async () => [{ id: 'svc_new' }] }
+      : activeTechnicianIds.map(id => ({ id })));
+    const from = vi.fn(() => ({ where }));
+    return { from };
+  });
   const onConflictDoUpdate = vi.fn(async () => undefined);
   const values = vi.fn(() => ({ onConflictDoUpdate }));
   const insert = vi.fn(() => ({ values }));
