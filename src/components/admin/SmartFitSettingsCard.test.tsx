@@ -122,7 +122,11 @@ describe('SmartFitSettingsCard', () => {
     await renderCard();
 
     fireEvent.click(screen.getByTestId('smart-fit-enabled'));
+    // Picking specific records is now an explicit mode, not an implicit
+    // consequence of ticking a box.
+    fireEvent.click(screen.getByTestId('smart-fit-services-mode-selected'));
     fireEvent.click(screen.getByLabelText('Smart Fit eligible service: Gel Manicure'));
+    fireEvent.click(screen.getByTestId('smart-fit-technicians-mode-selected'));
     fireEvent.click(screen.getByLabelText('Smart Fit eligible technician: Amy'));
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ smartFit: { enabled: true } }));
@@ -143,6 +147,41 @@ describe('SmartFitSettingsCard', () => {
         eligibleTechnicianIds: ['tech_1'],
       },
     });
+  });
+
+  it('reconstructs Only-selected mode from persisted ids on reload', async () => {
+    mockLoad({
+      smartFit: { enabled: true, eligibleServiceIds: ['svc_1'], eligibleTechnicianIds: ['tech_2'] },
+    });
+    await renderCard();
+
+    expect(screen.getByTestId('smart-fit-services-mode-selected')).toBeChecked();
+    expect(screen.getByTestId('smart-fit-technicians-mode-selected')).toBeChecked();
+    expect(screen.getByLabelText('Smart Fit eligible service: Gel Manicure')).toBeChecked();
+    expect(screen.getByLabelText('Smart Fit eligible service: Pedicure')).not.toBeChecked();
+    expect(screen.getByTestId('smart-fit-summary'))
+      .toHaveTextContent('Active for 1 selected service and Lan.');
+  });
+
+  it('blocks Only-selected technicians with nothing ticked', async () => {
+    mockLoad({ smartFit: { enabled: true } });
+    await renderCard();
+
+    fireEvent.click(screen.getByTestId('smart-fit-technicians-mode-selected'));
+    fireEvent.click(screen.getByTestId('smart-fit-save'));
+
+    expect(await screen.findByTestId('smart-fit-technicians-error'))
+      .toHaveTextContent('Select at least one technician, or choose All active technicians.');
+    expect(
+      fetchMock.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'PATCH'),
+    ).toBe(false);
+  });
+
+  it('summarises a disabled configuration honestly', async () => {
+    mockLoad({ smartFit: {} });
+    await renderCard();
+
+    expect(screen.getByTestId('smart-fit-summary')).toHaveTextContent('Smart Fit is currently turned off.');
   });
 
   it('converts a fixed dollar amount to cents on save', async () => {
@@ -227,9 +266,25 @@ describe('SmartFitSettingsCard', () => {
     ).toBe(false);
   });
 
-  it('select all and clear update the service selection; empty selection is explained as all-eligible', async () => {
+  it('hides the picker in All mode and blocks saving Only-selected with nothing ticked', async () => {
     mockLoad({ smartFit: { enabled: true } });
     await renderCard();
+
+    // Empty stored array reconstructs as All mode, and the checkboxes stay
+    // hidden so an unchecked box can never be misread as "disabled".
+    expect(screen.getByTestId('smart-fit-services-mode-all')).toBeChecked();
+    expect(screen.queryByLabelText('Smart Fit eligible service: Gel Manicure')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('smart-fit-services-select-all')).not.toBeInTheDocument();
+    expect(screen.getByTestId('smart-fit-summary')).toHaveTextContent('Active for all services and all technicians.');
+
+    fireEvent.click(screen.getByTestId('smart-fit-services-mode-selected'));
+
+    expect(screen.getByLabelText('Smart Fit eligible service: Gel Manicure')).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId('smart-fit-save'));
+
+    expect(await screen.findByTestId('smart-fit-services-error'))
+      .toHaveTextContent('Select at least one service, or choose All active services.');
 
     fireEvent.click(screen.getByTestId('smart-fit-services-select-all'));
 
@@ -239,8 +294,9 @@ describe('SmartFitSettingsCard', () => {
     fireEvent.click(screen.getByTestId('smart-fit-services-clear'));
 
     expect(screen.getByLabelText('Smart Fit eligible service: Gel Manicure')).not.toBeChecked();
-    // Empty-selection semantics match the parser: empty = all services eligible.
-    expect(screen.getByText(/Leave every service unchecked to allow Smart Fit on all services/)).toBeInTheDocument();
+
+    // Returning to All mode clears the error and persists the empty array.
+    fireEvent.click(screen.getByTestId('smart-fit-services-mode-all'));
 
     fetchMock.mockResolvedValueOnce(jsonResponse({}));
     fireEvent.click(screen.getByTestId('smart-fit-save'));
@@ -255,6 +311,7 @@ describe('SmartFitSettingsCard', () => {
     mockLoad({ smartFit: { enabled: true } });
     await renderCard();
 
+    fireEvent.click(screen.getByTestId('smart-fit-technicians-mode-selected'));
     fireEvent.click(screen.getByTestId('smart-fit-technicians-select-all'));
     fetchMock.mockResolvedValueOnce(jsonResponse({}));
     fireEvent.click(screen.getByTestId('smart-fit-save'));

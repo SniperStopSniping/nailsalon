@@ -30,7 +30,10 @@ type SmartFitFormState = {
 
 type PickerOption = { id: string; name: string };
 
-type FieldErrors = Partial<Record<'value' | 'maxGap' | 'minImprovement', string>>;
+type FieldErrors = Partial<Record<'value' | 'maxGap' | 'minImprovement' | 'eligibleServices' | 'eligibleTechnicians', string>>;
+
+/** Empty stored array = every active record; non-empty = only those listed. */
+type EligibilityMode = 'all' | 'selected';
 
 const DEFAULT_FORM: SmartFitFormState = {
   enabled: false,
@@ -85,14 +88,27 @@ export function SmartFitSettingsCard({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  // Mode is derived from the persisted arrays (empty ⇒ all) but tracked
+  // separately so "Only selected" can be chosen before ticking anything.
+  const [serviceMode, setServiceMode] = useState<EligibilityMode>('all');
+  const [technicianMode, setTechnicianMode] = useState<EligibilityMode>('all');
   const valueInputRef = useRef<HTMLInputElement>(null);
   const maxGapInputRef = useRef<HTMLInputElement>(null);
   const minImprovementInputRef = useRef<HTMLInputElement>(null);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
 
   const markDirty = useCallback(
-    (updater: (prev: SmartFitFormState) => SmartFitFormState) => {
+    (
+      updater: (prev: SmartFitFormState) => SmartFitFormState,
+      modes?: { serviceMode?: EligibilityMode; technicianMode?: EligibilityMode },
+    ) => {
       setForm(updater);
+      if (modes?.serviceMode) {
+        setServiceMode(modes.serviceMode);
+      }
+      if (modes?.technicianMode) {
+        setTechnicianMode(modes.technicianMode);
+      }
       setDirty(true);
       setSaved(false);
       setSaveError(null);
@@ -154,6 +170,13 @@ export function SmartFitSettingsCard({
             ? [...new Set((stored.eligibleTechnicianIds as unknown[]).filter((id): id is string => typeof id === 'string' && id.length > 0))]
             : [],
         });
+        // Reconstruct the mode from what was persisted.
+        setServiceMode(
+          Array.isArray(stored.eligibleServiceIds) && stored.eligibleServiceIds.length > 0 ? 'selected' : 'all',
+        );
+        setTechnicianMode(
+          Array.isArray(stored.eligibleTechnicianIds) && stored.eligibleTechnicianIds.length > 0 ? 'selected' : 'all',
+        );
         setCurrency(settingsData.bookingConfig?.currency ?? 'CAD');
         setServices(
           (servicesData.data?.services ?? []).map(
@@ -219,8 +242,34 @@ export function SmartFitSettingsCard({
       errors.minImprovement = `Enter whole minutes from 0 to ${SMART_FIT_LIMITS.minImprovementMinutesMax}.`;
     }
 
+    // "Only selected" with nothing ticked would persist an empty array, which
+    // the backend reads as "all" — the exact opposite of the owner's intent.
+    if (form.enabled && serviceMode === 'selected' && form.eligibleServiceIds.length === 0) {
+      errors.eligibleServices = 'Select at least one service, or choose All active services.';
+    }
+    if (form.enabled && technicianMode === 'selected' && form.eligibleTechnicianIds.length === 0) {
+      errors.eligibleTechnicians = 'Select at least one technician, or choose All active technicians.';
+    }
+
     return { errors, valueForSave };
-  }, [form]);
+  }, [form, serviceMode, technicianMode]);
+
+  /** Plain-language recap of exactly what will be saved. */
+  const eligibilitySummary = (() => {
+    if (!form.enabled) {
+      return 'Smart Fit is currently turned off.';
+    }
+    const serviceText = serviceMode === 'all'
+      ? 'all services'
+      : `${form.eligibleServiceIds.length} selected ${form.eligibleServiceIds.length === 1 ? 'service' : 'services'}`;
+    const selectedTechnicians = technicians.filter(technician => form.eligibleTechnicianIds.includes(technician.id));
+    const technicianText = technicianMode === 'all'
+      ? 'all technicians'
+      : selectedTechnicians.length > 0 && selectedTechnicians.length <= 3
+        ? selectedTechnicians.map(technician => technician.name).join(', ')
+        : `${form.eligibleTechnicianIds.length} selected technicians`;
+    return `Active for ${serviceText} and ${technicianText}.`;
+  })();
 
   const focusFirstInvalid = (errors: FieldErrors) => {
     if (errors.value) {
@@ -528,10 +577,45 @@ export function SmartFitSettingsCard({
         <legend className="text-xs font-semibold uppercase tracking-wide text-gray-500">
           Eligible services
         </legend>
-        <p className="mt-1 text-xs text-gray-500">
-          Leave every service unchecked to allow Smart Fit on all services.
+        {/* Explicit modes: an empty stored array means "all", which reads as
+            "none" when the only control is a set of unchecked boxes. */}
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1" role="radiogroup" aria-label="Smart Fit service eligibility">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={serviceMode === 'all'}
+            data-testid="smart-fit-services-mode-all"
+            onClick={() => markDirty(prev => ({ ...prev, eligibleServiceIds: [] }), { serviceMode: 'all' })}
+            className={`rounded-full px-3 py-2 text-[13px] font-semibold transition-all ${
+              serviceMode === 'all' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+            }`}
+          >
+            All active services
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={serviceMode === 'selected'}
+            data-testid="smart-fit-services-mode-selected"
+            onClick={() => markDirty(prev => ({
+              ...prev,
+              // Entering selected mode with nothing chosen must not silently
+              // mean "all" — the save guard below requires a choice.
+              eligibleServiceIds: prev.eligibleServiceIds,
+            }), { serviceMode: 'selected' })}
+            className={`rounded-full px-3 py-2 text-[13px] font-semibold transition-all ${
+              serviceMode === 'selected' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+            }`}
+          >
+            Only selected services
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {serviceMode === 'all'
+            ? 'Smart Fit can apply to every active service, including ones you add later.'
+            : 'Smart Fit applies only to the services you tick below.'}
         </p>
-        {services.length > 0 && (
+        {serviceMode === 'selected' && services.length > 0 && (
           <div className="mt-2 flex gap-3">
             <button
               type="button"
@@ -543,23 +627,28 @@ export function SmartFitSettingsCard({
                     ...prev.eligibleServiceIds,
                     ...services.map(service => service.id),
                   ])],
-                }))}
+                }), { serviceMode: 'selected' })}
               className="text-xs font-medium text-rose-800 underline"
             >
-              Select all
+              Select every service
             </button>
             <button
               type="button"
               data-testid="smart-fit-services-clear"
               onClick={() =>
-                markDirty(prev => ({ ...prev, eligibleServiceIds: [] }))}
+                markDirty(prev => ({ ...prev, eligibleServiceIds: [] }), { serviceMode: 'selected' })}
               className="text-xs font-medium text-rose-800 underline"
             >
-              Clear selection
+              Remove all selected services
             </button>
           </div>
         )}
-        {services.length > 0
+        {fieldErrors.eligibleServices && (
+          <p data-testid="smart-fit-services-error" role="alert" className="mt-2 text-xs text-red-600">
+            {fieldErrors.eligibleServices}
+          </p>
+        )}
+        {serviceMode === 'selected' && services.length > 0
           ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {services.map(service => (
@@ -606,10 +695,38 @@ export function SmartFitSettingsCard({
         <legend className="text-xs font-semibold uppercase tracking-wide text-gray-500">
           Eligible technicians
         </legend>
-        <p className="mt-1 text-xs text-gray-500">
-          Leave every technician unchecked to include all technicians.
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1" role="radiogroup" aria-label="Smart Fit technician eligibility">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={technicianMode === 'all'}
+            data-testid="smart-fit-technicians-mode-all"
+            onClick={() => markDirty(prev => ({ ...prev, eligibleTechnicianIds: [] }), { technicianMode: 'all' })}
+            className={`rounded-full px-3 py-2 text-[13px] font-semibold transition-all ${
+              technicianMode === 'all' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+            }`}
+          >
+            All active technicians
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={technicianMode === 'selected'}
+            data-testid="smart-fit-technicians-mode-selected"
+            onClick={() => markDirty(prev => prev, { technicianMode: 'selected' })}
+            className={`rounded-full px-3 py-2 text-[13px] font-semibold transition-all ${
+              technicianMode === 'selected' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+            }`}
+          >
+            Only selected technicians
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {technicianMode === 'all'
+            ? 'Smart Fit can apply to every active technician, including ones you add later.'
+            : 'Smart Fit applies only to the technicians you tick below.'}
         </p>
-        {technicians.length > 0 && (
+        {technicianMode === 'selected' && technicians.length > 0 && (
           <div className="mt-2 flex gap-3">
             <button
               type="button"
@@ -621,23 +738,28 @@ export function SmartFitSettingsCard({
                     ...prev.eligibleTechnicianIds,
                     ...technicians.map(technician => technician.id),
                   ])],
-                }))}
+                }), { technicianMode: 'selected' })}
               className="text-xs font-medium text-rose-800 underline"
             >
-              Select all
+              Select every technician
             </button>
             <button
               type="button"
               data-testid="smart-fit-technicians-clear"
               onClick={() =>
-                markDirty(prev => ({ ...prev, eligibleTechnicianIds: [] }))}
+                markDirty(prev => ({ ...prev, eligibleTechnicianIds: [] }), { technicianMode: 'selected' })}
               className="text-xs font-medium text-rose-800 underline"
             >
-              Clear selection
+              Remove all selected technicians
             </button>
           </div>
         )}
-        {technicians.length > 0
+        {fieldErrors.eligibleTechnicians && (
+          <p data-testid="smart-fit-technicians-error" role="alert" className="mt-2 text-xs text-red-600">
+            {fieldErrors.eligibleTechnicians}
+          </p>
+        )}
+        {technicianMode === 'selected' && technicians.length > 0
           ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {technicians.map(technician => (
@@ -688,6 +810,13 @@ export function SmartFitSettingsCard({
           <li>Smart Fit never moves appointments — customers still choose and confirm their time.</li>
           <li>Turning Smart Fit off stops new offers without changing existing bookings.</li>
         </ul>
+      </div>
+
+      <div
+        data-testid="smart-fit-summary"
+        className="rounded-[10px] bg-gray-50 px-3 py-2 text-[13px] font-medium text-[#1C1C1E]"
+      >
+        {eligibilitySummary}
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
