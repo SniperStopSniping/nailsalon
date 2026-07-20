@@ -2,9 +2,9 @@ import 'server-only';
 
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
+import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { db } from '@/libs/DB';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   appointmentAccessTokenSchema,
   salonSchema,
@@ -80,8 +80,8 @@ export async function mintAppointmentManageLink(
       ));
   }
 
-  return buildSalonTenantPublicUrl(`/manage/${capability.token}`, {
-    slug: salon.slug,
-    customDomain: salon.customDomain,
-  });
+  return buildAppointmentManageUrl(
+    { slug: salon.slug, customDomain: salon.customDomain },
+    capability.token,
+  );
 }

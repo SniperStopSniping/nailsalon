@@ -10,9 +10,9 @@ import {
 } from '@/models/Schema';
 
 import { ACTIVE_APPOINTMENT_STATUSES } from './activeAppointments';
+import { buildAppointmentManageUrl } from './appointmentManageUrl';
 import { db } from './DB';
 import { createOpaqueToken, hashOpaqueToken } from './lusterSecurity';
-import { buildSalonTenantPublicUrl } from './publicUrl';
 import { formatDateInTimeZone, formatTimeInTimeZone } from './timeZone';
 
 const RECOVERY_DEDUPE_BUCKET_MS = 10 * 60_000;
@@ -69,7 +69,7 @@ async function mintManageLink(salon: RecoverySalon, appointment: RecoveryAppoint
     ));
   }
   return {
-    url: buildSalonTenantPublicUrl(`/manage/${capability.token}`, { slug: salon.slug, customDomain: salon.customDomain }),
+    url: buildAppointmentManageUrl({ slug: salon.slug, customDomain: salon.customDomain }, capability.token),
     tokenHash: capability.tokenHash,
   };
 }

@@ -191,12 +191,20 @@ async function seedAppointment(args: {
   status?: string;
   discountType?: string | null;
   discountAmountCents?: number;
+  /**
+   * Seed the appointment_services row a real booking always has. The Smart Fit
+   * reschedule policy compares pricing inputs (services, add-ons, subtotal)
+   * between the original and the replacement, so an original with no service
+   * rows would look like a service change and forfeit preservation.
+   */
+  withServiceRow?: boolean;
 }): Promise<string> {
   counter += 1;
   const id = `appt_sfp_${counter}`;
   const visibleMinutes = args.visibleMinutes ?? 60;
   const bufferMinutes = args.bufferMinutes ?? 10;
   const startTime = at(args.date, args.startTime);
+  const discountAmountCents = args.discountAmountCents ?? 0;
   await db.insert(schema.appointmentSchema).values({
     id,
     salonId: args.salonId ?? SALON_ID,
@@ -207,13 +215,28 @@ async function seedAppointment(args: {
     startTime,
     endTime: new Date(startTime.getTime() + visibleMinutes * 60_000),
     status: args.status ?? 'confirmed',
-    totalPrice: 6500,
+    // Kept internally consistent: subtotal − discount = total, exactly as the
+    // booking endpoint writes it.
+    subtotalBeforeDiscountCents: 6500,
+    totalPrice: 6500 - discountAmountCents,
     totalDurationMinutes: visibleMinutes,
     bufferMinutes,
     blockedDurationMinutes: visibleMinutes + bufferMinutes,
     discountType: args.discountType ?? null,
-    discountAmountCents: args.discountAmountCents ?? 0,
+    discountAmountCents,
   });
+  if (args.withServiceRow) {
+    await db.insert(schema.appointmentServicesSchema).values({
+      id: `apptSvc_${id}`,
+      appointmentId: id,
+      serviceId: SERVICE_ID,
+      priceAtBooking: 6500,
+      durationAtBooking: visibleMinutes,
+      nameSnapshot: 'BIAB Full Set',
+      priceCentsSnapshot: 6500,
+      durationMinutesSnapshot: visibleMinutes,
+    });
+  }
   return id;
 }
 
@@ -698,7 +721,14 @@ describe('booking POST × Smart Fit — client reschedule', () => {
   });
 
   // A smart_fit original re-qualifies or DROPS — never blindly preserved.
-  it('drops the discount when rescheduling a smart_fit booking to a loose slot', async () => {
+  /**
+   * Unified Smart Fit reschedule policy: a discount already committed to the
+   * appointment survives a pure time change. The customer agreed to a price;
+   * moving the booking does not re-open it, and the destination slot does not
+   * have to qualify again. This is the same rule the manage-link in-place move
+   * follows, via the shared resolveSmartFitRescheduleDiscount.
+   */
+  it('preserves a committed smart_fit discount when rescheduling to a loose slot', async () => {
     const date = futureDate(43);
     await seedAppointment({ date, startTime: '9:00' });
     const phone = freshPhone();
@@ -710,6 +740,39 @@ describe('booking POST × Smart Fit — client reschedule', () => {
       clientPhone: phone,
       discountType: 'smart_fit',
       discountAmountCents: 650,
+      withServiceRow: true,
+    });
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    // 14:00 is a loose slot that does NOT qualify on its own.
+    const response = await postBooking({
+      startTime: at(date, '14:00').toISOString(),
+      originalAppointmentId: originalId,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(await getAppointmentRow(body.data.appointmentId)).toMatchObject({
+      discountType: 'smart_fit',
+      discountAmountCents: 650,
+      totalPrice: 5850,
+    });
+  });
+
+  it('recalculates instead of preserving when the service changes', async () => {
+    const date = futureDate(53);
+    await seedAppointment({ date, startTime: '9:00' });
+    const phone = freshPhone();
+    const salonClientId = await seedSalonClient(phone);
+    const originalId = await seedAppointment({
+      date,
+      startTime: '10:15',
+      salonClientId,
+      clientPhone: phone,
+      discountType: 'smart_fit',
+      discountAmountCents: 650,
+      // No service row: the replacement's service set therefore differs from
+      // the original's, which is exactly the "pricing changed" signal.
     });
     holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
 
@@ -725,6 +788,55 @@ describe('booking POST × Smart Fit — client reschedule', () => {
       discountAmountCents: 0,
       totalPrice: 6500,
     });
+  });
+
+  it('does not consume an active reward to preserve a Smart Fit discount', async () => {
+    const date = futureDate(54);
+    await seedAppointment({ date, startTime: '9:00' });
+    const phone = freshPhone();
+    const salonClientId = await seedSalonClient(phone);
+    const originalId = await seedAppointment({
+      date,
+      startTime: '10:15',
+      salonClientId,
+      clientPhone: phone,
+      discountType: 'smart_fit',
+      discountAmountCents: 650,
+      withServiceRow: true,
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: `reward_sfp_${date}`,
+      salonId: SALON_ID,
+      clientPhone: phone,
+      status: 'active',
+      type: 'referral',
+      discountType: 'fixed_amount',
+      discountAmountCents: 1000,
+    });
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    const response = await postBooking({
+      startTime: at(date, '14:00').toISOString(),
+      originalAppointmentId: originalId,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+
+    const [reward] = await db
+      .select()
+      .from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, `reward_sfp_${date}`));
+
+    // A reward outranks Smart Fit at booking time, so it legitimately wins
+    // here — but it must be recorded as used, never silently burned.
+    const row = await getAppointmentRow(body.data.appointmentId);
+    if (row?.discountType === 'reward') {
+      expect(reward!.usedInAppointmentId).toBe(body.data.appointmentId);
+    } else {
+      expect(row).toMatchObject({ discountType: 'smart_fit', discountAmountCents: 650 });
+      expect(reward!.usedInAppointmentId).toBeNull();
+    }
   });
 
   // Matrix 46: a stale reschedule is rejected and the original survives.

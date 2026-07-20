@@ -1846,6 +1846,7 @@ export function BookConfirmClient({
       techId: technician?.id || 'any',
       locationId: location?.id ?? null,
       originalAppointmentId: appointmentId,
+      manageToken: manageToken || null,
       startTime: canonicalStartTime ?? zonedTimeToUtc({ date: dateStr, time: timeStr }).toISOString(),
       tenantRoute: {
         routeSalonSlug,

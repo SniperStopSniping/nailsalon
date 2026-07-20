@@ -1,8 +1,8 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
+import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { db } from '@/libs/DB';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAccessTokenSchema, appointmentSchema, appointmentServicesSchema, integrationOutboxSchema, notificationDeliverySchema, salonSchema } from '@/models/Schema';
 
@@ -88,7 +88,7 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     tokenHash: capability.tokenHash,
     expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
   });
-  const manageUrl = buildSalonTenantPublicUrl(`/manage/${capability.token}`, { slug: row.salonSlug, customDomain: row.customDomain });
+  const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
   const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
   const config = resolveBookingConfigFromSettings(row.salonSettings);
   const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createSign } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -624,17 +624,86 @@ export function isBusyWindowConflict(
   );
 }
 
+/**
+ * A rescheduling customer must not be blocked by their own appointment's
+ * mirror on the salon's Google Calendar.
+ *
+ * The freeBusy API returns anonymous windows with no event ids, so the
+ * appointment's own mirrored copy is indistinguishable from a real external
+ * conflict — the database-side `excludedAppointmentId` cannot reach it. Here
+ * we resolve the mirror this appointment actually owns (its linked
+ * `google_calendar_event` row, or its `googleCalendarEventId` column) and
+ * suppress ONLY windows that match that event's exact bounds.
+ *
+ * Deliberately narrow: an unrelated event that merely happens to overlap
+ * still blocks, and if the appointment has no mirror nothing is suppressed.
+ */
+async function resolveOwnMirrorWindow(
+  salonId: string,
+  appointmentId: string,
+): Promise<GoogleCalendarBusyWindow | null> {
+  const [linked] = await db
+    .select({
+      startTime: googleCalendarEventSchema.startTime,
+      endTime: googleCalendarEventSchema.endTime,
+    })
+    .from(googleCalendarEventSchema)
+    .where(and(
+      eq(googleCalendarEventSchema.salonId, salonId),
+      eq(googleCalendarEventSchema.appointmentId, appointmentId),
+      isNull(googleCalendarEventSchema.deletedAt),
+    ))
+    .limit(1);
+  if (linked) {
+    return { startTime: linked.startTime, endTime: linked.endTime };
+  }
+
+  // Outbound-only mirrors (created by us, never re-ingested) have no
+  // google_calendar_event row — fall back to the appointment's own window,
+  // which is exactly what we wrote to Google.
+  const [appointment] = await db
+    .select({
+      startTime: appointmentSchema.startTime,
+      endTime: appointmentSchema.endTime,
+      googleCalendarEventId: appointmentSchema.googleCalendarEventId,
+    })
+    .from(appointmentSchema)
+    .where(and(
+      eq(appointmentSchema.id, appointmentId),
+      eq(appointmentSchema.salonId, salonId),
+    ))
+    .limit(1);
+  if (!appointment?.googleCalendarEventId) {
+    return null;
+  }
+  return { startTime: appointment.startTime, endTime: appointment.endTime };
+}
+
+function isSameWindow(a: GoogleCalendarBusyWindow, b: GoogleCalendarBusyWindow): boolean {
+  return a.startTime.getTime() === b.startTime.getTime()
+    && a.endTime.getTime() === b.endTime.getTime();
+}
+
 export async function getGoogleCalendarBusyWindows(args: {
   salonId?: string;
   startTime: Date;
   endTime: Date;
   timeZone: string;
+  /**
+   * Reschedule only. MUST be an appointment id the caller has already
+   * authorized server-side (validated manage token or matching client
+   * session) — never a raw client-supplied id.
+   */
+  excludeAppointmentId?: string | null;
 }): Promise<GoogleCalendarBusyWindow[]> {
   try {
     const context = await getGoogleCalendarRequestContext(args.salonId);
     if (!context) {
       return [];
     }
+    const ownMirrorWindow = args.salonId && args.excludeAppointmentId
+      ? await resolveOwnMirrorWindow(args.salonId, args.excludeAppointmentId)
+      : null;
 
     const data = await googleCalendarFetchWithContext<GoogleFreeBusyResponse>(
       context,
@@ -657,10 +726,12 @@ export async function getGoogleCalendarBusyWindows(args: {
           calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '),
         );
       }
-      return (calendar?.busy ?? []).map(window => ({
-        startTime: new Date(window.start),
-        endTime: new Date(window.end),
-      }));
+      return (calendar?.busy ?? [])
+        .map(window => ({
+          startTime: new Date(window.start),
+          endTime: new Date(window.end),
+        }))
+        .filter(window => !ownMirrorWindow || !isSameWindow(window, ownMirrorWindow));
     });
   } catch (error) {
     if (!(error instanceof GoogleCalendarApiError || error instanceof GoogleCalendarConnectionError)) {
@@ -679,6 +750,7 @@ export async function hasGoogleCalendarConflict(args: {
   startTime: Date;
   endTime: Date;
   timeZone: string;
+  excludeAppointmentId?: string | null;
 }): Promise<boolean> {
   const busyWindows = await getGoogleCalendarBusyWindows(args);
   return isBusyWindowConflict(args.startTime, args.endTime, busyWindows);

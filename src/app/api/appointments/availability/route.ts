@@ -360,6 +360,10 @@ export async function GET(request: Request): Promise<Response> {
       startTime: startOfDay,
       endTime: endOfDay,
       timeZone: bookingConfig.timezone,
+      // Same authorization as the database-side exclusion above: only an
+      // appointment proven to belong to this requester (session or manage
+      // token) suppresses its own mirrored calendar event.
+      excludeAppointmentId: excludedAppointmentId,
     });
 
     // Smart Fit (P7.2): annotate qualifying slots from data already in scope.

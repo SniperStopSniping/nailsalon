@@ -16,6 +16,7 @@ import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
   BLOCKING_APPOINTMENT_STATUSES,
@@ -55,7 +56,6 @@ import {
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getActiveAppointmentsForClient,
   getAppointmentById,
@@ -92,6 +92,11 @@ import {
   smartFitServiceScopeAllows,
 } from '@/libs/smartFitBooking';
 import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
+import {
+  hasCommittedSmartFitDiscount,
+  type ReschedulePricingInputs,
+  resolveSmartFitRescheduleDiscount,
+} from '@/libs/smartFitReschedulePolicy';
 import {
   sendBookingConfirmationToClient,
   sendCancellationNotificationToTech,
@@ -1214,6 +1219,14 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // Ownership of the original appointment has been fully proven above (staff
+    // actor, matching client session, or a manage token scoped to this exact
+    // appointment+salon) — anything else already returned 403. Only from here
+    // may the reschedule suppress its own Google Calendar mirror.
+    const authorizedRescheduleAppointmentId = originalAppointment
+      ? normalizedOriginalApptId
+      : null;
+
     // 4e. Resolve automatic discount (existing active rewards win over first-visit)
     const automaticDiscount = await resolveAutomaticBookingDiscount({
       salonId: salon.id,
@@ -1223,6 +1236,53 @@ export async function POST(request: Request): Promise<Response> {
       originalAppointmentId: normalizedOriginalApptId,
       preserveFirstVisitDiscount: originalAppointment?.discountType === FIRST_VISIT_DISCOUNT_TYPE,
     });
+
+    // Smart Fit reschedule policy (shared with the manage-link in-place move,
+    // so the two reschedule paths cannot diverge): a Smart Fit discount already
+    // committed to this appointment survives a pure date/time/technician
+    // change, and is only re-evaluated when a pricing input actually moved.
+    const nextPricingInputs: ReschedulePricingInputs = {
+      subtotalBeforeDiscountCents,
+      serviceIds: services.map(service => service.id),
+      addOns: selectedAddOnsForBooking.map(addOn => ({
+        addOnId: addOn.addOnId,
+        quantity: addOn.quantity,
+      })),
+    };
+    let originalPricingInputs: ReschedulePricingInputs | null = null;
+    if (originalAppointment && hasCommittedSmartFitDiscount(originalAppointment)) {
+      const [originalServiceRows, originalAddOnRows] = await Promise.all([
+        db.select({ serviceId: appointmentServicesSchema.serviceId })
+          .from(appointmentServicesSchema)
+          .where(eq(appointmentServicesSchema.appointmentId, originalAppointment.id)),
+        db.select({
+          addOnId: appointmentAddOnSchema.addOnId,
+          quantity: appointmentAddOnSchema.quantitySnapshot,
+        })
+          .from(appointmentAddOnSchema)
+          .where(eq(appointmentAddOnSchema.appointmentId, originalAppointment.id)),
+      ]);
+      originalPricingInputs = {
+        subtotalBeforeDiscountCents: originalAppointment.subtotalBeforeDiscountCents
+          ?? originalAppointment.totalPrice + (originalAppointment.discountAmountCents ?? 0),
+        serviceIds: originalServiceRows.map(row => row.serviceId).filter((id): id is string => Boolean(id)),
+        addOns: originalAddOnRows.map(row => ({ addOnId: row.addOnId, quantity: row.quantity })),
+      };
+    }
+    const preservedSmartFitDecision = originalAppointment
+      ? resolveSmartFitRescheduleDiscount({
+        base: automaticDiscount,
+        config: smartFitConfig,
+        committed: originalAppointment,
+        originalPricing: originalPricingInputs,
+        nextPricing: nextPricingInputs,
+        // Preservation must never depend on the new slot re-qualifying. When
+        // nothing is preserved, the in-transaction overlay below does the
+        // honest evaluation for this slot.
+        newSlotEvaluation: null,
+      })
+      : null;
+    const preservesCommittedSmartFit = preservedSmartFitDecision?.preservesCommittedDiscount === true;
 
     let appliedReward = automaticDiscount.kind === 'reward' ? automaticDiscount.reward : null;
     totalPrice = automaticDiscount.finalTotalCents;
@@ -1239,6 +1299,23 @@ export async function POST(request: Request): Promise<Response> {
       appointmentDiscountPercent = null;
       discountAppliedAt = new Date();
     }
+
+    // Carry the committed Smart Fit discount over unchanged. Deliberately does
+    // NOT consume a reward: the customer is moving a booking they already
+    // agreed a price for, not making a new one.
+    const applyPreservedSmartFit = () => {
+      if (!preservedSmartFitDecision || !preservesCommittedSmartFit) {
+        return;
+      }
+      appliedReward = null;
+      totalPrice = preservedSmartFitDecision.finalTotalCents;
+      discountAmountCents = preservedSmartFitDecision.discountAmountCents;
+      appointmentDiscountType = preservedSmartFitDecision.discountType;
+      appointmentDiscountLabel = preservedSmartFitDecision.discountLabel;
+      appointmentDiscountPercent = preservedSmartFitDecision.discountPercent;
+      discountAppliedAt = originalAppointment?.discountAppliedAt ?? new Date();
+    };
+    applyPreservedSmartFit();
 
     if (googleReviewEvent) {
       totalDurationMinutes = data.durationMinutesOverride ?? googleReviewEvent.durationMinutes;
@@ -1364,6 +1441,7 @@ export async function POST(request: Request): Promise<Response> {
           startTime: bookingStartOfDay,
           endTime: bookingEndOfDay,
           timeZone: bookingConfig.timezone,
+          excludeAppointmentId: authorizedRescheduleAppointmentId,
         });
       } catch (error) {
         const reconnectRequired = error instanceof GoogleCalendarAvailabilityError
@@ -1730,6 +1808,7 @@ export async function POST(request: Request): Promise<Response> {
             startTime,
             endTime: blockedEndTime,
             timeZone: bookingConfig.timezone,
+            excludeAppointmentId: authorizedRescheduleAppointmentId,
           });
 
       if (googleCalendarConflict) {
@@ -1835,7 +1914,14 @@ export async function POST(request: Request): Promise<Response> {
       const lockedTechnician = technician;
       smartFitGrantEvaluation = null;
 
-      if (smartFitScopeAllowed && smartFitGoogleBusyWindows !== null && lockedTechnician) {
+      // A preserved discount is authoritative: re-evaluating the new slot here
+      // is exactly the divergence this policy exists to prevent. Re-apply it so
+      // the transaction-final pricing matches what the customer was shown.
+      if (preservesCommittedSmartFit) {
+        applyPreservedSmartFit();
+      }
+
+      if (!preservesCommittedSmartFit && smartFitScopeAllowed && smartFitGoogleBusyWindows !== null && lockedTechnician) {
         const freshWindowConditions = [
           eq(appointmentSchema.salonId, salon.id),
           eq(appointmentSchema.technicianId, lockedTechnician.id),
@@ -2568,10 +2654,10 @@ export async function POST(request: Request): Promise<Response> {
     // 10. BUILD RESPONSE (single definition, used for cache AND return)
     // =========================================================================
     // Build response ONCE to guarantee cache and return are byte-for-byte identical
-    const manageUrl = buildSalonTenantPublicUrl(`/manage/${managementCapability.token}`, {
-      slug: salon.slug,
-      customDomain: salon.customDomain,
-    });
+    const manageUrl = buildAppointmentManageUrl(
+      { slug: salon.slug, customDomain: salon.customDomain },
+      managementCapability.token,
+    );
     const response: SuccessResponse = {
       data: {
         appointmentId: appointment.id,
