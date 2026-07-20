@@ -119,6 +119,19 @@ export default async function middleware(
     );
   }
 
+  // Host-relative customer management links (`https://<salon-domain>/manage/<token>`)
+  // carry no locale or slug — the token identifies the salon. The locale
+  // middleware would rewrite this to `/<locale>/manage/<token>`, which matches
+  // the tenant tree as slug="manage" and 404s, so the root /manage/[...path]
+  // route never runs. Let it through untouched; that route resolves the salon
+  // from the token and continues to the canonical path itself.
+  //
+  // Deliberately scoped to the top-level path only: `/en/<slug>/manage/<token>`
+  // still goes through the normal locale handling below.
+  if (p === '/manage' || p.startsWith('/manage/')) {
+    return finalizeResponse(NextResponse.next());
+  }
+
   if (isDevMode && devRole === 'super_admin') {
     // Bypass for super-admin API routes
     if (p.startsWith('/api/super-admin')) {
