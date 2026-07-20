@@ -11,6 +11,7 @@ import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
 import { resolveVisibleBookingCategory } from '../src/libs/bookingCategory';
+import { SERVICE_TEMPLATES } from '../src/libs/serviceTemplateCatalog';
 import * as schema from '../src/models/Schema';
 
 const salonSlug = process.argv[process.argv.indexOf('--salon-slug') + 1];
@@ -19,6 +20,7 @@ if (!salonSlug || salonSlug.startsWith('--')) {
   throw new Error('Usage: tsx scripts/report-service-availability.ts --salon-slug <slug>');
 }
 const requestedSalonSlug = salonSlug as string;
+const EXPECTED_SALON_ID = 'f898d50d-c0b5-4bb5-a143-9f35ff7edf2a';
 
 async function getDatabase() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -41,7 +43,11 @@ async function main() {
     const [salon] = await db
       .select({ id: schema.salonSchema.id, slug: schema.salonSchema.slug, name: schema.salonSchema.name })
       .from(schema.salonSchema)
-      .where(and(eq(schema.salonSchema.slug, requestedSalonSlug), eq(schema.salonSchema.isActive, true)))
+      .where(and(
+        eq(schema.salonSchema.slug, requestedSalonSlug),
+        eq(schema.salonSchema.id, EXPECTED_SALON_ID),
+        eq(schema.salonSchema.isActive, true),
+      ))
       .limit(1);
 
     if (!salon) {
@@ -79,6 +85,44 @@ async function main() {
       assignmentByService.set(assignment.serviceId, current);
     }
 
+    const serviceByTemplate = new Map(services.map(service => [service.templateKey, service]));
+    const addOnByTemplate = new Map(addOns.map(addOn => [addOn.templateKey, addOn]));
+    const expectedCompatibility = new Set<string>();
+    for (const addOnTemplate of SERVICE_TEMPLATES.filter(template => template.serviceType === 'addon' && template.compatibleTemplateKeys?.length)) {
+      const addOn = addOnByTemplate.get(addOnTemplate.systemKey);
+      if (!addOn) {
+        continue;
+      }
+      const compatibleKeys = new Set(addOnTemplate.compatibleTemplateKeys);
+      for (const combo of SERVICE_TEMPLATES.filter(template => template.serviceType === 'combo')) {
+        if (combo.componentTemplateKeys?.some(component => compatibleKeys.has(component))) {
+          compatibleKeys.add(combo.systemKey);
+        }
+      }
+      for (const serviceTemplateKey of compatibleKeys) {
+        const service = serviceByTemplate.get(serviceTemplateKey);
+        if (service?.isActive) {
+          expectedCompatibility.add(`${service.id}:${addOn.id}`);
+        }
+      }
+    }
+    const actualCompatibility = new Set(rules.map(rule => `${rule.serviceId}:${rule.addOnId}`));
+    const missingCompatibilityLinks = [...expectedCompatibility]
+      .filter(key => !actualCompatibility.has(key))
+      .map((key) => {
+        const [serviceId, addOnId] = key.split(':');
+        const service = services.find(candidate => candidate.id === serviceId);
+        const addOn = addOns.find(candidate => candidate.id === addOnId);
+        return {
+          serviceId,
+          serviceName: service?.name ?? null,
+          serviceTemplateKey: service?.templateKey ?? null,
+          addOnId,
+          addOnName: addOn?.name ?? null,
+          addOnTemplateKey: addOn?.templateKey ?? null,
+        };
+      });
+
     console.log(JSON.stringify({
       mode: 'read-only',
       salon,
@@ -95,6 +139,7 @@ async function main() {
       })),
       addOns,
       compatibility: rules,
+      missingCompatibilityLinks,
       compatibilityGaps: services
         .filter(service => service.isActive)
         .map(service => ({
@@ -108,6 +153,7 @@ async function main() {
         unassignedActiveServiceIds: services.filter(service => service.isActive && structuredSalon && !publicServiceIds.has(service.id)).map(service => service.id),
         addOnCount: addOns.length,
         compatibilityLinkCount: rules.length,
+        missingCompatibilityLinkCount: missingCompatibilityLinks.length,
       },
     }, null, 2));
   } finally {
