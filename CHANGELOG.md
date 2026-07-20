@@ -1,3 +1,10 @@
+## [1.18.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.2...v1.18.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* **admin:** render service detail in flow so the sticky chrome never hides the hero ([63d271e](https://github.com/SniperStopSniping/nailsalon/commit/63d271e3adb37829d25b37983f2420ead4c4e893))
+
 ## [1.18.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.1...v1.18.2) (2026-07-20)
 
 
