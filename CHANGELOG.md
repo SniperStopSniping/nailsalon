@@ -1,3 +1,15 @@
+# [1.19.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.4...v1.19.0) (2026-07-20)
+
+
+### Bug Fixes
+
+* **services:** reconcile availability and add-on compatibility ([d0395ed](https://github.com/SniperStopSniping/nailsalon/commit/d0395ed0a82bfe47765f6cf3f431a83191b13ba3))
+
+
+### Features
+
+* **services:** unify visible categories to Manicure/Pedicure/Combos + separate add-ons ([c54c1a7](https://github.com/SniperStopSniping/nailsalon/commit/c54c1a7f7f856f32c5d4d5675d553036dcf015b4))
+
 ## [1.18.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.3...v1.18.4) (2026-07-20)
 
 
