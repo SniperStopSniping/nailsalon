@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.20.0...v1.21.0) (2026-07-20)
+
+
+### Features
+
+* **notifications:** email the salon on every booking, reschedule, cancellation ([2b433b2](https://github.com/SniperStopSniping/nailsalon/commit/2b433b2d8429a29ba07a5f241d5f450f271944c6))
+
 # [1.20.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.19.1...v1.20.0) (2026-07-20)
 
 
