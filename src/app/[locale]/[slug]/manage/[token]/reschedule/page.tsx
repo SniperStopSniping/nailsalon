@@ -2,9 +2,9 @@ import { and, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
-import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
+import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
 import {
   formatDateInTimeZone,
   formatTimeInTimeZone,
