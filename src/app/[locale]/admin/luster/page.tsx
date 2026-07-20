@@ -1,29 +1,66 @@
 'use client';
 
 /**
- * Luster brand page — education, product resources, and owner marketing consent.
+ * Luster brand page — promotions, products, education, and owner marketing consent.
  *
- * Integrations (Google Calendar, Twilio texting) moved to More → Integrations.
+ * Approved information hierarchy: Promotions → Shop → Learn, with the owner
+ * marketing-consent control after all three as a separate account setting.
+ *
+ * Integrations (Google Calendar, Twilio texting) live only in More →
+ * Integrations — no integration controls or integration wayfinding here.
  * Legacy links that still carry ?google= / ?twilio= callback params are safely
  * redirected to the Integrations app so old bookmarks and in-flight OAuth
  * round-trips keep working.
  */
 
-import { ArrowLeft, BookOpen, ExternalLink, Plug, ShoppingBag, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, Package, ShoppingBag, Tag, UserPlus } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// Real Luster resources only — education and product links that exist today.
+import { LusterExternalLink } from '@/components/admin/LusterExternalLink';
+
+// Real Luster resources only — links that exist today on lusterstudio.ca.
 // Do not add rewards, points, certifications, or ambassador programs here
 // unless the actual program (and its URL) exists.
-const LEARN_RESOURCES = [
-  { id: 'builder-gel-foundations', title: 'Builder Gel Foundations', description: 'Prep, structure, apex placement, and removal fundamentals.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_EDUCATION_URL || 'https://luster.com/pages/builder-gel-education', icon: BookOpen },
-  { id: 'technique-guides', title: 'Technique Guides', description: 'Practical service guides designed for working nail techs.', url: process.env.NEXT_PUBLIC_LUSTER_TECHNIQUE_GUIDES_URL || 'https://luster.com/pages/education', icon: Sparkles },
-];
+const SHOP_ACTIONS = [
+  {
+    id: 'shop-products',
+    path: '/shop',
+    icon: ShoppingBag,
+    title: 'Shop professional products',
+    description: 'Professional Luster products for the services you already offer.',
+    cta: 'Shop products',
+  },
+  {
+    id: 'wholesale-information',
+    path: '/wholesale',
+    icon: Package,
+    title: 'Wholesale information',
+    description: 'Ordering and wholesale details for working nail artists.',
+    cta: 'View wholesale',
+  },
+  {
+    id: 'join-luster',
+    path: '/join',
+    icon: UserPlus,
+    title: 'Join Luster',
+    description: 'Artist opportunities and ways to work with Luster Studio.',
+    cta: 'Join Luster',
+  },
+] as const;
 
-const SHOP_RESOURCES = [
-  { id: 'wholesale-builder-gel', title: 'Shop Builder Gel', description: 'Professional products and wholesale offers for working techs.', url: process.env.NEXT_PUBLIC_LUSTER_BUILDER_GEL_SHOP_URL || 'https://luster.com/collections/builder-gel', icon: ShoppingBag },
-];
+const LEARN_GUIDES = [
+  { id: 'builder-gel-foundations', path: '/learn/builder-gel-foundations', title: 'Builder Gel Foundations' },
+  { id: 'nail-preparation-and-retention', path: '/learn/nail-preparation-and-retention', title: 'Nail Preparation and Retention' },
+  { id: 'choosing-flex-vs-control-builder', path: '/learn/choosing-flex-vs-control-builder', title: 'Choosing Flex vs Control Builder' },
+  { id: 'builder-gel-application', path: '/learn/builder-gel-application', title: 'Builder Gel Application' },
+  { id: 'apex-and-structure', path: '/learn/apex-and-structure', title: 'Apex and Structure' },
+  { id: 'rebalancing-and-fill-maintenance', path: '/learn/rebalancing-and-fill-maintenance', title: 'Rebalancing and Fill Maintenance' },
+  { id: 'safe-product-removal', path: '/learn/safe-product-removal', title: 'Safe Product Removal' },
+  { id: 'troubleshooting-lifting', path: '/learn/troubleshooting-lifting', title: 'Troubleshooting Lifting' },
+  { id: 'troubleshooting-heat-spikes', path: '/learn/troubleshooting-heat-spikes', title: 'Troubleshooting Heat Spikes' },
+  { id: 'product-storage-and-handling', path: '/learn/product-storage-and-handling', title: 'Product Storage and Handling' },
+] as const;
 
 export default function LusterOwnerPage() {
   const router = useRouter();
@@ -83,7 +120,7 @@ export default function LusterOwnerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function trackResource(resourceId: string, url: string) {
+  function trackResource(resourceId: string, url: string) {
     navigator.sendBeacon?.('/api/admin/luster/resource-click', new Blob([JSON.stringify({ salonSlug, resourceId, url })], { type: 'application/json' }));
   }
   async function updateMarketingConsent(consented: boolean) {
@@ -100,6 +137,9 @@ export default function LusterOwnerPage() {
   }
 
   const card = 'rounded-3xl border border-stone-200 bg-white p-6 shadow-sm';
+  const pill = 'inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors active:bg-rose-100';
+  const pillCta = 'inline-flex items-center gap-1';
+
   return (
     <main className="min-h-screen bg-[#F8F3F0] px-4 py-8 text-stone-900">
       <div className="mx-auto max-w-5xl">
@@ -109,70 +149,96 @@ export default function LusterOwnerPage() {
           Dashboard
         </button>
         <div className="mt-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster for nail techs</p>
-          <h1 className="mt-2 text-3xl font-semibold">Builder Gel education and resources</h1>
-          <p className="mt-2 text-stone-600">Your booking app stays free. Learn techniques, shop professional products, and grow your services.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster Studio</p>
+          <h1 className="mt-2 text-3xl font-semibold">Luster for Nail Artists</h1>
+          <p className="mt-2 text-stone-600">Discover professional products, artist offers and practical education from Luster Studio.</p>
         </div>
 
-        <section className="mt-8" aria-label="Learn">
-          <h2 className="text-2xl font-semibold">Learn</h2>
-          <p className="mt-1 text-sm text-stone-600">Builder Gel education and technique guides from Luster.</p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {LEARN_RESOURCES.map((resource) => {
-              const Icon = resource.icon;
-
-              return (
-                <a key={resource.id} href={`${resource.url}?utm_source=luster_booking&utm_medium=owner_dashboard&utm_campaign=free_booking`} target="_blank" rel="noreferrer" onClick={() => void trackResource(resource.id, resource.url)} className={card}>
-                  <Icon className="text-rose-700" />
-                  <h3 className="mt-4 font-semibold">{resource.title}</h3>
-                  <p className="mt-2 text-sm text-stone-600">{resource.description}</p>
-                  <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-rose-700">
-                    Open resource
-                    <ExternalLink size={14} />
-                  </span>
-                </a>
-              );
-            })}
+        <section className="mt-8" aria-label="Promotions">
+          <h2 className="text-2xl font-semibold">Promotions</h2>
+          <p className="mt-1 text-sm text-stone-600">Current offers and campaigns from Luster Studio.</p>
+          {/* Honest empty state: there is no live promotion feed, so nothing is
+              claimed here beyond where to look on the Luster Studio site. */}
+          <div className={`mt-4 ${card}`}>
+            <Tag className="text-rose-700" />
+            <p className="mt-4 font-semibold">New Luster offers will appear here.</p>
+            <p className="mt-2 text-sm text-stone-600">Nothing is running right now. The Luster Studio site always has the latest.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <LusterExternalLink
+                path="/promotions"
+                cta="View promotions"
+                className={pill}
+                ctaClassName={pillCta}
+                onNavigate={() => trackResource('promotions', 'https://lusterstudio.ca/promotions')}
+              />
+              <LusterExternalLink
+                path="/shop"
+                cta="Shop products"
+                className={pill}
+                ctaClassName={pillCta}
+                onNavigate={() => trackResource('promotions-shop', 'https://lusterstudio.ca/shop')}
+              />
+            </div>
           </div>
         </section>
 
         <section className="mt-8" aria-label="Shop">
-          <h2 className="text-2xl font-semibold">Shop &amp; wholesale</h2>
-          <p className="mt-1 text-sm text-stone-600">Luster professional products for your services.</p>
+          <h2 className="text-2xl font-semibold">Shop</h2>
+          <p className="mt-1 text-sm text-stone-600">Products, wholesale, and artist opportunities.</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {SHOP_RESOURCES.map((resource) => {
-              const Icon = resource.icon;
+            {SHOP_ACTIONS.map((action) => {
+              const Icon = action.icon;
 
               return (
-                <a key={resource.id} href={`${resource.url}?utm_source=luster_booking&utm_medium=owner_dashboard&utm_campaign=free_booking`} target="_blank" rel="noreferrer" onClick={() => void trackResource(resource.id, resource.url)} className={card}>
+                <LusterExternalLink
+                  key={action.id}
+                  path={action.path}
+                  cta={action.cta}
+                  className={card}
+                  onNavigate={() => trackResource(action.id, `https://lusterstudio.ca${action.path}`)}
+                >
                   <Icon className="text-rose-700" />
-                  <h3 className="mt-4 font-semibold">{resource.title}</h3>
-                  <p className="mt-2 text-sm text-stone-600">{resource.description}</p>
-                  <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-rose-700">
-                    Open resource
-                    <ExternalLink size={14} />
-                  </span>
-                </a>
+                  <h3 className="mt-4 font-semibold">{action.title}</h3>
+                  <p className="mt-2 text-sm text-stone-600">{action.description}</p>
+                </LusterExternalLink>
               );
             })}
           </div>
         </section>
 
-        <button
-          type="button"
-          onClick={() => router.push(buildIntegrationsUrl(salonSlug))}
-          className="mt-8 flex w-full items-center gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-left shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-50"
-        >
-          <span className="flex size-10 items-center justify-center rounded-xl bg-rose-100 text-rose-800">
-            <Plug size={20} />
-          </span>
-          <span>
-            <span className="block text-sm font-semibold text-stone-900">Looking for Google Calendar or texting setup?</span>
-            <span className="block text-sm text-stone-600">Integrations moved to More → Integrations.</span>
-          </span>
-        </button>
+        <section className="mt-8" aria-label="Learn">
+          <h2 className="text-2xl font-semibold">Learn</h2>
+          <p className="mt-1 text-sm text-stone-600">Practical education from Luster Studio.</p>
+          <LusterExternalLink
+            path="/learn"
+            cta="Browse learning"
+            className={`mt-4 block ${card}`}
+            onNavigate={() => trackResource('learn-overview', 'https://lusterstudio.ca/learn')}
+          >
+            <BookOpen className="text-rose-700" />
+            <h3 className="mt-4 font-semibold">Learn overview</h3>
+            <p className="mt-2 text-sm text-stone-600">Every Luster Studio guide in one place.</p>
+          </LusterExternalLink>
+          <ul className="mt-4 divide-y divide-stone-200 overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-sm">
+            {LEARN_GUIDES.map(guide => (
+              <li key={guide.id}>
+                <LusterExternalLink
+                  path={guide.path}
+                  cta="View guide"
+                  className="flex items-center justify-between gap-3 p-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-50"
+                  ctaClassName="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-rose-700"
+                  onNavigate={() => trackResource(guide.id, `https://lusterstudio.ca${guide.path}`)}
+                >
+                  <span className="min-w-0 break-words text-sm font-medium text-stone-900">{guide.title}</span>
+                </LusterExternalLink>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-        <label className="mt-8 flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">
+        <hr className="mt-10 border-stone-200" />
+
+        <label className="mt-6 flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">
           <input type="checkbox" checked={marketingConsent} onChange={event => void updateMarketingConsent(event.target.checked)} className="mt-1" />
           <span>Email me Luster education, product updates, and wholesale offers. This owner consent is separate from every customer’s appointment consent.</span>
         </label>

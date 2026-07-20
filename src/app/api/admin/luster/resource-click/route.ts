@@ -2,9 +2,12 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { isApprovedLusterUrl } from '@/libs/lusterLinks';
 import { salonAuditLogSchema } from '@/models/Schema';
 
-const schema = z.object({ salonSlug: z.string(), resourceId: z.string().max(100), url: z.string().url() });
+// The url is written to the audit log, so only approved lusterstudio.ca links
+// are accepted — a forged beacon cannot park an arbitrary URL in salon history.
+const schema = z.object({ salonSlug: z.string(), resourceId: z.string().max(100), url: z.string().url().refine(isApprovedLusterUrl, 'Unapproved Luster link') });
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
