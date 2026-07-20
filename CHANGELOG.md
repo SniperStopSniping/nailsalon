@@ -1,3 +1,11 @@
+## [1.18.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.1...v1.18.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **admin:** obvious service edit + deactivate actions, inactive services stay ownable ([d622593](https://github.com/SniperStopSniping/nailsalon/commit/d62259352af7fa8f95bb1736732651ea4d199b22))
+* **booking:** luster price authority + mobile service-page layout ([bc4a6eb](https://github.com/SniperStopSniping/nailsalon/commit/bc4a6ebd49d5a6446f59b8b4e012608cbf0b3b15))
+
 ## [1.18.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.0...v1.18.1) (2026-07-19)
 
 
