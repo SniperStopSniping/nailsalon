@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- This command is an operations report. */
 /**
  * Backfills public descriptions onto salon services that have none.
  *
