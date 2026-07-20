@@ -1,3 +1,17 @@
+# [1.20.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.19.1...v1.20.0) (2026-07-20)
+
+
+### Bug Fixes
+
+* **services:** hash the service id into add-on mapping row ids ([58a3b89](https://github.com/SniperStopSniping/nailsalon/commit/58a3b89ec99ea9070ee4c3d2f61a09167cac064e))
+* **services:** transfer template keys safely and derive compat ids from the service row ([a4d4a51](https://github.com/SniperStopSniping/nailsalon/commit/a4d4a51d71e8dc2f84aebfd265cdfdeaa8b86d0f))
+
+
+### Features
+
+* **services:** canonical add-on compatibility, Luster Pedicure, category-leading order ([0557b63](https://github.com/SniperStopSniping/nailsalon/commit/0557b636b2ede1336f40a84f07f65e2209d94e67))
+* **services:** complete canonical menu breadth, combos, and template-linking repair ([c747500](https://github.com/SniperStopSniping/nailsalon/commit/c747500c114e2778457ef4c6785ea45e38dd24e3))
+
 ## [1.19.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.19.0...v1.19.1) (2026-07-20)
 
 
