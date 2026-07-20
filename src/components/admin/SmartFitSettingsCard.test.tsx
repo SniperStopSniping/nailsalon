@@ -451,4 +451,53 @@ describe('SmartFitSettingsCard', () => {
 
     expect(onViewResults).not.toHaveBeenCalled();
   });
+
+  /**
+   * Reproduces the live salon exactly: enabled, canonical empty arrays (= all),
+   * and a menu that definitely has active records. The empty-state copy belongs
+   * to the Only-selected picker; rendering it in All mode told owners "No active
+   * services found" on a salon with a full menu, and revived the "with nothing
+   * selected" checkbox language this control exists to remove.
+   */
+  it('never shows the empty-state copy in All mode when records exist', async () => {
+    mockLoad({
+      smartFit: {
+        enabled: true,
+        discountType: 'percent',
+        value: 10,
+        maxRemainingGapMinutes: 15,
+        minImprovementMinutes: 20,
+        eligibleServiceIds: [],
+        eligibleTechnicianIds: [],
+      },
+    });
+    await renderCard();
+
+    expect(screen.getByTestId('smart-fit-services-mode-all')).toBeChecked();
+    expect(screen.getByTestId('smart-fit-technicians-mode-all')).toBeChecked();
+
+    expect(screen.queryByText(/No active services found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No active technicians found/i)).not.toBeInTheDocument();
+    // The stale "unchecked means all" mental model must not reappear anywhere.
+    expect(screen.queryByText(/nothing selected/i)).not.toBeInTheDocument();
+
+    expect(screen.getByTestId('smart-fit-summary')).toHaveTextContent(
+      'Active for all services and all technicians.',
+    );
+  });
+
+  it('still shows the empty-state copy in Only-selected mode when there is nothing to pick', async () => {
+    mockLoad({
+      smartFit: { enabled: true, eligibleServiceIds: [], eligibleTechnicianIds: [] },
+      services: [],
+      technicians: [],
+    });
+    await renderCard();
+
+    fireEvent.click(screen.getByTestId('smart-fit-services-mode-selected'));
+    fireEvent.click(screen.getByTestId('smart-fit-technicians-mode-selected'));
+
+    expect(screen.getByText(/No active services found/i)).toBeInTheDocument();
+    expect(screen.getByText(/No active technicians found/i)).toBeInTheDocument();
+  });
 });

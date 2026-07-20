@@ -648,7 +648,7 @@ export function SmartFitSettingsCard({
             {fieldErrors.eligibleServices}
           </p>
         )}
-        {serviceMode === 'selected' && services.length > 0
+        {serviceMode === 'selected' && (services.length > 0
           ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {services.map(service => (
@@ -674,10 +674,10 @@ export function SmartFitSettingsCard({
             )
           : (
               <p className="mt-3 rounded-[10px] bg-gray-50 p-3 text-xs text-gray-600">
-                No active services found. With nothing selected, Smart Fit
-                applies to all services.
+                No active services found. Add an active service, or choose
+                All active services.
               </p>
-            )}
+            ))}
         {staleServiceCount > 0 && (
           <p data-testid="smart-fit-stale-services" className="mt-2 text-xs text-amber-700">
             {staleServiceCount}
@@ -759,7 +759,7 @@ export function SmartFitSettingsCard({
             {fieldErrors.eligibleTechnicians}
           </p>
         )}
-        {technicianMode === 'selected' && technicians.length > 0
+        {technicianMode === 'selected' && (technicians.length > 0
           ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {technicians.map(technician => (
@@ -785,10 +785,10 @@ export function SmartFitSettingsCard({
             )
           : (
               <p className="mt-3 rounded-[10px] bg-gray-50 p-3 text-xs text-gray-600">
-                No active technicians found. With nothing selected, Smart Fit
-                includes all technicians.
+                No active technicians found. Add an active technician, or choose
+                All active technicians.
               </p>
-            )}
+            ))}
         {staleTechnicianCount > 0 && (
           <p data-testid="smart-fit-stale-technicians" className="mt-2 text-xs text-amber-700">
             {staleTechnicianCount}
