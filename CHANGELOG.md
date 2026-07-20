@@ -1,3 +1,15 @@
+# [1.22.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.21.0...v1.22.0) (2026-07-20)
+
+
+### Bug Fixes
+
+* **manage:** open the private appointment link and stop self-blocking reschedules ([3f7fe74](https://github.com/SniperStopSniping/nailsalon/commit/3f7fe74b684d492b130021e4d1aff4b0e56d5252))
+
+
+### Features
+
+* **reschedule:** unify the Smart Fit policy across both reschedule paths ([15c504f](https://github.com/SniperStopSniping/nailsalon/commit/15c504fb5a8127e0ee310dd24b13c95e2d50b263))
+
 # [1.21.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.20.0...v1.21.0) (2026-07-20)
 
 
