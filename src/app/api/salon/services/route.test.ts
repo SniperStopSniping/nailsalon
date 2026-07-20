@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   requireAdminSalon,
-  getServicesBySalonId,
+  getServicesBySalonIdIncludingInactive,
   selectWhere,
   insertValues,
   updateSet,
@@ -26,7 +26,7 @@ const {
 
   return {
     requireAdminSalon: vi.fn(),
-    getServicesBySalonId: vi.fn(),
+    getServicesBySalonIdIncludingInactive: vi.fn(),
     selectWhere,
     insertValues,
     updateSet,
@@ -54,7 +54,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/queries', () => ({
-  getServicesBySalonId,
+  getServicesBySalonIdIncludingInactive,
 }));
 
 vi.mock('@/libs/serviceAssignments', () => ({
@@ -71,7 +71,7 @@ describe('salon services route', () => {
       salon: { id: 'salon_1', slug: 'isla-nail-studio' },
       error: null,
     });
-    getServicesBySalonId.mockResolvedValue([]);
+    getServicesBySalonIdIncludingInactive.mockResolvedValue([]);
     ensureServiceAssignments.mockResolvedValue({
       assignedTechnicianIds: ['tech_1'],
       assignmentRequired: false,
@@ -266,8 +266,8 @@ describe('salon services route', () => {
     expect(response.status).toBe(400);
   });
 
-  it('still fetches services for the authorized salon on GET', async () => {
-    getServicesBySalonId.mockResolvedValueOnce([
+  it('fetches services for the authorized salon on GET, including deactivated ones', async () => {
+    getServicesBySalonIdIncludingInactive.mockResolvedValueOnce([
       {
         id: 'svc_1',
         name: 'BIAB + Classic Pedicure',
@@ -279,6 +279,18 @@ describe('salon services route', () => {
         sortOrder: 1,
         isActive: true,
       },
+      {
+        // Deactivated services stay visible to the owner for reactivation.
+        id: 'svc_2',
+        name: 'Luster Manicure',
+        description: null,
+        price: 5500,
+        durationMinutes: 60,
+        category: 'manicure',
+        imageUrl: null,
+        sortOrder: 2,
+        isActive: false,
+      },
     ]);
 
     const response = await GET(new Request('http://localhost/api/salon/services?salonSlug=isla-nail-studio'));
@@ -286,6 +298,7 @@ describe('salon services route', () => {
 
     expect(response.status).toBe(200);
     expect(requireAdminSalon).toHaveBeenCalledWith('isla-nail-studio');
-    expect(body.data.services).toHaveLength(1);
+    expect(body.data.services).toHaveLength(2);
+    expect(body.data.services[1]).toMatchObject({ id: 'svc_2', isActive: false });
   });
 });

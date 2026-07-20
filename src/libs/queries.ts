@@ -113,6 +113,19 @@ export async function getServicesBySalonId(salonId: string): Promise<Service[]> 
 }
 
 /**
+ * Admin-only variant that includes deactivated services, so owners can see
+ * and reactivate them. Customer-facing surfaces must keep using the active
+ * filter above.
+ */
+export async function getServicesBySalonIdIncludingInactive(salonId: string): Promise<Service[]> {
+  return db
+    .select()
+    .from(serviceSchema)
+    .where(eq(serviceSchema.salonId, salonId))
+    .orderBy(serviceSchema.sortOrder);
+}
+
+/**
  * Get multiple services by their IDs, scoped to a salon
  * @param serviceIds - Array of service IDs to fetch
  * @param salonId - The salon's unique ID (required for multi-tenant scoping)

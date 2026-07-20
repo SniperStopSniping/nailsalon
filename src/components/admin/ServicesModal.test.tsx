@@ -31,9 +31,11 @@ type MockRoutes = {
   };
   createdService?: Record<string, unknown>;
   ownedTemplateKeys?: string[];
+  /** Non-2xx forces the service PATCH to fail with this status/message. */
+  patchFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [] }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], patchFailure }: MockRoutes) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.startsWith('/api/admin/salon/settings')) {
@@ -51,6 +53,21 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
         }), { status: 200 });
       }
       return new Response(JSON.stringify({ data: { ownedTemplateKeys } }), { status: 200 });
+    }
+    if (url.startsWith('/api/salon/services/') && init?.method === 'PATCH') {
+      if (patchFailure) {
+        return new Response(
+          JSON.stringify({ error: { code: 'UPDATE_FAILED', message: patchFailure.message } }),
+          { status: patchFailure.status },
+        );
+      }
+      // Echo the submitted fields back as the saved service, like the API does.
+      const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
+      const { salonSlug: _salonSlug, ...serviceFields } = submitted;
+      return new Response(
+        JSON.stringify({ data: { service: { id: decodeURIComponent(url.split('/').pop()!), ...serviceFields } } }),
+        { status: 200 },
+      );
     }
     if (url.startsWith('/api/salon/services')) {
       if (init?.method === 'POST') {
@@ -474,5 +491,186 @@ describe('ServicesModal', () => {
         merchandising: { serviceLibraryIntroDismissed: true },
       });
     });
+  });
+});
+
+describe('ServicesModal — service detail owner actions', () => {
+  const lusterService = {
+    id: 'svc_luster',
+    name: 'Luster Manicure',
+    description: null,
+    descriptionItems: null,
+    price: 4500,
+    priceDisplayText: '$75+',
+    isIntroPrice: true,
+    introPriceLabel: '$55',
+    durationMinutes: 60,
+    preparationBufferMinutes: 0,
+    cleanupBufferMinutes: 0,
+    category: 'manicure',
+    bookingCategory: 'manicure',
+    templateKey: 'luster_manicure',
+    featuredOrder: 1,
+    imageUrl: null,
+    isActive: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  async function openLusterDetail() {
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    fireEvent.click(await screen.findByText('Luster Manicure'));
+
+    expect(await screen.findByTestId('service-detail-edit')).toBeInTheDocument();
+  }
+
+  it('offers a prominent Edit action that opens the prefilled editor and PATCHes the $55 repair', async () => {
+    mockRoutes({ services: [lusterService], merchandising: { lusterPromoDismissed: true } });
+
+    await openLusterDetail();
+
+    fireEvent.click(screen.getByTestId('service-detail-edit'));
+
+    // Editor prefilled from the record: dollars in the Price field.
+    expect(screen.getByLabelText('Name')).toHaveValue('Luster Manicure');
+    expect(screen.getByLabelText('Price')).toHaveValue(45);
+    expect(screen.getByLabelText('Price display text')).toHaveValue('$75+');
+    expect(screen.getByLabelText('Intro label')).toHaveValue('$55');
+
+    // The exact production repair: price 55, clear display text, relabel badge.
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '55' } });
+    fireEvent.change(screen.getByLabelText('Price display text'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Intro label'), { target: { value: 'Intro price' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Service' }));
+
+    await waitFor(() => {
+      const patchCall = findCall((url, init) =>
+        url === '/api/salon/services/svc_luster' && init?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+
+      expect(body.price).toBe(5500);
+      expect(body.priceDisplayText).toBeNull();
+      expect(body.isIntroPrice).toBe(true);
+      expect(body.introPriceLabel).toBe('Intro price');
+      expect(body.isActive).toBe(true);
+    });
+  });
+
+  it('deactivates and reactivates from the detail view with an otherwise-unchanged payload', async () => {
+    mockRoutes({ services: [lusterService], merchandising: { lusterPromoDismissed: true } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await openLusterDetail();
+
+    expect(screen.getByTestId('service-detail-toggle-active')).toHaveTextContent('Deactivate Service');
+
+    fireEvent.click(screen.getByTestId('service-detail-toggle-active'));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      const patchCall = findCall((url, init) =>
+        url === '/api/salon/services/svc_luster' && init?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+
+      expect(body.isActive).toBe(false);
+      // Every other field rides along unchanged — nothing is repriced.
+      expect(body.price).toBe(4500);
+      expect(body.priceDisplayText).toBe('$75+');
+      expect(body.introPriceLabel).toBe('$55');
+    });
+
+    // Detail reflects the saved state and offers reactivation without confirm.
+    expect(await screen.findByText('Reactivate Service')).toBeInTheDocument();
+    expect(screen.getByText('Inactive')).toBeInTheDocument();
+
+    confirmSpy.mockClear();
+    fireEvent.click(screen.getByTestId('service-detail-toggle-active'));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(([input, init]) =>
+        String(input) === '/api/salon/services/svc_luster' && (init as RequestInit | undefined)?.method === 'PATCH');
+
+      expect(calls).toHaveLength(2);
+      expect(JSON.parse(String((calls[1]![1] as RequestInit).body)).isActive).toBe(true);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it('keeps the detail open and shows the API error when deactivation fails', async () => {
+    mockRoutes({
+      services: [lusterService],
+      merchandising: { lusterPromoDismissed: true },
+      patchFailure: { status: 409, message: 'The service could not be saved. Check the name and try again.' },
+    });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await openLusterDetail();
+
+    fireEvent.click(screen.getByTestId('service-detail-toggle-active'));
+
+    expect(await screen.findByTestId('service-detail-toggle-error')).toHaveTextContent(
+      'The service could not be saved. Check the name and try again.',
+    );
+    // Still active, still actionable.
+    expect(screen.getByTestId('service-detail-toggle-active')).toHaveTextContent('Deactivate Service');
+    expect(screen.getByTestId('service-detail-edit')).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it('does not deactivate when the owner cancels the confirm step', async () => {
+    mockRoutes({ services: [lusterService], merchandising: { lusterPromoDismissed: true } });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    await openLusterDetail();
+
+    fireEvent.click(screen.getByTestId('service-detail-toggle-active'));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(findCall((url, init) =>
+      url === '/api/salon/services/svc_luster' && init?.method === 'PATCH')).toBeUndefined();
+
+    confirmSpy.mockRestore();
+  });
+
+  it('renders the owner actions at a mobile viewport width', async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    mockRoutes({ services: [lusterService], merchandising: { lusterPromoDismissed: true } });
+
+    await openLusterDetail();
+
+    expect(screen.getByTestId('service-detail-edit')).toBeVisible();
+    expect(screen.getByTestId('service-detail-toggle-active')).toBeVisible();
+    expect(screen.getByTestId('service-detail-edit')).toHaveClass('w-full');
+    expect(screen.getByTestId('service-detail-toggle-active')).toHaveClass('w-full');
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+  });
+
+  it('keeps deactivated services in the owner list with an Inactive chip and a reactivation path', async () => {
+    mockRoutes({
+      services: [{ ...lusterService, isActive: false }],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    await openLusterDetail();
+
+    expect(screen.getByTestId('service-row-inactive-svc_luster')).toHaveTextContent('Inactive');
+    expect(screen.getByTestId('service-detail-toggle-active')).toHaveTextContent('Reactivate Service');
   });
 });

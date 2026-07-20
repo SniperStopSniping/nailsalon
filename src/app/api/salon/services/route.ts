@@ -9,7 +9,7 @@ import {
 } from '@/libs/bookingCatalog';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
-import { getServicesBySalonId } from '@/libs/queries';
+import { getServicesBySalonIdIncludingInactive } from '@/libs/queries';
 import {
   ensureServiceAssignments,
   InvalidTechnicianAssignmentError,
@@ -160,8 +160,9 @@ export async function GET(request: Request): Promise<Response> {
       return error!;
     }
 
-    // Get services for the salon
-    const services = await getServicesBySalonId(salon.id);
+    // Admin view includes deactivated services so owners can reactivate them;
+    // customer surfaces keep the active-only query.
+    const services = await getServicesBySalonIdIncludingInactive(salon.id);
 
     // Format response using shared type
     const formattedServices: ServiceResponse[]

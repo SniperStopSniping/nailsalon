@@ -222,6 +222,14 @@ function ServiceRow({
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[12px] capitalize">
               {service.category}
             </span>
+            {!service.isActive && (
+              <span
+                data-testid={`service-row-inactive-${service.id}`}
+                className="rounded-full bg-gray-200 px-2 py-0.5 text-[12px] text-gray-600"
+              >
+                Inactive
+              </span>
+            )}
           </div>
         </div>
 
@@ -839,10 +847,16 @@ function ServiceDetail({
   service,
   onBack,
   onEdit,
+  onToggleActive,
+  toggleActiveBusy,
+  toggleActiveError,
 }: {
   service: ServiceData;
   onBack: () => void;
   onEdit: () => void;
+  onToggleActive: () => void;
+  toggleActiveBusy: boolean;
+  toggleActiveError: string | null;
 }) {
   return (
     <motion.div
@@ -963,6 +977,40 @@ function ServiceDetail({
                 )}
           </AdminDetailCard>
         )}
+
+        {/* Owner actions */}
+        <div className="mt-4 space-y-2">
+          <Button
+            type="button"
+            variant="brand"
+            size="pill"
+            className="w-full"
+            data-testid="service-detail-edit"
+            onClick={onEdit}
+          >
+            Edit Service
+          </Button>
+          <Button
+            type="button"
+            variant="brandSoft"
+            size="pill"
+            className={`w-full ${service.isActive ? 'text-red-600' : 'text-emerald-700'}`}
+            data-testid="service-detail-toggle-active"
+            disabled={toggleActiveBusy}
+            onClick={onToggleActive}
+          >
+            {toggleActiveBusy && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {service.isActive ? 'Deactivate Service' : 'Reactivate Service'}
+          </Button>
+          {toggleActiveError && (
+            <div
+              data-testid="service-detail-toggle-error"
+              className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
+            >
+              {toggleActiveError}
+            </div>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -986,6 +1034,8 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [activeTab, setActiveTab] = useState<'menu' | 'library'>('menu');
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
+  const [toggleActiveBusy, setToggleActiveBusy] = useState(false);
+  const [toggleActiveError, setToggleActiveError] = useState<string | null>(null);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -1138,6 +1188,65 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       // Dismissals are best-effort; the card is already hidden locally.
     }
   }, [salonSlug]);
+
+  // One-tap Deactivate/Reactivate from the detail view: same PATCH contract as
+  // the edit dialog, with every field unchanged except isActive.
+  const handleToggleActive = useCallback(async () => {
+    if (!salonSlug || !selectedService || toggleActiveBusy) {
+      return;
+    }
+    const service = selectedService;
+    if (service.isActive && !window.confirm(`Deactivate "${service.name}"? Clients won't be able to book it; nothing is deleted.`)) {
+      return;
+    }
+
+    setToggleActiveBusy(true);
+    setToggleActiveError(null);
+    try {
+      const response = await fetch(
+        `/api/salon/services/${encodeURIComponent(service.id)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug,
+            name: service.name,
+            description: service.description,
+            descriptionItems: service.descriptionItems ?? [],
+            price: service.price,
+            priceDisplayText: service.priceDisplayText,
+            durationMinutes: service.durationMinutes,
+            preparationBufferMinutes: service.preparationBufferMinutes,
+            cleanupBufferMinutes: service.cleanupBufferMinutes,
+            category: service.category,
+            bookingCategory: service.bookingCategory,
+            featuredOrder: service.featuredOrder ?? null,
+            isIntroPrice: Boolean(service.isIntroPrice),
+            introPriceLabel: service.introPriceLabel ?? null,
+            isActive: !service.isActive,
+          }),
+        },
+      );
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error?.message ?? 'Failed to update service');
+      }
+      const updatedService = result?.data?.service as ServiceData | undefined;
+      if (!updatedService) {
+        throw new Error('Updated service was missing from the response');
+      }
+      setSelectedService(updatedService);
+      void fetchServices();
+    } catch (toggleError) {
+      setToggleActiveError(
+        toggleError instanceof Error
+          ? toggleError.message
+          : 'Failed to update service',
+      );
+    } finally {
+      setToggleActiveBusy(false);
+    }
+  }, [salonSlug, selectedService, toggleActiveBusy, fetchServices]);
 
   const handleAddTemplate = useCallback(async (template: ServiceTemplate) => {
     if (template.serviceType === 'addon') {
@@ -1396,7 +1505,10 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
                         key={service.id}
                         service={service}
                         isLast={index === filteredServices.length - 1}
-                        onClick={() => setSelectedService(service)}
+                        onClick={() => {
+                          setSelectedService(service);
+                          setToggleActiveError(null);
+                        }}
                       />
                     ))}
                   </ListSurface>
@@ -1408,8 +1520,14 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
         {selectedService && (
           <ServiceDetail
             service={selectedService}
-            onBack={() => setSelectedService(null)}
+            onBack={() => {
+              setSelectedService(null);
+              setToggleActiveError(null);
+            }}
             onEdit={() => setEditingService(selectedService)}
+            onToggleActive={() => void handleToggleActive()}
+            toggleActiveBusy={toggleActiveBusy}
+            toggleActiveError={toggleActiveError}
           />
         )}
       </AnimatePresence>
