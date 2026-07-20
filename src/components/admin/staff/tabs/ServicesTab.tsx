@@ -4,6 +4,9 @@ import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
+import type { BookingCategory } from '@/models/Schema';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -12,6 +15,7 @@ type ServiceCapability = {
   serviceId: string;
   serviceName: string;
   serviceCategory: string;
+  serviceBookingCategory?: BookingCategory | null;
   servicePrice: number;
   serviceDuration: number;
   assigned: boolean;
@@ -123,10 +127,13 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
     }).format(cents / 100);
   };
 
-  // Group services by category
+  // Technicians see the same three visible categories as everyone else.
   const groupedServices = services.reduce(
     (acc, service) => {
-      const category = service.serviceCategory || 'Other';
+      const category = resolveVisibleBookingCategory({
+        bookingCategory: service.serviceBookingCategory ?? null,
+        category: service.serviceCategory || 'manicure',
+      });
       if (!acc[category]) {
         acc[category] = [];
       }
@@ -162,8 +169,8 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
 
       {Object.entries(groupedServices).map(([category, categoryServices]) => (
         <div key={category}>
-          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase capitalize text-[#8E8E93]">
-            {category}
+          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
+            {BOOKING_CATEGORY_META[category as BookingCategory].label}
           </h3>
           <div className="overflow-hidden rounded-[12px] bg-white">
             {categoryServices.map((service, index) => (

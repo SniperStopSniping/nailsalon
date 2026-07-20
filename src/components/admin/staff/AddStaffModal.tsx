@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Camera, Check, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import type { SkillLevel, StaffRole } from '@/models/Schema';
+import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
+import type { BookingCategory, SkillLevel, StaffRole } from '@/models/Schema';
 
 // =============================================================================
 // Types
@@ -21,6 +22,7 @@ type ServiceOption = {
   id: string;
   name: string;
   category: string;
+  bookingCategory?: BookingCategory | null;
   selected: boolean;
 };
 
@@ -94,10 +96,11 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
         const result = await response.json();
         const serviceList = result.data?.services ?? [];
         setServices(
-          serviceList.map((s: { id: string; name: string; category: string }) => ({
+          serviceList.map((s: { id: string; name: string; category: string; bookingCategory?: BookingCategory | null }) => ({
             id: s.id,
             name: s.name,
             category: s.category,
+            bookingCategory: s.bookingCategory ?? null,
             selected: true, // Default all selected
           })),
         );
@@ -395,8 +398,9 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
             {/* Basic Info */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
+                <label htmlFor="add-staff-name" className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
                 <input
+                  id="add-staff-name"
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
@@ -405,8 +409,9 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 />
               </div>
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
+                <label htmlFor="add-staff-email" className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
                 <input
+                  id="add-staff-email"
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -415,8 +420,9 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 />
               </div>
               <div className="p-4">
-                <label className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
+                <label htmlFor="add-staff-phone" className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
                 <input
+                  id="add-staff-phone"
                   type="tel"
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
@@ -429,8 +435,9 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
             {/* Role & Skill */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
               <div className="border-b border-gray-100 p-4">
-                <label className="mb-2 block text-[13px] text-[#8E8E93]">Role</label>
-                <div className="flex flex-wrap gap-2">
+                {/* Button group, not a single control: labelled via role=group. */}
+                <span id="add-staff-role-label" className="mb-2 block text-[13px] text-[#8E8E93]">Role</span>
+                <div role="group" aria-labelledby="add-staff-role-label" className="flex flex-wrap gap-2">
                   {ROLE_OPTIONS.map(option => (
                     <button
                       key={option.value}
@@ -448,8 +455,8 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 </div>
               </div>
               <div className="p-4">
-                <label className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</label>
-                <div className="flex flex-wrap gap-2">
+                <span id="add-staff-skill-label" className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</span>
+                <div role="group" aria-labelledby="add-staff-skill-label" className="flex flex-wrap gap-2">
                   {SKILL_OPTIONS.map(option => (
                     <button
                       key={option.value}
@@ -494,8 +501,8 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
 
             {/* Languages */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label className="mb-2 block text-[13px] text-[#8E8E93]">Languages</label>
-              <div className="flex flex-wrap gap-2">
+              <span id="add-staff-languages-label" className="mb-2 block text-[13px] text-[#8E8E93]">Languages</span>
+              <div role="group" aria-labelledby="add-staff-languages-label" className="flex flex-wrap gap-2">
                 {LANGUAGE_OPTIONS.map(lang => (
                   <button
                     key={lang}
@@ -536,8 +543,9 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
 
             {/* Bio */}
             <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
+              <label htmlFor="add-staff-bio" className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
               <textarea
+                id="add-staff-bio"
                 value={bio}
                 onChange={e => setBio(e.target.value)}
                 placeholder="Short bio or description..."
@@ -572,8 +580,11 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                           >
                             <div>
                               <span className="text-[17px] text-[#1C1C1E]">{service.name}</span>
-                              <span className="ml-2 text-[13px] capitalize text-[#8E8E93]">
-                                {service.category}
+                              <span className="ml-2 text-[13px] text-[#8E8E93]">
+                                {BOOKING_CATEGORY_META[resolveVisibleBookingCategory({
+                                  bookingCategory: service.bookingCategory ?? null,
+                                  category: service.category,
+                                })].label}
                               </span>
                             </div>
                             <div

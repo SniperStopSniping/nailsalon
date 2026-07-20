@@ -1,9 +1,12 @@
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { ensureServiceAssignments } from '@/libs/serviceAssignments';
 import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import { getSalonTemplateKeys, seedStarterMenuForSalon } from '@/libs/starterMenu';
+import { technicianSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,11 +112,37 @@ export async function POST(request: Request): Promise<Response> {
       templateKeys,
     });
 
+    // Newly created BASE services must not be silently unbookable: a salon
+    // with exactly one active technician is safe to auto-assign (matching the
+    // single-service create flow); multi-technician salons get an explicit
+    // "choose who performs these" signal instead of everyone-by-default.
+    const activeTechnicians = await db
+      .select({ id: technicianSchema.id })
+      .from(technicianSchema)
+      .where(and(eq(technicianSchema.salonId, salon.id), eq(technicianSchema.isActive, true)));
+
+    let autoAssignedServiceCount = 0;
+    if (activeTechnicians.length === 1) {
+      for (const serviceId of result.createdServiceIds) {
+        const assignment = await ensureServiceAssignments(db, {
+          salonId: salon.id,
+          serviceId,
+        });
+        if (assignment.assignedTechnicianIds.length > 0) {
+          autoAssignedServiceCount += 1;
+        }
+      }
+    }
+
     return Response.json({
       data: {
         createdServiceCount: result.createdServiceIds.length,
         createdAddOnCount: result.createdAddOnIds.length,
         skippedTemplateKeys: result.skippedTemplateKeys,
+        activeTechnicianCount: activeTechnicians.length,
+        autoAssignedServiceCount,
+        assignmentRequired:
+          activeTechnicians.length > 1 && result.createdServiceIds.length > 0,
       },
     });
   } catch (error) {

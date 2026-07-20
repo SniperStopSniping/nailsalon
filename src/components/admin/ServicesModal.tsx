@@ -28,7 +28,7 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
-import { deriveBookingCategory } from '@/libs/bookingCategory';
+import { BOOKING_CATEGORY_META, deriveBookingCategory, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { formatMoney } from '@/libs/formatMoney';
 import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCatalog';
@@ -58,6 +58,8 @@ type ServiceData = {
   isActive: boolean;
   isIntroPrice?: boolean | null;
   introPriceLabel?: string | null;
+  /** Enabled links to ACTIVE technicians; 0 ⇒ hidden from public booking. */
+  assignedTechnicianCount?: number;
 };
 
 type ServicePrefill = {
@@ -71,6 +73,19 @@ type ServicePrefill = {
   templateKey: string;
   isIntroPrice?: boolean;
   introPriceLabel?: string | null;
+};
+
+type AddOnData = {
+  id: string;
+  name: string;
+  priceCents: number;
+  priceDisplayText?: string | null;
+  durationMinutes: number;
+  category: string;
+  pricingType: 'fixed' | 'per_unit';
+  unitLabel?: string | null;
+  maxQuantity?: number | null;
+  isActive: boolean;
 };
 
 type ServicesModalProps = {
@@ -87,16 +102,13 @@ type ServiceCategory =
   | 'feet'
   | 'combo';
 
-// Category definitions
+// The only visible main categories (shared canonical grouping): the raw
+// 7-value category stays internal metadata and never drives navigation.
 const CATEGORIES = [
   { id: 'all', label: 'All', icon: Sparkles },
   { id: 'manicure', label: 'Manicure', icon: Scissors },
-  { id: 'builder_gel', label: 'Builder Gel', icon: Sparkles },
-  { id: 'extensions', label: 'Extensions', icon: Sparkles },
   { id: 'pedicure', label: 'Pedicure', icon: Scissors },
-  { id: 'combo', label: 'Combo', icon: Sparkles },
-  { id: 'hands', label: 'Hands', icon: Scissors },
-  { id: 'feet', label: 'Feet', icon: Scissors },
+  { id: 'combo', label: 'Combos', icon: Sparkles },
 ];
 
 // Format currency
@@ -186,10 +198,13 @@ function CategoryTabs({
 function ServiceRow({
   service,
   isLast,
+  showNotBookable,
   onClick,
 }: {
   service: ServiceData;
   isLast: boolean;
+  /** Active service with no eligible technician — hidden from booking. */
+  showNotBookable: boolean;
   onClick: () => void;
 }) {
   return (
@@ -220,8 +235,8 @@ function ServiceRow({
               <Clock className="size-3" />
               {formatDuration(service.durationMinutes)}
             </span>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[12px] capitalize">
-              {service.category}
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[12px]">
+              {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
             </span>
             {!service.isActive && (
               <span
@@ -229,6 +244,14 @@ function ServiceRow({
                 className="rounded-full bg-gray-200 px-2 py-0.5 text-[12px] text-gray-600"
               >
                 Inactive
+              </span>
+            )}
+            {showNotBookable && (
+              <span
+                data-testid={`service-row-not-bookable-${service.id}`}
+                className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] text-amber-700"
+              >
+                Not bookable
               </span>
             )}
           </div>
@@ -846,6 +869,7 @@ function LusterPromoCard({
  */
 function ServiceDetail({
   service,
+  activeTechnicianCount,
   onBack,
   onEdit,
   onToggleActive,
@@ -853,6 +877,7 @@ function ServiceDetail({
   toggleActiveError,
 }: {
   service: ServiceData;
+  activeTechnicianCount: number;
   onBack: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
@@ -900,8 +925,8 @@ function ServiceDetail({
               {service.name}
             </h2>
             <div className="mt-3 flex items-center gap-4">
-              <span className="rounded-full bg-gray-100 px-3 py-1 text-[13px] capitalize text-[#8E8E93]">
-                {service.category}
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-[13px] text-[#8E8E93]">
+                {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
               </span>
               {service.isIntroPrice && service.introPriceLabel && (
                 <span className="rounded-full bg-amber-100 px-3 py-1 text-[13px] text-amber-700">
@@ -922,6 +947,20 @@ function ServiceDetail({
             </div>
           </div>
         </AdminDetailCard>
+
+        {/* Truthful public-visibility explanation */}
+        {service.isActive && (service.assignedTechnicianCount ?? 1) === 0 && (
+          <AdminDetailCard className="mb-4">
+            <div
+              data-testid="service-detail-visibility-warning"
+              className="text-[14px] leading-relaxed text-amber-700"
+            >
+              {activeTechnicianCount === 0
+                ? 'Not visible in booking — add a technician before this service can be booked.'
+                : 'Not visible in booking — assign at least one technician (Team → technician → Services).'}
+            </div>
+          </AdminDetailCard>
+        )}
 
         {/* Price & Duration */}
         <div className="mb-4 grid grid-cols-2 gap-4">
@@ -1023,6 +1062,223 @@ function ServiceDetail({
   );
 }
 
+/**
+ * Owner add-on editor: name, price, duration, quantity cap, bookable state.
+ * Compatibility (which base services an add-on appears under) stays on the
+ * template model; pricing type is read-only here.
+ */
+function AddOnEditDialog({
+  addOn,
+  salonSlug,
+  onClose,
+  onSaved,
+}: {
+  addOn: AddOnData | null;
+  salonSlug: string | null;
+  onClose: () => void;
+  onSaved: (addOn: AddOnData) => void;
+}) {
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
+  const [maxQuantity, setMaxQuantity] = useState('');
+  const [priceDisplayText, setPriceDisplayText] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (addOn) {
+      setName(addOn.name);
+      setPrice(String(addOn.priceCents / 100));
+      setDurationMinutes(String(addOn.durationMinutes));
+      setMaxQuantity(addOn.maxQuantity != null ? String(addOn.maxQuantity) : '');
+      setPriceDisplayText(addOn.priceDisplayText || '');
+      setIsActive(addOn.isActive);
+      setSaving(false);
+      setError(null);
+    }
+  }, [addOn]);
+
+  if (!addOn) {
+    return null;
+  }
+
+  const handleSubmit = async () => {
+    if (!salonSlug) {
+      setError('Select a salon before editing add-ons.');
+      return;
+    }
+    const parsedPrice = Number.parseFloat(price);
+    const parsedDuration = Number.parseInt(durationMinutes, 10);
+    const parsedMaxQuantity = maxQuantity.trim() === '' ? null : Number.parseInt(maxQuantity, 10);
+    if (!name.trim()) {
+      setError('Add-on name is required.');
+      return;
+    }
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      setError('Enter a valid price.');
+      return;
+    }
+    if (!Number.isInteger(parsedDuration) || parsedDuration < 0) {
+      setError('Enter a valid duration in minutes.');
+      return;
+    }
+    if (parsedMaxQuantity !== null && (!Number.isInteger(parsedMaxQuantity) || parsedMaxQuantity < 1)) {
+      setError('Quantity limit must be at least 1, or left empty.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/salon/add-ons/${encodeURIComponent(addOn.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          name: name.trim(),
+          priceCents: Math.round(parsedPrice * 100),
+          priceDisplayText: priceDisplayText.trim() || null,
+          durationMinutes: parsedDuration,
+          maxQuantity: parsedMaxQuantity,
+          isActive,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error?.message ?? 'Failed to save add-on');
+      }
+      const saved = result?.data?.addOn as AddOnData | undefined;
+      if (!saved) {
+        throw new Error('Saved add-on was missing from the response');
+      }
+      onSaved(saved);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Failed to save add-on');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <DialogShell
+      isOpen
+      onClose={onClose}
+      maxWidthClassName="max-w-md"
+      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
+      alignClassName="items-end justify-center p-4 sm:items-center"
+    >
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-[#1C1C1E]">Edit Add-on</h2>
+          <p className="mt-1 text-sm text-[#6B7280]">
+            Add-ons appear for clients after they pick a compatible base
+            service — they are never listed on their own.
+          </p>
+        </div>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={event => setName(event.target.value)}
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={price}
+              onChange={event => setPrice(event.target.value)}
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Duration (min)</span>
+            <input
+              type="number"
+              min="0"
+              step="5"
+              inputMode="numeric"
+              value={durationMinutes}
+              onChange={event => setDurationMinutes(event.target.value)}
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price display text</span>
+          <input
+            type="text"
+            value={priceDisplayText}
+            onChange={event => setPriceDisplayText(event.target.value)}
+            placeholder="$10+"
+            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+          />
+        </label>
+        {addOn.pricingType === 'per_unit' && (
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+              Quantity limit
+              {addOn.unitLabel ? ` (per ${addOn.unitLabel})` : ''}
+            </span>
+            <input
+              type="number"
+              min="1"
+              inputMode="numeric"
+              value={maxQuantity}
+              onChange={event => setMaxQuantity(event.target.value)}
+              placeholder="10"
+              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            />
+          </label>
+        )}
+        <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+          <span>
+            <span className="block text-sm font-medium text-[#1C1C1E]">Bookable</span>
+            <span className="block text-xs text-[#6B7280]">
+              Turn off to hide this add-on without deleting history.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={isActive}
+            onChange={event => setIsActive(event.target.checked)}
+            className="size-4"
+          />
+        </label>
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="brandSoft" size="pillSm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" variant="brand" size="pillSm" onClick={handleSubmit} disabled={saving}>
+            {saving
+              ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Saving...
+                  </>
+                )
+              : (
+                  'Update Add-on'
+                )}
+          </Button>
+        </div>
+      </div>
+    </DialogShell>
+  );
+}
+
 export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [services, setServices] = useState<ServiceData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1038,11 +1294,14 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const [addDialogPrefill, setAddDialogPrefill] = useState<ServicePrefill | null>(null);
   const [lusterPromoDismissed, setLusterPromoDismissed] = useState<boolean | null>(null);
   const [libraryIntroDismissed, setLibraryIntroDismissed] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<'menu' | 'library'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons'>('menu');
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
   const [toggleActiveBusy, setToggleActiveBusy] = useState(false);
   const [toggleActiveError, setToggleActiveError] = useState<string | null>(null);
+  const [activeTechnicianCount, setActiveTechnicianCount] = useState(0);
+  const [addOns, setAddOns] = useState<AddOnData[]>([]);
+  const [editingAddOn, setEditingAddOn] = useState<AddOnData | null>(null);
 
   // Fetch services data from real API
   const fetchServices = useCallback(async () => {
@@ -1088,6 +1347,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           isActive: boolean;
           isIntroPrice?: boolean | null;
           introPriceLabel?: string | null;
+          assignedTechnicianCount?: number;
         }) => ({
           id: service.id,
           name: service.name,
@@ -1107,9 +1367,11 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           isActive: service.isActive,
           isIntroPrice: service.isIntroPrice ?? false,
           introPriceLabel: service.introPriceLabel ?? null,
+          assignedTechnicianCount: service.assignedTechnicianCount,
         }),
       );
 
+      setActiveTechnicianCount(result.data?.activeTechnicianCount ?? 0);
       setServices(transformedServices);
     } catch (err) {
       console.error('Failed to fetch services:', err);
@@ -1119,9 +1381,30 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
     }
   }, [salonSlug]);
 
+  const fetchAddOns = useCallback(async () => {
+    if (!salonSlug) {
+      setAddOns([]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/salon/add-ons?salonSlug=${encodeURIComponent(salonSlug)}`);
+      if (!response.ok) {
+        return;
+      }
+      const result = await response.json();
+      setAddOns((result.data?.addOns ?? []).map((addOn: AddOnData & { isActive: boolean | null }) => ({
+        ...addOn,
+        isActive: addOn.isActive ?? true,
+      })));
+    } catch {
+      // Add-on list is supplementary; the services view stays usable.
+    }
+  }, [salonSlug]);
+
   useEffect(() => {
     fetchServices();
-  }, [fetchServices]);
+    void fetchAddOns();
+  }, [fetchServices, fetchAddOns]);
 
   // Load the promo-card dismissal state; stay hidden until it's known.
   useEffect(() => {
@@ -1344,13 +1627,14 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
   const filteredServices
     = activeCategory === 'all'
       ? services
-      : services.filter(s => s.category === activeCategory);
+      : services.filter(s => resolveVisibleBookingCategory(s) === activeCategory);
 
-  // Count per category
+  // Count per visible category (base services + combos only — add-ons are a
+  // separate record type and never inflate these counts).
   const categoryCounts: Record<string, number> = {};
   for (const service of services) {
-    categoryCounts[service.category]
-      = (categoryCounts[service.category] || 0) + 1;
+    const visibleCategory = resolveVisibleBookingCategory(service);
+    categoryCounts[visibleCategory] = (categoryCounts[visibleCategory] || 0) + 1;
   }
 
   return (
@@ -1359,7 +1643,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       <div data-testid="services-sticky-chrome" className="sticky top-0 z-20 bg-[#FFF8F5]/90 backdrop-blur-md">
         <ModalHeader
           title="Services"
-          subtitle={`${services.length} services`}
+          subtitle={`${services.length} services · ${addOns.length} add-ons`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={(
             <button
@@ -1373,14 +1657,14 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           )}
         />
         <div className="px-4 pb-2">
-          <div className="grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1" role="tablist">
+          <div className="grid grid-cols-3 gap-1 rounded-full bg-gray-100 p-1" role="tablist">
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === 'menu'}
               data-testid="services-tab-menu"
               onClick={() => setActiveTab('menu')}
-              className={`rounded-full px-4 py-2 text-[14px] font-semibold transition-all ${
+              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
                 activeTab === 'menu' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
               }`}
             >
@@ -1389,14 +1673,26 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
             <button
               type="button"
               role="tab"
+              aria-selected={activeTab === 'addons'}
+              data-testid="services-tab-addons"
+              onClick={() => setActiveTab('addons')}
+              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
+                activeTab === 'addons' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+              }`}
+            >
+              Add-ons
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={activeTab === 'library'}
               data-testid="services-tab-library"
               onClick={() => setActiveTab('library')}
-              className={`rounded-full px-4 py-2 text-[14px] font-semibold transition-all ${
+              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
                 activeTab === 'library' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
               }`}
             >
-              Service Library
+              Library
             </button>
           </div>
         </div>
@@ -1412,6 +1708,62 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       {/* Content — display:none while a detail is open so the detail owns the
           flow slot below the sticky chrome (list state stays mounted). */}
       <div className={`flex-1 overflow-y-auto pb-10 ${selectedService ? 'hidden' : ''}`}>
+        {activeTab === 'addons' && (
+          <div className="px-4 pb-4" data-testid="addons-tab-panel">
+            <p className="mb-3 text-[13px] leading-relaxed text-[#6B7280]">
+              Add-ons appear for clients after they pick a compatible base
+              service — they are never listed as standalone services.
+            </p>
+            {addOns.length === 0
+              ? (
+                  <div className="rounded-[18px] border border-gray-200 bg-white p-4 text-[14px] text-[#8E8E93]">
+                    No add-ons yet. Add them from the Library tab.
+                  </div>
+                )
+              : (
+                  <div className="overflow-hidden rounded-[18px] border border-gray-100 bg-white">
+                    {addOns.map((addOn, index) => (
+                      <button
+                        key={addOn.id}
+                        type="button"
+                        data-testid={`addon-row-${addOn.id}`}
+                        onClick={() => setEditingAddOn(addOn)}
+                        className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors active:bg-gray-50 ${
+                          index < addOns.length - 1 ? 'border-b border-gray-100' : ''
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[15px] font-semibold text-[#1C1C1E]">
+                            {addOn.name}
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-2 text-[12px] text-[#8E8E93]">
+                            {formatDuration(addOn.durationMinutes)}
+                            {addOn.pricingType === 'per_unit' && (
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5">
+                                per
+                                {' '}
+                                {addOn.unitLabel ?? 'unit'}
+                              </span>
+                            )}
+                            {!addOn.isActive && (
+                              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600">
+                                Inactive
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        <span className="ml-3 flex shrink-0 items-center gap-2">
+                          <span className="text-[15px] font-semibold text-emerald-700">
+                            {addOn.priceDisplayText || formatCurrency(addOn.priceCents)}
+                          </span>
+                          <ChevronRight className="size-4 text-[#C7C7CC]" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+          </div>
+        )}
         {activeTab === 'library' && (
           <ServiceLibraryTab
             ownedTemplateKeys={ownedTemplateKeys}
@@ -1513,6 +1865,8 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
                         key={service.id}
                         service={service}
                         isLast={index === filteredServices.length - 1}
+                        showNotBookable={service.isActive
+                        && (service.assignedTechnicianCount ?? 1) === 0}
                         onClick={() => {
                           setSelectedService(service);
                           setToggleActiveError(null);
@@ -1527,6 +1881,7 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
       {selectedService && (
         <ServiceDetail
           service={selectedService}
+          activeTechnicianCount={activeTechnicianCount}
           onBack={() => {
             setSelectedService(null);
             setToggleActiveError(null);
@@ -1537,6 +1892,16 @@ export function ServicesModal({ onClose, salonSlug }: ServicesModalProps) {
           toggleActiveError={toggleActiveError}
         />
       )}
+
+      <AddOnEditDialog
+        addOn={editingAddOn}
+        salonSlug={salonSlug}
+        onClose={() => setEditingAddOn(null)}
+        onSaved={() => {
+          setEditingAddOn(null);
+          void fetchAddOns();
+        }}
+      />
 
       <AddServiceDialog
         isOpen={showAddDialog || Boolean(editingService)}

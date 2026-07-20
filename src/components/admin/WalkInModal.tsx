@@ -14,7 +14,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronRight, Clock, Loader2, Phone, Search, User, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
+import type { BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -48,6 +50,7 @@ type Service = {
   price: number;
   durationMinutes: number;
   category: string | null;
+  bookingCategory?: BookingCategory | null;
 };
 
 type ExistingAppointment = {
@@ -385,15 +388,18 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
     || s.category?.toLowerCase().includes(serviceSearch.toLowerCase()),
   );
 
-  // Group services by category
+  // Same visible grouping as client booking and the owner menu.
   const servicesByCategory = filteredServices.reduce((acc, service) => {
-    const category = service.category || 'Other';
+    const category = resolveVisibleBookingCategory({
+      bookingCategory: service.bookingCategory ?? null,
+      category: service.category ?? 'manicure',
+    });
     if (!acc[category]) {
       acc[category] = [];
     }
     acc[category].push(service);
     return acc;
-  }, {} as Record<string, Service[]>);
+  }, {} as Record<BookingCategory, Service[]>);
 
   // Handle service toggle
   const toggleService = (serviceId: string) => {
@@ -618,7 +624,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
                             {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
                               <div key={category}>
                                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                  {category}
+                                  {BOOKING_CATEGORY_META[category as BookingCategory].label}
                                 </h4>
                                 <div className="space-y-2">
                                   {categoryServices.map((service) => {

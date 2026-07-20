@@ -75,6 +75,8 @@ export type ServiceResponse = {
   isIntroPrice?: boolean | null;
   introPriceLabel?: string | null;
   introPriceExpiresAt?: string | null;
+  /** Enabled links to ACTIVE technicians; 0 ⇒ hidden from public booking. */
+  assignedTechnicianCount?: number;
 };
 
 export type AddOnResponse = {
