@@ -1,3 +1,10 @@
+## [1.18.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.3...v1.18.4) (2026-07-20)
+
+
+### Bug Fixes
+
+* **luster:** approved Promotions → Shop → Learn hierarchy on the internal page ([f60849f](https://github.com/SniperStopSniping/nailsalon/commit/f60849fc8d83689570be720926a256fc3c0c0064))
+
 ## [1.18.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.18.2...v1.18.3) (2026-07-20)
 
 
