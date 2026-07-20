@@ -8,6 +8,7 @@ const {
   getAppointmentServiceNames,
   getTechnicianById,
   sendBookingNotificationsForAppointmentCancelled,
+  sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
   db,
@@ -18,6 +19,7 @@ const {
   getAppointmentServiceNames: vi.fn(),
   getTechnicianById: vi.fn(),
   sendBookingNotificationsForAppointmentCancelled: vi.fn(),
+  sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
   db: {
@@ -60,6 +62,8 @@ vi.mock('@/libs/googleCalendar', () => ({
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+
+vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }));
 
 import { GET, PATCH } from './route';
 

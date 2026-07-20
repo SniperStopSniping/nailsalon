@@ -300,6 +300,150 @@ describe('/api/admin/salon/settings notification settings', () => {
   });
 });
 
+describe('/api/admin/salon/settings salon appointment email notifications', () => {
+  const salonRow = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    email: 'hello@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: {},
+    settings: {},
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({});
+    getDefaultLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+    resolveSalonLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+  });
+
+  it('defaults every notification type to on and resolves the owner email', async () => {
+    getSalonBySlug.mockResolvedValue(salonRow);
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(body.salonEmailNotifications).toEqual({
+      newBooking: true,
+      rescheduled: true,
+      cancelled: true,
+      recipientEmail: null,
+    });
+    expect(body.salonNotificationRecipient).toEqual({
+      email: 'owner@example.com',
+      source: 'owner',
+    });
+    expect(body.salonNotificationRecipientMissing).toBe(false);
+  });
+
+  it('flags a missing recipient so the owner can be told', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...salonRow,
+      ownerEmail: null,
+      email: null,
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(body.salonNotificationRecipient).toBeNull();
+    expect(body.salonNotificationRecipientMissing).toBe(true);
+  });
+
+  it('persists the toggles and recipient without dropping the SMS notification block', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...salonRow,
+      settings: {
+        notifications: {
+          newBooking: {
+            technicianEnabled: true,
+            ownerEnabled: true,
+            technicianChannel: 'sms',
+            ownerChannel: 'sms',
+          },
+        },
+      },
+    });
+    updatedRows.push({
+      ...salonRow,
+      settings: {
+        notifications: {
+          newBooking: {
+            technicianEnabled: true,
+            ownerEnabled: true,
+            technicianChannel: 'sms',
+            ownerChannel: 'sms',
+          },
+          salonEmail: {
+            newBooking: true,
+            rescheduled: true,
+            cancelled: false,
+            recipientEmail: 'frontdesk@example.com',
+          },
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonEmailNotifications: {
+            cancelled: false,
+            recipientEmail: 'FrontDesk@Example.com',
+          },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.salonEmailNotifications).toEqual({
+      newBooking: true,
+      rescheduled: true,
+      cancelled: false,
+      recipientEmail: 'frontdesk@example.com',
+    });
+    expect(body.salonNotificationRecipient).toEqual({
+      email: 'frontdesk@example.com',
+      source: 'configured',
+    });
+    // The SMS notification block must survive a salon-email-only save.
+    expect(body.bookingNotifications.newBooking.ownerEnabled).toBe(true);
+    expect(logAuditEvent).toHaveBeenCalled();
+  });
+
+  it('rejects an invalid notification email and leaves settings untouched', async () => {
+    getSalonBySlug.mockResolvedValue(salonRow);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonEmailNotifications: { recipientEmail: 'not-an-email' },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('/api/admin/salon/settings merchandising settings', () => {
   const baseSalon = {
     id: 'salon_1',

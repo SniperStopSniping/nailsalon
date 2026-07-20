@@ -266,6 +266,17 @@ export type SalonSettings = {
       technicianChannel?: 'sms' | 'email' | 'both';
       ownerChannel?: 'sms' | 'email' | 'both';
     };
+    // Salon-facing appointment emails (new booking / reschedule / cancellation).
+    // Separate from the client-facing confirmation and reminder settings, and
+    // the only place salon email alerts are configured. Canonical zod shape
+    // lives in src/libs/salonNotificationEmailSettings.ts.
+    salonEmail?: {
+      newBooking?: boolean;
+      rescheduled?: boolean;
+      cancelled?: boolean;
+      // null/absent = fall back to the owner email, then the account email.
+      recipientEmail?: string | null;
+    };
   };
 
   // ==========================================================================

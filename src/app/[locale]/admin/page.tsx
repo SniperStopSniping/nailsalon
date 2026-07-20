@@ -1030,13 +1030,20 @@ function AdminDashboardContent() {
       return;
     }
     const appParam = searchParams.get('app');
-    if (lastAppParamRef.current === appParam) {
+    // Salon notification emails deep-link to a single appointment. The
+    // appointment id is part of the guard key so two alerts for different
+    // appointments both open, even though they share ?app=bookings.
+    const appointmentParam = searchParams.get('appointment')?.trim() || null;
+    const appKey = `${appParam ?? ''}|${appointmentParam ?? ''}`;
+    if (lastAppParamRef.current === appKey) {
       return;
     }
-    lastAppParamRef.current = appParam;
+    lastAppParamRef.current = appKey;
     if (isUrlAppId(appParam) && !urlBlockedAppIds.includes(appParam)) {
       urlOpenedAppRef.current = appParam;
-      setInitialAppointmentId(null);
+      setInitialAppointmentId(
+        appParam === 'bookings' ? appointmentParam : null,
+      );
       setInitialClientId(null);
       setInitialPromotionStage(null);
       setPromotionSettingsReturnClientId(null);

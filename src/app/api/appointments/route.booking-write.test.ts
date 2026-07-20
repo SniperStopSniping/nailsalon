@@ -18,6 +18,7 @@ const {
   getPrimaryLocation,
   getActiveAppointmentsForClient,
   getAppointmentById,
+  getAppointmentServiceNames,
   getClientByPhone,
   getOrCreateSalonClient,
   getTechniciansBySalonId,
@@ -55,6 +56,7 @@ const {
   getPrimaryLocation: vi.fn(),
   getActiveAppointmentsForClient: vi.fn(),
   getAppointmentById: vi.fn(),
+  getAppointmentServiceNames: vi.fn(async () => ['BIAB']),
   getClientByPhone: vi.fn(),
   getOrCreateSalonClient: vi.fn(),
   getTechniciansBySalonId: vi.fn(),
@@ -124,6 +126,7 @@ vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getActiveAppointmentsForClient,
   getAppointmentById,
+  getAppointmentServiceNames,
   getClientByPhone,
   getOrCreateSalonClient,
   getTechniciansBySalonId,
@@ -160,6 +163,10 @@ vi.mock('@/libs/staffAuth', () => ({
 
 vi.mock('@/libs/bookingNotifications', () => ({
   sendBookingNotificationsForNewBooking,
+}));
+
+vi.mock('@/libs/salonNotificationEmail', () => ({
+  sendSalonNotificationEmail: vi.fn(async () => ({ status: 'skipped', reason: 'disabled' })),
 }));
 
 vi.mock('@/libs/googleCalendar', () => ({
@@ -1056,6 +1063,10 @@ describe('POST /api/appointments booking policy', () => {
       clientPhone: '1111111111',
       technicianId: 'tech_1',
       startTime: new Date('2099-03-13T13:00:00.000Z'),
+      endTime: new Date('2099-03-13T14:30:00.000Z'),
+      totalPrice: 6500,
+      discountLabel: null,
+      discountAmountCents: 0,
     });
 
     const committedAppointments: string[] = [];
@@ -1193,6 +1204,10 @@ describe('POST /api/appointments booking policy', () => {
       clientPhone: '1111111111',
       technicianId: 'tech_1',
       startTime: new Date('2099-03-13T13:00:00.000Z'),
+      endTime: new Date('2099-03-13T14:30:00.000Z'),
+      totalPrice: 6500,
+      discountLabel: null,
+      discountAmountCents: 0,
     });
 
     const committedAppointments: string[] = [];
@@ -1311,6 +1326,10 @@ describe('POST /api/appointments booking policy', () => {
       clientPhone: '1111111111',
       technicianId: 'tech_1',
       startTime: new Date('2099-03-13T13:00:00.000Z'),
+      endTime: new Date('2099-03-13T14:30:00.000Z'),
+      totalPrice: 6500,
+      discountLabel: null,
+      discountAmountCents: 0,
     });
 
     const committedAppointments: string[] = [];

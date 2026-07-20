@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  sendBookingNotificationsForAppointmentCancelled,
+  sendBookingNotificationsForNewBooking,
+} from '@/libs/bookingNotifications';
+
 vi.mock('server-only', () => ({}));
 
 const { sendInternalBookingNotificationSms, sendInternalCancellationNotificationSms, sendTransactionalEmail } = vi.hoisted(() => ({
@@ -30,11 +35,6 @@ vi.mock('@/libs/SMS', () => ({
 vi.mock('@/libs/email', () => ({
   sendTransactionalEmail,
 }));
-
-import {
-  sendBookingNotificationsForAppointmentCancelled,
-  sendBookingNotificationsForNewBooking,
-} from '@/libs/bookingNotifications';
 
 const baseSalon = {
   id: 'salon_1',
@@ -130,7 +130,7 @@ describe('bookingNotifications', () => {
         id: 'tech_1',
         name: 'Daniela',
         phone: '4169021427',
-        email: null,
+        email: 'artist@example.com',
       },
       appointmentId: 'appt_1',
       clientName: 'Ava',
@@ -146,10 +146,75 @@ describe('bookingNotifications', () => {
       expect.objectContaining({
         eventType: 'new_booking',
         channel: 'email',
-        destination: 'milianbeltrandaniela@gmail.com',
+        destination: 'artist@example.com',
         reason: 'send_returned_false',
       }),
     );
+  });
+
+  // Salon-facing emails moved to @/libs/salonNotificationEmail. This path must
+  // stay SMS-only for the owner so one booking can never send two emails.
+  it('never emails the owner, even when the owner channel says email', async () => {
+    await sendBookingNotificationsForNewBooking({
+      salon: {
+        ...baseSalon,
+        ownerEmail: 'owner@example.com',
+        settings: {
+          ...baseSalon.settings,
+          notifications: {
+            ...baseSalon.settings.notifications,
+            newBooking: {
+              technicianEnabled: false,
+              ownerEnabled: true,
+              technicianChannel: 'sms',
+              ownerChannel: 'email',
+            },
+          },
+        },
+      },
+      technician: null,
+      appointmentId: 'appt_1',
+      clientName: 'Ava',
+      clientPhone: '1111111111',
+      services: ['BIAB Fill'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      totalDurationMinutes: 90,
+      totalPrice: 8500,
+    });
+
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendInternalBookingNotificationSms).not.toHaveBeenCalled();
+  });
+
+  it('still texts the owner when the owner channel says both', async () => {
+    await sendBookingNotificationsForNewBooking({
+      salon: {
+        ...baseSalon,
+        settings: {
+          ...baseSalon.settings,
+          notifications: {
+            ...baseSalon.settings.notifications,
+            newBooking: {
+              technicianEnabled: false,
+              ownerEnabled: true,
+              technicianChannel: 'sms',
+              ownerChannel: 'both',
+            },
+          },
+        },
+      },
+      technician: null,
+      appointmentId: 'appt_1',
+      clientName: 'Ava',
+      clientPhone: '1111111111',
+      services: ['BIAB Fill'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      totalDurationMinutes: 90,
+      totalPrice: 8500,
+    });
+
+    expect(sendInternalBookingNotificationSms).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
   });
 
   it('skips cancellation notifications for reschedules', async () => {

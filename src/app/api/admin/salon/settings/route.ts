@@ -32,6 +32,12 @@ import {
   resolveMerchandisingSettings,
 } from '@/libs/salonMerchandisingSettings';
 import {
+  mergeSalonEmailNotificationSettings,
+  resolveSalonEmailNotificationSettings,
+  resolveSalonNotificationRecipient,
+  salonEmailNotificationSettingsUpdateSchema,
+} from '@/libs/salonNotificationEmailSettings';
+import {
   mergeSmartFitSettings,
   readStoredSmartFitSettings,
   smartFitSettingsUpdateSchema,
@@ -56,6 +62,7 @@ const adminUpdateSchema = z.object({
   rewardsEnabled: z.boolean().optional(),
   bookingConfig: bookingConfigSchema.partial().optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
+  salonEmailNotifications: salonEmailNotificationSettingsUpdateSchema.optional(),
   merchandising: merchandisingSettingsUpdateSchema.optional(),
   payments: salonPaymentsSettingsSchema.optional(),
   smartFit: smartFitSettingsUpdateSchema.optional(),
@@ -69,6 +76,34 @@ const FORBIDDEN_FIELDS = [
   'referralRefereePointsOverride',
   'referralReferrerPointsOverride',
 ];
+
+/**
+ * Salon-facing appointment email settings plus the recipient they resolve to,
+ * so the settings UI can show the effective fallback and warn when nothing
+ * valid is configured.
+ */
+function buildSalonEmailNotificationResponse(salon: {
+  settings: SalonSettings | null | undefined;
+  ownerEmail: string | null;
+  email: string | null;
+}) {
+  const salonEmailNotifications = resolveSalonEmailNotificationSettings(
+    salon.settings ?? null,
+  );
+  const recipient = resolveSalonNotificationRecipient({
+    recipientEmail: salonEmailNotifications.recipientEmail,
+    ownerEmail: salon.ownerEmail,
+    salonEmail: salon.email,
+  });
+
+  return {
+    salonEmailNotifications,
+    salonNotificationRecipient: recipient.email
+      ? { email: recipient.email, source: recipient.source }
+      : null,
+    salonNotificationRecipientMissing: recipient.email === null,
+  };
+}
 
 // =============================================================================
 // GET /api/admin/salon/settings - Get salon settings
@@ -121,6 +156,11 @@ export async function GET(request: Request): Promise<Response> {
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      ...buildSalonEmailNotificationResponse({
+        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+        ownerEmail: salon.ownerEmail,
+        email: salon.email,
+      }),
       merchandising: resolveMerchandisingSettings(
         (salon.settings as SalonSettings | null | undefined) ?? null,
       ),
@@ -222,6 +262,9 @@ export async function PATCH(request: Request): Promise<Response> {
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
+    const currentSalonEmailNotifications = resolveSalonEmailNotificationSettings(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
     const currentMerchandising = resolveMerchandisingSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
@@ -266,15 +309,36 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('booking');
     }
 
-    if (updates.bookingNotifications) {
-      const mergedBookingNotifications = mergeBookingNotificationSettings(
-        currentBookingNotifications,
-        updates.bookingNotifications,
-      );
+    // Both notification blocks live under `settings.notifications`, so they are
+    // written together — assigning either one alone would drop the other.
+    if (updates.bookingNotifications || updates.salonEmailNotifications) {
+      const nextNotifications = {
+        ...(currentSettings.notifications ?? {}),
+      } as NonNullable<SalonSettings['notifications']>;
 
-      before.bookingNotifications = currentBookingNotifications;
-      after.bookingNotifications = mergedBookingNotifications;
-      ensureNextSettings().notifications = mergedBookingNotifications;
+      if (updates.bookingNotifications) {
+        const mergedBookingNotifications = mergeBookingNotificationSettings(
+          currentBookingNotifications,
+          updates.bookingNotifications,
+        );
+        before.bookingNotifications = currentBookingNotifications;
+        after.bookingNotifications = mergedBookingNotifications;
+        nextNotifications.newBooking = mergedBookingNotifications.newBooking;
+        nextNotifications.appointmentCancelled
+          = mergedBookingNotifications.appointmentCancelled;
+      }
+
+      if (updates.salonEmailNotifications) {
+        const mergedSalonEmailNotifications = mergeSalonEmailNotificationSettings(
+          currentSalonEmailNotifications,
+          updates.salonEmailNotifications,
+        );
+        before.salonEmailNotifications = currentSalonEmailNotifications;
+        after.salonEmailNotifications = mergedSalonEmailNotifications;
+        nextNotifications.salonEmail = mergedSalonEmailNotifications;
+      }
+
+      ensureNextSettings().notifications = nextNotifications;
       touchedSettingsKeys.push('notifications');
     }
 
@@ -415,6 +479,11 @@ export async function PATCH(request: Request): Promise<Response> {
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
         bookingNotifications: currentBookingNotifications,
+        ...buildSalonEmailNotificationResponse({
+          settings: currentSettings,
+          ownerEmail: salon.ownerEmail,
+          email: salon.email,
+        }),
         merchandising: currentMerchandising,
         payments: currentPayments,
         smartFit: currentSmartFit,
@@ -476,6 +545,11 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       bookingNotifications,
+      ...buildSalonEmailNotificationResponse({
+        settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+        ownerEmail: updatedSalon.ownerEmail,
+        email: updatedSalon.email,
+      }),
       merchandising: resolveMerchandisingSettings(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
       ),
