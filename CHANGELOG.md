@@ -1,3 +1,10 @@
+## [1.27.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.0...v1.27.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **admin:** restore Clerk context so the Add-ons tab loads ([f126105](https://github.com/SniperStopSniping/nailsalon/commit/f1261057ec41decbc825a3d8f0c7c47172ef4fd6))
+
 # [1.27.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.26.0...v1.27.0) (2026-07-21)
 
 
