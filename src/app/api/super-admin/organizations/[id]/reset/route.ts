@@ -1,21 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
-import { logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
-import {
-  appointmentPhotoSchema,
-  appointmentSchema,
-  appointmentServicesSchema,
-  clientPreferencesSchema,
-  referralSchema,
-  rewardSchema,
-  salonSchema,
-  technicianBlockedSlotSchema,
-  technicianSchema,
-  technicianServicesSchema,
-  technicianTimeOffSchema,
-} from '@/models/Schema';
+import type { PurgeGroup, PurgeTx } from '@/libs/salonPurge';
+import { purgeSalonGroups, SalonPurgeBlockedError } from '@/libs/salonPurge';
+import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
+import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,121 +63,94 @@ export async function POST(
       );
     }
 
-    const resetted: string[] = [];
-
-    // Reset all or specific categories
+    // Reset all or specific categories.
+    // Note 'clients' maps to preferences only — the modal offers "Client
+    // Preferences", and a reset must never destroy client records (loyalty
+    // points, lifetime spend). Only a full salon purge removes those.
     const resetAppointments = all || appointments;
     const resetClients = all || clients;
     const resetStaff = all || staff;
     const resetRewards = all || rewards;
 
-    // 1. Reset appointments
-    if (resetAppointments) {
-      // Get all appointment IDs first
-      const appointmentRecords = await db
-        .select({ id: appointmentSchema.id })
-        .from(appointmentSchema)
-        .where(eq(appointmentSchema.salonId, id));
+    const groups: PurgeGroup[] = [
+      ...(resetAppointments ? (['appointments'] as const) : []),
+      ...(resetClients ? (['clients'] as const) : []),
+      ...(resetStaff ? (['staff'] as const) : []),
+      ...(resetRewards ? (['rewards'] as const) : []),
+    ];
 
-      const appointmentIds = appointmentRecords.map(a => a.id);
-
-      if (appointmentIds.length > 0) {
-        // Delete appointment services
-        for (const apptId of appointmentIds) {
-          await db
-            .delete(appointmentServicesSchema)
-            .where(eq(appointmentServicesSchema.appointmentId, apptId));
-        }
-
-        // Delete appointment photos
-        await db
-          .delete(appointmentPhotoSchema)
-          .where(eq(appointmentPhotoSchema.salonId, id));
-
-        // Delete appointments
-        await db
-          .delete(appointmentSchema)
-          .where(eq(appointmentSchema.salonId, id));
-      }
-
-      resetted.push(`appointments (${appointmentIds.length})`);
+    if (groups.length === 0) {
+      return Response.json(
+        { error: 'Select at least one category to reset' },
+        { status: 400 },
+      );
     }
 
-    // 2. Reset client preferences
-    if (resetClients) {
-      const result = await db
-        .delete(clientPreferencesSchema)
-        .where(eq(clientPreferencesSchema.salonId, id))
-        .returning();
+    // One transaction: a partial reset is what destroyed 104 appointments'
+    // service line items before this route delegated to the shared purge plan.
+    const result = await db.transaction(async tx =>
+      purgeSalonGroups(tx as unknown as PurgeTx, id, groups));
 
-      resetted.push(`client preferences (${result.length})`);
+    const resetted = Object.entries(result.counts).map(([table, n]) => `${table} (${n})`);
+    const adminInfo = await getSuperAdminInfo();
+
+    // Per-salon trail for the salon's own activity log. Best-effort: the reset
+    // is already committed, so a failed audit insert must not turn a successful
+    // reset into a 500 the operator would read as "nothing happened".
+    try {
+      await logAuditAction(id, 'data_reset', {
+        details: `Reset: ${resetted.join(', ') || 'nothing to remove'}`,
+        newValue: { appointments: resetAppointments, clients: resetClients, staff: resetStaff, rewards: resetRewards },
+      });
+    } catch (auditError) {
+      console.error('[reset] Failed to write salon audit entry:', auditError);
     }
 
-    // 3. Reset staff (technicians and their availability)
-    if (resetStaff) {
-      // Get all technician IDs first
-      const technicianRecords = await db
-        .select({ id: technicianSchema.id })
-        .from(technicianSchema)
-        .where(eq(technicianSchema.salonId, id));
-
-      const technicianIds = technicianRecords.map(t => t.id);
-
-      if (technicianIds.length > 0) {
-        // Delete technician services
-        for (const techId of technicianIds) {
-          await db
-            .delete(technicianServicesSchema)
-            .where(eq(technicianServicesSchema.technicianId, techId));
-
-          await db
-            .delete(technicianTimeOffSchema)
-            .where(eq(technicianTimeOffSchema.technicianId, techId));
-
-          await db
-            .delete(technicianBlockedSlotSchema)
-            .where(eq(technicianBlockedSlotSchema.technicianId, techId));
-        }
-
-        // Delete technicians
-        await db
-          .delete(technicianSchema)
-          .where(eq(technicianSchema.salonId, id));
-      }
-
-      resetted.push(`staff (${technicianIds.length})`);
-    }
-
-    // 4. Reset rewards and referrals
-    if (resetRewards) {
-      const rewardsResult = await db
-        .delete(rewardSchema)
-        .where(eq(rewardSchema.salonId, id))
-        .returning();
-
-      const referralsResult = await db
-        .delete(referralSchema)
-        .where(eq(referralSchema.salonId, id))
-        .returning();
-
-      resetted.push(`rewards (${rewardsResult.length}), referrals (${referralsResult.length})`);
-    }
-
-    // Log the action
-    await logAuditAction(id, 'data_reset', {
-      details: `Reset: ${resetted.join(', ')}`,
-      newValue: { appointments: resetAppointments, clients: resetClients, staff: resetStaff, rewards: resetRewards },
+    // ...plus a platform-level record that survives a later salon deletion.
+    await logAuditEvent({
+      salonId: null,
+      actorType: 'super_admin',
+      actorId: adminInfo?.userId ?? null,
+      action: 'salon_data_reset',
+      entityType: 'salon',
+      entityId: id,
+      metadata: { name: existing.name, slug: existing.slug, groups, rowsDeleted: result.totalRows, tables: result.counts },
     });
 
     return Response.json({
       success: true,
       message: 'Data reset successfully',
       resetted,
+      rowsDeleted: result.totalRows,
+      tables: result.counts,
     });
   } catch (error) {
+    if (error instanceof SalonPurgeBlockedError) {
+      return Response.json(
+        { error: error.message, blockers: error.blockers },
+        { status: 409 },
+      );
+    }
+
+    const pgError = error as { code?: string; constraint?: string; table?: string; detail?: string };
+    if (pgError?.code === '23503') {
+      return Response.json(
+        {
+          error: 'Cannot reset salon data: related records still reference it',
+          constraint: pgError.constraint,
+          table: pgError.table,
+          detail: pgError.detail,
+        },
+        { status: 409 },
+      );
+    }
+
     console.error('Error resetting salon data:', error);
     return Response.json(
-      { error: 'Failed to reset salon data' },
+      {
+        error: 'Failed to reset salon data',
+        details: error instanceof Error ? error.message : undefined,
+      },
       { status: 500 },
     );
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 // =============================================================================
 // Types
@@ -30,13 +30,65 @@ export function DeleteSalonModal({
   isDeleted,
   onSuccess,
 }: DeleteSalonModalProps) {
-  const [deleteType, setDeleteType] = useState<'soft' | 'hard'>('soft');
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [impact, setImpact] = useState<{ tables: Record<string, number>; totalRows: number } | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+
+  // The mode follows the salon's state rather than a radio the operator can get
+  // out of sync with. The API enforces the same rule: permanent deletion is only
+  // reachable once a salon has been archived, so an active salon with live
+  // bookings can never be destroyed in a single action.
+  const deleteType: 'soft' | 'hard' = isDeleted ? 'hard' : 'soft';
+
+  // Biggest tables first — that is what an operator scans for when checking they
+  // picked the right salon.
+  const impactRows = impact ? Object.entries(impact.tables).sort(([, a], [, b]) => b - a) : [];
 
   const requiredConfirmText = deleteType === 'hard' ? salonSlug : 'DELETE';
-  const isConfirmed = confirmText === requiredConfirmText;
+  // Guard the empty case: SalonDetailPanel passes `salon?.slug || ''` while the
+  // salon is still loading, which would otherwise arm the button with no typing.
+  const isConfirmed = requiredConfirmText.length > 0 && confirmText.trim() === requiredConfirmText;
+
+  // Dry run of the real purge plan, so the operator confirms against actual row
+  // counts rather than a hardcoded list of categories.
+  useEffect(() => {
+    if (!isOpen || !salonId) {
+      return;
+    }
+
+    let cancelled = false;
+    setImpactLoading(true);
+
+    fetch(`/api/super-admin/organizations/${salonId}/impact`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('unavailable');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setImpact({ tables: data.tables ?? {}, totalRows: data.totalRows ?? 0 });
+        }
+      })
+      .catch(() => {
+        // The preview is an aid, not a gate — deletion still works without it.
+        if (!cancelled) {
+          setImpact(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setImpactLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, salonId]);
 
   const handleDelete = async () => {
     if (!isConfirmed) {
@@ -53,6 +105,13 @@ export function DeleteSalonModal({
 
       const response = await fetch(url, {
         method: 'DELETE',
+        ...(deleteType === 'hard'
+          ? {
+              headers: { 'Content-Type': 'application/json' },
+              // Re-checked server-side against the stored slug.
+              body: JSON.stringify({ confirmSlug: confirmText.trim() }),
+            }
+          : {}),
       });
 
       if (!response.ok) {
@@ -70,7 +129,6 @@ export function DeleteSalonModal({
   };
 
   const handleClose = () => {
-    setDeleteType('soft');
     setConfirmText('');
     setError(null);
     onClose();
@@ -82,9 +140,17 @@ export function DeleteSalonModal({
 
   return (
     <div className="fixed inset-0 z-[60] overflow-hidden">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+      {/*
+        Backdrop. A real <button> so the click handler sits on an interactive
+        element, but hidden from assistive tech and the tab order: it would
+        otherwise be a second, unlabelled "close" control duplicating the X
+        button, which is the keyboard affordance.
+      */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="fixed inset-0 size-full cursor-default bg-black/50 backdrop-blur-sm"
         onClick={handleClose}
       />
 
@@ -124,43 +190,27 @@ export function DeleteSalonModal({
               </div>
             )}
 
-            {/* Delete Type Selection */}
-            <div className="space-y-3">
-              {!isDeleted && (
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
-                  <input
-                    type="radio"
-                    name="deleteType"
-                    checked={deleteType === 'soft'}
-                    onChange={() => setDeleteType('soft')}
-                    className="mt-0.5 size-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <div>
-                    <div className="font-medium text-gray-900">Soft Delete</div>
+            {/* What this action does. Determined by the salon's state, not a radio. */}
+            {deleteType === 'soft'
+              ? (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="font-medium text-gray-900">Archive Salon</div>
                     <div className="text-xs text-gray-500">
-                      Mark salon as deleted but preserve all data. Can be restored later.
+                      Marks the salon as deleted and takes it offline, but preserves all data.
+                      You can restore it at any time. To destroy the data permanently, archive it
+                      first, then use Delete Permanently.
                     </div>
                   </div>
-                </label>
-              )}
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3">
-                <input
-                  type="radio"
-                  name="deleteType"
-                  checked={deleteType === 'hard'}
-                  onChange={() => setDeleteType('hard')}
-                  className="mt-0.5 size-4 border-gray-300 text-red-600 focus:ring-red-500"
-                />
-                <div>
-                  <div className="font-medium text-red-900">Permanent Delete</div>
-                  <div className="text-xs text-red-700">
-                    Remove ALL data permanently: appointments, clients, staff, services, rewards.
-                    This CANNOT be undone.
+                )
+              : (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                    <div className="font-medium text-red-900">Permanent Delete</div>
+                    <div className="text-xs text-red-700">
+                      Remove ALL data permanently: appointments, clients, staff, services, rewards.
+                      This CANNOT be undone.
+                    </div>
                   </div>
-                </div>
-              </label>
-            </div>
+                )}
 
             {/* Confirmation */}
             <div className="border-t border-gray-200 pt-4">
@@ -169,6 +219,7 @@ export function DeleteSalonModal({
                   ? (
                       <>
                         Type
+                        {' '}
                         <strong>{salonSlug}</strong>
                         {' '}
                         to confirm permanent deletion
@@ -177,6 +228,7 @@ export function DeleteSalonModal({
                   : (
                       <>
                         Type
+                        {' '}
                         <strong>DELETE</strong>
                         {' '}
                         to confirm
@@ -192,23 +244,35 @@ export function DeleteSalonModal({
               />
             </div>
 
-            {/* Warning for hard delete */}
+            {/* Warning for hard delete, showing the real rows about to be destroyed */}
             {deleteType === 'hard' && (
               <div className="rounded-lg border border-red-200 bg-red-100 p-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
-                  <div className="text-xs text-red-800">
+                  <div className="min-w-0 flex-1 text-xs text-red-800">
                     <strong>Warning:</strong>
                     {' '}
-                    This will permanently delete:
-                    <ul className="ml-4 mt-1 list-disc">
-                      <li>All appointments and booking history</li>
-                      <li>All services and pricing</li>
-                      <li>All technicians and schedules</li>
-                      <li>All client preferences</li>
-                      <li>All rewards and referrals</li>
-                      <li>All photos and media</li>
-                    </ul>
+                    This will permanently delete
+                    {impact ? ` ${impact.totalRows.toLocaleString()} rows:` : ' all data for this salon.'}
+
+                    {impactLoading && <div className="mt-1 text-red-700">Counting affected records…</div>}
+
+                    {impact && impactRows.length > 0 && (
+                      <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+                        {impactRows.map(([table, count]) => (
+                          <li key={table} className="flex justify-between gap-3">
+                            <span className="truncate font-mono">{table}</span>
+                            <span className="shrink-0 font-semibold">{count.toLocaleString()}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {impact && impactRows.length === 0 && !impactLoading && (
+                      <div className="mt-1">This salon has no remaining data rows.</div>
+                    )}
+
+                    <div className="mt-2 font-semibold">This CANNOT be undone.</div>
                   </div>
                 </div>
               </div>
@@ -242,7 +306,7 @@ export function DeleteSalonModal({
                 : (
                     <Trash2 className="size-4" />
                   )}
-              {deleteType === 'hard' ? 'Delete Permanently' : 'Soft Delete'}
+              {deleteType === 'hard' ? 'Delete Permanently' : 'Archive Salon'}
             </button>
           </div>
         </div>
