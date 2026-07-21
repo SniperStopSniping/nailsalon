@@ -67,10 +67,10 @@ export const SERVICE_IMAGE = {
   pedicureFrench: `${IMG}/pedicure-french.webp`,
   pedicureToes: `${IMG}/pedicure-white-toes.webp`,
   pedicureBare: `${IMG}/pedicure-bare-natural.webp`,
-  comboNude: `${IMG}/combo-nude-wide.webp`,
-  comboFrench: `${IMG}/combo-french-wide.webp`,
-  comboChampagne: `${IMG}/combo-champagne-wide.webp`,
-  comboBuilder: `${IMG}/combo-mauve-luster.webp`,
+  comboNude: `${IMG}/combo-nude-luster.webp`,
+  comboFrench: `${IMG}/combo-french-luster.webp`,
+  comboChampagne: `${IMG}/combo-taupe-luster.webp`,
+  comboBuilder: `${IMG}/combo-pink-builder-luster.webp`,
 } as const;
 
 /**
