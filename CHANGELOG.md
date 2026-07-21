@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.24.0...v1.25.0) (2026-07-21)
+
+
+### Features
+
+* **booking:** bare-nail art for no-colour services, better combo shots ([f3909b1](https://github.com/SniperStopSniping/nailsalon/commit/f3909b1fe5c50eda74a74d522b5c5e6332a216df))
+
 # [1.24.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.23.1...v1.24.0) (2026-07-21)
 
 
