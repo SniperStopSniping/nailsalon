@@ -4,7 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock } = vi.hoisted(() => ({
+const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, sessionMock } = vi.hoisted(() => ({
+  sessionMock: {
+    isLoggedIn: true,
+    clientName: 'Ava' as string | null,
+    clientEmail: 'ava@example.com' as string | null,
+    phone: '4165550101',
+  },
   routerBack: vi.fn(),
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
@@ -38,13 +44,13 @@ vi.mock('@/hooks/useBookingState', () => ({
 
 vi.mock('@/hooks/useClientSession', () => ({
   useClientSession: () => ({
-    isLoggedIn: true,
     isCheckingSession: false,
     handleLoginSuccess: vi.fn(),
     validateSession: vi.fn(),
-    clientName: 'Ava',
-    clientEmail: 'ava@example.com',
-    phone: '4165550101',
+    isLoggedIn: sessionMock.isLoggedIn,
+    clientName: sessionMock.clientName,
+    clientEmail: sessionMock.clientEmail,
+    phone: sessionMock.phone,
   }),
 }));
 
@@ -93,6 +99,10 @@ describe('BookConfirmClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     window.open = windowOpen;
     sessionStorage.clear();
+    sessionMock.isLoggedIn = true;
+    sessionMock.clientName = 'Ava';
+    sessionMock.clientEmail = 'ava@example.com';
+    sessionMock.phone = '4165550101';
   });
 
   it('does not create a booking on initial page load', () => {
@@ -617,6 +627,93 @@ describe('BookConfirmClient', () => {
 
       expect(requestBody.expectedDiscountType).toBe('smart_fit');
       expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
+    });
+  });
+
+  describe('contact details', () => {
+    const renderReview = () => render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="11:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    /**
+     * The confirm button is disabled until all three contact fields are valid.
+     * Before this, nothing said the fields were required and nothing said which
+     * one was missing, so a customer who skipped one just saw a dead button.
+     */
+    it('marks every contact field as required, visibly and for assistive tech', () => {
+      sessionMock.isLoggedIn = false;
+      renderReview();
+
+      expect(screen.getAllByText('Required')).toHaveLength(3);
+
+      for (const label of ['Customer name', 'Customer email', 'Customer phone']) {
+        expect(screen.getByLabelText(label)).toBeRequired();
+      }
+    });
+
+    it('names the one thing still missing while the button stays disabled', () => {
+      sessionMock.isLoggedIn = false;
+      renderReview();
+
+      const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+
+      expect(confirm).toBeDisabled();
+      expect(screen.getByTestId('contact-blocker-hint')).toHaveTextContent('Add your name to continue.');
+
+      fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Ava Chen' } });
+
+      expect(screen.getByTestId('contact-blocker-hint')).toHaveTextContent('Enter a valid email address to continue.');
+
+      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'ava@example.com' } });
+
+      expect(screen.getByTestId('contact-blocker-hint')).toHaveTextContent('Enter a 10-digit mobile number to continue.');
+    });
+
+    it('clears the hint and enables the button once the details are complete', () => {
+      sessionMock.isLoggedIn = false;
+      renderReview();
+
+      fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Ava Chen' } });
+      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'ava@example.com' } });
+      fireEvent.change(screen.getByLabelText('Customer phone'), { target: { value: '416-555-0101' } });
+
+      expect(screen.queryByTestId('contact-blocker-hint')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
+    });
+
+    it('tells a signed-in customer they are signed in', () => {
+      renderReview();
+
+      expect(screen.getByTestId('signed-in-notice')).toHaveTextContent('You\'re signed in as Ava');
+    });
+
+    it('falls back to a masked phone when the account has no name, never the full number', () => {
+      sessionMock.clientName = null;
+      renderReview();
+
+      const notice = screen.getByTestId('signed-in-notice');
+
+      expect(notice).toHaveTextContent('(•••) •••-0101');
+      expect(notice).not.toHaveTextContent(/4165550101/);
+    });
+
+    it('shows no signed-in notice for a guest', () => {
+      sessionMock.isLoggedIn = false;
+      renderReview();
+
+      expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
     });
   });
 });
