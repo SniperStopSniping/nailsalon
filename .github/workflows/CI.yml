@@ -99,6 +99,13 @@ jobs:
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
+      # The E2E suite books against a real salon. It used to assume that salon
+      # simply existed, so when a super-admin hard delete removed nail-salon-no5
+      # every run failed and nothing in CI could put it back. Seeding here is
+      # idempotent and recreates the fixture if it has gone missing.
+      - name: Seed E2E fixtures
+        run: npx tsx scripts/seed-e2e-fixtures.ts
+
       - name: Run E2E tests with Percy
         if: env.PERCY_TOKEN != ''
         run: npx percy exec -- npm run test:e2e
