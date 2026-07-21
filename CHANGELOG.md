@@ -1,3 +1,16 @@
+# [1.24.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.23.1...v1.24.0) (2026-07-21)
+
+
+### Bug Fixes
+
+* **super-admin:** make permanent salon deletion work and stop partial destruction ([248a239](https://github.com/SniperStopSniping/nailsalon/commit/248a2390d5fa01d816b4618ef30cac8dfb2b6d54))
+* **tooling:** stop the pre-commit hook generating and applying migrations ([549ca47](https://github.com/SniperStopSniping/nailsalon/commit/549ca4729e44bf45621a4af0c0fda3379dd85407))
+
+
+### Features
+
+* **booking:** give each service its own photo instead of one shared image ([88f353b](https://github.com/SniperStopSniping/nailsalon/commit/88f353bad6beea1092d25db977ffc2e81721fbaf))
+
 ## [1.23.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.23.0...v1.23.1) (2026-07-21)
 
 
