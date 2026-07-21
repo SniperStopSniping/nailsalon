@@ -1,3 +1,15 @@
+# [1.27.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.26.0...v1.27.0) (2026-07-21)
+
+
+### Bug Fixes
+
+* **booking:** open the service step with nothing selected ([7a4b4f0](https://github.com/SniperStopSniping/nailsalon/commit/7a4b4f0ae61c696e50449de80f2242e928c35730))
+
+
+### Features
+
+* **booking:** use the Luster-branded combo art on every combo ([b6cb901](https://github.com/SniperStopSniping/nailsalon/commit/b6cb90191b33e0c8b886179d5ef9a605e0e13303))
+
 # [1.26.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.25.0...v1.26.0) (2026-07-21)
 
 
