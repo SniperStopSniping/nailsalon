@@ -778,10 +778,23 @@ describe('ClientsModal', () => {
       fireEvent.click(await screen.findByTestId('client-appointment-change-appt_upcoming'));
 
       expect(await screen.findByTestId('appointment-quick-edit-sheet')).toBeInTheDocument();
+      expect(screen.getByText('Edit appointment')).toBeInTheDocument();
+      expect(screen.getByTestId('appointment-editor-form')).not.toHaveClass('hidden');
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_upcoming/manage?salonSlug=isla-nail-studio');
       });
+    });
+
+    it('opens read-only details when the appointment card is tapped', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(await screen.findByTestId('client-appointment-card-appt_upcoming'));
+
+      expect(await screen.findByTestId('appointment-quick-edit-sheet')).toHaveTextContent('Appointment details');
+      expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
     });
 
     it('opens the cancel confirmation directly from the card Cancel button', async () => {

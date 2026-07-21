@@ -2,7 +2,7 @@
 
 import { CalendarPlus, Clock3, Mail, MapPin, Phone, UserRound } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -11,6 +11,8 @@ import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { themeVars } from '@/theme';
 
 type AppointmentQuickEditSheetProps = {
+  /** Explicit launch intent. Details never exposes booking inputs; edit always enters the form. */
+  mode?: 'view' | 'edit';
   isOpen: boolean;
   onClose: () => void;
   detail: AppointmentManageDetail | null;
@@ -31,6 +33,7 @@ type AppointmentQuickEditSheetProps = {
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    durationMinutes: number;
   }) => Promise<void>;
   onMoveToNextAvailable: () => Promise<void>;
   onCancelAppointment: (args: { reason: string; internalNote?: string }) => Promise<void>;
@@ -78,6 +81,7 @@ function warningMessage(warning: ManageWarning) {
 }
 
 export function AppointmentQuickEditSheet({
+  mode = 'edit',
   isOpen,
   onClose,
   detail,
@@ -102,9 +106,11 @@ export function AppointmentQuickEditSheet({
   onRetryLoad,
   initialPendingAction = null,
 }: AppointmentQuickEditSheetProps) {
+  const editSectionRef = useRef<HTMLDivElement>(null);
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState(15);
   const [cancelReason, setCancelReason] = useState('client_request');
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | null>(null);
@@ -117,10 +123,22 @@ export function AppointmentQuickEditSheet({
     setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
     setTechnicianId(detail.appointment.technicianId ?? null);
     setStartTime(formatDateTimeValue(detail.appointment.startTime));
+    setDurationMinutes(detail.appointment.totalDurationMinutes);
     if (initialPendingAction === 'cancel' && detail.permissions.canCancel) {
       setPendingConfirm('cancel');
     }
   }, [detail, initialPendingAction]);
+
+  useEffect(() => {
+    if (mode === 'edit' && detail) {
+      requestAnimationFrame(() => {
+        const section = editSectionRef.current;
+        if (section && typeof section.scrollIntoView === 'function') {
+          section.scrollIntoView({ block: 'start' });
+        }
+      });
+    }
+  }, [detail, mode]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
@@ -159,6 +177,7 @@ export function AppointmentQuickEditSheet({
       baseServiceId !== (detail.appointment.baseServiceId ?? '')
       || technicianId !== (detail.appointment.technicianId ?? null)
       || startTime !== formatDateTimeValue(detail.appointment.startTime)
+      || durationMinutes !== detail.appointment.totalDurationMinutes
     ),
   );
 
@@ -177,8 +196,12 @@ export function AppointmentQuickEditSheet({
       <div data-testid="appointment-quick-edit-sheet" className="flex h-full flex-col">
         <div className="flex items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
           <div>
-            <div className="text-lg font-semibold text-neutral-900">Appointment</div>
-            <div className="text-sm text-neutral-500">Quick edit</div>
+            <div className="text-lg font-semibold text-neutral-900">
+              {mode === 'edit' ? 'Edit appointment' : 'Appointment details'}
+            </div>
+            <div className="text-sm text-neutral-500">
+              {mode === 'edit' ? 'Change the booking' : 'Read-only'}
+            </div>
           </div>
           <button
             type="button"
@@ -281,7 +304,11 @@ export function AppointmentQuickEditSheet({
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-neutral-200 p-4">
+                      <div
+                        ref={editSectionRef}
+                        data-testid="appointment-editor-form"
+                        className={`rounded-2xl border border-neutral-200 p-4 ${mode === 'view' ? 'hidden' : ''}`}
+                      >
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className="text-sm font-semibold text-neutral-900">Client confirmation email</div>
@@ -490,13 +517,31 @@ export function AppointmentQuickEditSheet({
                               disabled={saving || !detail.permissions.canMove}
                             />
                           </label>
+
+                          <label className="block" htmlFor="appointment-duration">
+                            <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
+                              Duration (minutes)
+                            </span>
+                            <input
+                              id="appointment-duration"
+                              data-testid="appointment-sheet-duration"
+                              type="number"
+                              min={15}
+                              max={480}
+                              step={5}
+                              value={durationMinutes}
+                              onChange={event => setDurationMinutes(Number(event.target.value))}
+                              className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+                              disabled={saving || !detail.permissions.canMove}
+                            />
+                          </label>
                         </div>
 
                         <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
                           <div className="flex items-center justify-between">
                             <span>Projected duration</span>
                             <span data-testid="appointment-sheet-projected-duration" className="font-medium text-neutral-900">
-                              {projectedDuration}
+                              {durationMinutes || projectedDuration}
                               {' '}
                               min
                             </span>
@@ -650,7 +695,7 @@ export function AppointmentQuickEditSheet({
                   )}
         </div>
 
-        {detail && (
+        {detail && mode === 'edit' && (
           <div
             className="sticky bottom-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
@@ -662,7 +707,7 @@ export function AppointmentQuickEditSheet({
                 data-testid="appointment-sheet-close"
                 className="flex-1 rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-700"
               >
-                Close
+                Cancel
               </button>
               <button
                 type="button"
@@ -671,6 +716,7 @@ export function AppointmentQuickEditSheet({
                   baseServiceId,
                   technicianId,
                   startTime,
+                  durationMinutes,
                 })}
                 disabled={saving || !isDirty}
                 className="flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
@@ -679,6 +725,21 @@ export function AppointmentQuickEditSheet({
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
+          </div>
+        )}
+        {detail && mode === 'view' && (
+          <div
+            className="sticky bottom-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              data-testid="appointment-sheet-close"
+              className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-700"
+            >
+              Close
+            </button>
           </div>
         )}
       </div>

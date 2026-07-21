@@ -199,6 +199,7 @@ type ChangeServiceArgs = {
   baseServiceId: string;
   startTime?: Date;
   technicianId?: string | null;
+  durationMinutes?: number;
 };
 
 type ReassignArgs = {
@@ -904,7 +905,11 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
   const newBaseDurationMinutes = newService.durationMinutes;
   const preservedAddOnPriceCents = sumAddOnLineTotals(kept);
   const preservedAddOnDurationMinutes = sumAddOnDurations(kept);
-  const totalDurationMinutes = newBaseDurationMinutes + preservedAddOnDurationMinutes;
+  const calculatedDurationMinutes = newBaseDurationMinutes + preservedAddOnDurationMinutes;
+  const totalDurationMinutes = args.durationMinutes ?? calculatedDurationMinutes;
+  if (!Number.isInteger(totalDurationMinutes) || totalDurationMinutes < 15 || totalDurationMinutes > 480) {
+    throw new AppointmentManageError('INVALID_DURATION', 'Appointment duration must be between 15 and 480 minutes.', 400);
+  }
   const bufferMinutes = args.loaded.bufferMinutes;
   const newSubtotalCents = newBasePriceCents + preservedAddOnPriceCents;
   const discount = computePreservedDiscount({
@@ -986,7 +991,7 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
         totalDurationMinutes,
         basePriceCents: newBasePriceCents,
         addOnsPriceCents: preservedAddOnPriceCents,
-        baseDurationMinutes: newBaseDurationMinutes,
+        baseDurationMinutes: Math.max(0, totalDurationMinutes - preservedAddOnDurationMinutes),
         addOnsDurationMinutes: preservedAddOnDurationMinutes,
         bufferMinutes,
         blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
@@ -1057,6 +1062,7 @@ export async function runAppointmentManageMutation(args: {
         baseServiceId: args.baseServiceId,
         startTime: args.startTime,
         technicianId: args.technicianId,
+        durationMinutes: args.durationMinutes,
       });
       break;
     case 'reassignTechnician':
