@@ -1,3 +1,16 @@
+# [1.26.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.25.0...v1.26.0) (2026-07-21)
+
+
+### Bug Fixes
+
+* **ci:** stop cutting a release from a failed CI run ([649a85c](https://github.com/SniperStopSniping/nailsalon/commit/649a85c60c195adfc5e4090a3d676fbc1201cb83))
+* **e2e:** rebuild the fixture salon instead of failing forever without it ([7702695](https://github.com/SniperStopSniping/nailsalon/commit/7702695f62139590bcf7785821cf29f513df5aae))
+
+
+### Features
+
+* **booking:** use ultra-wide combo art sized to the card ([028680a](https://github.com/SniperStopSniping/nailsalon/commit/028680aef81c20c84ff6df482c05da85c449e5aa))
+
 # [1.25.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.24.0...v1.25.0) (2026-07-21)
 
 
