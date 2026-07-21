@@ -1,3 +1,10 @@
+## [1.27.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.1...v1.27.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* **booking:** hide featured services during active search ([7015506](https://github.com/SniperStopSniping/nailsalon/commit/701550636e45d3fdaa084ea31b3ed2260f1c0dcc))
+
 ## [1.27.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.0...v1.27.1) (2026-07-21)
 
 
