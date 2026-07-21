@@ -1,3 +1,15 @@
+# [1.23.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.22.1...v1.23.0) (2026-07-21)
+
+
+### Bug Fixes
+
+* **booking:** stop the client session silently rebinding a booking's identity ([ae9aa96](https://github.com/SniperStopSniping/nailsalon/commit/ae9aa965f94661a0b48b2349476c4ffb783313ed))
+
+
+### Features
+
+* **booking:** mark contact fields required and say when you're signed in ([ff2f25e](https://github.com/SniperStopSniping/nailsalon/commit/ff2f25e65081ba3a2111a75812036b9eeb8f98a3))
+
 ## [1.22.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.22.0...v1.22.1) (2026-07-20)
 
 
