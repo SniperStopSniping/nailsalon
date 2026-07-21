@@ -662,6 +662,10 @@ const ConfirmContent = ({
   onAcceptSmartFitSuggestion,
   onDismissSmartFitSuggestion,
   signedInAs,
+  bookingSubject,
+  onSignOut,
+  onBookForSomeoneElse,
+  onBookForMyself,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -699,6 +703,10 @@ const ConfirmContent = ({
   onDismissSmartFitSuggestion: () => void;
   /** Display name for a signed-in client, already masked. Null when a guest. */
   signedInAs: string | null;
+  bookingSubject: 'self' | 'guest';
+  onSignOut: () => void;
+  onBookForSomeoneElse: () => void;
+  onBookForMyself: () => void;
 }) => {
   // Focus and announcement management for the one nearby suggestion: both
   // actions unmount the banner (and the focused button with it), so focus
@@ -708,6 +716,10 @@ const ConfirmContent = ({
 
   // Drives both the confirm button's disabled state and the hint under it, so
   // the two can never disagree about why booking is not available yet.
+  // A self booking is pinned to the account's phone: it is the OTP login
+  // credential, so editing it here would be an account-takeover path.
+  const identityLocked = Boolean(signedInAs) && bookingSubject === 'self';
+
   const contactBlocker = getContactDetailsBlocker({
     name: guestName,
     email: guestEmail,
@@ -868,13 +880,34 @@ const ConfirmContent = ({
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="space-y-3 pt-0"
           >
-            {signedInAs && (
-              <p data-testid="signed-in-notice" className="rounded-xl border border-[var(--n5-border-muted)] bg-[var(--n5-bg-page)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                You&apos;re signed in as
-                {' '}
-                <span className="font-semibold text-[var(--n5-ink-main)]">{signedInAs}</span>
-                . We&apos;ve filled in your details.
-              </p>
+            {signedInAs && bookingSubject === 'self' && (
+              <div data-testid="signed-in-notice" className="rounded-xl border border-[var(--n5-border-muted)] bg-[var(--n5-bg-page)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
+                <p>
+                  You&apos;re signed in as
+                  {' '}
+                  <span className="font-semibold text-[var(--n5-ink-main)]">{signedInAs}</span>
+                  . This booking will be attached to your account.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-semibold text-[var(--n5-accent)]">
+                  <button type="button" onClick={onBookForSomeoneElse} className="underline underline-offset-2">
+                    Book for someone else
+                  </button>
+                  <button type="button" onClick={onSignOut} className="underline underline-offset-2">
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+            {signedInAs && bookingSubject === 'guest' && (
+              <div data-testid="guest-mode-notice" className="rounded-xl border border-[var(--n5-border-muted)] bg-[var(--n5-bg-page)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
+                <p>
+                  You&apos;re booking for someone else. Enter their details below — this
+                  appointment won&apos;t be attached to your account.
+                </p>
+                <button type="button" onClick={onBookForMyself} className="mt-2 font-semibold text-[var(--n5-accent)] underline underline-offset-2">
+                  Book for myself instead
+                </button>
+              </div>
             )}
             <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
@@ -895,7 +928,12 @@ const ConfirmContent = ({
                 Mobile phone
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
               </span>
-              <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+              <input aria-label="Customer phone" required aria-required="true" readOnly={identityLocked} type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className={`mt-1 w-full rounded-xl border border-[var(--n5-border)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] ${identityLocked ? 'cursor-not-allowed bg-[var(--n5-bg-card)] opacity-70' : 'bg-[var(--n5-bg-page)]'}`} />
+              {identityLocked && (
+                <span className="mt-1 block font-normal text-[var(--n5-ink-muted)]">
+                  Your account number. Change it in your profile, or book for someone else above.
+                </span>
+              )}
             </label>
             {smsEnabled && (
               <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
@@ -1562,18 +1600,21 @@ export function BookConfirmClient({
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
+  // Who this booking is for. Only an explicit customer action moves it to
+  // 'guest'; the server validates the same flag and refuses to guess.
+  const [bookingSubject, setBookingSubject] = useState<'self' | 'guest'>('self');
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [smsConsent, setSmsConsent] = useState(false);
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (isLoggedIn && bookingSubject === 'self') {
       setGuestName(current => current || clientName || '');
       setGuestEmail(current => current || clientEmail || '');
       setGuestPhone(current => current || sessionPhone || '');
     }
-  }, [clientEmail, clientName, isLoggedIn, sessionPhone]);
+  }, [bookingSubject, clientEmail, clientName, isLoggedIn, sessionPhone]);
 
   // Contact details survive navigation and recoverable errors within this tab,
   // so a failed attempt or a trip back to the time step never re-asks for them.
@@ -1745,6 +1786,7 @@ export function BookConfirmClient({
             }),
         technicianId: techId === 'any' ? null : techId,
         clientName: guestName.trim(),
+        bookingSubject,
         clientEmail: guestEmail.trim().toLowerCase(),
         clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
         ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v1' } }),
@@ -1894,6 +1936,54 @@ export function BookConfirmClient({
     } finally {
       setIsSavingName(false);
     }
+  };
+
+  /** Switch to booking for another person: drop the account's prefilled details. */
+  const handleBookForSomeoneElse = () => {
+    setBookingSubject('guest');
+    setGuestName('');
+    setGuestEmail('');
+    setGuestPhone('');
+    setBookingError(null);
+    setHasExistingAppointment(false);
+    try {
+      sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — nothing to clear.
+    }
+  };
+
+  const handleBookForMyself = () => {
+    setBookingSubject('self');
+    setGuestName(clientName || '');
+    setGuestEmail(clientEmail || '');
+    setGuestPhone(sessionPhone || '');
+    setBookingError(null);
+    setHasExistingAppointment(false);
+  };
+
+  /**
+   * Sign out from inside the booking flow. Without this a stale session left
+   * the customer permanently unable to book in that browser.
+   */
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Even if the call fails, clear what we control and re-validate below.
+    }
+    try {
+      sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — nothing to clear.
+    }
+    setBookingSubject('guest');
+    setGuestName('');
+    setGuestEmail('');
+    setGuestPhone('');
+    setBookingError(null);
+    setHasExistingAppointment(false);
+    await validateSession();
   };
 
   const handleViewAppointment = () => {
@@ -2095,6 +2185,10 @@ export function BookConfirmClient({
       onAcceptSmartFitSuggestion={handleAcceptSmartFitSuggestion}
       onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
       signedInAs={isLoggedIn ? (clientName?.trim() || maskPhone(sessionPhone) || null) : null}
+      bookingSubject={bookingSubject}
+      onSignOut={handleSignOut}
+      onBookForSomeoneElse={handleBookForSomeoneElse}
+      onBookForMyself={handleBookForMyself}
     />
   );
 }

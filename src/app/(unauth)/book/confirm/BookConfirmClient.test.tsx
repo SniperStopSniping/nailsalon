@@ -716,4 +716,113 @@ describe('BookConfirmClient', () => {
       expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
     });
   });
+
+  /**
+   * The signed-in identity must be visible AND escapable. A stale session used
+   * to pin the browser to an account with no way out, which is what made the
+   * duplicate-booking block feel permanent.
+   */
+  describe('signed-in identity controls', () => {
+    const renderReview = () => render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="11:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    it('locks the account phone and explains where to change it', () => {
+      renderReview();
+
+      expect(screen.getByLabelText('Customer phone')).toHaveAttribute('readonly');
+      expect(screen.getByText(/Change it in your profile/i)).toBeInTheDocument();
+    });
+
+    it('submits self mode with the account identity', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({
+        data: { appointmentId: 'appt_1', appointment: { id: 'appt_1' } },
+      }), { status: 201 }));
+
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(body.bookingSubject).toBe('self');
+    });
+
+    it('clears the prefilled details when booking for someone else', () => {
+      renderReview();
+
+      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
+
+      expect(screen.getByTestId('guest-mode-notice')).toBeInTheDocument();
+      expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Customer phone')).toHaveValue('');
+      expect(screen.getByLabelText('Customer email')).toHaveValue('');
+      // And the field is editable again — it is no longer the account's number.
+      expect(screen.getByLabelText('Customer phone')).not.toHaveAttribute('readonly');
+    });
+
+    it('submits guest mode with the other person\'s details', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({
+        data: { appointmentId: 'appt_2', appointment: { id: 'appt_2' } },
+      }), { status: 201 }));
+
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
+      fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Sam Guest' } });
+      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'sam@example.com' } });
+      fireEvent.change(screen.getByLabelText('Customer phone'), { target: { value: '416-555-9999' } });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(body.bookingSubject).toBe('guest');
+      expect(body.clientPhone).toBe('4165559999');
+      expect(body.clientEmail).toBe('sam@example.com');
+      // Never the account holder's details.
+      expect(body.clientPhone).not.toBe('4165550101');
+    });
+
+    it('can switch back to booking for myself', () => {
+      renderReview();
+
+      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
+      fireEvent.click(screen.getByRole('button', { name: /book for myself instead/i }));
+
+      expect(screen.getByTestId('signed-in-notice')).toBeInTheDocument();
+      expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
+    });
+
+    it('signs out from the booking flow and clears the identity', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: /^sign out$/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' }));
+
+      expect(screen.getByLabelText('Customer phone')).toHaveValue('');
+    });
+
+    it('shows no identity controls for a visitor who is not signed in', () => {
+      sessionMock.isLoggedIn = false;
+      renderReview();
+
+      expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('guest-mode-notice')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Customer phone')).not.toHaveAttribute('readonly');
+    });
+  });
 });
