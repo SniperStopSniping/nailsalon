@@ -13,6 +13,7 @@ import {
   TTL,
 } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
+import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
@@ -24,6 +25,11 @@ import {
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
 } from '@/libs/bookingConflictGuard';
+import {
+  type BookingSubjectMode,
+  classifyDuplicateBooking,
+  resolveBookingSubject,
+} from '@/libs/bookingIdentity';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
@@ -57,7 +63,6 @@ import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
-  getActiveAppointmentsForClient,
   getAppointmentById,
   getAppointmentServiceNames,
   getClientByPhone,
@@ -229,6 +234,12 @@ const createAppointmentSchema = z.object({
   // Optional: If provided, this is a reschedule - bypass duplicate check and cancel the original
   originalAppointmentId: z.string().optional(),
   manageToken: z.string().min(20).optional(),
+  /**
+   * Who this booking is for. Server-validated; never a customer id from the
+   * client. Absent on older clients, which resolveBookingSubject handles by
+   * refusing to guess rather than silently booking as the account holder.
+   */
+  bookingSubject: z.enum(['self', 'guest']).optional(),
   googleEventReviewId: z.string().min(1).optional(),
   priceCentsOverride: z.number().int().min(0).max(1_000_000).optional(),
   durationMinutesOverride: z.number().int().min(1).max(1440).optional(),
@@ -680,6 +691,9 @@ export async function POST(request: Request): Promise<Response> {
 
     let actorRole: 'guest' | 'client' | 'staff' | 'admin' = 'guest';
     let clientPhoneInput = data.clientPhone ?? null;
+    // Defaults to 'guest' for visitors, staff and admins; only a resolved
+    // client session can promote it to 'self'.
+    let bookingSubjectMode: BookingSubjectMode = 'guest';
     let clientAuth:
       | Awaited<ReturnType<typeof requireClientApiSession>>
       | null = null;
@@ -694,8 +708,43 @@ export async function POST(request: Request): Promise<Response> {
       } else {
         clientAuth = await requireClientApiSession();
         if (clientAuth.ok) {
-          actorRole = 'client';
-          clientPhoneInput = clientAuth.normalizedPhone;
+          // A session proves WHO is browsing, not who the booking is for. The
+          // subject is resolved explicitly below; this route no longer rebinds
+          // the typed phone to the account, which used to block a signed-in
+          // browser from ever booking for anyone else.
+          const subject = resolveBookingSubject({
+            hasClientSession: true,
+            sessionPhone: clientAuth.normalizedPhone,
+            requestedMode: data.bookingSubject as BookingSubjectMode | undefined,
+            typedPhone: clientPhoneInput,
+          });
+
+          if (!subject.ok) {
+            return Response.json(
+              {
+                error: {
+                  code: 'BOOKING_IDENTITY_CONFLICT',
+                  // No detail about the account beyond the fact that one is
+                  // signed in — this is reachable from any signed-in browser.
+                  message: 'You are signed in, but the contact details entered are different. Continue with your signed-in details, choose "Book for someone else", or sign out.',
+                },
+              } satisfies ErrorResponse,
+              { status: 409 },
+            );
+          }
+
+          bookingSubjectMode = subject.mode;
+          if (subject.mode === 'self') {
+            actorRole = 'client';
+            // The account's phone is authoritative and is never overwritten by
+            // the form: it is the OTP login credential, so changing it here
+            // would be an account-takeover path. Profile settings own it.
+            clientPhoneInput = clientAuth.normalizedPhone;
+          } else {
+            // "Book for someone else": the signed-in identity is deliberately
+            // not attached, and the typed contact details stand on their own.
+            clientAuth = null;
+          }
         }
       }
     }
@@ -1110,20 +1159,55 @@ export async function POST(request: Request): Promise<Response> {
     // Skip this check if this is a reschedule (originalAppointmentId provided)
     // Use normalizedPhone for DB lookups (same as will be stored)
     if (!normalizedOriginalApptId) {
-      const existingAppointments = await getActiveAppointmentsForClient(
-        normalizedPhone,
-        salon.id,
-      );
+      // Canonical matching (see src/libs/bookingIdentity.ts): normalized phone
+      // is primary, email secondary, and a phone/email split is an identity
+      // conflict rather than a guess. Both lookups are salon-scoped and cover
+      // active statuses only, so cancelled/completed rows never block.
+      const [phoneMatches, emailMatches] = await Promise.all([
+        getActiveAppointmentsForContact({
+          salonId: salon.id,
+          phone: normalizedPhone,
+          horizon: 'booking-gate',
+        }),
+        normalizedClientEmail
+          ? getActiveAppointmentsForContact({
+            salonId: salon.id,
+            email: normalizedClientEmail,
+            horizon: 'booking-gate',
+          })
+          : Promise.resolve([]),
+      ]);
 
-      if (existingAppointments.length > 0) {
-        // Intentionally no appointment id or date in the body: this response
-        // is reachable with nothing but a phone number, so any detail beyond
-        // the code would let callers enumerate other people's schedules.
+      const duplicate = classifyDuplicateBooking({
+        normalizedPhone,
+        email: normalizedClientEmail,
+        phoneMatches,
+        emailMatches,
+      });
+
+      // Every branch below is intentionally detail-free: these responses are
+      // reachable with nothing but a phone number or an email address, so any
+      // date, service or name would let callers enumerate other people.
+      if (duplicate.decision === 'identity_conflict') {
+        return Response.json(
+          {
+            error: {
+              code: 'CONTACT_IDENTITY_CONFLICT',
+              message: 'The phone number and email address entered belong to different existing bookings. Please check the details, or contact the salon for help.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+
+      if (duplicate.decision === 'block') {
         return Response.json(
           {
             error: {
               code: 'EXISTING_APPOINTMENT',
-              message: 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.',
+              message: bookingSubjectMode === 'self'
+                ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
+                : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
             },
           } satisfies ErrorResponse,
           { status: 409 },

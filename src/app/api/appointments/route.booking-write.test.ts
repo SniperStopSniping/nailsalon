@@ -17,6 +17,7 @@ const {
   getLocationById,
   getPrimaryLocation,
   getActiveAppointmentsForClient,
+  getActiveAppointmentsForContact,
   getAppointmentById,
   getAppointmentServiceNames,
   getClientByPhone,
@@ -55,6 +56,7 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getActiveAppointmentsForClient: vi.fn(),
+  getActiveAppointmentsForContact: vi.fn(),
   getAppointmentById: vi.fn(),
   getAppointmentServiceNames: vi.fn(async () => ['BIAB']),
   getClientByPhone: vi.fn(),
@@ -115,6 +117,11 @@ vi.mock('@/libs/firstVisitDiscount', () => ({
 vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable,
   redis,
+}));
+
+vi.mock('@/libs/activeAppointments', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/activeAppointments')>()),
+  getActiveAppointmentsForContact,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -262,6 +269,7 @@ describe('POST /api/appointments booking policy', () => {
     getLocationById.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue(null);
     getActiveAppointmentsForClient.mockResolvedValue([]);
+    getActiveAppointmentsForContact.mockResolvedValue([]);
     getAppointmentById.mockResolvedValue(null);
     getClientByPhone.mockResolvedValue(null);
     getOrCreateSalonClient.mockResolvedValue({ id: 'client_1', phone: '1111111111' });
@@ -382,7 +390,7 @@ describe('POST /api/appointments booking policy', () => {
   });
 
   it('returns a 409 without any appointment details when an active booking exists', async () => {
-    getActiveAppointmentsForClient.mockResolvedValue([{
+    getActiveAppointmentsForContact.mockResolvedValue([{
       id: 'appt_existing',
       startTime: new Date('2099-03-14T15:00:00.000Z'),
     }]);
@@ -995,11 +1003,11 @@ describe('POST /api/appointments booking policy', () => {
         message: 'Name, email, and phone are required to book.',
       },
     });
-    expect(getActiveAppointmentsForClient).not.toHaveBeenCalled();
+    expect(getActiveAppointmentsForContact).not.toHaveBeenCalled();
     expect(getOrCreateSalonClient).not.toHaveBeenCalled();
   });
 
-  it('uses the authenticated client session phone instead of the request body phone', async () => {
+  it('books under the account phone when the signed-in customer declares self mode', async () => {
     canTechnicianTakeAppointment.mockReturnValue({
       available: true,
       schedule: { start: '09:00', end: '18:00' },
@@ -1040,13 +1048,18 @@ describe('POST /api/appointments booking policy', () => {
           serviceIds: ['srv_1'],
           technicianId: 'tech_1',
           clientPhone: '9999999999',
+          bookingSubject: 'self',
           startTime: '2099-03-13T15:00:00.000Z',
         }),
       }),
     );
 
     expect(response.status).toBe(201);
-    expect(getActiveAppointmentsForClient).toHaveBeenCalledWith('1111111111', 'salon_1');
+    // The account phone is authoritative for a self booking; it is the OTP
+    // login credential, so the form can never repoint it.
+    expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '1111111111', salonId: 'salon_1' }),
+    );
     expect(getOrCreateSalonClient).toHaveBeenCalledWith('salon_1', '1111111111', undefined);
     expect(getOrCreateSalonClient).not.toHaveBeenCalledWith('salon_1', '9999999999', undefined);
   });
@@ -1594,5 +1607,313 @@ describe('POST /api/appointments booking policy', () => {
     expect(response.status).toBe(403);
     expect(body.error.code).toBe('CLIENT_MISMATCH');
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Customer identity across the booking gate.
+   *
+   * Root cause these cover: a `client_session` cookie used to silently replace
+   * the phone typed in the form, so a signed-in browser was blocked by the
+   * account's appointment and editing the form changed nothing, while the same
+   * flow worked in Incognito.
+   */
+  describe('booking subject and duplicate matching', () => {
+    // These cases assert the identity gate only. Cases that pass the gate then
+    // continue into the insert path, which this suite does not stub, so its
+    // logging is silenced here rather than mocking a whole booking per test.
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    const signedOut = () => requireClientApiSession.mockResolvedValue({
+      ok: false,
+      response: new Response(null, { status: 401 }),
+    });
+
+    const post = (body: Record<string, unknown>) => POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+          clientName: 'Guest Person',
+          clientEmail: 'guest@example.com',
+          ...body,
+        }),
+      }),
+    );
+
+    it('refuses to guess when a signed-in browser submits a different phone', async () => {
+      const response = await post({ clientPhone: '9999999999' });
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('BOOKING_IDENTITY_CONFLICT');
+      // The old behaviour: silently look up the ACCOUNT's appointments.
+      expect(getActiveAppointmentsForContact).not.toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('does not leak the signed-in account details in that conflict', async () => {
+      const response = await post({ clientPhone: '9999999999' });
+      const body = await response.json();
+
+      expect(JSON.stringify(body)).not.toContain('1111111111');
+      expect(JSON.stringify(body)).not.toContain('Ava');
+    });
+
+    it('guest mode never inherits the signed-in phone', async () => {
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+
+      await post({ clientPhone: '9999999999', bookingSubject: 'guest' });
+
+      expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '9999999999' }),
+      );
+      expect(getActiveAppointmentsForContact).not.toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '1111111111' }),
+      );
+    });
+
+    it('guest mode never inherits the signed-in email', async () => {
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+
+      await post({
+        clientPhone: '9999999999',
+        clientEmail: 'someone-else@example.com',
+        bookingSubject: 'guest',
+      });
+
+      expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'someone-else@example.com' }),
+      );
+    });
+
+    it('signing out makes the same browser behave like Incognito', async () => {
+      signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+
+      await post({ clientPhone: '9999999999' });
+
+      expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '9999999999' }),
+      );
+    });
+
+    it('blocks a genuine duplicate on the normalized phone', async () => {
+      signedOut();
+      getActiveAppointmentsForContact.mockImplementation(async (args: { phone?: string }) =>
+        (args.phone === '9999999999' ? [{ id: 'appt_x', clientPhone: '+19999999999', clientEmail: null }] : []));
+
+      const response = await post({ clientPhone: '9999999999' });
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('keeps the guest-facing block message free of appointment details', async () => {
+      signedOut();
+      getActiveAppointmentsForContact.mockImplementation(async (args: { phone?: string }) =>
+        (args.phone === '9999999999'
+          ? [{ id: 'appt_x', clientPhone: '9999999999', clientEmail: 'other@example.com' }]
+          : []));
+
+      const response = await post({ clientPhone: '9999999999' });
+      const body = await response.json();
+
+      expect(body.error.message).not.toContain('appt_x');
+      expect(body.error.message).not.toContain('other@example.com');
+      expect(body.error.message).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    });
+
+    it('does not block a household sharing one email with a different phone', async () => {
+      signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+      getActiveAppointmentsForContact.mockImplementation(async (args: { email?: string }) =>
+        (args.email
+          ? [{ id: 'appt_partner', clientPhone: '4165550000', clientEmail: 'family@example.com' }]
+          : []));
+
+      const response = await post({ clientPhone: '9999999999', clientEmail: 'family@example.com' });
+
+      expect(response.status).not.toBe(409);
+    });
+
+    it('blocks on email for a legacy row that has no phone', async () => {
+      signedOut();
+      getActiveAppointmentsForContact.mockImplementation(async (args: { email?: string }) =>
+        (args.email
+          ? [{ id: 'appt_legacy', clientPhone: null, clientEmail: 'legacy@example.com' }]
+          : []));
+
+      const response = await post({ clientPhone: '9999999999', clientEmail: 'legacy@example.com' });
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+    });
+
+    it('reports an identity conflict when phone and email point at different people', async () => {
+      signedOut();
+      getActiveAppointmentsForContact.mockImplementation(async (args: { phone?: string; email?: string }) => {
+        if (args.phone) {
+          return [{ id: 'appt_phone', clientPhone: '9999999999', clientEmail: 'someone@example.com' }];
+        }
+        if (args.email) {
+          return [{ id: 'appt_email', clientPhone: '4165550000', clientEmail: 'shared@example.com' }];
+        }
+        return [];
+      });
+
+      const response = await post({ clientPhone: '9999999999', clientEmail: 'shared@example.com' });
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('CONTACT_IDENTITY_CONFLICT');
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('never blocks on a cancelled or completed appointment', async () => {
+      signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+      // The canonical lookup only ever returns active rows, so an inactive
+      // appointment reaches the gate as no match at all.
+      getActiveAppointmentsForContact.mockResolvedValue([]);
+
+      const response = await post({ clientPhone: '9999999999' });
+
+      expect(response.status).not.toBe(409);
+    });
+
+    it('scopes every duplicate lookup to the requested salon', async () => {
+      signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+
+      await post({ clientPhone: '9999999999' });
+
+      for (const call of getActiveAppointmentsForContact.mock.calls) {
+        expect(call[0]).toMatchObject({ salonId: 'salon_1' });
+      }
+    });
+
+    it('cannot use guest mode to reach another customer\'s appointment', async () => {
+      // Guest mode drops the session, so the reschedule ownership check has no
+      // authenticated client to lean on and the manage token must carry it.
+      getAppointmentById.mockResolvedValue({
+        id: 'appt_other',
+        salonId: 'salon_1',
+        clientPhone: '1111111111',
+        status: 'confirmed',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+      });
+
+      const response = await post({
+        clientPhone: '9999999999',
+        bookingSubject: 'guest',
+        originalAppointmentId: 'appt_other',
+      });
+
+      expect(response.status).toBe(403);
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A stale cookie must behave exactly like no cookie. requireClientApiSession
+   * already returns not-ok for an unknown/expired/deleted/malformed session
+   * (see clientAuth.staleSession.test.ts); these assert what the ROUTE then
+   * does with that — the browser books as a guest instead of inheriting the
+   * account identity, so no one has to reach for Incognito.
+   */
+  describe('stale client sessions', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+      // Whatever the reason, the guard reports "no usable session".
+      requireClientApiSession.mockResolvedValue({
+        ok: false,
+        response: new Response(null, { status: 401 }),
+      });
+    });
+
+    const post = (body: Record<string, unknown> = {}) => POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+          clientName: 'Stale Cookie Person',
+          clientEmail: 'stale@example.com',
+          clientPhone: '4165553333',
+          ...body,
+        }),
+      }),
+    );
+
+    it('books under the typed details, not the account that owned the cookie', async () => {
+      await post();
+
+      expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '4165553333' }),
+      );
+      // '1111111111' is the account phone from the live-session fixture.
+      expect(getActiveAppointmentsForContact).not.toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '1111111111' }),
+      );
+      expect(getOrCreateSalonClient).not.toHaveBeenCalledWith('salon_1', '1111111111', undefined);
+    });
+
+    it('does not demand a booking subject from a browser with a dead cookie', async () => {
+      const response = await post();
+
+      // No BOOKING_IDENTITY_CONFLICT: there is no signed-in identity to conflict with.
+      expect(response.status).not.toBe(409);
+    });
+
+    it('exposes nothing about the account the stale cookie referred to', async () => {
+      const response = await post();
+      const text = await response.text();
+
+      expect(text).not.toContain('1111111111');
+      expect(text).not.toContain('Ava');
+      expect(text).not.toContain('client_session_1');
+    });
+
+    it('lets the same browser keep booking without clearing cookies by hand', async () => {
+      await post();
+
+      // It reaches the booking transaction instead of being turned away at the
+      // identity gate — which is the whole point: no Incognito required.
+      expect(db.transaction).toHaveBeenCalled();
+    });
   });
 });
