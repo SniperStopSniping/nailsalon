@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { buildAddOnPayload } from '@/libs/addOnPayload';
+import { buildAddOnPayload, groupCompatibleServiceIds } from '@/libs/addOnPayload';
 import { requireAdminSalon } from '@/libs/adminAuth';
-import { db } from '@/libs/DB';
-import { addOnSchema } from '@/models/Schema';
+import {
+  getAllAddOnsBySalonId,
+  getServiceAddOnRulesBySalonId,
+} from '@/libs/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,14 +43,21 @@ export async function GET(request: Request): Promise<Response> {
       return error!;
     }
 
-    const addOns = await db
-      .select()
-      .from(addOnSchema)
-      .where(eq(addOnSchema.salonId, salon.id))
-      .orderBy(addOnSchema.displayOrder);
+    // getAllAddOnsBySalonId breaks ties on createdAt. display_order is not
+    // unique per salon — two seeding runs each start their own counter — so
+    // ordering by it alone lets the list reshuffle between loads.
+    const [addOns, rules] = await Promise.all([
+      getAllAddOnsBySalonId(salon.id),
+      getServiceAddOnRulesBySalonId(salon.id),
+    ]);
+    const serviceIdsByAddOn = groupCompatibleServiceIds(rules);
 
     return Response.json({
-      data: { addOns: addOns.map(buildAddOnPayload) },
+      data: {
+        addOns: addOns.map(addOn =>
+          buildAddOnPayload(addOn, serviceIdsByAddOn.get(addOn.id) ?? []),
+        ),
+      },
     });
   } catch (error) {
     console.error('Error fetching add-ons:', error);

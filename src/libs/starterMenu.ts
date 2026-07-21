@@ -173,9 +173,19 @@ export async function seedStarterMenuForSalon(args: {
     }
   }
 
-  let addOnDisplayOrder = 0;
+  // Continue from the salon's highest existing position instead of restarting
+  // at 1, and only advance when a row is actually inserted — otherwise a
+  // second seeding run hands out display_order values that collide with the
+  // first run's, and every list ordering by it alone becomes non-deterministic.
+  const maxAddOnOrderRows = await db
+    .select({ displayOrder: addOnSchema.displayOrder })
+    .from(addOnSchema)
+    .where(eq(addOnSchema.salonId, salonId));
+  let addOnDisplayOrder = Math.max(
+    0,
+    ...maxAddOnOrderRows.map((row: { displayOrder: number | null }) => row.displayOrder ?? 0),
+  );
   for (const template of addOnTemplates) {
-    addOnDisplayOrder += 1;
     if (existingKeys.has(template.systemKey)) {
       const existing = existingAddOnRows.find((row: ExistingCatalogRow) => row.templateKey === template.systemKey);
       if (existing?.id) {
@@ -196,6 +206,7 @@ export async function seedStarterMenuForSalon(args: {
 
     const override = overridesByKey.get(template.systemKey);
     const id = `addon_${sanitizeSalonId(salonId)}_${templateSlug(template)}`;
+    addOnDisplayOrder += 1;
 
     await db.insert(addOnSchema).values({
       id,
@@ -218,7 +229,18 @@ export async function seedStarterMenuForSalon(args: {
     createdAddOnIds.push(id);
   }
 
-  await reconcileSalonServiceAddOnCompatibility(db, salonId);
+  // Only wire up records this run touched. Reconciling the whole salon would
+  // silently resurrect any service↔add-on link the owner had deliberately
+  // removed, because the reconcile pass only ever inserts. Every catalog link
+  // still gets created: one side of it is always a record from this run.
+  await reconcileSalonServiceAddOnCompatibility(db, salonId, {
+    onlyTouching: [
+      ...createdServiceIds,
+      ...revivedServiceIds,
+      ...createdAddOnIds,
+      ...revivedAddOnIds,
+    ],
+  });
 
   return {
     createdServiceIds,
@@ -232,8 +254,20 @@ export async function seedStarterMenuForSalon(args: {
 /**
  * Reconciles catalog-defined compatibility against salon-owned IDs. Existing
  * mappings are never deleted, so custom owner links remain intact.
+ *
+ * `onlyTouching` restricts the pass to links where the service or the add-on
+ * is one of the given ids — used by the seeder so it cannot re-create a link
+ * an owner removed. Omitted ⇒ the whole salon (initial backfills, repairs).
  */
-export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: string): Promise<number> {
+export async function reconcileSalonServiceAddOnCompatibility(
+  db: any,
+  salonId: string,
+  options?: { onlyTouching?: string[] },
+): Promise<number> {
+  const scope = options?.onlyTouching ? new Set(options.onlyTouching) : null;
+  const inScope = (serviceId: string, addOnId: string) =>
+    !scope || scope.has(serviceId) || scope.has(addOnId);
+
   const [services, addOns] = await Promise.all([
     db.select({ id: serviceSchema.id, templateKey: serviceSchema.templateKey })
       .from(serviceSchema)
@@ -259,8 +293,8 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
     }
 
     for (const [index, addOnKey] of declared.entries()) {
-      const addOnId = addOnByKey.get(addOnKey);
-      if (!addOnId) {
+      const addOnId = addOnByKey.get(addOnKey) as string | undefined;
+      if (!addOnId || !inScope(serviceId, addOnId)) {
         continue;
       }
 
@@ -290,8 +324,8 @@ export async function reconcileSalonServiceAddOnCompatibility(db: any, salonId: 
     }
 
     for (const compatibleKey of compatibleKeys) {
-      const serviceId = serviceByKey.get(compatibleKey);
-      if (!serviceId) {
+      const serviceId = serviceByKey.get(compatibleKey) as string | undefined;
+      if (!serviceId || !inScope(serviceId, addOn.id)) {
         continue;
       }
 

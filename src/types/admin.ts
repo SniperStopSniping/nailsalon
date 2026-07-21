@@ -93,6 +93,14 @@ export type AddOnResponse = {
   maxQuantity?: number | null;
   displayOrder?: number | null;
   isActive: boolean | null;
+  /** Catalog template this add-on came from; null for owner-created ones. */
+  templateKey?: string | null;
+  /**
+   * Base services this add-on is offered under (service_add_on rows). Owners
+   * edit this directly; clients only ever see an add-on after picking one of
+   * these services.
+   */
+  compatibleServiceIds?: string[];
 };
 
 export type ServiceAddOnRuleResponse = {
