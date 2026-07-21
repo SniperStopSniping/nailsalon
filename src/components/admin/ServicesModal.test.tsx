@@ -36,12 +36,25 @@ type MockRoutes = {
   templateAddResult?: Record<string, unknown>;
   /** Non-2xx forces the service PATCH to fail with this status/message. */
   patchFailure?: { status: number; message: string };
+  /** Non-2xx forces the add-on LIST fetch to fail — e.g. the production 401. */
+  addOnsFailure?: { status: number };
+  /** Add-ons returned by the second and later list fetches (refresh checks). */
+  addOnsAfterRefresh?: unknown[];
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh }: MockRoutes) {
+  let addOnListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.startsWith('/api/salon/add-ons')) {
+      if (!init?.method || init.method === 'GET') {
+        addOnListCalls += 1;
+        if (addOnsFailure) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: addOnsFailure.status });
+        }
+        const payload = addOnsAfterRefresh && addOnListCalls > 1 ? addOnsAfterRefresh : addOns;
+        return new Response(JSON.stringify({ data: { addOns: payload } }), { status: 200 });
+      }
       if (init?.method === 'PATCH') {
         const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
         const { salonSlug: _slug, ...fields } = submitted;
@@ -50,7 +63,7 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
           { status: 200 },
         );
       }
-      return new Response(JSON.stringify({ data: { addOns } }), { status: 200 });
+      throw new Error(`Unexpected add-on request: ${init?.method} ${url}`);
     }
     if (url.startsWith('/api/admin/salon/settings')) {
       if (init?.method === 'PATCH') {
@@ -766,6 +779,167 @@ describe('ServicesModal — service detail owner actions', () => {
       expect(body.priceCents).toBe(600);
       expect(body.maxQuantity).toBe(10);
       expect(body.isActive).toBe(true);
+    });
+  });
+
+  describe('add-ons tab', () => {
+    const chrome = {
+      id: 'addon_chrome',
+      name: 'Chrome',
+      descriptionItems: ['Mirror finish'],
+      priceCents: 1000,
+      priceDisplayText: '$10+',
+      durationMinutes: 15,
+      category: 'nail_art',
+      pricingType: 'fixed',
+      unitLabel: null,
+      maxQuantity: null,
+      isActive: true,
+      compatibleServiceIds: ['svc_luster'],
+    };
+    const retired = {
+      ...chrome,
+      id: 'addon_retired',
+      name: 'Retired Art',
+      priceDisplayText: null,
+      isActive: false,
+      compatibleServiceIds: [],
+    };
+
+    it('lists every add-on the Library marks Added, counting inactive ones', async () => {
+      mockRoutes({
+        services: [lusterService],
+        // Both add-on templates report as owned, so the Library shows "Added".
+        ownedTemplateKeys: ['chrome', 'french_tips'],
+        addOns: [chrome, retired],
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      // The count is the contradiction the owner reported: never 0 while the
+      // Library says Added.
+      expect(await screen.findByText('1 services · 2 add-ons')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+      const row = await screen.findByTestId('addon-row-addon_chrome');
+
+      // Library-parity meta: from-price, duration, kind and category badges.
+      expect(row).toHaveTextContent('Chrome');
+      expect(row).toHaveTextContent('$10+');
+      expect(row).toHaveTextContent('15 min');
+      expect(row).toHaveTextContent('Add-on');
+      expect(row).toHaveTextContent('Nail art');
+      expect(row).toHaveTextContent('Offered with 1 service');
+      expect(row).toHaveTextContent('Edit');
+
+      // Inactive add-ons stay listed and counted so they can be revived.
+      expect(screen.getByTestId('addon-row-inactive-addon_retired')).toHaveTextContent('Inactive');
+    });
+
+    it('keeps add-ons out of the service menu and its category counts', async () => {
+      mockRoutes({
+        services: [lusterService],
+        addOns: [chrome, retired],
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      expect(await screen.findByRole('button', { name: /^All 1$/i })).toBeInTheDocument();
+      expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('addon-row-addon_chrome')).not.toBeInTheDocument();
+    });
+
+    it('surfaces a failed load instead of pretending the salon has no add-ons', async () => {
+      // The production bug: /api/salon/add-ons 401s and the tab claimed the
+      // salon had none, while the Library kept showing "Added".
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockRoutes({
+        services: [lusterService],
+        addOnsFailure: { status: 401 },
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      expect(await screen.findByText('1 services · add-ons unavailable')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+      expect(await screen.findByTestId('addons-load-error')).toHaveTextContent('Unable to load add-ons');
+      expect(screen.queryByText('No add-ons yet. Add them from the Library tab.')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+
+      consoleError.mockRestore();
+    });
+
+    it('shows a newly added Library add-on without a refresh', async () => {
+      mockRoutes({
+        services: [lusterService],
+        addOns: [],
+        addOnsAfterRefresh: [chrome],
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      fireEvent.click(await screen.findByTestId('services-tab-addons'));
+
+      expect(await screen.findByText('No add-ons yet. Add them from the Library tab.')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('services-tab-library'));
+      fireEvent.click(await screen.findByTestId('library-chip-addon'));
+      fireEvent.click(await screen.findByTestId('library-add-chrome'));
+
+      fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+      // No remount: the same mounted component now shows the new add-on.
+      expect(await screen.findByTestId('addon-row-addon_chrome')).toHaveTextContent('Chrome');
+      expect(screen.getByText('1 services · 1 add-ons')).toBeInTheDocument();
+    });
+
+    it('edits description and compatibility on the same record', async () => {
+      mockRoutes({
+        services: [lusterService, { ...lusterService, id: 'svc_pedi', name: 'Gel Pedicure', category: 'pedicure', bookingCategory: 'pedicure' }],
+        addOns: [chrome],
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      fireEvent.click(await screen.findByTestId('services-tab-addons'));
+      fireEvent.click(await screen.findByTestId('addon-row-addon_chrome'));
+
+      fireEvent.change(await screen.findByTestId('addon-edit-description'), {
+        target: { value: 'Mirror finish\nAny colour' },
+      });
+
+      // Pre-checked from compatibleServiceIds; add the pedicure, drop nothing.
+      expect(screen.getByTestId('addon-edit-service-svc_luster')).toBeChecked();
+
+      fireEvent.click(screen.getByTestId('addon-edit-service-svc_pedi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Update Add-on' }));
+
+      await waitFor(() => {
+        const call = findCall((url, init) => url === '/api/salon/add-ons/addon_chrome' && init?.method === 'PATCH');
+
+        expect(call).toBeTruthy();
+
+        const body = JSON.parse(String((call![1] as RequestInit).body));
+
+        expect(body.descriptionItems).toEqual(['Mirror finish', 'Any colour']);
+        expect(body.serviceIds).toEqual(['svc_luster', 'svc_pedi']);
+      });
+
+      // One PATCH to the existing id — never a POST that would create a copy.
+      const addOnWrites = fetchMock.mock.calls.filter(([input, init]) =>
+        String(input).startsWith('/api/salon/add-ons/')
+        && (init as RequestInit | undefined)?.method !== undefined);
+
+      expect(addOnWrites).toHaveLength(1);
+      expect((addOnWrites[0]![1] as RequestInit).method).toBe('PATCH');
     });
   });
 

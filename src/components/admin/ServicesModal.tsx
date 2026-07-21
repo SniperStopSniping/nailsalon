@@ -78,6 +78,7 @@ type ServicePrefill = {
 type AddOnData = {
   id: string;
   name: string;
+  descriptionItems?: string[] | null;
   priceCents: number;
   priceDisplayText?: string | null;
   durationMinutes: number;
@@ -86,6 +87,20 @@ type AddOnData = {
   unitLabel?: string | null;
   maxQuantity?: number | null;
   isActive: boolean;
+  /** Base services this add-on is offered under. */
+  compatibleServiceIds?: string[];
+};
+
+/**
+ * Add-on category labels. The library's TEMPLATE_TYPE_LABELS is keyed by
+ * ServiceTemplateCategory, which is a different vocabulary — these are the
+ * four values of the add_on_category enum.
+ */
+const ADD_ON_CATEGORY_LABELS: Record<string, string> = {
+  nail_art: 'Nail art',
+  repair: 'Repair',
+  removal: 'Removal',
+  pedicure_addon: 'Pedicure add-on',
 };
 
 type ServicesModalProps = {
@@ -1076,38 +1091,44 @@ function ServiceDetail({
 }
 
 /**
- * Owner add-on editor: name, price, duration, quantity cap, bookable state.
- * Compatibility (which base services an add-on appears under) stays on the
- * template model; pricing type is read-only here.
+ * Owner add-on editor: name, description, price, duration, quantity cap,
+ * which base services it is offered under, and bookable state. Pricing type
+ * stays read-only (it is a template-level decision).
  */
 function AddOnEditDialog({
   addOn,
   salonSlug,
+  services,
   onClose,
   onSaved,
 }: {
   addOn: AddOnData | null;
   salonSlug: string | null;
+  services: ServiceData[];
   onClose: () => void;
   onSaved: (addOn: AddOnData) => void;
 }) {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [durationMinutes, setDurationMinutes] = useState('');
   const [maxQuantity, setMaxQuantity] = useState('');
   const [priceDisplayText, setPriceDisplayText] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (addOn) {
       setName(addOn.name);
+      setDescription((addOn.descriptionItems ?? []).join('\n'));
       setPrice(String(addOn.priceCents / 100));
       setDurationMinutes(String(addOn.durationMinutes));
       setMaxQuantity(addOn.maxQuantity != null ? String(addOn.maxQuantity) : '');
       setPriceDisplayText(addOn.priceDisplayText || '');
       setIsActive(addOn.isActive);
+      setServiceIds(addOn.compatibleServiceIds ?? []);
       setSaving(false);
       setError(null);
     }
@@ -1151,11 +1172,16 @@ function AddOnEditDialog({
         body: JSON.stringify({
           salonSlug,
           name: name.trim(),
+          descriptionItems: description
+            .split('\n')
+            .map(item => item.trim())
+            .filter(Boolean),
           priceCents: Math.round(parsedPrice * 100),
           priceDisplayText: priceDisplayText.trim() || null,
           durationMinutes: parsedDuration,
           maxQuantity: parsedMaxQuantity,
           isActive,
+          serviceIds,
         }),
       });
       const result = await response.json().catch(() => null);
@@ -1196,6 +1222,17 @@ function AddOnEditDialog({
             value={name}
             onChange={event => setName(event.target.value)}
             className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Description</span>
+          <textarea
+            value={description}
+            rows={2}
+            data-testid="addon-edit-description"
+            onChange={event => setDescription(event.target.value)}
+            placeholder="What the client gets — one line per point."
+            className="w-full rounded-xl border border-gray-200 p-3 text-sm outline-none transition focus:border-rose-700"
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
@@ -1251,6 +1288,48 @@ function AddOnEditDialog({
             />
           </label>
         )}
+        <div data-testid="addon-edit-compatibility">
+          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">
+            Offered with
+          </span>
+          <p className="mb-2 text-xs text-[#6B7280]">
+            Clients see this add-on only after choosing one of these services.
+          </p>
+          {services.length === 0
+            ? (
+                <p className="rounded-xl border border-gray-200 p-3 text-xs text-[#8E8E93]">
+                  Add a service first, then choose where this add-on appears.
+                </p>
+              )
+            : (
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-gray-200 p-2">
+                  {services.map(service => (
+                    <label
+                      key={service.id}
+                      className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                    >
+                      <span className="min-w-0 truncate text-[13px] text-[#1C1C1E]">
+                        {service.name}
+                        {!service.isActive && (
+                          <span className="ml-1 text-[11px] text-[#8E8E93]">(inactive)</span>
+                        )}
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0"
+                        data-testid={`addon-edit-service-${service.id}`}
+                        checked={serviceIds.includes(service.id)}
+                        onChange={(event) => {
+                          setServiceIds(current => (event.target.checked
+                            ? [...current, service.id]
+                            : current.filter(id => id !== service.id)));
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+        </div>
         <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
           <span>
             <span className="block text-sm font-medium text-[#1C1C1E]">Bookable</span>
@@ -1314,6 +1393,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [toggleActiveError, setToggleActiveError] = useState<string | null>(null);
   const [activeTechnicianCount, setActiveTechnicianCount] = useState(0);
   const [addOns, setAddOns] = useState<AddOnData[]>([]);
+  const [addOnsLoading, setAddOnsLoading] = useState(true);
+  const [addOnsError, setAddOnsError] = useState<string | null>(null);
   const [editingAddOn, setEditingAddOn] = useState<AddOnData | null>(null);
   const [operationNotice, setOperationNotice] = useState<{
     tone: 'warning' | 'error';
@@ -1399,23 +1480,36 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     }
   }, [salonSlug]);
 
+  /**
+   * A failed load must never look like an empty menu. Swallowing the response
+   * here is what hid a 401 behind "No add-ons yet" while the salon's add-ons
+   * sat untouched in the database.
+   */
   const fetchAddOns = useCallback(async () => {
     if (!salonSlug) {
       setAddOns([]);
+      setAddOnsLoading(false);
       return;
     }
     try {
+      setAddOnsLoading(true);
+      setAddOnsError(null);
       const response = await fetch(`/api/salon/add-ons?salonSlug=${encodeURIComponent(salonSlug)}`);
       if (!response.ok) {
-        return;
+        throw new Error(`Failed to load add-ons (${response.status})`);
       }
       const result = await response.json();
       setAddOns((result.data?.addOns ?? []).map((addOn: AddOnData & { isActive: boolean | null }) => ({
         ...addOn,
         isActive: addOn.isActive ?? true,
       })));
-    } catch {
-      // Add-on list is supplementary; the services view stays usable.
+    } catch (addOnError) {
+      console.error('Failed to fetch add-ons:', addOnError);
+      setAddOnsError(
+        addOnError instanceof Error ? addOnError.message : 'Failed to load add-ons',
+      );
+    } finally {
+      setAddOnsLoading(false);
     }
   }, [salonSlug]);
 
@@ -1572,6 +1666,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       if (response.ok) {
         setOwnedTemplateKeys(current => new Set([...current, template.systemKey]));
         void fetchServices();
+        // The new add-on must show up in the Add-ons tab straight away.
+        void fetchAddOns();
         const data = result?.data;
         setOperationNotice(data?.assignmentRequired || data?.noActiveTechnicianWarning
           ? {
@@ -1601,7 +1697,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       introPriceLabel: template.introPriceLabel ?? null,
     });
     setShowAddDialog(true);
-  }, [salonSlug, fetchServices]);
+  }, [salonSlug, fetchServices, fetchAddOns]);
 
   const handleBulkAdd = useCallback(async (templateKeys: string[]) => {
     if (!salonSlug || templateKeys.length === 0) {
@@ -1618,6 +1714,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       if (response.ok) {
         setOwnedTemplateKeys(current => new Set([...current, ...templateKeys]));
         void fetchServices();
+        // A bulk add seeds add-ons too — refresh both lists, not just services.
+        void fetchAddOns();
         const data = result?.data;
         setOperationNotice(data?.assignmentRequired || data?.noActiveTechnicianWarning || data?.assignmentFailures?.length
           ? {
@@ -1636,7 +1734,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     } finally {
       setBulkAddBusy(false);
     }
-  }, [salonSlug, fetchServices]);
+  }, [salonSlug, fetchServices, fetchAddOns]);
 
   const dismissLusterPromo = useCallback(async () => {
     setLusterPromoDismissed(true);
@@ -1689,7 +1787,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       <div data-testid="services-sticky-chrome" className="sticky top-0 z-20 bg-[#FFF8F5]/90 backdrop-blur-md">
         <ModalHeader
           title="Services"
-          subtitle={`${services.length} services · ${addOns.length} add-ons`}
+          subtitle={`${services.length} services · ${
+            addOnsError ? 'add-ons unavailable' : `${addOns.length} add-ons`
+          }`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={(
             <button
@@ -1781,54 +1881,98 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               Add-ons appear for clients after they pick a compatible base
               service — they are never listed as standalone services.
             </p>
-            {addOns.length === 0
+            {addOnsLoading
               ? (
-                  <div className="rounded-[18px] border border-gray-200 bg-white p-4 text-[14px] text-[#8E8E93]">
-                    No add-ons yet. Add them from the Library tab.
-                  </div>
+                  <AsyncStatePanel
+                    loading
+                    title="Loading add-ons"
+                    description="Fetching the extras clients can add to a service."
+                  />
                 )
-              : (
-                  <div className="overflow-hidden rounded-[18px] border border-gray-100 bg-white">
-                    {addOns.map((addOn, index) => (
-                      <button
-                        key={addOn.id}
-                        type="button"
-                        data-testid={`addon-row-${addOn.id}`}
-                        onClick={() => setEditingAddOn(addOn)}
-                        className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors active:bg-gray-50 ${
-                          index < addOns.length - 1 ? 'border-b border-gray-100' : ''
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[15px] font-semibold text-[#1C1C1E]">
-                            {addOn.name}
-                          </span>
-                          <span className="mt-0.5 flex items-center gap-2 text-[12px] text-[#8E8E93]">
-                            {formatDuration(addOn.durationMinutes)}
-                            {addOn.pricingType === 'per_unit' && (
-                              <span className="rounded-full bg-gray-100 px-2 py-0.5">
-                                per
-                                {' '}
-                                {addOn.unitLabel ?? 'unit'}
+              : addOnsError
+                ? (
+                    <div data-testid="addons-load-error">
+                      <AsyncStatePanel
+                        tone="error"
+                        title="Unable to load add-ons"
+                        description={addOnsError}
+                        action={(
+                          <Button
+                            type="button"
+                            variant="brandSoft"
+                            size="pillSm"
+                            onClick={() => void fetchAddOns()}
+                          >
+                            Try again
+                          </Button>
+                        )}
+                      />
+                    </div>
+                  )
+                : addOns.length === 0
+                  ? (
+                      <div className="rounded-[18px] border border-gray-200 bg-white p-4 text-[14px] text-[#8E8E93]">
+                        No add-ons yet. Add them from the Library tab.
+                      </div>
+                    )
+                  : (
+                      <div className="overflow-hidden rounded-[18px] border border-gray-100 bg-white">
+                        {addOns.map((addOn, index) => (
+                          <button
+                            key={addOn.id}
+                            type="button"
+                            data-testid={`addon-row-${addOn.id}`}
+                            onClick={() => setEditingAddOn(addOn)}
+                            className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors active:bg-gray-50 ${
+                              index < addOns.length - 1 ? 'border-b border-gray-100' : ''
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[15px] font-semibold text-[#1C1C1E]">
+                                {addOn.name}
                               </span>
-                            )}
-                            {!addOn.isActive && (
-                              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600">
-                                Inactive
+                              {/* Same meta line the Service Library uses, so the
+                                  two lists read as one system. */}
+                              <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-[#8E8E93]">
+                                <span>{addOn.priceDisplayText || formatCurrency(addOn.priceCents)}</span>
+                                <span>·</span>
+                                <span>{formatDuration(addOn.durationMinutes)}</span>
+                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px]">
+                                  Add-on
+                                </span>
+                                <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-[#8E8E93]">
+                                  {ADD_ON_CATEGORY_LABELS[addOn.category] ?? addOn.category}
+                                </span>
+                                {addOn.pricingType === 'per_unit' && (
+                                  <span className="rounded-full bg-gray-100 px-2 py-0.5">
+                                    per
+                                    {' '}
+                                    {addOn.unitLabel ?? 'unit'}
+                                  </span>
+                                )}
+                                {!addOn.isActive && (
+                                  <span
+                                    data-testid={`addon-row-inactive-${addOn.id}`}
+                                    className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-600"
+                                  >
+                                    Inactive
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                        </span>
-                        <span className="ml-3 flex shrink-0 items-center gap-2">
-                          <span className="text-[15px] font-semibold text-emerald-700">
-                            {addOn.priceDisplayText || formatCurrency(addOn.priceCents)}
-                          </span>
-                          <ChevronRight className="size-4 text-[#C7C7CC]" />
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                              <span className="mt-0.5 block truncate text-[12px] text-[#8E8E93]">
+                                {addOn.compatibleServiceIds?.length
+                                  ? `Offered with ${addOn.compatibleServiceIds.length} ${addOn.compatibleServiceIds.length === 1 ? 'service' : 'services'}`
+                                  : 'Not offered with any service yet'}
+                              </span>
+                            </span>
+                            <span className="ml-3 flex shrink-0 items-center gap-2">
+                              <span className="text-[13px] font-medium text-rose-800">Edit</span>
+                              <ChevronRight className="size-4 text-[#C7C7CC]" />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
           </div>
         )}
         {activeTab === 'library' && (
@@ -1964,6 +2108,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       <AddOnEditDialog
         addOn={editingAddOn}
         salonSlug={salonSlug}
+        services={services}
         onClose={() => setEditingAddOn(null)}
         onSaved={() => {
           setEditingAddOn(null);

@@ -310,7 +310,13 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
       emailVerifiedAt: null,
     });
   } catch (error) {
+    // The auth backend throwing is never expected, and returning null turns it
+    // into a 401 that callers routinely render as an empty list. That is how a
+    // missing Clerk-middleware prefix hid an entire salon's add-ons for weeks —
+    // so page on it rather than relying on someone reading the log line.
     console.error('Error getting admin session:', error);
+    const Sentry = await import('@sentry/nextjs');
+    Sentry.captureException(error, { tags: { scope: 'getAdminSession' } });
     return null;
   }
 }

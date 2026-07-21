@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -320,6 +320,68 @@ describe('seedStarterMenuForSalon — owner data and ordering guarantees', () =>
     await seedStarterMenuForSalon({ db: dbB, salonId: SALON_B, mode: 'restore' });
 
     expect(await countRows()).toEqual(before);
+  });
+
+  it('never reuses an add-on display_order across seeding runs', async () => {
+    // Regression: the counter restarted at 1 on every call, so a salon seeded
+    // once and then topped up from the Library ended with colliding positions
+    // (Isla had 16 duplicated pairs) and a list order that shuffled per load.
+    const [glitter] = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.templateKey, 'glitter_finish'));
+
+    expect(glitter).toBeUndefined();
+
+    await seedStarterMenuForSalon({
+      db: dbB,
+      salonId: SALON_B,
+      mode: 'restore',
+      templateKeys: ['glitter_finish', 'deep_french'],
+    });
+
+    const addOns = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.salonId, SALON_B));
+    const orders = addOns.map(addOn => addOn.displayOrder);
+
+    expect(new Set(orders).size).toBe(addOns.length);
+  });
+
+  it('does not resurrect a compatibility link the owner removed', async () => {
+    // reconcileSalonServiceAddOnCompatibility only inserts, so running it over
+    // the whole salon undid owner deletions on the next Library add. It is now
+    // scoped to the records each run actually touches.
+    const [service] = await dbB.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.templateKey, 'gel_pedicure'));
+    const [addOn] = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.templateKey, 'french_toes'));
+
+    await dbB.delete(schema.serviceAddOnSchema).where(
+      and(
+        eq(schema.serviceAddOnSchema.serviceId, service!.id),
+        eq(schema.serviceAddOnSchema.addOnId, addOn!.id),
+      ),
+    );
+
+    await seedStarterMenuForSalon({
+      db: dbB,
+      salonId: SALON_B,
+      mode: 'restore',
+      templateKeys: ['rhinestones'],
+    });
+
+    const revived = await dbB.select().from(schema.serviceAddOnSchema).where(
+      and(
+        eq(schema.serviceAddOnSchema.serviceId, service!.id),
+        eq(schema.serviceAddOnSchema.addOnId, addOn!.id),
+      ),
+    );
+
+    expect(revived).toHaveLength(0);
+
+    // The newly added add-on still gets wired to its compatible services.
+    const [rhinestones] = await dbB.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.templateKey, 'rhinestones'));
+
+    expect(rhinestones).toBeDefined();
   });
 
   it('keeps per-unit repair add-ons priced and timed per nail', async () => {
