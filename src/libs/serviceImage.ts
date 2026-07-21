@@ -54,6 +54,7 @@ const IMG = '/assets/images/services';
 export const SERVICE_IMAGE = {
   manicureGel: `${IMG}/manicure-gel-nude.webp`,
   manicureRussian: `${IMG}/manicure-russian-clean.webp`,
+  manicureBare: `${IMG}/manicure-bare-natural.webp`,
   manicureBuilder: `${IMG}/manicure-builder-overlay.webp`,
   manicureLuster: `${IMG}/manicure-luster-pearl.webp`,
   manicureFrench: `${IMG}/manicure-french.webp`,
@@ -65,10 +66,11 @@ export const SERVICE_IMAGE = {
   pedicureClassic: `${IMG}/pedicure-red-classic.webp`,
   pedicureFrench: `${IMG}/pedicure-french.webp`,
   pedicureToes: `${IMG}/pedicure-white-toes.webp`,
-  comboNude: `${IMG}/combo-nude.webp`,
+  pedicureBare: `${IMG}/pedicure-bare-natural.webp`,
+  comboNude: `${IMG}/combo-nude-luster.webp`,
   comboFrench: `${IMG}/combo-french.webp`,
-  comboChampagne: `${IMG}/combo-champagne.webp`,
-  comboBuilder: `${IMG}/combo-builder-nude.webp`,
+  comboChampagne: `${IMG}/combo-pearl-luster.webp`,
+  comboBuilder: `${IMG}/combo-mauve-luster.webp`,
 } as const;
 
 /**
@@ -77,10 +79,9 @@ export const SERVICE_IMAGE = {
  * frame. Everything else crops fine from the centre.
  */
 const SERVICE_IMAGE_OBJECT_POSITION: Record<string, string> = {
-  [SERVICE_IMAGE.comboNude]: '50% 38%',
+  // The Luster combo shots are symmetric, so a centred crop already catches
+  // fingertips and toes; only the older French one needs lifting.
   [SERVICE_IMAGE.comboFrench]: '50% 38%',
-  [SERVICE_IMAGE.comboChampagne]: '50% 34%',
-  [SERVICE_IMAGE.comboBuilder]: '50% 38%',
 };
 
 export function serviceCardImagePosition(imageUrl: string | null | undefined): string | undefined {
@@ -111,16 +112,16 @@ const SERVICE_IMAGE_BY_TEMPLATE_KEY: Record<string, string> = {
   regular_polish_change_hands: SERVICE_IMAGE.manicureGel,
   gel_polish_change_hands: SERVICE_IMAGE.manicureGel,
   // Manicure — dry / cuticle-focused, bare or clear nails
-  russian_manicure_no_colour: SERVICE_IMAGE.manicureRussian,
-  classic_manicure_no_polish: SERVICE_IMAGE.manicureRussian,
-  nail_strengthening_treatment: SERVICE_IMAGE.manicureRussian,
-  japanese_manicure: SERVICE_IMAGE.manicureRussian,
-  ibx_treatment: SERVICE_IMAGE.manicureRussian,
-  gel_removal_service_hands: SERVICE_IMAGE.manicureRussian,
-  builder_extension_removal_service: SERVICE_IMAGE.manicureRussian,
-  gel_x_removal_manicure: SERVICE_IMAGE.manicureRussian,
-  builder_gel_removal_manicure: SERVICE_IMAGE.manicureRussian,
-  acrylic_removal_manicure: SERVICE_IMAGE.manicureRussian,
+  russian_manicure_no_colour: SERVICE_IMAGE.manicureBare,
+  classic_manicure_no_polish: SERVICE_IMAGE.manicureBare,
+  nail_strengthening_treatment: SERVICE_IMAGE.manicureBare,
+  japanese_manicure: SERVICE_IMAGE.manicureBare,
+  ibx_treatment: SERVICE_IMAGE.manicureBare,
+  gel_removal_service_hands: SERVICE_IMAGE.manicureBare,
+  builder_extension_removal_service: SERVICE_IMAGE.manicureBare,
+  gel_x_removal_manicure: SERVICE_IMAGE.manicureBare,
+  builder_gel_removal_manicure: SERVICE_IMAGE.manicureBare,
+  acrylic_removal_manicure: SERVICE_IMAGE.manicureBare,
   // Manicure — builder / structured
   builder_gel_overlay: SERVICE_IMAGE.manicureBuilder,
   builder_gel_refill: SERVICE_IMAGE.manicureBuilder,
@@ -158,7 +159,7 @@ const SERVICE_IMAGE_BY_TEMPLATE_KEY: Record<string, string> = {
   dip_powder_tips: SERVICE_IMAGE.extensionsGelX,
   dip_powder_french: SERVICE_IMAGE.manicureFrench,
   dip_powder_ombre: SERVICE_IMAGE.manicurePearl,
-  dip_powder_removal: SERVICE_IMAGE.manicureRussian,
+  dip_powder_removal: SERVICE_IMAGE.manicureBare,
   dip_powder_removal_new_set: SERVICE_IMAGE.manicurePearl,
   // Pedicure / toes
   gel_pedicure: SERVICE_IMAGE.pedicureGel,
@@ -175,16 +176,16 @@ const SERVICE_IMAGE_BY_TEMPLATE_KEY: Record<string, string> = {
   hot_stone_pedicure: SERVICE_IMAGE.pedicureClassic,
   paraffin_pedicure: SERVICE_IMAGE.pedicureClassic,
   deluxe_spa_pedicure: SERVICE_IMAGE.pedicureClassic,
-  mens_pedicure: SERVICE_IMAGE.pedicureToes,
+  mens_pedicure: SERVICE_IMAGE.pedicureBare,
   kids_pedicure: SERVICE_IMAGE.pedicureToes,
   regular_polish_change_toes: SERVICE_IMAGE.pedicureClassic,
   shellac_gel_toes: SERVICE_IMAGE.pedicureToes,
   gel_polish_change_toes: SERVICE_IMAGE.pedicureToes,
   french_gel_toes: SERVICE_IMAGE.pedicureFrench,
-  classic_pedicure_no_polish: SERVICE_IMAGE.pedicureToes,
-  russian_dry_pedicure: SERVICE_IMAGE.pedicureToes,
-  toenail_trim_shape: SERVICE_IMAGE.pedicureToes,
-  gel_removal_service_toes: SERVICE_IMAGE.pedicureToes,
+  classic_pedicure_no_polish: SERVICE_IMAGE.pedicureBare,
+  russian_dry_pedicure: SERVICE_IMAGE.pedicureBare,
+  toenail_trim_shape: SERVICE_IMAGE.pedicureBare,
+  gel_removal_service_toes: SERVICE_IMAGE.pedicureBare,
   big_toe_extension: SERVICE_IMAGE.pedicureToes,
   full_gel_toe_extensions: SERVICE_IMAGE.pedicureToes,
   toenail_reconstruction: SERVICE_IMAGE.pedicureToes,
@@ -265,7 +266,12 @@ function imageFromName(name: string, bookingCategory?: string | null): string | 
       return SERVICE_IMAGE.pedicureFrench;
     }
 
-    if (/shellac|gel toes|polish change|no polish|trim|russian|dry|removal|kids|mens men s/.test(n)) {
+    // Bare nails — showing polish on a no-polish service misleads the client.
+    if (/no polish|no colour|no color|removal|trim|dry|russian|mens|men s/.test(n)) {
+      return SERVICE_IMAGE.pedicureBare;
+    }
+
+    if (/shellac|gel toes|polish change|kids/.test(n)) {
       return SERVICE_IMAGE.pedicureToes;
     }
 
@@ -304,7 +310,12 @@ function imageFromName(name: string, bookingCategory?: string | null): string | 
     return SERVICE_IMAGE.manicureBuilder;
   }
 
-  if (/russian|no polish|no colour|no color|removal|strengthen|treatment|ibx|japanese/.test(n)) {
+  // Bare nails before the clear-gel Russian look — "No Colour" means no colour.
+  if (/no polish|no colour|no color|removal|strengthen|treatment|ibx|japanese/.test(n)) {
+    return SERVICE_IMAGE.manicureBare;
+  }
+
+  if (/russian|dry manicure/.test(n)) {
     return SERVICE_IMAGE.manicureRussian;
   }
 

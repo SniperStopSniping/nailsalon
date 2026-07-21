@@ -15,11 +15,13 @@ const PEDICURE_IMAGES = new Set<string>([
   SERVICE_IMAGE.pedicureClassic,
   SERVICE_IMAGE.pedicureFrench,
   SERVICE_IMAGE.pedicureToes,
+  SERVICE_IMAGE.pedicureBare,
 ]);
 
 const HANDS_IMAGES = new Set<string>([
   SERVICE_IMAGE.manicureGel,
   SERVICE_IMAGE.manicureRussian,
+  SERVICE_IMAGE.manicureBare,
   SERVICE_IMAGE.manicureBuilder,
   SERVICE_IMAGE.manicureLuster,
   SERVICE_IMAGE.manicureFrench,
@@ -102,8 +104,21 @@ describe('resolveServiceCardImage', () => {
     expect(resolveServiceCardImage({ name: 'Deluxe Manicure' })).toBe(SERVICE_IMAGE.manicureGel);
     expect(resolveServiceCardImage({ name: 'Cat Eye Manicure' })).toBe(SERVICE_IMAGE.manicureCatEye);
     expect(resolveServiceCardImage({ name: 'French Pedicure' })).toBe(SERVICE_IMAGE.pedicureFrench);
-    expect(resolveServiceCardImage({ name: 'Russian Manicure (No Color)' })).toBe(SERVICE_IMAGE.manicureRussian);
+    expect(resolveServiceCardImage({ name: 'Russian Manicure (No Color)' })).toBe(SERVICE_IMAGE.manicureBare);
     expect(resolveServiceCardImage({ name: 'Chrome Manicure' })).toBe(SERVICE_IMAGE.manicurePearl);
+  });
+
+  it('shows bare nails for no-colour and removal services', () => {
+    expect(resolveServiceCardImage({ templateKey: 'classic_manicure_no_polish' })).toBe(SERVICE_IMAGE.manicureBare);
+    expect(resolveServiceCardImage({ templateKey: 'classic_pedicure_no_polish' })).toBe(SERVICE_IMAGE.pedicureBare);
+    expect(resolveServiceCardImage({ name: 'Classic Manicure \u2014 No Polish' })).toBe(SERVICE_IMAGE.manicureBare);
+    expect(resolveServiceCardImage({ name: 'Classic Pedicure \u2014 No Polish' })).toBe(SERVICE_IMAGE.pedicureBare);
+    expect(resolveServiceCardImage({ name: 'Russian Manicure (No Color)' })).toBe(SERVICE_IMAGE.manicureBare);
+    expect(resolveServiceCardImage({ name: 'Gel Removal \u2014 Toes' })).toBe(SERVICE_IMAGE.pedicureBare);
+    expect(resolveServiceCardImage({ name: 'Toenail Trim and Shape' })).toBe(SERVICE_IMAGE.pedicureBare);
+
+    // A Russian manicure that does get colour keeps the polished look.
+    expect(resolveServiceCardImage({ name: 'Russian Manicure' })).toBe(SERVICE_IMAGE.manicureRussian);
   });
 
   it('keeps name-matched combos on a hands-and-feet image', () => {
