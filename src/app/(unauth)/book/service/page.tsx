@@ -11,7 +11,7 @@ import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnR
 import { resolveMerchandisingSettings } from '@/libs/salonMerchandisingSettings';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
-import { normalizePublicServiceImageUrl } from '@/libs/serviceImage';
+import { resolveServiceCardImage } from '@/libs/serviceImage';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -102,7 +102,12 @@ export default async function BookServicePage({
       bookingCategory: service.bookingCategory,
       templateKey: service.templateKey ?? null,
       featuredOrder: service.featuredOrder ?? null,
-      imageUrl: normalizePublicServiceImageUrl(service.imageUrl),
+      imageUrl: resolveServiceCardImage({
+        imageUrl: service.imageUrl,
+        templateKey: service.templateKey,
+        bookingCategory: service.bookingCategory,
+        name: service.name,
+      }),
       resolvedIntroPriceLabel: resolveIntroPriceLabel({
         isIntroPrice: service.isIntroPrice,
         introPriceExpiresAt: service.introPriceExpiresAt,

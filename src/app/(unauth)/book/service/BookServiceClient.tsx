@@ -1107,7 +1107,7 @@ export function BookServiceClient({
                                 <div className="relative h-[80px] overflow-hidden sm:h-[96px]">
                                   <ServiceCardImage
                                     src={service.imageUrl}
-                                    alt={service.name}
+                                    alt={`${service.name} nail service`}
                                     imageTestId={`featured-service-card-image-${service.id}`}
                                     className="object-cover transition-transform duration-300"
                                   />
@@ -1250,7 +1250,7 @@ export function BookServiceClient({
                                 >
                                   <ServiceCardImage
                                     src={service.imageUrl}
-                                    alt={service.name}
+                                    alt={`${service.name} nail service`}
                                     imageTestId={`service-card-image-element-${service.id}`}
                                     placeholderTestId={`service-card-image-placeholder-${service.id}`}
                                     className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}

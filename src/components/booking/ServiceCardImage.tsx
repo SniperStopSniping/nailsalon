@@ -4,7 +4,7 @@ import { ImageIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
-import { normalizePublicServiceImageUrl, PUBLIC_SERVICE_IMAGE_FALLBACK } from '@/libs/serviceImage';
+import { normalizePublicServiceImageUrl, PUBLIC_SERVICE_IMAGE_FALLBACK, serviceCardImagePosition } from '@/libs/serviceImage';
 import { cn } from '@/utils/Helpers';
 
 type ServiceCardImageProps = {
@@ -56,6 +56,7 @@ export function ServiceCardImage({
       fill
       sizes={sizes}
       data-testid={imageTestId}
+      style={{ objectPosition: serviceCardImagePosition(resolvedSrc) }}
       className={cn('object-cover', className)}
       onError={() => {
         if (resolvedSrc !== PUBLIC_SERVICE_IMAGE_FALLBACK) {
