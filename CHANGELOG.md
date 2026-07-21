@@ -1,3 +1,10 @@
+## [1.23.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.23.0...v1.23.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **google-calendar:** stop a dropped connection from silently latching off ([09316fb](https://github.com/SniperStopSniping/nailsalon/commit/09316fb16609b32901408cb2736f33e02265e2b9))
+
 # [1.23.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.22.1...v1.23.0) (2026-07-21)
 
 
