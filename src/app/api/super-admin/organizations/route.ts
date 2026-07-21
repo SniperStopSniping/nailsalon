@@ -287,6 +287,10 @@ export async function GET(request: Request): Promise<Response> {
         maxLocations: salon.maxLocations ?? 1,
         isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
         status: (salon.status || 'active') as SalonStatus,
+        // Archived salons stay in the list. Without this the dashboard cannot
+        // tell them apart from a salon whose status merely reads 'cancelled',
+        // and permanent deletion (which requires archiving first) is unreachable.
+        deletedAt: salon.deletedAt?.toISOString() ?? null,
         createdAt: salon.createdAt.toISOString(),
         locationsCount: 1, // For now, assume 1 location per salon
         techsCount: techCountMap.get(salon.id) ?? 0,

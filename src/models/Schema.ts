@@ -277,7 +277,7 @@ export const serviceSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Service Details
     name: text('name').notNull(),
@@ -376,7 +376,7 @@ export const technicianSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Profile
     name: text('name').notNull(),
@@ -489,7 +489,7 @@ export const appointmentSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Technician (services are linked via junction table)
     technicianId: text('technician_id').references(() => technicianSchema.id),
@@ -747,7 +747,7 @@ export const appointmentFinalItemSchema = pgTable(
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull(), // 'service' | 'addon' | 'custom'
     catalogServiceId: text('catalog_service_id').references(() => serviceSchema.id),
     catalogAddOnId: text('catalog_add_on_id').references(() => addOnSchema.id),
@@ -779,7 +779,7 @@ export const appointmentPaymentSchema = pgTable(
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(), // > 0 (CHECK in migration)
     method: text('method'), // PaymentMethod
     reference: text('reference'), // e.g. e-Transfer confirmation number
@@ -835,7 +835,7 @@ export const appointmentPhotoSchema = pgTable(
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Use normalized 10-digit phone (matches phone-handling.mdc rule)
     normalizedClientPhone: text('normalized_client_phone').notNull(),
@@ -900,7 +900,7 @@ export const salonClientSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Link to global client (for auth/identity)
     clientId: text('client_id').references(() => clientSchema.id),
@@ -1163,7 +1163,7 @@ export const referralSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Who sent the referral
     referrerPhone: text('referrer_phone').notNull(),
@@ -1208,7 +1208,7 @@ export const rewardSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Who owns this reward
     clientPhone: text('client_phone').notNull(),
@@ -1264,7 +1264,7 @@ export const reviewSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Link to appointment (one review per appointment - enforced by unique index)
     appointmentId: text('appointment_id')
@@ -1316,7 +1316,7 @@ export const clientPreferencesSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Client identification (normalized 10-digit phone)
     normalizedClientPhone: text('normalized_client_phone').notNull(),
@@ -1372,7 +1372,7 @@ export const technicianTimeOffSchema = pgTable(
       .references(() => technicianSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Time off period
     startDate: timestamp('start_date', { mode: 'date' }).notNull(),
@@ -1408,7 +1408,7 @@ export const technicianBlockedSlotSchema = pgTable(
       .references(() => technicianSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // For recurring blocks (e.g., daily lunch break)
     dayOfWeek: integer('day_of_week'), // 0=Sunday, 6=Saturday (null if one-time)
@@ -1446,7 +1446,7 @@ export const technicianScheduleOverrideSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
     technicianId: text('technician_id')
       .notNull()
       .references(() => technicianSchema.id, { onDelete: 'cascade' }),
@@ -1488,7 +1488,7 @@ export const salonPageAppearanceSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Page identifier: 'rewards' | 'profile' | 'gallery' | 'book-service' | etc.
     pageName: text('page_name').notNull(),
@@ -1699,7 +1699,7 @@ export const adminInviteSchema = pgTable(
   {
     id: text('id').primaryKey(),
     phoneE164: text('phone_e164').notNull(), // "+14374289008"
-    salonId: text('salon_id').references(() => salonSchema.id), // null for super admin
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'cascade' }), // null for super admin
     role: text('role').notNull(), // 'ADMIN' | 'SUPER_ADMIN'
     membershipRole: text('membership_role'), // 'admin' | 'owner' - role to assign when claimed
     expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(), // 7 days from creation
@@ -1756,7 +1756,7 @@ export const salonSignupInviteSchema = pgTable(
     consumedAt: timestamp('consumed_at', { mode: 'date', withTimezone: true }),
     revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
     consumedByAdminId: text('consumed_by_admin_id').references(() => adminUserSchema.id),
-    resultSalonId: text('result_salon_id').references(() => salonSchema.id),
+    resultSalonId: text('result_salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
     createdByAdminId: text('created_by_admin_id').references(() => adminUserSchema.id),
     emailDeliveryStatus: text('email_delivery_status').$type<'pending' | 'sent' | 'failed'>().default('pending').notNull(),
     emailSentAt: timestamp('email_sent_at', { mode: 'date', withTimezone: true }),
@@ -2424,7 +2424,7 @@ export const autopostQueueSchema = pgTable(
     id: text('id').primaryKey(),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
     appointmentId: text('appointment_id')
       .notNull()
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
@@ -2537,7 +2537,7 @@ export const appointmentAuditLogSchema = pgTable(
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
     salonId: text('salon_id')
       .notNull()
-      .references(() => salonSchema.id),
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
 
     // Action performed
     action: text('action').notNull(), // AppointmentAuditAction
@@ -2681,7 +2681,7 @@ export const auditLogSchema = pgTable(
   {
     id: text('id').primaryKey(),
     // Nullable for system/auth events not tied to a salon
-    salonId: text('salon_id').references(() => salonSchema.id),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
 
     // Who performed the action
     actorType: text('actor_type').notNull(), // 'admin' | 'staff' | 'client' | 'system' | 'webhook'
@@ -2736,6 +2736,10 @@ export const AUDIT_LOG_ACTIONS = [
   // Super-admin actions (merge from existing)
   'updated',
   'owner_changed',
+  // Destructive super-admin actions. Written with salonId = null so the record
+  // outlives the salon it describes (audit_log.salon_id is ON DELETE SET NULL).
+  'salon_hard_deleted',
+  'salon_data_reset',
   // Settings updates
   'settings_updated',
   // Luster password auth and staging toolkit
@@ -2786,7 +2790,7 @@ export const fraudSignalSchema = pgTable(
   'fraud_signal',
   {
     id: text('id').primaryKey(), // Generated via crypto.randomUUID()
-    salonId: text('salon_id').notNull().references(() => salonSchema.id),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
     // Both NOT NULL - fraud without client or appointment is useless
     // ON DELETE RESTRICT - never cascade-delete fraud history
     salonClientId: text('salon_client_id').notNull().references(() => salonClientSchema.id, { onDelete: 'restrict' }),

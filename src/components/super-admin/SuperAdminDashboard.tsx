@@ -27,6 +27,8 @@ type SalonItem = {
   maxLocations: number;
   isMultiLocationEnabled: boolean;
   status: SalonStatus;
+  /** Set when the salon has been archived (soft deleted) and can be restored. */
+  deletedAt: string | null;
   createdAt: string;
   locationsCount: number;
   techsCount: number;
@@ -396,7 +398,17 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                           <tr key={salon.id} className="hover:bg-gray-50">
                             <td className="p-4">
                               <div>
-                                <div className="font-medium text-gray-900">{salon.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-gray-900">{salon.name}</span>
+                                  {salon.deletedAt && (
+                                    <span
+                                      className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+                                      title={`Archived ${new Date(salon.deletedAt).toLocaleDateString()} — can be restored, or permanently deleted`}
+                                    >
+                                      Archived
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-sm text-gray-500">{salon.slug}</div>
                               </div>
                             </td>

@@ -1,35 +1,29 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import type { PurgeTx } from '@/libs/salonPurge';
+import { purgeSalonData, SalonPurgeBlockedError } from '@/libs/salonPurge';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
   adminInviteSchema,
   adminSalonMembershipSchema,
   adminUserSchema,
-  appointmentPhotoSchema,
   appointmentSchema,
-  appointmentServicesSchema,
   clientPreferencesSchema,
-  referralSchema,
-  rewardSchema,
   SALON_PLANS,
   SALON_STATUSES,
   salonLocationSchema,
-  salonPageAppearanceSchema,
   type SalonPlan,
   salonSchema,
   type SalonStatus,
-  serviceSchema,
-  technicianBlockedSlotSchema,
   technicianSchema,
-  technicianServicesSchema,
-  technicianTimeOffSchema,
 } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
@@ -69,6 +63,12 @@ const updateSalonSchema = z.object({
   // Super-admin feature switches are authoritative. When this marker is set,
   // the owner-facing module state is synchronized in the same database write.
   syncFeatureModules: z.boolean().optional(),
+});
+
+// Permanent deletion must be confirmed server-side. The modal's typed-slug
+// check is client state and therefore not a control.
+const hardDeleteConfirmationSchema = z.object({
+  confirmSlug: z.string().min(1),
 });
 
 // =============================================================================
@@ -412,11 +412,11 @@ export async function DELETE(
     return guard;
   }
 
-  try {
-    const { id } = await params;
-    const { searchParams } = new URL(request.url);
-    const hardDelete = searchParams.get('hard') === 'true';
+  const { id } = await params;
+  const { searchParams } = new URL(request.url);
+  const hardDelete = searchParams.get('hard') === 'true';
 
+  try {
     // Check salon exists
     const [existing] = await db
       .select()
@@ -434,136 +434,129 @@ export async function DELETE(
     const adminInfo = await getSuperAdminInfo();
 
     if (hardDelete) {
-      // HARD DELETE: Permanently remove all data
-      // Order matters due to foreign key constraints
+      // The typed-slug gate lives in the modal, which is client state and
+      // therefore not a control. Re-verify it server-side so a stray request
+      // cannot destroy a tenant.
+      const body = await request.json().catch(() => null);
+      const confirmation = hardDeleteConfirmationSchema.safeParse(body);
 
-      // 1. Delete appointment-related data
-      const appointments = await db
-        .select({ id: appointmentSchema.id })
-        .from(appointmentSchema)
-        .where(eq(appointmentSchema.salonId, id));
-
-      const appointmentIds = appointments.map(a => a.id);
-
-      if (appointmentIds.length > 0) {
-        // Delete appointment services
-        for (const apptId of appointmentIds) {
-          await db
-            .delete(appointmentServicesSchema)
-            .where(eq(appointmentServicesSchema.appointmentId, apptId));
-        }
-
-        // Delete appointment photos
-        await db
-          .delete(appointmentPhotoSchema)
-          .where(eq(appointmentPhotoSchema.salonId, id));
-
-        // Delete appointments
-        await db
-          .delete(appointmentSchema)
-          .where(eq(appointmentSchema.salonId, id));
+      if (!confirmation.success) {
+        return Response.json(
+          { error: 'Permanent deletion requires a confirmSlug matching the salon slug' },
+          { status: 400 },
+        );
       }
 
-      // 2. Delete rewards
-      await db
-        .delete(rewardSchema)
-        .where(eq(rewardSchema.salonId, id));
-
-      // 3. Delete referrals
-      await db
-        .delete(referralSchema)
-        .where(eq(referralSchema.salonId, id));
-
-      // 4. Delete client preferences
-      await db
-        .delete(clientPreferencesSchema)
-        .where(eq(clientPreferencesSchema.salonId, id));
-
-      // 5. Delete technician-related data
-      const technicians = await db
-        .select({ id: technicianSchema.id })
-        .from(technicianSchema)
-        .where(eq(technicianSchema.salonId, id));
-
-      const technicianIds = technicians.map(t => t.id);
-
-      if (technicianIds.length > 0) {
-        for (const techId of technicianIds) {
-          await db
-            .delete(technicianServicesSchema)
-            .where(eq(technicianServicesSchema.technicianId, techId));
-
-          await db
-            .delete(technicianTimeOffSchema)
-            .where(eq(technicianTimeOffSchema.technicianId, techId));
-
-          await db
-            .delete(technicianBlockedSlotSchema)
-            .where(eq(technicianBlockedSlotSchema.technicianId, techId));
-        }
-
-        // Delete technicians
-        await db
-          .delete(technicianSchema)
-          .where(eq(technicianSchema.salonId, id));
+      if (confirmation.data.confirmSlug !== existing.slug) {
+        return Response.json(
+          { error: 'Confirmation text does not match this salon\'s slug' },
+          { status: 400 },
+        );
       }
 
-      // 6. Delete services
-      await db
-        .delete(serviceSchema)
-        .where(eq(serviceSchema.salonId, id));
+      // Permanent deletion is only reachable from the archived state, so an
+      // active salon with live bookings can never be destroyed in one request.
+      if (!existing.deletedAt) {
+        return Response.json(
+          { error: 'Soft delete the salon first, then permanently delete it' },
+          { status: 409 },
+        );
+      }
 
-      // 7. Delete locations
-      await db
-        .delete(salonLocationSchema)
-        .where(eq(salonLocationSchema.salonId, id));
+      // One transaction: a failure rolls the whole purge back rather than
+      // leaving the tenant half-destroyed.
+      const purge = await db.transaction(async tx => purgeSalonData(tx as unknown as PurgeTx, id));
 
-      // 8. Delete page appearances
-      await db
-        .delete(salonPageAppearanceSchema)
-        .where(eq(salonPageAppearanceSchema.salonId, id));
-
-      // 9. Finally delete the salon (audit logs will cascade)
-      await db
-        .delete(salonSchema)
-        .where(eq(salonSchema.id, id));
+      // Written after the commit, with salonId null, so the record of the
+      // deletion survives the salon it describes.
+      await logAuditEvent({
+        salonId: null,
+        actorType: 'super_admin',
+        actorId: adminInfo?.userId ?? null,
+        action: 'salon_hard_deleted',
+        entityType: 'salon',
+        entityId: id,
+        metadata: {
+          name: existing.name,
+          slug: existing.slug,
+          rowsDeleted: purge.totalRows,
+          tables: purge.counts,
+        },
+      });
 
       return Response.json({
         success: true,
         message: 'Salon permanently deleted',
         deletedId: id,
-      });
-    } else {
-      // SOFT DELETE: Mark as deleted but keep data
-      const [updated] = await db
-        .update(salonSchema)
-        .set({
-          deletedAt: new Date(),
-          deletedBy: adminInfo?.userId || 'unknown',
-          status: 'cancelled',
-        })
-        .where(eq(salonSchema.id, id))
-        .returning();
-
-      // Log the action
-      await logAuditAction(id, 'deleted', {
-        details: 'Soft deleted (data preserved)',
-      });
-
-      return Response.json({
-        success: true,
-        message: 'Salon soft deleted',
-        salon: {
-          id: updated!.id,
-          name: updated!.name,
-          deletedAt: updated!.deletedAt?.toISOString(),
-        },
+        rowsDeleted: purge.totalRows,
+        tables: purge.counts,
       });
     }
+
+    if (existing.deletedAt) {
+      // Re-running a soft delete would overwrite the original deletedAt and
+      // deletedBy, erasing who actually deleted it and when.
+      return Response.json(
+        { error: 'Salon is already deleted' },
+        { status: 409 },
+      );
+    }
+
+    // SOFT DELETE: Mark as deleted but keep data
+    const [updated] = await db
+      .update(salonSchema)
+      .set({
+        deletedAt: new Date(),
+        deletedBy: adminInfo?.userId || 'unknown',
+        status: 'cancelled',
+      })
+      .where(eq(salonSchema.id, id))
+      .returning();
+
+    // Log the action
+    await logAuditAction(id, 'deleted', {
+      details: 'Soft deleted (data preserved)',
+    });
+
+    return Response.json({
+      success: true,
+      message: 'Salon soft deleted',
+      salon: {
+        id: updated!.id,
+        name: updated!.name,
+        deletedAt: updated!.deletedAt?.toISOString(),
+      },
+    });
   } catch (error) {
+    if (error instanceof SalonPurgeBlockedError) {
+      return Response.json(
+        { error: error.message, blockers: error.blockers },
+        { status: 409 },
+      );
+    }
+
+    // Surface the constraint that blocked the delete. Super admins are the only
+    // callers here, and a bare "Failed to delete salon" leaves them with no way
+    // to diagnose which table is holding a reference.
+    const pgError = error as { code?: string; constraint?: string; table?: string; detail?: string };
+    if (pgError?.code === '23503') {
+      return Response.json(
+        {
+          error: 'Cannot delete salon: related records still reference it',
+          constraint: pgError.constraint,
+          table: pgError.table,
+          detail: pgError.detail,
+        },
+        { status: 409 },
+      );
+    }
+
     console.error('Error deleting salon:', error);
     return Response.json(
-      { error: 'Failed to delete salon' },
+      {
+        error: hardDelete ? 'Failed to delete salon' : 'Failed to soft delete salon',
+        details: error instanceof Error ? error.message : undefined,
+      },
       { status: 500 },
     );
   }
