@@ -277,6 +277,28 @@ export function BookServiceClient({
   const [campaignUnavailable, setCampaignUnavailable] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
+  const searchCardRef = useRef<HTMLDivElement>(null);
+
+  // On touch devices the on-screen keyboard eats the lower half of the viewport,
+  // so the salon header above the search bar can push the first result row out of
+  // sight. Pin the search bar to the top on focus so matches land in the space
+  // above the keyboard. Desktop (fine pointer) keeps its normal scroll position.
+  const handleSearchFocus = () => {
+    const el = searchCardRef.current;
+    if (!el || typeof el.scrollIntoView !== 'function') {
+      return;
+    }
+
+    const isCoarsePointer = typeof window.matchMedia === 'function'
+      && window.matchMedia('(pointer: coarse)').matches;
+    if (!isCoarsePointer) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -493,8 +515,22 @@ export function BookServiceClient({
     triggerHaptic('select');
   };
 
-  const filteredServices = searchQuery
-    ? services.filter(service => service.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  // An active search collapses the category chrome and searches every category at
+  // once, so the query drives the whole "is this a search view?" decision below.
+  // Trim so a whitespace-only value never flips into the search/empty state.
+  const trimmedQuery = searchQuery.trim();
+  const isSearching = trimmedQuery.length > 0;
+  const normalizedQuery = trimmedQuery.toLowerCase();
+
+  const filteredServices = isSearching
+    ? services.filter((service) => {
+      const haystacks = [
+        service.name,
+        service.description ?? '',
+        ...service.descriptionItems,
+      ];
+      return haystacks.some(text => text.toLowerCase().includes(normalizedQuery));
+    })
     : sortServicesForCategory(
       services.filter(service => service.bookingCategory === selectedCategory),
       selectedCategory,
@@ -833,7 +869,8 @@ export function BookServiceClient({
         )}
 
         <div
-          className="mb-4"
+          ref={searchCardRef}
+          className="mb-4 scroll-mt-3"
           style={{
             opacity: mounted ? 1 : 0,
             transform: mounted ? 'translateY(0)' : 'translateY(10px)',
@@ -849,6 +886,7 @@ export function BookServiceClient({
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
+              onFocus={handleSearchFocus}
               placeholder="Search services..."
               className="h-auto flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
             />
@@ -1044,15 +1082,17 @@ export function BookServiceClient({
             )
           : (
               <>
-                <div
-                  className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
-                  style={{
-                    opacity: mounted ? 1 : 0,
-                    transition: 'opacity 300ms ease-out 150ms',
-                  }}
-                  data-testid="featured-services-scroll"
-                >
-                  {featuredServices.length > 0 && (
+                {/* Featured is hidden while searching so matches sit directly under
+                    the search bar instead of below the carousel (mobile keyboard). */}
+                {!isSearching && featuredServices.length > 0 && (
+                  <div
+                    className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                    style={{
+                      opacity: mounted ? 1 : 0,
+                      transition: 'opacity 300ms ease-out 150ms',
+                    }}
+                    data-testid="featured-services-scroll"
+                  >
                     <div className="mb-2.5">
                       <div className="mb-1 px-4 sm:px-0">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
@@ -1131,56 +1171,60 @@ export function BookServiceClient({
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-
-                <div
-                  className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
-                  style={{
-                    opacity: mounted ? 1 : 0,
-                    transition: 'opacity 300ms ease-out 150ms',
-                  }}
-                  data-testid="service-category-scroll"
-                >
-                  <div
-                    className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
-                    data-testid="service-category-track"
-                  >
-                    {BOOKING_CATEGORIES.map((category) => {
-                      const active = category === selectedCategory;
-                      const meta = BOOKING_CATEGORY_META[category];
-                      return (
-                        <button
-                          key={category}
-                          type="button"
-                          disabled={!isHydrated}
-                          aria-pressed={active}
-                          onClick={() => {
-                            if (category !== selectedCategory) {
-                              setSelectedCategory(category);
-                              triggerHaptic('select');
-                            }
-                          }}
-                          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5"
-                          style={{
-                            backgroundColor: active ? themeVars.accent : 'white',
-                            color: active ? 'white' : '#525252',
-                            borderWidth: active ? 0 : '1px',
-                            borderStyle: 'solid',
-                            borderColor: active ? 'transparent' : themeVars.cardBorder,
-                            boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
-                          }}
-                        >
-                          <span className="shrink-0">{meta.icon}</span>
-                          <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
-                        </button>
-                      );
-                    })}
                   </div>
-                </div>
+                )}
+
+                {/* Category chips are useless during a search (results already span
+                    every category), so they collapse too — only results remain. */}
+                {!isSearching && (
+                  <div
+                    className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
+                    style={{
+                      opacity: mounted ? 1 : 0,
+                      transition: 'opacity 300ms ease-out 150ms',
+                    }}
+                    data-testid="service-category-scroll"
+                  >
+                    <div
+                      className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
+                      data-testid="service-category-track"
+                    >
+                      {BOOKING_CATEGORIES.map((category) => {
+                        const active = category === selectedCategory;
+                        const meta = BOOKING_CATEGORY_META[category];
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            disabled={!isHydrated}
+                            aria-pressed={active}
+                            onClick={() => {
+                              if (category !== selectedCategory) {
+                                setSelectedCategory(category);
+                                triggerHaptic('select');
+                              }
+                            }}
+                            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5"
+                            style={{
+                              backgroundColor: active ? themeVars.accent : 'white',
+                              color: active ? 'white' : '#525252',
+                              borderWidth: active ? 0 : '1px',
+                              borderStyle: 'solid',
+                              borderColor: active ? 'transparent' : themeVars.cardBorder,
+                              boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
+                            }}
+                          >
+                            <span className="shrink-0">{meta.icon}</span>
+                            <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
-                  {!searchQuery && filteredServices.length === 0 && (
+                  {!isSearching && filteredServices.length === 0 && (
                     <div
                       data-testid="service-category-empty"
                       className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-neutral-500"
@@ -1191,6 +1235,20 @@ export function BookServiceClient({
                       {selectedCategory}
                       {' '}
                       services available yet.
+                    </div>
+                  )}
+                  {isSearching && filteredServices.length === 0 && (
+                    <div
+                      data-testid="service-search-empty"
+                      className="rounded-2xl border border-dashed px-4 py-8 text-center"
+                      style={{ borderColor: themeVars.cardBorder }}
+                    >
+                      <div className="text-sm font-semibold text-neutral-700">
+                        No services found
+                      </div>
+                      <div className="mt-1 text-[13px] text-neutral-500">
+                        Try a different name, or clear the search to browse the full menu.
+                      </div>
                     </div>
                   )}
                   {serviceRows.map((row, rowIndex) => {

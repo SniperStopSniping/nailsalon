@@ -606,6 +606,124 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-category-empty')).not.toBeInTheDocument();
   });
 
+  it('hides the Featured carousel and category chips during an active search so matches sit under the search bar', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    // Default view: featured carousel (Gel X is featured via the extensions
+    // fallback) and the category chips are both visible.
+    expect(screen.getByTestId('featured-services-scroll')).toBeInTheDocument();
+    expect(screen.getByTestId('service-category-scroll')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: 'colour' },
+    });
+
+    // As soon as there is a query, the featured carousel and the chips collapse.
+    expect(screen.queryByTestId('featured-services-scroll')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
+
+    // Only the matching result remains, rendered directly beneath the search bar.
+    expect(screen.getByTestId('service-card-svc-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('matches on description and description items, case-insensitively, not just the name', () => {
+    const descriptionService = {
+      id: 'svc-desc',
+      name: 'Spa Ritual',
+      description: 'Relaxing hot stone massage',
+      descriptionItems: [],
+      durationMinutes: 50,
+      priceCents: 7000,
+      priceDisplayText: null,
+      category: 'manicure' as const,
+      bookingCategory: 'manicure' as const,
+      templateKey: null,
+      featuredOrder: null,
+      imageUrl: '/service-desc.jpg',
+      resolvedIntroPriceLabel: null,
+    };
+
+    render(
+      <BookServiceClient
+        services={[descriptionService, ...services]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const searchInput = screen.getByPlaceholderText(/search/i);
+
+    // "massage" only appears in the description field (name is "Spa Ritual"),
+    // and the query is upper-cased to prove case-insensitive matching.
+    fireEvent.change(searchInput, { target: { value: 'MASSAGE' } });
+
+    expect(screen.getByTestId('service-card-svc-desc')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-2')).not.toBeInTheDocument();
+
+    // "extensions" only appears in Gel X's descriptionItems, not its name.
+    fireEvent.change(searchInput, { target: { value: 'extensions' } });
+
+    expect(screen.getByTestId('service-card-svc-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-desc')).not.toBeInTheDocument();
+  });
+
+  it('shows a clear "No services found" state when the search matches nothing', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: 'zzzznotathing' },
+    });
+
+    const emptyState = screen.getByTestId('service-search-empty');
+
+    expect(emptyState).toBeInTheDocument();
+    expect(emptyState).toHaveTextContent('No services found');
+    // The category-tab empty state must not double up during a search.
+    expect(screen.queryByTestId('service-category-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-1')).not.toBeInTheDocument();
+  });
+
+  it('restores the Featured carousel, category chips, and full menu when the search is cleared with the X', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: 'colour' },
+    });
+
+    expect(screen.queryByTestId('featured-services-scroll')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-svc-2')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /clear search/i }));
+
+    // Clearing brings back the whole default browse experience.
+    expect(screen.getByTestId('featured-services-scroll')).toBeInTheDocument();
+    expect(screen.getByTestId('service-category-scroll')).toBeInTheDocument();
+    expect(screen.getByTestId('service-card-svc-1')).toBeInTheDocument();
+    expect(screen.getByTestId('service-card-svc-2')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search/i)).toHaveValue('');
+  });
+
   it('puts the active Luster Manicure first in the featured row when enabled', () => {
     const lusterService = {
       id: 'svc-luster',
