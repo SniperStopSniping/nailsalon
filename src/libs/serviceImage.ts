@@ -67,22 +67,19 @@ export const SERVICE_IMAGE = {
   pedicureFrench: `${IMG}/pedicure-french.webp`,
   pedicureToes: `${IMG}/pedicure-white-toes.webp`,
   pedicureBare: `${IMG}/pedicure-bare-natural.webp`,
-  comboNude: `${IMG}/combo-nude-luster.webp`,
-  comboFrench: `${IMG}/combo-french.webp`,
-  comboChampagne: `${IMG}/combo-pearl-luster.webp`,
+  comboNude: `${IMG}/combo-nude-wide.webp`,
+  comboFrench: `${IMG}/combo-french-wide.webp`,
+  comboChampagne: `${IMG}/combo-champagne-wide.webp`,
   comboBuilder: `${IMG}/combo-mauve-luster.webp`,
 } as const;
 
 /**
- * Combo shots stack hands above feet, so a centred crop in a short card lands
- * on the toes and clips the fingers. Nudging the focal point up keeps both in
- * frame. Everything else crops fine from the centre.
+ * Per-image crop override, for art whose subject sits away from the centre.
+ * Empty by design: the current set is all framed for the wide, short card, so
+ * a centred crop keeps every subject. Add an entry here rather than writing a
+ * CSS exception in a card component.
  */
-const SERVICE_IMAGE_OBJECT_POSITION: Record<string, string> = {
-  // The Luster combo shots are symmetric, so a centred crop already catches
-  // fingertips and toes; only the older French one needs lifting.
-  [SERVICE_IMAGE.comboFrench]: '50% 38%',
-};
+const SERVICE_IMAGE_OBJECT_POSITION: Record<string, string> = {};
 
 export function serviceCardImagePosition(imageUrl: string | null | undefined): string | undefined {
   return SERVICE_IMAGE_OBJECT_POSITION[normalizeImageUrlValue(imageUrl)];
