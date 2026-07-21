@@ -13,7 +13,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
-import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam } from '@/libs/bookingParams';
+import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 import { triggerHaptic } from '@/libs/haptics';
 import {
   getPublicTechnicianCompatibility,
@@ -224,8 +224,6 @@ export function BookServiceClient({
   const {
     technicianId = null,
     technicianSelectionSource = null,
-    baseServiceId: storedBaseServiceId = null,
-    selectedAddOns: storedSelectedAddOns = [],
     locationId: storedLocationId = null,
     setTechnicianId = () => {},
     setBaseServiceId = () => {},
@@ -279,7 +277,6 @@ export function BookServiceClient({
   const [campaignUnavailable, setCampaignUnavailable] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
-  const hasManuallyClearedSelectionRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -358,6 +355,11 @@ export function BookServiceClient({
     };
   }, []);
 
+  // Location is the only thing persisted state may restore. The service pick is
+  // deliberately NOT restored: the stored blob outlives a finished booking, so
+  // restoring it re-pressed the last service — and expanded its add-on panel over
+  // the whole menu — before the client had seen anything. A pick now survives
+  // browser back and reload through the URL mirror below instead.
   useEffect(() => {
     if (!isHydrated || hasAppliedHydratedBookingStateRef.current || hasUserChangedSelectionRef.current) {
       return;
@@ -367,50 +369,8 @@ export function BookServiceClient({
       setSelectedLocationId(storedLocationId);
     }
 
-    const hasUrlDrivenSelection = Boolean(urlDrivenBaseServiceId || urlSelectedAddOns.length > 0 || urlTechId);
-    if (hasUrlDrivenSelection) {
-      hasManuallyClearedSelectionRef.current = false;
-      hasAppliedHydratedBookingStateRef.current = true;
-      return;
-    }
-
-    if (hasManuallyClearedSelectionRef.current || !storedBaseServiceId) {
-      hasAppliedHydratedBookingStateRef.current = true;
-      return;
-    }
-
-    const storedService = services.find(service => service.id === storedBaseServiceId);
-    if (!storedService) {
-      hasAppliedHydratedBookingStateRef.current = true;
-      return;
-    }
-
-    const normalizedStoredAddOns = buildDefaultSelectedAddOns(
-      storedBaseServiceId,
-      serviceAddOnRules,
-      addOns,
-      storedSelectedAddOns,
-    );
-
-    setSelectedBaseServiceIdState(storedBaseServiceId);
-    setSelectedCategory(storedService.bookingCategory);
-    setSelectedAddOnsState(normalizedStoredAddOns);
-    hasManuallyClearedSelectionRef.current = false;
     hasAppliedHydratedBookingStateRef.current = true;
-  }, [
-    addOns,
-    isHydrated,
-    locations,
-    serviceAddOnRules,
-    services,
-    storedBaseServiceId,
-    storedLocationId,
-    storedSelectedAddOns,
-    urlDrivenBaseServiceId,
-    urlLocationId,
-    urlTechId,
-    urlSelectedAddOns,
-  ]);
+  }, [isHydrated, locations, storedLocationId, urlLocationId]);
 
   useEffect(() => {
     if (hadInvalidLocation && primaryLocation?.id) {
@@ -419,6 +379,43 @@ export function BookServiceClient({
       window.history.replaceState(null, '', `?${newParams.toString()}`);
     }
   }, [hadInvalidLocation, primaryLocation?.id, searchParams]);
+
+  // Mirror the selection into the URL (shallow — no navigation, no history entry)
+  // so browser back, gesture back, and reload all restore the client's pick. Same
+  // approach as syncSelectedDateToUrl on the time step. Gated on `mounted` so the
+  // first paint never rewrites an incoming deep link, and clearing the selection
+  // deletes the params rather than leaving them to resurrect it on reload.
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
+    const newParams = new URLSearchParams(searchParams.toString());
+    const serializedAddOns = selectedBaseServiceId
+      ? serializeSelectedAddOns(selectedAddOnsState)
+      : null;
+
+    if (selectedBaseServiceId) {
+      newParams.set('baseServiceId', selectedBaseServiceId);
+    } else {
+      newParams.delete('baseServiceId');
+    }
+
+    if (serializedAddOns) {
+      newParams.set('selectedAddOns', serializedAddOns);
+    } else {
+      newParams.delete('selectedAddOns');
+    }
+
+    // Next keeps useSearchParams in sync with replaceState, so an unguarded write
+    // would re-trigger this effect on its own output.
+    const nextQuery = newParams.toString();
+    if (nextQuery === searchParams.toString()) {
+      return;
+    }
+
+    window.history.replaceState(null, '', `?${nextQuery}`);
+  }, [mounted, searchParams, selectedAddOnsState, selectedBaseServiceId]);
 
   useEffect(() => {
     if (urlBaseServiceId || legacyServiceIds[0] || urlTechId) {
@@ -483,14 +480,12 @@ export function BookServiceClient({
     hasUserChangedSelectionRef.current = true;
 
     if (selectedBaseServiceId === service.id) {
-      hasManuallyClearedSelectionRef.current = true;
       setSelectedBaseServiceIdState(null);
       setSelectedAddOnsState([]);
       if (technicianSelectionSource === 'auto') {
         setTechnicianId(null, null);
       }
     } else {
-      hasManuallyClearedSelectionRef.current = false;
       setSelectedBaseServiceIdState(service.id);
       setSelectedCategory(service.bookingCategory);
     }
@@ -594,10 +589,6 @@ export function BookServiceClient({
     }
 
     if (!selectedBaseServiceId) {
-      if (!hasAppliedHydratedBookingStateRef.current && storedBaseServiceId) {
-        return;
-      }
-
       if (technicianSelectionSource === 'auto' || technicianId) {
         setTechnicianId(null, null);
       }
@@ -633,7 +624,6 @@ export function BookServiceClient({
     selectedBaseServiceId,
     setTechnicianId,
     soleCompatiblePreviewTechnician,
-    storedBaseServiceId,
     technicianId,
     technicianSelectionSource,
   ]);

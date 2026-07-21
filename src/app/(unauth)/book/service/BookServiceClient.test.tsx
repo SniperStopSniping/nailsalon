@@ -1103,7 +1103,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
   });
 
-  it('applies persisted booking state only after hydration when no URL selection exists', async () => {
+  it('applies only the persisted location after hydration, never the persisted service', async () => {
     bookingStateMock.values = {
       technicianId: null,
       technicianSelectionSource: null,
@@ -1123,8 +1123,8 @@ describe('BookServiceClient', () => {
       />,
     );
 
+    expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'false');
     expect(screen.queryByText(/Optional add-ons for Gel X/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/1 service \+ 1 add-on/i)).not.toBeInTheDocument();
 
     bookingStateMock.values = {
       ...bookingStateMock.values,
@@ -1141,17 +1141,19 @@ describe('BookServiceClient', () => {
       />,
     );
 
+    // The persisted location still applies...
     await waitFor(() => {
-      expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
+      expect(bookingStateMock.setLocationId).toHaveBeenCalledWith('loc-2');
     });
 
-    expect(screen.getByText(/Optional add-ons for Gel X/i)).toBeInTheDocument();
-    expect(screen.getByTestId('service-card-addon-cue-svc-2')).toBeInTheDocument();
-    expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
-    expect(screen.getByText(/1 service \+ 1 add-on/i)).toBeInTheDocument();
+    // ...but the persisted service never presses a card or opens the panel.
+    expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'false');
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 service \+ 1 add-on/i)).not.toBeInTheDocument();
   });
 
-  it('keeps a manually unselected restored service cleared for the current page session', async () => {
+  it('lands on a blank menu when a finished booking left a service persisted', async () => {
     bookingStateMock.values = {
       technicianId: null,
       technicianSelectionSource: null,
@@ -1161,7 +1163,7 @@ describe('BookServiceClient', () => {
       isHydrated: true,
     };
 
-    const { rerender } = render(
+    render(
       <BookServiceClient
         services={services}
         addOns={addOns}
@@ -1172,28 +1174,92 @@ describe('BookServiceClient', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'false');
     });
 
-    fireEvent.click(screen.getByTestId('service-card-svc-2'));
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
-    });
-
-    rerender(
-      <BookServiceClient
-        services={services}
-        addOns={addOns}
-        serviceAddOnRules={serviceAddOnRules}
-        bookingFlow={['service', 'tech', 'time', 'confirm']}
-        locations={locations}
-      />,
-    );
-
-    expect(screen.getByTestId('service-card-svc-2')).toHaveAttribute('data-selected', 'false');
+    expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('mirrors a picked service into the URL so browser back can restore it', async () => {
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    // A blank landing must not touch the URL.
+    expect(replaceStateSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    await waitFor(() => {
+      expect(replaceStateSpy).toHaveBeenCalled();
+    });
+
+    const selectedUrl = replaceStateSpy.mock.calls.at(-1)?.[2] as string;
+
+    expect(selectedUrl).toContain('baseServiceId=svc-1');
+    expect(selectedUrl).toContain('salonSlug=salon-a');
+
+    replaceStateSpy.mockRestore();
+  });
+
+  it('drops the mirrored params from the URL when the service is unselected', async () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'true');
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    await waitFor(() => {
+      expect(replaceStateSpy).toHaveBeenCalled();
+    });
+
+    const clearedUrl = replaceStateSpy.mock.calls.at(-1)?.[2] as string;
+
+    // Left in place, these would resurrect the pick on the next reload.
+    expect(clearedUrl).not.toContain('baseServiceId');
+    expect(clearedUrl).not.toContain('selectedAddOns');
+    expect(clearedUrl).toContain('salonSlug=salon-a');
+
+    replaceStateSpy.mockRestore();
+  });
+
+  it('still pre-selects from the URL so browser back restores the pick', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
   });
 
   it('keeps URL service, add-ons, and location ahead of persisted state', async () => {
