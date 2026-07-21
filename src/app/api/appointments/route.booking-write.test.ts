@@ -1840,4 +1840,80 @@ describe('POST /api/appointments booking policy', () => {
       expect(db.transaction).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * A stale cookie must behave exactly like no cookie. requireClientApiSession
+   * already returns not-ok for an unknown/expired/deleted/malformed session
+   * (see clientAuth.staleSession.test.ts); these assert what the ROUTE then
+   * does with that — the browser books as a guest instead of inheriting the
+   * account identity, so no one has to reach for Incognito.
+   */
+  describe('stale client sessions', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+      // Whatever the reason, the guard reports "no usable session".
+      requireClientApiSession.mockResolvedValue({
+        ok: false,
+        response: new Response(null, { status: 401 }),
+      });
+    });
+
+    const post = (body: Record<string, unknown> = {}) => POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          startTime: '2099-03-13T15:00:00.000Z',
+          clientName: 'Stale Cookie Person',
+          clientEmail: 'stale@example.com',
+          clientPhone: '4165553333',
+          ...body,
+        }),
+      }),
+    );
+
+    it('books under the typed details, not the account that owned the cookie', async () => {
+      await post();
+
+      expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '4165553333' }),
+      );
+      // '1111111111' is the account phone from the live-session fixture.
+      expect(getActiveAppointmentsForContact).not.toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '1111111111' }),
+      );
+      expect(getOrCreateSalonClient).not.toHaveBeenCalledWith('salon_1', '1111111111', undefined);
+    });
+
+    it('does not demand a booking subject from a browser with a dead cookie', async () => {
+      const response = await post();
+
+      // No BOOKING_IDENTITY_CONFLICT: there is no signed-in identity to conflict with.
+      expect(response.status).not.toBe(409);
+    });
+
+    it('exposes nothing about the account the stale cookie referred to', async () => {
+      const response = await post();
+      const text = await response.text();
+
+      expect(text).not.toContain('1111111111');
+      expect(text).not.toContain('Ava');
+      expect(text).not.toContain('client_session_1');
+    });
+
+    it('lets the same browser keep booking without clearing cookies by hand', async () => {
+      await post();
+
+      // It reaches the booking transaction instead of being turned away at the
+      // identity gate — which is the whole point: no Incognito required.
+      expect(db.transaction).toHaveBeenCalled();
+    });
+  });
 });
