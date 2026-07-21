@@ -17,6 +17,11 @@ jobs:
     name: Create a new release
     runs-on: ubuntu-latest
 
+    # workflow_run fires on every completed CI run, pass or fail. Without this
+    # guard a red main still cut a version and published a GitHub release --
+    # v1.24.0 shipped ten minutes after CI failed on the same commit.
+    if: github.event.workflow_run.conclusion == 'success'
+
     permissions:
       contents: write # to be able to publish a GitHub release
       issues: write # to be able to comment on released issues
