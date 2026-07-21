@@ -6,7 +6,14 @@ const {
   fetchMock,
   set,
 } = vi.hoisted(() => {
-  const where = vi.fn(async () => undefined);
+  // The transition-detecting UPDATE chains .returning(); rows returned means
+  // "this call flipped the status", which is what gates the owner alert.
+  const updateReturning = vi.fn(async () => [{ salonId: 'salon_1' }]);
+  const where = vi.fn(() => {
+    const promise: any = Promise.resolve(undefined);
+    promise.returning = updateReturning;
+    return promise;
+  });
   const set = vi.fn(() => ({ where }));
   const update = vi.fn(() => ({ set }));
   const query = {
@@ -22,6 +29,10 @@ const {
     set,
   };
 });
+
+vi.mock('@/libs/googleCalendarAlerts', () => ({
+  sendGoogleCalendarDisconnectedEmail: vi.fn(async () => true),
+}));
 
 vi.mock('server-only', () => ({}));
 
@@ -186,7 +197,8 @@ describe('googleCalendar', () => {
 
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
       status: 'reconnect_required',
-      lastError: 'Google Calendar authorization is invalid. Reconnect required.',
+      // Classified now, so an operator can tell WHY it died.
+      lastError: expect.stringContaining('[api_unauthorized]'),
     }));
   });
 
@@ -220,7 +232,7 @@ describe('googleCalendar', () => {
 
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
       status: 'degraded',
-      lastError: 'Google Calendar availability check failed.',
+      lastError: expect.stringContaining('[temporary]'),
     }));
   });
 
@@ -254,7 +266,7 @@ describe('googleCalendar', () => {
 
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
       status: 'degraded',
-      lastError: 'Google Calendar availability check failed.',
+      lastError: expect.stringContaining('[temporary]'),
     }));
   });
 
@@ -283,7 +295,7 @@ describe('googleCalendar', () => {
 
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({
       status: 'degraded',
-      lastError: 'Google Calendar availability check failed.',
+      lastError: expect.stringContaining('[temporary]'),
     }));
   });
 

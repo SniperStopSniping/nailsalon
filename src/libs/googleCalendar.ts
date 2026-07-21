@@ -2,11 +2,21 @@ import 'server-only';
 
 import { createSign } from 'node:crypto';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
-import { decryptIntegrationSecret } from '@/libs/lusterSecurity';
+import {
+  classifyApiFailure,
+  classifyDecryptFailure,
+  classifyMissingClientConfig,
+  classifyNetworkFailure,
+  classifyTokenRefreshFailure,
+  formatPersistedError,
+  type GoogleFailureClassification,
+  statusForClassification,
+} from '@/libs/googleCalendarFailure';
+import { decryptIntegrationSecret, encryptIntegrationSecret } from '@/libs/lusterSecurity';
 import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -60,6 +70,8 @@ type GoogleCalendarSyncResult =
 type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
+  /** Present only when Google rotates the refresh token. */
+  refresh_token?: string;
   error?: string;
   error_description?: string;
 };
@@ -270,6 +282,132 @@ async function googleCalendarFetchWithContext<T>(
   }
 }
 
+/**
+ * Google returns `refresh_token` only when it rotates one. Writing the field
+ * unconditionally would blank the stored credential on every ordinary refresh
+ * and permanently break the connection, so the absent case yields no update at
+ * all rather than an explicit undefined.
+ */
+function buildRotatedTokenUpdate(rotatedRefreshToken: string | undefined) {
+  if (!rotatedRefreshToken) {
+    return {};
+  }
+  const encrypted = encryptIntegrationSecret(rotatedRefreshToken);
+  return {
+    encryptedRefreshToken: encrypted.ciphertext,
+    encryptionKeyVersion: encrypted.keyVersion,
+  };
+}
+
+/** On success the access token is guaranteed present — narrowed for callers. */
+type VerifiedTokenResponse = GoogleTokenResponse & { access_token: string };
+
+type TokenRequestOutcome =
+  | { ok: true; data: VerifiedTokenResponse }
+  | { ok: false; failure: GoogleFailureClassification };
+
+/** One token-endpoint round trip, classified. Never throws. */
+async function requestAccessToken(refreshToken: string): Promise<TokenRequestOutcome> {
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: Env.GOOGLE_OAUTH_CLIENT_ID!,
+        client_secret: Env.GOOGLE_OAUTH_CLIENT_SECRET!,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      failure: classifyNetworkFailure(error instanceof Error ? error.message : undefined),
+    };
+  }
+
+  let data: GoogleTokenResponse;
+  try {
+    data = await response.json() as GoogleTokenResponse;
+  } catch {
+    return { ok: false, failure: classifyNetworkFailure('unreadable token response') };
+  }
+
+  if (!response.ok || !data.access_token) {
+    return {
+      ok: false,
+      failure: classifyTokenRefreshFailure({
+        httpStatus: response.status,
+        error: data.error,
+        errorDescription: data.error_description,
+      }),
+    };
+  }
+  return { ok: true, data: data as VerifiedTokenResponse };
+}
+
+/**
+ * Persist a classified failure, and alert the owner exactly once — on the
+ * transition INTO `reconnect_required`.
+ *
+ * Availability runs on every page view, so notifying from the failure path
+ * itself would email the salon on every visit. Gating on the previous status
+ * means one alert per outage, not one per request.
+ */
+async function recordConnectionFailure(
+  salonId: string,
+  classification: GoogleFailureClassification,
+): Promise<void> {
+  const status = statusForClassification(classification);
+  const lastError = formatPersistedError(classification);
+  const lastCheckedAt = new Date();
+
+  if (status !== 'reconnect_required') {
+    await db.update(salonGoogleCalendarConnectionSchema)
+      .set({ status, lastError, lastCheckedAt })
+      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+      .catch(() => undefined);
+    return;
+  }
+
+  // The transition is detected by the UPDATE itself: it only matches rows that
+  // are not already latched, so exactly one concurrent request can observe the
+  // change. Availability runs on every page view, so a read-then-write here
+  // would race and email the salon repeatedly during one outage.
+  const transitioned = await db.update(salonGoogleCalendarConnectionSchema)
+    .set({ status, lastError, lastCheckedAt })
+    .where(and(
+      eq(salonGoogleCalendarConnectionSchema.salonId, salonId),
+      ne(salonGoogleCalendarConnectionSchema.status, 'reconnect_required'),
+    ))
+    .returning()
+    // A failed write must not double-alert: treat it as "already latched".
+    .catch(() => [] as unknown[]);
+
+  if (!transitioned.length) {
+    // Already latched: keep the diagnosis fresh, but do not alert again.
+    await db.update(salonGoogleCalendarConnectionSchema)
+      .set({ lastError, lastCheckedAt })
+      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+      .catch(() => undefined);
+    return;
+  }
+
+  try {
+    const { sendGoogleCalendarDisconnectedEmail } = await import('@/libs/googleCalendarAlerts');
+    await sendGoogleCalendarDisconnectedEmail({ salonId, classification });
+  } catch (error) {
+    // An alert failure must never take down the caller — availability has
+    // already failed closed by this point and that is the safety-critical part.
+    console.error('[GoogleCalendar] Failed to send disconnect alert', {
+      salonId,
+      kind: classification.kind,
+      error,
+    });
+  }
+}
+
 async function getGoogleCalendarRequestContext(salonId?: string): Promise<GoogleCalendarRequestContext | null> {
   if (salonId) {
     const [connection] = await db
@@ -282,43 +420,54 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
         throw new GoogleCalendarConnectionError(true);
       }
       if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_CLIENT_SECRET) {
+        await recordConnectionFailure(salonId, classifyMissingClientConfig());
         throw new GoogleCalendarConnectionError(false);
       }
-      let response: Response;
+
+      let refreshToken: string;
       try {
-        response = await fetch(GOOGLE_TOKEN_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: Env.GOOGLE_OAUTH_CLIENT_ID,
-            client_secret: Env.GOOGLE_OAUTH_CLIENT_SECRET,
-            refresh_token: decryptIntegrationSecret(connection.encryptedRefreshToken),
-            grant_type: 'refresh_token',
-          }),
-        });
+        refreshToken = decryptIntegrationSecret(connection.encryptedRefreshToken);
       } catch {
+        // Never reported as "reconnect" — a decrypt failure means the stored
+        // secret cannot be read at all, which points at key configuration
+        // rather than at the salon's authorization.
+        await recordConnectionFailure(salonId, classifyDecryptFailure());
         throw new GoogleCalendarConnectionError(false);
       }
-      let data: GoogleTokenResponse;
-      try {
-        data = await response.json() as GoogleTokenResponse;
-      } catch {
-        throw new GoogleCalendarConnectionError(false);
+
+      // One retry, and only for classifications that could plausibly differ on
+      // a second attempt. A confirmed invalid_grant is never repeated: the
+      // answer cannot change and repeated token requests burn quota.
+      let data: VerifiedTokenResponse | null = null;
+      let failure: GoogleFailureClassification | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const outcome = await requestAccessToken(refreshToken);
+        if (outcome.ok) {
+          data = outcome.data;
+          failure = null;
+          break;
+        }
+        failure = outcome.failure;
+        if (!outcome.failure.retryable) {
+          break;
+        }
       }
-      if (!response.ok || !data.access_token) {
-        const reconnectRequired = data.error === 'invalid_grant';
-        await db.update(salonGoogleCalendarConnectionSchema).set({
-          status: reconnectRequired ? 'reconnect_required' : 'degraded',
-          lastError: data.error_description || data.error || `Token refresh failed (${response.status})`,
-          lastCheckedAt: new Date(),
-        }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
-        throw new GoogleCalendarConnectionError(reconnectRequired);
+
+      if (!data) {
+        const classification = failure ?? classifyNetworkFailure();
+        await recordConnectionFailure(salonId, classification);
+        throw new GoogleCalendarConnectionError(classification.requiresReconnect);
       }
+
       await db.update(salonGoogleCalendarConnectionSchema).set({
         status: 'active',
         lastError: null,
         lastCheckedAt: new Date(),
         tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
+        // Google only returns a refresh token when it rotates one. Writing the
+        // absent case would blank the credential and permanently break the
+        // connection, so the existing token is preserved untouched.
+        ...buildRotatedTokenUpdate(data.refresh_token),
       }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
       return {
         accessToken: data.access_token,
@@ -600,18 +749,16 @@ async function markGoogleAvailabilityFailure(
   salonId: string,
   error: GoogleCalendarApiError | GoogleCalendarConnectionError,
 ) {
-  const reconnectRequired = isGoogleCalendarReconnectRequired(error);
-  await db
-    .update(salonGoogleCalendarConnectionSchema)
-    .set({
-      status: reconnectRequired ? 'reconnect_required' : 'degraded',
-      lastError: reconnectRequired
-        ? 'Google Calendar authorization is invalid. Reconnect required.'
-        : 'Google Calendar availability check failed.',
-      lastCheckedAt: new Date(),
-    })
-    .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
-    .catch(() => undefined);
+  // A GoogleCalendarConnectionError already travelled through the token path,
+  // which recorded the precise classification (and alerted if it was a new
+  // outage). Re-recording here is what used to replace Google's own message —
+  // "invalid_grant: Token has been expired or revoked" — with a generic
+  // "authorization is invalid", destroying the only evidence of the cause.
+  if (error instanceof GoogleCalendarConnectionError) {
+    return;
+  }
+
+  await recordConnectionFailure(salonId, classifyApiFailure(error.status, error.message));
 }
 
 export function isBusyWindowConflict(
