@@ -421,6 +421,35 @@ export function IntegrationsModal({
 
         {view === 'google' && (
           <div className="space-y-4">
+            {googleReadiness === 'reconnect_required' && (
+              <div
+                data-testid="google-reconnect-banner"
+                className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-700" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-900">
+                      Online booking is paused — Google Calendar needs reconnecting
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-red-800">
+                      We can no longer read your calendar, so we have stopped taking online bookings rather than
+                      risk double-booking you. Existing appointments are unaffected and you can still add clients
+                      manually.
+                    </p>
+                    {health?.google.lastError && (
+                      <p className="mt-2 text-xs text-red-700">{health.google.lastError}</p>
+                    )}
+                    <a
+                      className="mt-3 inline-flex rounded-full bg-red-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-red-800 focus-visible:ring-2 focus-visible:ring-red-400"
+                      href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
+                    >
+                      Reconnect Google Calendar
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className={card}>
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm text-stone-600">
