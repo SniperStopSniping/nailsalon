@@ -17,7 +17,7 @@ import {
 import { logAuditEvent } from '@/libs/auditLog';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
-import { getSalonById, getSalonBySlug } from '@/libs/queries';
+import { getSalonByFormerSlug, getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
 import { adminInviteSchema, adminSalonMembershipSchema, adminSessionSchema, adminUserSchema, salonSchema } from '@/models/Schema';
 
@@ -779,8 +779,15 @@ export async function requireActiveAdminSalon(): Promise<{
 
   if (activeSalonSlug) {
     if (admin.isSuperAdmin) {
-      const salon = await getSalonBySlug(activeSalonSlug);
+      const salon = await getSalonBySlug(activeSalonSlug)
+        ?? await getSalonByFormerSlug(activeSalonSlug);
       if (salon) {
+        if (salon.slug.toLowerCase() !== activeSalonSlug.toLowerCase()) {
+          cookieStore.set(ACTIVE_SALON_COOKIE, salon.slug, {
+            ...COOKIE_OPTIONS,
+            maxAge: 60 * 60 * 24 * 30,
+          });
+        }
         return { error: null, salon, admin, impersonation: null };
       }
     }

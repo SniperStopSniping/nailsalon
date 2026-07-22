@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
 
-const { getAdminImpersonationForAdmin, getAdminSession } = vi.hoisted(() => ({
+const { getAdminImpersonationForAdmin, getAdminSession, requireActiveAdminSalon } = vi.hoisted(() => ({
   getAdminImpersonationForAdmin: vi.fn(),
   getAdminSession: vi.fn(),
+  requireActiveAdminSalon: vi.fn(),
 }));
 const { getSalonById, getSalonBySlug } = vi.hoisted(() => ({
   getSalonById: vi.fn(),
@@ -14,6 +15,7 @@ const { getSalonById, getSalonBySlug } = vi.hoisted(() => ({
 vi.mock('@/libs/adminAuth', () => ({
   getAdminImpersonationForAdmin,
   getAdminSession,
+  requireActiveAdminSalon,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -26,6 +28,7 @@ describe('GET /api/admin/auth/me', () => {
     vi.clearAllMocks();
     getSalonById.mockResolvedValue(null);
     getSalonBySlug.mockResolvedValue(null);
+    requireActiveAdminSalon.mockResolvedValue({ salon: null });
     getAdminSession.mockResolvedValue({
       id: 'admin_1',
       phoneE164: '+15551234567',
@@ -125,5 +128,40 @@ describe('GET /api/admin/auth/me', () => {
       freeSoloEnabled: true,
     })]);
     expect(body.user.availableSalons).toHaveLength(1);
+  });
+
+  it('returns the recovered active salon for a super-admin without memberships', async () => {
+    getAdminImpersonationForAdmin.mockResolvedValue(null);
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      phoneE164: '+15551234567',
+      name: 'Sam Super',
+      email: 'sam@example.com',
+      isSuperAdmin: true,
+      salons: [],
+    });
+    requireActiveAdminSalon.mockResolvedValue({
+      salon: {
+        id: 'salon_renamed',
+        slug: 'renamed-salon',
+        name: 'Renamed Salon',
+        status: 'active',
+        freeSoloEnabled: false,
+        customDomain: null,
+      },
+    });
+
+    const response = await GET(new Request('http://localhost/api/admin/auth/me'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.user.salons).toEqual([
+      expect.objectContaining({
+        id: 'salon_renamed',
+        slug: 'renamed-salon',
+        role: 'super_admin',
+      }),
+    ]);
+    expect(body.user.availableSalons).toEqual(body.user.salons);
   });
 });

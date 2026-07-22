@@ -29,6 +29,7 @@ vi.mock('@/libs/superAdmin', () => ({
 }));
 
 const { PATCH } = await import('./route');
+const { getSalonByFormerSlug } = await import('@/libs/queries');
 
 const SALON_ID = 'salon_slug_change';
 const ORIGINAL_SLUG = 'original-salon';
@@ -125,6 +126,10 @@ describe('PATCH /api/super-admin/organizations/[id]/slug', () => {
 
     expect(salon?.slug).toBe('renamed-salon');
     expect(salon?.slugLockedAt?.toISOString()).toBe(LOCKED_AT.toISOString());
+    await expect(getSalonByFormerSlug(ORIGINAL_SLUG)).resolves.toMatchObject({
+      id: SALON_ID,
+      slug: 'renamed-salon',
+    });
 
     const audits = await getSlugAudits();
 

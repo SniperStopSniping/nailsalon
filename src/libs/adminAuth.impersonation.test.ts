@@ -8,6 +8,7 @@ const {
   db,
   getAdminImpersonationSession,
   getSalonById,
+  getSalonByFormerSlug,
   getSalonBySlug,
   setAdminImpersonationSession,
   setSelectPlans,
@@ -67,6 +68,7 @@ const {
     db,
     getAdminImpersonationSession: vi.fn(),
     getSalonById: vi.fn(),
+    getSalonByFormerSlug: vi.fn(),
     getSalonBySlug: vi.fn(),
     setAdminImpersonationSession: vi.fn(),
     setSelectPlans,
@@ -94,6 +96,7 @@ vi.mock('@/libs/clerkIdentity.server', () => ({
 }));
 
 vi.mock('@/libs/queries', () => ({
+  getSalonByFormerSlug,
   getSalonById,
   getSalonBySlug,
 }));
@@ -161,6 +164,7 @@ describe('adminAuth impersonation enforcement', () => {
       slug: 'other-salon',
       name: 'Other Salon',
     });
+    getSalonByFormerSlug.mockResolvedValue(null);
   });
 
   it('allows admin-equivalent access for the impersonated salon', async () => {
