@@ -1,3 +1,10 @@
+## [1.29.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.5...v1.29.6) (2026-07-22)
+
+
+### Bug Fixes
+
+* repair legacy canvas cancellations ([51d0121](https://github.com/SniperStopSniping/nailsalon/commit/51d012156d811c3dcff6006eaa246940daef1274))
+
 ## [1.29.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.4...v1.29.5) (2026-07-22)
 
 
