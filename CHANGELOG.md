@@ -1,3 +1,15 @@
+# [1.28.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.2...v1.28.0) (2026-07-22)
+
+
+### Bug Fixes
+
+* **super-admin:** normalize configured phone so login accepts +1 or bare digits ([6201156](https://github.com/SniperStopSniping/nailsalon/commit/6201156416a48009e6699cf0a4d5a0fb6002f357))
+
+
+### Features
+
+* **super-admin:** allow salon URL changes ([07e882e](https://github.com/SniperStopSniping/nailsalon/commit/07e882ec2b2768024162416b1505be8595d3733c))
+
 ## [1.27.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.1...v1.27.2) (2026-07-21)
 
 
