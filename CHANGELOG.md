@@ -1,3 +1,10 @@
+## [1.29.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.3...v1.29.4) (2026-07-22)
+
+
+### Bug Fixes
+
+* repair orphaned Google appointment events ([98363c4](https://github.com/SniperStopSniping/nailsalon/commit/98363c4acf4d4a4026380d412e68e785c205dadd))
+
 ## [1.29.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.2...v1.29.3) (2026-07-22)
 
 
