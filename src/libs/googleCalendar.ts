@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createSign } from 'node:crypto';
 
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lt, ne } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -534,20 +534,19 @@ function parseGoogleEventDate(value?: { dateTime?: string; date?: string }): Dat
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export async function listGoogleCalendarEventsForSalon(args: {
-  salonId: string;
+type GoogleCalendarEventListArgs = {
   calendarIds?: string[];
   startTime?: Date;
   endTime?: Date;
   updatedMin?: Date;
   includeDeleted?: boolean;
   privateExtendedProperties?: string[];
-}): Promise<GoogleCalendarRemoteEvent[]> {
-  const context = await getGoogleCalendarRequestContext(args.salonId);
-  if (!context || context.connectionType !== 'oauth') {
-    return [];
-  }
+};
 
+async function listGoogleCalendarEventsWithContext(
+  context: GoogleCalendarRequestContext,
+  args: GoogleCalendarEventListArgs,
+): Promise<GoogleCalendarRemoteEvent[]> {
   const events: GoogleCalendarRemoteEvent[] = [];
   const calendarIds = [...new Set(args.calendarIds?.length ? args.calendarIds : [context.calendarId])];
   for (const calendarId of calendarIds) {
@@ -615,6 +614,17 @@ export async function listGoogleCalendarEventsForSalon(args: {
   }
 
   return events;
+}
+
+export async function listGoogleCalendarEventsForSalon(args: GoogleCalendarEventListArgs & {
+  salonId: string;
+}): Promise<GoogleCalendarRemoteEvent[]> {
+  const context = await getGoogleCalendarRequestContext(args.salonId);
+  if (!context || context.connectionType !== 'oauth') {
+    return [];
+  }
+
+  return listGoogleCalendarEventsWithContext(context, args);
 }
 
 export async function listExternalGoogleCalendarEvents(args: {
@@ -851,6 +861,84 @@ function isSameWindow(a: GoogleCalendarBusyWindow, b: GoogleCalendarBusyWindow):
     && a.endTime.getTime() === b.endTime.getTime();
 }
 
+/**
+ * Google can briefly keep a deleted event in FreeBusy after events.list has
+ * already stopped returning it. Only suppress that anonymous window when all
+ * of the following agree:
+ *
+ * 1. it exactly matches a writable app mirror recorded as cancelled locally;
+ * 2. that mirror belongs to a calendar currently used for availability; and
+ * 3. Google's live event list contains no active busy event over the window.
+ *
+ * The live-list check is important: if the owner later creates a real event at
+ * the same time, it continues to block even though an older cancelled mirror
+ * has identical bounds.
+ */
+async function suppressCancelledMirrorFreeBusyGhosts(args: {
+  salonId: string;
+  context: GoogleCalendarRequestContext;
+  startTime: Date;
+  endTime: Date;
+  busyWindows: GoogleCalendarBusyWindow[];
+}): Promise<GoogleCalendarBusyWindow[]> {
+  if (args.context.connectionType !== 'oauth' || args.busyWindows.length === 0) {
+    return args.busyWindows;
+  }
+
+  const cancelledMirrors = await db
+    .select({
+      calendarId: googleCalendarEventSchema.calendarId,
+      startTime: googleCalendarEventSchema.startTime,
+      endTime: googleCalendarEventSchema.endTime,
+    })
+    .from(googleCalendarEventSchema)
+    .where(and(
+      eq(googleCalendarEventSchema.salonId, args.salonId),
+      inArray(googleCalendarEventSchema.calendarId, args.context.busyCalendarIds),
+      eq(googleCalendarEventSchema.googleStatus, 'cancelled'),
+      eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
+      inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
+      isNotNull(googleCalendarEventSchema.deletedAt),
+      lt(googleCalendarEventSchema.startTime, args.endTime),
+      gt(googleCalendarEventSchema.endTime, args.startTime),
+    ))
+    .limit(500);
+  const matchingMirrors = cancelledMirrors.filter(mirror =>
+    args.busyWindows.some(window => isSameWindow(mirror, window)),
+  );
+  if (matchingMirrors.length === 0) {
+    return args.busyWindows;
+  }
+
+  const calendarIds = [...new Set(matchingMirrors.map(mirror => mirror.calendarId))];
+  const liveEvents = await listGoogleCalendarEventsWithContext(args.context, {
+    calendarIds,
+    startTime: args.startTime,
+    endTime: args.endTime,
+  });
+  const liveBusyWindows = liveEvents.flatMap(event => (
+    event.status !== 'cancelled'
+    && event.transparency === 'busy'
+    && event.startTime
+    && event.endTime
+      ? [{ startTime: event.startTime, endTime: event.endTime }]
+      : []
+  ));
+
+  return args.busyWindows.filter((window) => {
+    const matchesCancelledMirror = matchingMirrors.some(mirror =>
+      isSameWindow(mirror, window),
+    );
+    if (!matchesCancelledMirror) {
+      return true;
+    }
+
+    return liveBusyWindows.some(liveWindow =>
+      window.startTime < liveWindow.endTime && window.endTime > liveWindow.startTime,
+    );
+  });
+}
+
 export async function getGoogleCalendarBusyWindows(args: {
   salonId?: string;
   startTime: Date;
@@ -885,7 +973,7 @@ export async function getGoogleCalendarBusyWindows(args: {
         }),
       },
     );
-    return context.busyCalendarIds.flatMap((calendarId) => {
+    const busyWindows = context.busyCalendarIds.flatMap((calendarId) => {
       const calendar = data.calendars?.[calendarId];
       if (calendar?.errors?.length) {
         throw new GoogleCalendarApiError(
@@ -900,6 +988,15 @@ export async function getGoogleCalendarBusyWindows(args: {
         }))
         .filter(window => !ownMirrorWindow || !isSameWindow(window, ownMirrorWindow));
     });
+    return args.salonId
+      ? await suppressCancelledMirrorFreeBusyGhosts({
+        salonId: args.salonId,
+        context,
+        startTime: args.startTime,
+        endTime: args.endTime,
+        busyWindows,
+      })
+      : busyWindows;
   } catch (error) {
     if (!(error instanceof GoogleCalendarApiError || error instanceof GoogleCalendarConnectionError)) {
       throw error;

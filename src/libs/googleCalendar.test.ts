@@ -333,6 +333,93 @@ describe('googleCalendar', () => {
     }));
   });
 
+  describe('cancelled FreeBusy ghost suppression', () => {
+    const BUSY_WINDOW = {
+      startTime: new Date('2026-06-10T17:45:00.000Z'),
+      endTime: new Date('2026-06-10T18:45:00.000Z'),
+    };
+    const CONNECTION = {
+      salonId: 'salon_1',
+      status: 'active',
+      encryptedRefreshToken: 'ciphertext',
+      encryptionKeyVersion: 1,
+      destinationCalendarId: 'primary@example.com',
+      busyCalendarIds: ['primary@example.com'],
+      tokenExpiresAt: null,
+    };
+    const CANCELLED_MIRROR = {
+      calendarId: 'primary@example.com',
+      ...BUSY_WINDOW,
+    };
+
+    it('releases a cancelled mirror that events.list no longer returns', async () => {
+      const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+      query.limit
+        .mockResolvedValueOnce([CONNECTION])
+        .mockResolvedValueOnce([CANCELLED_MIRROR]);
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+      });
+
+      expect(windows).toEqual([]);
+      expect(fetchMock.mock.calls.some(([url, init]) =>
+        String(url).includes('/events?') && init?.method === 'GET',
+      )).toBe(true);
+    });
+
+    it('keeps the window when a live busy event still overlaps it', async () => {
+      const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+      query.limit
+        .mockResolvedValueOnce([CONNECTION])
+        .mockResolvedValueOnce([CANCELLED_MIRROR]);
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const urlText = String(url);
+        if (urlText.includes('oauth2.googleapis.com/token')) {
+          return new Response(JSON.stringify({
+            access_token: 'google_token',
+            expires_in: 3600,
+          }), { status: 200 });
+        }
+        if (urlText.endsWith('/freeBusy')) {
+          return new Response(JSON.stringify({
+            calendars: {
+              'primary@example.com': {
+                busy: [{
+                  start: BUSY_WINDOW.startTime.toISOString(),
+                  end: BUSY_WINDOW.endTime.toISOString(),
+                }],
+              },
+            },
+          }), { status: 200 });
+        }
+        if (urlText.includes('/events?')) {
+          return new Response(JSON.stringify({
+            items: [{
+              id: 'real_external_event',
+              status: 'confirmed',
+              start: { dateTime: BUSY_WINDOW.startTime.toISOString() },
+              end: { dateTime: BUSY_WINDOW.endTime.toISOString() },
+            }],
+          }), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      });
+
+      const windows = await getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+      });
+
+      expect(windows).toEqual([BUSY_WINDOW]);
+    });
+  });
+
   describe('cancelled event deletion', () => {
     function queueSelects(results: unknown[][]) {
       const queue = [...results];
