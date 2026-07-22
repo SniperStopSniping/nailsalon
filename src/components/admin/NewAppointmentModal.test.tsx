@@ -91,19 +91,23 @@ describe('NewAppointmentModal Google conversion session', () => {
   });
 
   it('prefills the client phone, title details, catalog service price, and description', async () => {
-    render(<NewAppointmentModal {...modalProps({
-      googleEventPrefill: {
-        ...initialEvent,
-        title: 'Gel Manicure — From $50 between Test Salon and Cynthia Okundigie',
-        description: 'Client requested a short almond shape.',
-        suggestedClient: {
-          fullName: 'Cynthia Okundigie',
-          phone: '4373132358',
-          email: null,
-        },
-        suggestedService: null,
-      },
-    })} />);
+    render(
+      <NewAppointmentModal
+        {...modalProps({
+          googleEventPrefill: {
+            ...initialEvent,
+            title: 'Gel Manicure — From $50 between Test Salon and Cynthia Okundigie',
+            description: 'Client requested a short almond shape.',
+            suggestedClient: {
+              fullName: 'Cynthia Okundigie',
+              phone: '4373132358',
+              email: null,
+            },
+            suggestedService: null,
+          },
+        })}
+      />,
+    );
 
     await waitFor(() => {
       expect(screen.getByLabelText('Client Name (optional)')).toHaveValue('Cynthia Okundigie');
