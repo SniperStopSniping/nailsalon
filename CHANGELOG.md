@@ -1,3 +1,10 @@
+## [1.29.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.2...v1.29.3) (2026-07-22)
+
+
+### Bug Fixes
+
+* prioritize future calendar reconciliation ([d2f45bf](https://github.com/SniperStopSniping/nailsalon/commit/d2f45bf26f01d2b42e219c827bc5107ccb7d81eb))
+
 ## [1.29.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.1...v1.29.2) (2026-07-22)
 
 
