@@ -197,7 +197,7 @@ test('admin conflicting drag drop reverts and shows inline error', async ({ brow
       technicianId: staffTechnician.id,
       clientPhone: availableAfterFirst.phone,
       clientName: `Ops ${availableAfterFirst.phone.slice(-4)}`,
-      startTime: new Date(`${conflictSlot!.dateString}T${conflictSlot!.time}:00`).toISOString(),
+      startTime: conflictSlot!.startTime,
     });
     secondAppointmentId = secondAppointment.id;
 

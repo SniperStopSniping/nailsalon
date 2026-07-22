@@ -7,12 +7,22 @@ import {
 } from '@playwright/test';
 
 import { type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import {
+  getDateKeyInTimeZone,
+  getTimeKeyInTimeZone,
+  zonedTimeToUtc,
+} from '@/libs/timeZone';
 
 import { authStatePaths, e2eBaseUrl, e2eConfig } from './config';
 
 type AvailabilityResponse = {
   visibleSlots?: string[];
   bookedSlots?: string[];
+  slots?: Array<{
+    time: string;
+    startTime: string;
+    availability?: string;
+  }>;
   error?: {
     message?: string;
   };
@@ -34,6 +44,7 @@ export type AvailabilitySlot = {
   date: Date;
   dateString: string;
   time: string;
+  startTime: string;
 };
 
 type FindBookableSlotOptions = {
@@ -55,24 +66,31 @@ type HttpResult<T = unknown> = {
   body: T | null;
 };
 
-function isoDate(date: Date) {
-  return date.toISOString().split('T')[0] || '';
+function getSalonDateKeyAtOffset(offset: number) {
+  const today = getDateKeyInTimeZone(new Date());
+  const [year = 0, month = 1, day = 1] = today.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1, day + offset, 12));
+
+  return target.toISOString().split('T')[0] || '';
 }
 
-async function getBrowserStartParts(page: Page, iso: string) {
-  return page.evaluate((targetIso) => {
-    const date = new Date(targetIso);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
+function getSalonStartParts(iso: string) {
+  const date = new Date(iso);
 
-    return {
-      dateString: `${year}-${month}-${day}`,
-      time: `${hours}:${minutes}`,
-    };
-  }, iso);
+  return {
+    dateString: getDateKeyInTimeZone(date),
+    time: getTimeKeyInTimeZone(date),
+  };
+}
+
+function getCanonicalStartTime(
+  availability: AvailabilityResponse | null,
+  dateString: string,
+  time: string,
+) {
+  return availability?.slots?.find(slot => (
+    slot.time === time && slot.availability !== 'schedule_conflict'
+  ))?.startTime ?? zonedTimeToUtc({ date: dateString, time }).toISOString();
 }
 
 function availabilityRequestMatches(args: {
@@ -179,14 +197,11 @@ async function findBookableSlotsInternal(
     const dateCandidates = options?.dateString
       ? [options.dateString]
       : Array.from({ length: daysToScan }, (_, index) => {
-        const date = new Date();
-        date.setDate(date.getDate() + index + startDayOffset);
-        date.setHours(0, 0, 0, 0);
-        return isoDate(date);
+        return getSalonDateKeyAtOffset(index + startDayOffset);
       });
 
     for (const candidateDate of dateCandidates) {
-      const date = new Date(`${candidateDate}T00:00:00`);
+      const date = zonedTimeToUtc({ date: candidateDate, time: '00:00' });
       const params = new URLSearchParams({
         date: candidateDate,
         salonSlug: e2eConfig.salonSlug,
@@ -226,6 +241,7 @@ async function findBookableSlotsInternal(
           date,
           dateString: candidateDate,
           time,
+          startTime: getCanonicalStartTime(body, candidateDate, time),
         }));
       }
     }
@@ -310,9 +326,10 @@ export async function getSelectableSlotsForDate(
     return visibleSlots
       .filter(slot => !bookedSlots.has(slot))
       .map(time => ({
-        date: new Date(`${options.dateString}T00:00:00`),
+        date: zonedTimeToUtc({ date: options.dateString, time: '00:00' }),
         dateString: options.dateString,
         time,
+        startTime: getCanonicalStartTime(body, options.dateString, time),
       }));
   } finally {
     await requestContext.dispose();
@@ -373,7 +390,7 @@ export async function createAppointmentViaApi(
         throw new Error(`Appointment creation did not return an id: ${JSON.stringify(creationResult.body)}`);
       }
 
-      const persistedStart = await getBrowserStartParts(page, appointment.startTime);
+      const persistedStart = getSalonStartParts(appointment.startTime);
       return {
         id: appointment.id,
         dateString: persistedStart.dateString,
@@ -397,12 +414,10 @@ export async function createAppointmentViaApi(
     const finalDayOffset = startDayOffset + 20;
 
     for (let offset = startDayOffset; offset <= finalDayOffset; offset += 1) {
-      const date = new Date();
-      date.setDate(date.getDate() + offset);
-      date.setHours(0, 0, 0, 0);
+      const dateString = getSalonDateKeyAtOffset(offset);
 
       const params = new URLSearchParams({
-        date: isoDate(date),
+        date: dateString,
         salonSlug: e2eConfig.salonSlug,
       });
 
@@ -447,9 +462,7 @@ export async function createAppointmentViaApi(
           throw new Error('Missing time for E2E appointment creation.');
         }
 
-        const [hours, minutes] = time.split(':').map(Number);
-        const startTime = new Date(`${isoDate(date)}T00:00:00`);
-        startTime.setHours(hours || 9, minutes || 0, 0, 0);
+        const startTime = getCanonicalStartTime(availabilityBody, dateString, time);
 
         const creationResult = await postJson<CreatedAppointmentResponse>(
           requestContext,
@@ -466,7 +479,7 @@ export async function createAppointmentViaApi(
             locationId: options?.locationId ?? undefined,
             originalAppointmentId: options?.originalAppointmentId,
             manageToken: options?.manageToken,
-            startTime: startTime.toISOString(),
+            startTime,
           },
         );
 
@@ -476,7 +489,7 @@ export async function createAppointmentViaApi(
             throw new Error(`Appointment creation did not return an id: ${JSON.stringify(creationResult.body)}`);
           }
 
-          const persistedStart = await getBrowserStartParts(page, appointment.startTime);
+          const persistedStart = getSalonStartParts(appointment.startTime);
           return {
             id: appointment.id,
             dateString: persistedStart.dateString,
