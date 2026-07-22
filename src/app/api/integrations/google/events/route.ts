@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
+import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { googleCalendarEventSchema } from '@/models/Schema';
 
 const querySchema = z.object({
@@ -39,6 +40,9 @@ export async function GET(request: Request) {
       title: googleCalendarEventSchema.title,
       description: googleCalendarEventSchema.description,
       location: googleCalendarEventSchema.location,
+      attendeeName: googleCalendarEventSchema.attendeeName,
+      attendeePhone: googleCalendarEventSchema.attendeePhone,
+      attendeeEmail: googleCalendarEventSchema.attendeeEmail,
       startTime: googleCalendarEventSchema.startTime,
       endTime: googleCalendarEventSchema.endTime,
       durationMinutes: googleCalendarEventSchema.durationMinutes,
@@ -57,15 +61,25 @@ export async function GET(request: Request) {
     ));
     return Response.json({
       data: {
-        events: events.map(event => ({
-          ...event,
-          startTime: event.startTime.toISOString(),
-          endTime: event.endTime.toISOString(),
-          lastSyncedAt: event.lastSyncedAt.toISOString(),
-          needsDetails: event.reviewStatus === 'needs_review',
-          isReadOnly: !['owner', 'writer'].includes(event.sourceAccessRole),
-          label: event.title || (event.transparency === 'free' ? 'Google free event' : 'Google busy time'),
-        })),
+        events: events.map((event) => {
+          const parsedTitle = parseGoogleEventTitle(event.title);
+          return {
+            ...event,
+            startTime: event.startTime.toISOString(),
+            endTime: event.endTime.toISOString(),
+            lastSyncedAt: event.lastSyncedAt.toISOString(),
+            needsDetails: event.reviewStatus === 'needs_review',
+            isReadOnly: !['owner', 'writer'].includes(event.sourceAccessRole),
+            label: event.title || (event.transparency === 'free' ? 'Google free event' : 'Google busy time'),
+            suggestedClient: event.attendeePhone || event.attendeeEmail || event.attendeeName || parsedTitle.clientName
+              ? {
+                  fullName: event.attendeeName || parsedTitle.clientName,
+                  phone: event.attendeePhone || '',
+                  email: event.attendeeEmail,
+                }
+              : null,
+          };
+        }),
       },
     });
   } catch (cause) {

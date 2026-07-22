@@ -57,6 +57,7 @@ type AppointmentSummary = {
   description?: string | null;
   location?: string | null;
   sourceVersion?: string | null;
+  suggestedClient?: { fullName: string | null; phone: string; email: string | null } | null;
   timeZone?: string;
 };
 
@@ -733,6 +734,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           description: event.description,
           location: event.location,
           sourceVersion: event.lastSyncedAt,
+          suggestedClient: event.suggestedClient,
           timeZone: salonTimeZone,
         };
         if (existing) {
@@ -772,6 +774,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
           description: refreshed.description,
           location: refreshed.location,
           sourceVersion: refreshed.lastSyncedAt,
+          suggestedClient: refreshed.suggestedClient,
         };
       });
 
@@ -1187,6 +1190,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
                 description: googleEventPrefill.description,
                 location: googleEventPrefill.location,
                 sourceVersion: googleEventPrefill.sourceVersion,
+                suggestedClient: googleEventPrefill.suggestedClient,
                 isReadOnly: googleEventPrefill.isReadOnly,
               }
             : null

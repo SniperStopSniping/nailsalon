@@ -16,6 +16,7 @@ import {
   type GoogleFailureClassification,
   statusForClassification,
 } from '@/libs/googleCalendarFailure';
+import type { GoogleCalendarAttendee } from '@/libs/googleEventAutofill';
 import { decryptIntegrationSecret, encryptIntegrationSecret } from '@/libs/lusterSecurity';
 import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
@@ -102,6 +103,7 @@ export type GoogleCalendarRemoteEvent = {
   updatedAt: Date | null;
   appointmentId: string | null;
   salonId: string | null;
+  attendees?: GoogleCalendarAttendee[];
 };
 
 type GoogleCalendarEventListResponse = {
@@ -117,6 +119,12 @@ type GoogleCalendarEventListResponse = {
     start?: { dateTime?: string; date?: string };
     end?: { dateTime?: string; date?: string };
     extendedProperties?: { private?: Record<string, string> };
+    attendees?: Array<{
+      email?: string;
+      displayName?: string;
+      organizer?: boolean;
+      self?: boolean;
+    }>;
   }>;
   nextPageToken?: string;
 };
@@ -588,6 +596,14 @@ export async function listGoogleCalendarEventsForSalon(args: {
           updatedAt: item.updated ? new Date(item.updated) : null,
           appointmentId: privateProperties?.appointmentId || null,
           salonId: privateProperties?.salonId || null,
+          attendees: (item.attendees ?? []).flatMap(attendee => attendee.email
+            ? [{
+                email: attendee.email,
+                displayName: attendee.displayName?.trim() || null,
+                organizer: attendee.organizer === true,
+                self: attendee.self === true,
+              }]
+            : []),
         });
       }
       pageToken = data.nextPageToken;

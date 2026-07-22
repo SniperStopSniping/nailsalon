@@ -90,6 +90,30 @@ describe('NewAppointmentModal Google conversion session', () => {
     installDefaultFetch();
   });
 
+  it('prefills the client phone, title details, catalog service price, and description', async () => {
+    render(<NewAppointmentModal {...modalProps({
+      googleEventPrefill: {
+        ...initialEvent,
+        title: 'Gel Manicure — From $50 between Test Salon and Cynthia Okundigie',
+        description: 'Client requested a short almond shape.',
+        suggestedClient: {
+          fullName: 'Cynthia Okundigie',
+          phone: '4373132358',
+          email: null,
+        },
+        suggestedService: null,
+      },
+    })} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Client Name (optional)')).toHaveValue('Cynthia Okundigie');
+      expect(screen.getByLabelText('Phone Number *')).toHaveValue('(437) 313-2358');
+      expect(screen.getByRole('button', { name: /Gel Manicure/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByLabelText('Appointment price (CAD $)')).toHaveValue(55);
+      expect(screen.getByLabelText('Notes (optional)')).toHaveValue('Client requested a short almond shape.');
+    });
+  });
+
   it('preserves every editable value across a component rerender with fresh event objects', async () => {
     const props = modalProps();
     const view = render(<NewAppointmentModal {...props} />);

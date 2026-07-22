@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { googleCalendarEventSchema } from '@/models/Schema';
 
@@ -41,6 +42,7 @@ export async function GET(request: Request, context: { params: { id: string } })
   if (event.appointmentId || event.reviewStatus === 'appointment') {
     return Response.json({ error: { code: 'GOOGLE_EVENT_ALREADY_CONVERTED', message: 'Google event was already converted' } }, { status: 409 });
   }
+  const parsedTitle = parseGoogleEventTitle(event.title);
 
   return Response.json({
     data: {
@@ -55,6 +57,15 @@ export async function GET(request: Request, context: { params: { id: string } })
         transparency: event.transparency,
         isReadOnly: !['owner', 'writer'].includes(event.sourceAccessRole),
         sourceVersion: (event.googleUpdatedAt ?? event.updatedAt).toISOString(),
+        suggestion: {
+          client: event.attendeePhone || event.attendeeEmail || event.attendeeName || parsedTitle.clientName
+            ? {
+                fullName: event.attendeeName || parsedTitle.clientName,
+                phone: event.attendeePhone || '',
+                email: event.attendeeEmail,
+              }
+            : null,
+        },
       },
     },
   });
