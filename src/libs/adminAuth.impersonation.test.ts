@@ -4,10 +4,12 @@ import { requireActiveAdminSalon, requireAdmin } from './adminAuth';
 
 const {
   cookieGet,
+  clearAdminImpersonationSession,
   db,
   getAdminImpersonationSession,
   getSalonById,
   getSalonBySlug,
+  setAdminImpersonationSession,
   setSelectPlans,
 } = vi.hoisted(() => {
   type Plan =
@@ -61,10 +63,12 @@ const {
 
   return {
     cookieGet,
+    clearAdminImpersonationSession: vi.fn(),
     db,
     getAdminImpersonationSession: vi.fn(),
     getSalonById: vi.fn(),
     getSalonBySlug: vi.fn(),
+    setAdminImpersonationSession: vi.fn(),
     setSelectPlans,
   };
 });
@@ -80,7 +84,9 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/adminImpersonation', () => ({
+  clearAdminImpersonationSession,
   getAdminImpersonationSession,
+  setAdminImpersonationSession,
 }));
 
 vi.mock('@/libs/clerkIdentity.server', () => ({
@@ -192,5 +198,31 @@ describe('adminAuth impersonation enforcement', () => {
     expect(result.salon?.id).toBe('salon_locked');
     expect(result.impersonation?.salonSlug).toBe('locked-salon');
     expect(getSalonBySlug).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a signed impersonation session after the salon slug changes', async () => {
+    primeAdminSessionSelects();
+    getSalonById.mockResolvedValue({
+      id: 'salon_locked',
+      slug: 'renamed-salon',
+      name: 'Renamed Salon',
+    });
+
+    const result = await requireActiveAdminSalon();
+
+    expect(result.error).toBeNull();
+    expect(result.salon?.slug).toBe('renamed-salon');
+    expect(result.impersonation).toMatchObject({
+      salonId: 'salon_locked',
+      salonSlug: 'renamed-salon',
+      salonName: 'Renamed Salon',
+    });
+    expect(setAdminImpersonationSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salonId: 'salon_locked',
+        salonSlug: 'renamed-salon',
+        salonName: 'Renamed Salon',
+      }),
+    );
   });
 });
