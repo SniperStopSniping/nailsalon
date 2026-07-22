@@ -919,19 +919,49 @@ export async function hasGoogleCalendarConflict(args: {
   return isBusyWindowConflict(args.startTime, args.endTime, busyWindows);
 }
 
-async function applyLinkedEventCalendar(context: GoogleCalendarRequestContext, salonId: string, appointmentId: string): Promise<boolean> {
-  const [event] = await db.select({
-    calendarId: googleCalendarEventSchema.calendarId,
-    sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
-    syncMode: googleCalendarEventSchema.syncMode,
-  }).from(googleCalendarEventSchema).where(and(
+type LinkedGoogleCalendarEvent = {
+  id: string;
+  calendarId: string;
+  googleEventId: string;
+  sourceAccessRole: string;
+  syncMode: 'inbound_only' | 'bidirectional' | 'superseded';
+};
+
+async function getLinkedGoogleCalendarEvent(
+  salonId: string,
+  appointmentId: string,
+  googleCalendarEventId?: string | null,
+): Promise<LinkedGoogleCalendarEvent | null> {
+  const conditions = [
     eq(googleCalendarEventSchema.salonId, salonId),
     eq(googleCalendarEventSchema.appointmentId, appointmentId),
-  )).limit(1);
+    isNull(googleCalendarEventSchema.deletedAt),
+    ne(googleCalendarEventSchema.syncMode, 'superseded'),
+  ];
+  if (googleCalendarEventId) {
+    conditions.push(eq(googleCalendarEventSchema.googleEventId, googleCalendarEventId));
+  }
+  const [event] = await db.select({
+    id: googleCalendarEventSchema.id,
+    calendarId: googleCalendarEventSchema.calendarId,
+    googleEventId: googleCalendarEventSchema.googleEventId,
+    sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
+    syncMode: googleCalendarEventSchema.syncMode,
+  }).from(googleCalendarEventSchema).where(and(...conditions)).limit(1);
+  return event ?? null;
+}
+
+function canWriteLinkedGoogleEvent(event: LinkedGoogleCalendarEvent): boolean {
+  return event.syncMode === 'bidirectional'
+    && ['owner', 'writer'].includes(event.sourceAccessRole);
+}
+
+async function applyLinkedEventCalendar(context: GoogleCalendarRequestContext, salonId: string, appointmentId: string): Promise<boolean> {
+  const event = await getLinkedGoogleCalendarEvent(salonId, appointmentId);
   if (!event) {
     return true;
   }
-  if (event.syncMode === 'inbound_only' || !['owner', 'writer'].includes(event.sourceAccessRole)) {
+  if (!canWriteLinkedGoogleEvent(event)) {
     return false;
   }
   context.calendarId = event.calendarId;
@@ -1022,24 +1052,73 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
   googleCalendarEventId?: string | null;
 }): Promise<GoogleCalendarSyncResult> {
   const context = await getGoogleCalendarRequestContext(args.salonId);
-  if (!context || !args.googleCalendarEventId) {
+  if (!context) {
     return { status: 'disabled' };
   }
-  if (!await applyLinkedEventCalendar(context, args.salonId, args.appointmentId)) {
+
+  let googleCalendarEventId = args.googleCalendarEventId;
+  let linkedEvent = await getLinkedGoogleCalendarEvent(
+    args.salonId,
+    args.appointmentId,
+    googleCalendarEventId,
+  );
+  if (!googleCalendarEventId && linkedEvent) {
+    googleCalendarEventId = linkedEvent.googleEventId;
+  }
+  if (!googleCalendarEventId) {
+    const [appointment] = await db
+      .select({ googleCalendarEventId: appointmentSchema.googleCalendarEventId })
+      .from(appointmentSchema)
+      .where(and(
+        eq(appointmentSchema.id, args.appointmentId),
+        eq(appointmentSchema.salonId, args.salonId),
+      ))
+      .limit(1);
+    googleCalendarEventId = appointment?.googleCalendarEventId ?? null;
+    if (googleCalendarEventId) {
+      linkedEvent = await getLinkedGoogleCalendarEvent(
+        args.salonId,
+        args.appointmentId,
+        googleCalendarEventId,
+      );
+    }
+  }
+  if (!googleCalendarEventId) {
     return { status: 'disabled' };
+  }
+  if (linkedEvent) {
+    if (!canWriteLinkedGoogleEvent(linkedEvent)) {
+      return { status: 'disabled' };
+    }
+    context.calendarId = linkedEvent.calendarId;
   }
 
   try {
     try {
       await googleCalendarFetchWithContext<Record<string, never>>(
         context,
-        `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(args.googleCalendarEventId)}?sendUpdates=none`,
+        `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(googleCalendarEventId)}?sendUpdates=none`,
         { method: 'DELETE' },
       );
     } catch (error) {
       if (!(error instanceof GoogleCalendarApiError) || error.status !== 404) {
         throw error;
       }
+    }
+
+    if (linkedEvent) {
+      const deletedAt = new Date();
+      await db
+        .update(googleCalendarEventSchema)
+        .set({
+          googleStatus: 'cancelled',
+          deletedAt,
+          lastSyncedAt: deletedAt,
+        })
+        .where(and(
+          eq(googleCalendarEventSchema.id, linkedEvent.id),
+          eq(googleCalendarEventSchema.salonId, args.salonId),
+        ));
     }
 
     await recordCalendarSyncResult({
@@ -1058,7 +1137,7 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
       appointmentId: args.appointmentId,
       salonId: args.salonId,
       status: 'failed',
-      eventId: args.googleCalendarEventId,
+      eventId: googleCalendarEventId,
       error: message,
     });
 

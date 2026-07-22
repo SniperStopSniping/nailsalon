@@ -66,6 +66,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 import {
+  deleteGoogleCalendarEventForAppointment,
   getGoogleCalendarBusyWindows,
   isBusyWindowConflict,
   syncGoogleCalendarEventForAppointment,
@@ -330,6 +331,96 @@ describe('googleCalendar', () => {
       googleCalendarSyncStatus: 'synced',
       googleCalendarSyncError: null,
     }));
+  });
+
+  describe('cancelled event deletion', () => {
+    function queueSelects(results: unknown[][]) {
+      const queue = [...results];
+      db.select.mockImplementation((() => {
+        const rows = queue.shift() ?? [];
+        const chain: Record<string, unknown> = {};
+        chain.from = () => chain;
+        chain.where = () => chain;
+        chain.limit = async () => rows;
+        return chain;
+      }) as unknown as typeof db.select);
+    }
+
+    it('resolves an event id recorded after its delete job was queued', async () => {
+      queueSelects([
+        [], // no OAuth connection row -> legacy Env config
+        [], // no linked provider row before the appointment id is resolved
+        [{ googleCalendarEventId: 'gcal_event_late' }],
+        [], // outbound-only mirror has no linked provider row
+      ]);
+
+      const result = await deleteGoogleCalendarEventForAppointment({
+        appointmentId: 'appt_cancelled',
+        salonId: 'salon_1',
+        googleCalendarEventId: null,
+      });
+
+      expect(result).toEqual({ status: 'deleted' });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/events/gcal_event_late?sendUpdates=none'),
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+    });
+
+    it('deletes a writable linked event when the appointment event id is blank', async () => {
+      queueSelects([
+        [],
+        [{
+          id: 'linked_1',
+          calendarId: 'staff-calendar@example.com',
+          googleEventId: 'gcal_linked',
+          sourceAccessRole: 'writer',
+          syncMode: 'bidirectional',
+        }],
+      ]);
+
+      const result = await deleteGoogleCalendarEventForAppointment({
+        appointmentId: 'appt_cancelled',
+        salonId: 'salon_1',
+        googleCalendarEventId: null,
+      });
+
+      expect(result).toEqual({ status: 'deleted' });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/calendars/staff-calendar%40example.com/events/gcal_linked'),
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+      expect(set).toHaveBeenCalledWith(expect.objectContaining({
+        googleStatus: 'cancelled',
+        deletedAt: expect.any(Date),
+      }));
+      expect(set).toHaveBeenCalledWith(expect.objectContaining({
+        googleCalendarEventId: null,
+        googleCalendarSyncStatus: 'deleted',
+      }));
+    });
+
+    it('does not delete a linked event from a read-only calendar', async () => {
+      queueSelects([
+        [],
+        [{
+          id: 'linked_read_only',
+          calendarId: 'readonly@example.com',
+          googleEventId: 'gcal_read_only',
+          sourceAccessRole: 'reader',
+          syncMode: 'inbound_only',
+        }],
+      ]);
+
+      const result = await deleteGoogleCalendarEventForAppointment({
+        appointmentId: 'appt_cancelled',
+        salonId: 'salon_1',
+        googleCalendarEventId: null,
+      });
+
+      expect(result).toEqual({ status: 'disabled' });
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+    });
   });
 
   describe('reschedule mirror exclusion', () => {
