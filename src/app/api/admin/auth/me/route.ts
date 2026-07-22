@@ -15,7 +15,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getAdminImpersonationForAdmin, getAdminSession } from '@/libs/adminAuth';
+import { getAdminImpersonationForAdmin, getAdminSession, requireActiveAdminSalon } from '@/libs/adminAuth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
         publicUrl: buildSalonTenantPublicUrl('/', { slug: s.salonSlug, customDomain: s.customDomain }),
         bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: s.salonSlug, customDomain: s.customDomain }),
       }));
-      const availableSalons = [...salons];
+      let availableSalons = [...salons];
 
       if (impersonation) {
         salons = [{
@@ -65,6 +65,25 @@ export async function GET(request: Request) {
           publicUrl: buildSalonTenantPublicUrl('/', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
           bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: impersonation.salonSlug, customDomain: impersonationSalon?.customDomain }),
         }];
+      } else if (admin.isSuperAdmin && salons.length === 0 && !salonSlug) {
+        // Super-admins commonly have no membership rows and enter this page
+        // through the active-salon cookie. Recover that tenant even when the
+        // cookie still contains a slug replaced by a recent salon rename.
+        const activeContext = await requireActiveAdminSalon();
+        if (activeContext.salon) {
+          const activeSalon = activeContext.salon;
+          salons = [{
+            id: activeSalon.id,
+            slug: activeSalon.slug,
+            name: activeSalon.name,
+            status: activeSalon.status ?? null,
+            role: 'super_admin',
+            freeSoloEnabled: activeSalon.freeSoloEnabled ?? false,
+            publicUrl: buildSalonTenantPublicUrl('/', activeSalon),
+            bookingUrl: buildSalonTenantPublicUrl('/book/service', activeSalon),
+          }];
+          availableSalons = [...salons];
+        }
       }
 
       // If salonSlug provided, validate membership and filter

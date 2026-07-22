@@ -12,6 +12,7 @@ import {
   type Client,
   clientSchema,
   type Salon,
+  salonAuditLogSchema,
   type SalonClient,
   salonClientSchema,
   type SalonLocation,
@@ -52,6 +53,28 @@ export async function getSalonBySlug(slug: string): Promise<Salon | null> {
     .limit(1);
 
   return results[0] ?? null;
+}
+
+/**
+ * Resolve a salon from a slug that was replaced by an audited super-admin
+ * rename. The audit row retains the stable salon id, so this also works across
+ * multiple consecutive renames without maintaining redirect records.
+ */
+export async function getSalonByFormerSlug(slug: string): Promise<Salon | null> {
+  const results = await db
+    .select({ salon: salonSchema })
+    .from(salonAuditLogSchema)
+    .innerJoin(salonSchema, eq(salonAuditLogSchema.salonId, salonSchema.id))
+    .where(and(
+      eq(salonAuditLogSchema.action, 'updated'),
+      eq(salonSchema.isActive, true),
+      sql`${salonAuditLogSchema.metadata}->>'field' = 'slug'`,
+      sql`${salonAuditLogSchema.metadata}->>'previousValue' = ${slug}`,
+    ))
+    .orderBy(desc(salonAuditLogSchema.createdAt))
+    .limit(1);
+
+  return results[0]?.salon ?? null;
 }
 
 /**
