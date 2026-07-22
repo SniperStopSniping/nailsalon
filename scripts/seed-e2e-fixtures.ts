@@ -8,6 +8,7 @@ import { Client } from 'pg';
 import { deriveBookingCategory } from '../src/libs/bookingCategory';
 import {
   adminUserSchema,
+  salonLocationSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
@@ -21,6 +22,7 @@ import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
  * with production, so inventing a salon nobody defined is not a safe default.
  */
 const PROVISIONABLE_SLUG = SALON.slug;
+const E2E_PRIMARY_LOCATION_ID = 'location_nail-salon-no5_primary';
 
 function formatPhoneE164(phone: string) {
   const digits = phone.replace(/\D/g, '');
@@ -167,6 +169,49 @@ async function main() {
         status: 'active',
       })
       .where(eq(salonSchema.id, salon.id));
+
+    // Appointment-sheet E2E coverage requires a real structured location so
+    // the Directions action is driven by the same detail contract production
+    // uses. Keep this mutation limited to the canonical disposable E2E salon;
+    // custom E2E targets retain their own location configuration.
+    if (salonSlug === PROVISIONABLE_SLUG) {
+      await db
+        .update(salonLocationSchema)
+        .set({ isPrimary: false, updatedAt: new Date() })
+        .where(eq(salonLocationSchema.salonId, salon.id));
+
+      await db
+        .insert(salonLocationSchema)
+        .values({
+          id: E2E_PRIMARY_LOCATION_ID,
+          salonId: salon.id,
+          name: 'Primary location',
+          address: SALON.address,
+          city: SALON.city,
+          state: SALON.state,
+          zipCode: SALON.zipCode,
+          phone: SALON.phone,
+          businessHours: SALON.businessHours,
+          isPrimary: true,
+          isActive: true,
+        })
+        .onConflictDoUpdate({
+          target: salonLocationSchema.id,
+          set: {
+            salonId: salon.id,
+            name: 'Primary location',
+            address: SALON.address,
+            city: SALON.city,
+            state: SALON.state,
+            zipCode: SALON.zipCode,
+            phone: SALON.phone,
+            businessHours: SALON.businessHours,
+            isPrimary: true,
+            isActive: true,
+            updatedAt: new Date(),
+          },
+        });
+    }
 
     const [technician] = await db
       .select({

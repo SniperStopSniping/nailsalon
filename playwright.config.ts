@@ -21,6 +21,12 @@ process.env.SUPER_ADMIN_TEST_PASSWORD ||= process.env.E2E_SUPER_ADMIN_PASSWORD;
 
 if (process.env.CI && process.env.E2E_USE_REAL_TWILIO !== 'true') {
   process.env.E2E_INSECURE_COOKIES = 'true';
+}
+
+// Browser tests never contact Twilio unless a developer makes the explicit,
+// exceptional choice to opt in. This applies locally as well as in CI because
+// `.env.local` may contain a working sender configuration.
+if (process.env.E2E_USE_REAL_TWILIO !== 'true') {
   process.env.TWILIO_ACCOUNT_SID = '';
   process.env.TWILIO_AUTH_TOKEN = '';
   process.env.TWILIO_VERIFY_SERVICE_SID = '';
@@ -111,7 +117,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /mobile-booking-footer\.e2e\.ts/,
+      testMatch: /mobile-(?:booking-footer|admin-appointment-sheet)\.e2e\.ts/,
       grep: /@mobile-safari/,
       use: { ...devices['iPhone 13'] },
       dependencies: ['setup'],

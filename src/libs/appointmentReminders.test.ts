@@ -278,6 +278,12 @@ describe('appointment reminders', () => {
       expect(body).toContain('https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY');
       expect(body).not.toMatch(/\/book\//);
     }
+
+    for (const [, reminder] of sendAppointmentReminder.mock.calls) {
+      expect(reminder).toEqual(expect.objectContaining({
+        manageUrl: 'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
+      }));
+    }
   });
 
   it('still sends the reminder when the management link cannot be minted', async () => {

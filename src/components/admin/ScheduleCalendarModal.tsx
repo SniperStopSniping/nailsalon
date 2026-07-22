@@ -277,6 +277,9 @@ function DayCell({
     <motion.button
       type="button"
       aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}. ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}.`}
+      aria-pressed={isSelected}
+      data-testid={`calendar-day-${formatDateKey(date)}`}
+      data-selected={isSelected ? 'true' : 'false'}
       onClick={onClick}
       whileTap={{ scale: 0.95 }}
       className={`
@@ -1126,6 +1129,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         onResendConfirmation={actions.resendConfirmation}
         onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
+        onReminderSent={() => actions.refreshDetail()}
         onRebook={() => {
           const prefill = actions.buildRebookPrefill();
           if (!prefill) {

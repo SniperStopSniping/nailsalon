@@ -67,6 +67,13 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # This suite is intentionally explicit. The default unit-test command
+      # selects tests from the changed-file graph, so appointment behavior
+      # could otherwise disappear from an unrelated release without running
+      # the regression coverage that protects the mobile sheet.
+      - name: Appointment sheet regression gate
+        run: npm run test:appointment-regression
+
       - name: Build Next.js for E2E tests
         run: npm run build
         env:

@@ -48,6 +48,7 @@ vi.mock('@/libs/salonStatus', () => ({
 }));
 
 import {
+  buildAppointmentReminderMessage,
   sendBookingConfirmationToClient,
   sendInternalBookingNotificationSms,
   sendReferralInvite,
@@ -145,6 +146,29 @@ describe('SMS templates', () => {
 
     expect(sent).toBeUndefined();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('builds staff-triggered reminders with full appointment details and the secure link', () => {
+    const message = buildAppointmentReminderMessage({
+      phone: '4165550198',
+      clientName: 'Bob',
+      appointmentId: 'appt_1',
+      salonName: 'Isla Nail Studio',
+      startTime: '2026-07-22T21:00:00.000Z',
+      hoursUntil: 3,
+      kind: 'manual',
+      services: ['BIAB Fill'],
+      technicianName: 'Daniela',
+      timeZone: 'America/Toronto',
+      manageUrl: 'https://islanailsalon.com/en/isla/manage/token',
+    });
+
+    expect(message).toContain('Wed, Jul 22 at 5:00 PM');
+    expect(message).toContain('Service: BIAB Fill');
+    expect(message).toContain('Artist: Daniela');
+    expect(message).toContain(
+      'View, reschedule, or cancel: https://islanailsalon.com/en/isla/manage/token',
+    );
   });
 
   it('sends referral invite links on the salon custom domain', async () => {

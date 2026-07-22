@@ -355,6 +355,7 @@ function StaffAppointmentsContent() {
         onStartAppointment={actions.startAppointment}
         onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
+        onReminderSent={() => actions.refreshDetail()}
       />
 
       <CheckoutSheet
