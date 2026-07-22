@@ -541,6 +541,7 @@ export async function listGoogleCalendarEventsForSalon(args: {
   endTime?: Date;
   updatedMin?: Date;
   includeDeleted?: boolean;
+  privateExtendedProperties?: string[];
 }): Promise<GoogleCalendarRemoteEvent[]> {
   const context = await getGoogleCalendarRequestContext(args.salonId);
   if (!context || context.connectionType !== 'oauth') {
@@ -569,6 +570,9 @@ export async function listGoogleCalendarEventsForSalon(args: {
       }
       if (pageToken) {
         search.set('pageToken', pageToken);
+      }
+      for (const property of args.privateExtendedProperties ?? []) {
+        search.append('privateExtendedProperty', property);
       }
 
       const data = await googleCalendarFetchWithContext<GoogleCalendarEventListResponse>(

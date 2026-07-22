@@ -4,6 +4,7 @@ import { db } from '@/libs/DB';
 import {
   deleteGoogleCalendarEventForAppointment,
   type GoogleCalendarAppointmentEventInput,
+  listGoogleCalendarEventsForSalon,
   syncGoogleCalendarEventForAppointment,
 } from '@/libs/googleCalendar';
 import type {
@@ -131,6 +132,8 @@ export async function processIntegrationOutbox(limit = 50) {
     retried: 0,
     failed: 0,
     cancelledEventCandidates: 0,
+    remoteAppointmentMirrorsScanned: 0,
+    remoteCancelledEventCandidates: 0,
     reconciledCancelledEvents: 0,
     skippedCancelledEvents: 0,
     failedCancelledEvents: 0,
@@ -422,6 +425,74 @@ export async function processIntegrationOutbox(limit = 50) {
       `${appointment.salonId}:${appointment.appointmentId}:${appointment.googleCalendarEventId}`,
       appointment,
     );
+  }
+
+  // Older failed cancellations can have lost both local identifiers while the
+  // Google event still carries the private appointmentId/salonId metadata we
+  // wrote when creating it. Query only those app-owned events, then verify the
+  // appointment is terminal in our database before adding it to the repair
+  // set. The private-property filter avoids scanning or touching unrelated
+  // calendar entries.
+  const connections = await db
+    .select({
+      salonId: salonGoogleCalendarConnectionSchema.salonId,
+      destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId,
+    })
+    .from(salonGoogleCalendarConnectionSchema)
+    .where(inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']))
+    .limit(Math.min(limit, 50));
+  for (const connection of connections) {
+    try {
+      const remoteEvents = await listGoogleCalendarEventsForSalon({
+        salonId: connection.salonId,
+        calendarIds: [connection.destinationCalendarId],
+        startTime: reconciliationCutoff,
+        endTime: new Date(reconciliationCutoff.getTime() + 365 * 24 * 60 * 60 * 1000),
+        privateExtendedProperties: [`salonId=${connection.salonId}`],
+      });
+      const appEvents = remoteEvents.filter(event => (
+        event.status !== 'cancelled'
+        && event.salonId === connection.salonId
+        && Boolean(event.appointmentId)
+      ));
+      summary.remoteAppointmentMirrorsScanned += appEvents.length;
+      const appointmentIds = [...new Set(appEvents.flatMap(event => (
+        event.appointmentId ? [event.appointmentId] : []
+      )))];
+      if (!appointmentIds.length) {
+        continue;
+      }
+      const terminalAppointments = await db
+        .select({ id: appointmentSchema.id })
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.salonId, connection.salonId),
+          inArray(appointmentSchema.id, appointmentIds),
+          inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+        ))
+        .limit(reconciliationLimit);
+      const terminalIds = new Set(terminalAppointments.map(appointment => appointment.id));
+      for (const event of appEvents) {
+        if (!event.appointmentId || !terminalIds.has(event.appointmentId)) {
+          continue;
+        }
+        const key = `${connection.salonId}:${event.appointmentId}:${event.id}`;
+        if (!cancelledMirrors.has(key)) {
+          summary.remoteCancelledEventCandidates += 1;
+        }
+        cancelledMirrors.set(key, {
+          appointmentId: event.appointmentId,
+          salonId: connection.salonId,
+          googleCalendarEventId: event.id,
+        });
+      }
+    } catch (error) {
+      summary.failedCancelledEvents += 1;
+      console.error('[GoogleCalendar] Failed to discover orphaned appointment events:', {
+        salonId: connection.salonId,
+        error: safeJobError(error),
+      });
+    }
   }
   summary.cancelledEventCandidates = cancelledMirrors.size;
 
