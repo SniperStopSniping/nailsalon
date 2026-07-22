@@ -38,6 +38,7 @@ import type { SalonPlan, SalonStatus } from '@/models/Schema';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { AuditLogTable } from './AuditLogTable';
+import { ChangeSalonSlugModal, type SalonSlugUpdateResult } from './ChangeSalonSlugModal';
 import { DeleteSalonModal } from './DeleteSalonModal';
 import { LocationForm } from './LocationForm';
 import { ResetDataModal } from './ResetDataModal';
@@ -48,6 +49,7 @@ type SalonDetail = {
   id: string;
   name: string;
   slug: string;
+  customDomain: string | null;
   plan: SalonPlan;
   status: SalonStatus;
   maxLocations: number;
@@ -405,6 +407,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [showResetModal, setShowResetModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showLocationForm, setShowLocationForm] = useState(false);
+  const [showSlugModal, setShowSlugModal] = useState(false);
 
   const setMarketingFeature = useCallback((key: 'smsReminders' | 'rewards' | 'referrals', value: boolean) => {
     setFeatures(current => ({
@@ -463,6 +466,18 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setLoading(false);
     }
   }, [salonId]);
+
+  const applySalonSlugState = useCallback((result: SalonSlugUpdateResult) => {
+    setSalon(current => current
+      ? {
+          ...current,
+          slug: result.salon.slug,
+          customDomain: result.salon.customDomain,
+          updatedAt: result.salon.updatedAt,
+        }
+      : current);
+    setCanonicalUrls(result.canonicalUrls);
+  }, []);
 
   // Fetch Billing & Programs settings from dedicated endpoint
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -1024,6 +1039,45 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             }}
                             className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
                           />
+                        </div>
+
+                        {/* Public website address */}
+                        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-700">Public website address</div>
+                              {canonicalUrls?.publicUrl
+                                ? (
+                                    <a
+                                      href={canonicalUrls.publicUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="mt-1 inline-flex max-w-full items-start gap-1 break-all text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+                                    >
+                                      <span>{canonicalUrls.publicUrl}</span>
+                                      <ExternalLink className="mt-0.5 size-3.5 shrink-0" />
+                                    </a>
+                                  )
+                                : (
+                                    <div className="mt-1 text-sm text-gray-500">Canonical URL unavailable</div>
+                                  )}
+                              <div className="mt-1 text-xs text-gray-500">
+                                Current slug:
+                                {' '}
+                                <code className="rounded bg-white px-1.5 py-0.5 text-gray-700">{salon.slug}</code>
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500">
+                                Changing the salon name does not update this address automatically.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowSlugModal(true)}
+                              className="shrink-0 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+                            >
+                              Change website address
+                            </button>
+                          </div>
                         </div>
 
                         {/* Created */}
@@ -2064,6 +2118,18 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
           onDeleted?.();
           onClose();
         }}
+      />
+
+      <ChangeSalonSlugModal
+        isOpen={showSlugModal}
+        salonId={salonId}
+        salonName={salon?.name || ''}
+        currentSlug={salon?.slug || ''}
+        canonicalPublicUrl={canonicalUrls?.publicUrl ?? null}
+        hasCustomDomain={Boolean(salon?.customDomain)}
+        onClose={() => setShowSlugModal(false)}
+        onSuccess={applySalonSlugState}
+        onConflict={applySalonSlugState}
       />
 
       {showLocationForm && (

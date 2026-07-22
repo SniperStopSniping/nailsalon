@@ -17,14 +17,18 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'gallery',
   'invite',
   'join',
+  'manage',
   'membership',
   'my-referrals',
   'not-found',
   'onboarding',
+  'owner',
   'owner-sign-in',
   'owner-sign-up',
+  'pay',
   'payment-methods',
   'preferences',
+  'privacy',
   'profile',
   'referral',
   'rewards',
@@ -36,6 +40,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'super-admin',
   'super-admin-login',
   'suspended',
+  'terms',
 ]);
 
 export const RESERVED_TENANT_SUBDOMAINS = new Set([
@@ -64,7 +69,7 @@ export function isValidSalonSlug(value: string): boolean {
   const normalized = normalizeSalonSlug(value);
   return Boolean(
     normalized
-    && /^[a-z0-9](?:[a-z0-9-]{1,45}[a-z0-9])?$/.test(normalized)
+    && /^[a-z0-9](?:[a-z0-9-]{0,45}[a-z0-9])?$/.test(normalized)
     && !isReservedSalonSlug(normalized),
   );
 }
@@ -153,7 +158,7 @@ export function getSalonSlugFromPathname(
   }
 
   const normalized = normalizeSalonSlug(maybeSlug);
-  if (!normalized || RESERVED_PUBLIC_SEGMENTS.has(normalized)) {
+  if (!normalized || isReservedSalonSlug(normalized)) {
     return null;
   }
 
