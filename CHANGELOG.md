@@ -1,3 +1,10 @@
+# [1.29.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.28.2...v1.29.0) (2026-07-22)
+
+
+### Features
+
+* autofill Google event client details ([c32edfb](https://github.com/SniperStopSniping/nailsalon/commit/c32edfbf7f586e5a6d5d23e3b7e829f81f40eabe))
+
 ## [1.28.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.28.1...v1.28.2) (2026-07-22)
 
 
