@@ -250,6 +250,7 @@ export function AppointmentsModal({
         onResendConfirmation={actions.resendConfirmation}
         onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
+        onReminderSent={() => actions.refreshDetail()}
         onRebook={() => {
           const prefill = actions.buildRebookPrefill();
           if (!prefill) {

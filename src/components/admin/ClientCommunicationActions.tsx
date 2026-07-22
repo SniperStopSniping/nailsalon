@@ -75,6 +75,11 @@ type PendingOutreach = {
   appointmentId?: string;
 };
 
+type ReminderFallback = {
+  phone: string;
+  body: string;
+};
+
 type SupportData = {
   settings: RetentionSettings;
   location: SalonLocation | null;
@@ -254,6 +259,8 @@ export function ClientCommunicationActions({
   const [preparingKind, setPreparingKind] = useState<ClientSmsMessageKind | null>(null);
   const [preparingPromotion, setPreparingPromotion] = useState<RetentionStage | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [manualReminderFallback, setManualReminderFallback] = useState<ReminderFallback | null>(null);
   const [pendingOutreach, setPendingOutreach] = useState<PendingOutreach | null>(null);
   const [recordingStatus, setRecordingStatus] = useState<OutreachStatus | null>(null);
   const [history, setHistory] = useState<CommunicationHistoryItem[]>([]);
@@ -416,12 +423,23 @@ export function ClientCommunicationActions({
     label: string,
     appointment: ClientSmsAppointment | null,
     appointmentId?: string,
+    serverDraft?: ReminderFallback,
   ) => {
-    const draft = composeClientSmsDraft({
-      kind,
-      context: { ...baseContext, appointment },
-      platform: detectNativeSmsPlatform(window.navigator.userAgent),
-    });
+    const platform = detectNativeSmsPlatform(window.navigator.userAgent);
+    const draft = serverDraft
+      ? (() => {
+          const href = buildNativeSmsUrl({
+            phone: serverDraft.phone,
+            body: serverDraft.body,
+            platform,
+          });
+          return href ? { href, body: serverDraft.body } : null;
+        })()
+      : composeClientSmsDraft({
+        kind,
+        context: { ...baseContext, appointment },
+        platform,
+      });
 
     if (!draft) {
       setActionError(
@@ -439,6 +457,8 @@ export function ClientCommunicationActions({
       appointmentId,
     };
     setActionError(null);
+    setActionNotice(null);
+    setManualReminderFallback(null);
     setPendingOutreach(outreach);
     void recordOutreach(outreach, 'prepared').catch(() => {
       // The draft remains useful even if the history request is interrupted as
@@ -458,7 +478,63 @@ export function ClientCommunicationActions({
 
     setPreparingKind(kind);
     setActionError(null);
+    setActionNotice(null);
+    setManualReminderFallback(null);
     try {
+      if (kind === 'appointment_reminder') {
+        const reminderResponse = await fetch(
+          `/api/appointments/${encodeURIComponent(upcomingAppointment.id)}/send-reminder?salonSlug=${encodeURIComponent(salonSlug)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: false }),
+          },
+        );
+        const reminderPayload = await reminderResponse.json().catch(() => null);
+        const fallback = reminderPayload?.manualFallback
+          ?? reminderPayload?.error?.manualFallback
+          ?? null;
+        if (!reminderResponse.ok) {
+          if (fallback?.phone && fallback?.body) {
+            setManualReminderFallback(fallback);
+          }
+          throw new Error(reminderPayload?.error?.message || 'The reminder could not be sent.');
+        }
+        if (reminderPayload?.data?.mode === 'automatic' && reminderPayload.data.sent) {
+          setReminderDue(null);
+          setActionNotice(
+            reminderPayload.data.reason === 'DUPLICATE_SUPPRESSED'
+              ? 'A reminder was just sent, so the duplicate was skipped.'
+              : 'Reminder sent automatically from your salon number.',
+          );
+          await recordOutreach({
+            kind: 'reminder',
+            label: 'Appointment reminder',
+            messageSnapshot: 'Automatic appointment reminder sent through Twilio.',
+            appointmentId: upcomingAppointment.id,
+          }, 'marked_sent').catch(() => {
+            setActionError('The reminder was sent, but its client-history entry could not be updated.');
+          });
+          notifyRetentionDataChanged();
+          return;
+        }
+        if (
+          reminderPayload?.data?.mode === 'manual'
+          && reminderPayload.data.phone
+          && reminderPayload.data.body
+        ) {
+          openDraft(
+            kind,
+            label,
+            toSmsAppointment(upcomingAppointment),
+            upcomingAppointment.id,
+            { phone: reminderPayload.data.phone, body: reminderPayload.data.body },
+          );
+          return;
+        }
+        throw new Error('The reminder could not be prepared.');
+      }
+
       const response = await fetch(
         `/api/appointments/${encodeURIComponent(upcomingAppointment.id)}/manage-link?salonSlug=${encodeURIComponent(salonSlug)}`,
         { method: 'POST' },
@@ -483,7 +559,7 @@ export function ClientCommunicationActions({
     } finally {
       setPreparingKind(null);
     }
-  }, [openDraft, salonSlug, upcomingAppointment]);
+  }, [openDraft, recordOutreach, salonSlug, upcomingAppointment]);
 
   const preparePromotion = useCallback(async (
     stage: Extract<RetentionStage, 'promo_6w' | 'promo_8w'>,
@@ -568,6 +644,7 @@ export function ClientCommunicationActions({
     salonSlug,
     supportData.settings.eightWeekPromotion,
     supportData.settings.sixWeekPromotion,
+    supportData.timeZone,
   ]);
 
   const resolveRetentionAlert = useCallback(async (
@@ -869,6 +946,31 @@ export function ClientCommunicationActions({
       {actionError && (
         <div role="alert" className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-left text-xs text-red-800">
           {actionError}
+        </div>
+      )}
+
+      {actionNotice && (
+        <div role="status" className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-left text-xs font-medium text-emerald-800">
+          {actionNotice}
+        </div>
+      )}
+
+      {manualReminderFallback && upcomingAppointment && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
+          Automatic delivery was not confirmed. To avoid a duplicate, open a manual draft only if the client did not receive it.
+          <button
+            type="button"
+            className="ml-1 font-semibold underline"
+            onClick={() => openDraft(
+              'appointment_reminder',
+              'Appointment reminder',
+              toSmsAppointment(upcomingAppointment),
+              upcomingAppointment.id,
+              manualReminderFallback,
+            )}
+          >
+            Prepare manual text
+          </button>
         </div>
       )}
 

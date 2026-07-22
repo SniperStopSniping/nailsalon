@@ -1,9 +1,10 @@
 'use client';
 
-import { CalendarPlus, Clock3, Mail, MapPin, Phone, UserRound } from 'lucide-react';
+import { CalendarPlus, Clock3, Mail, MapPin, UserRound } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
@@ -45,6 +46,8 @@ type AppointmentQuickEditSheetProps = {
   onViewReceipt?: () => void;
   /** Called when the detail failed to load and the user wants to retry. */
   onRetryLoad?: () => void;
+  /** Refreshes delivery history after an automatic reminder succeeds. */
+  onReminderSent?: () => void | Promise<void>;
   /** Opens the given confirmation as soon as detail loads (e.g. a Cancel button on an appointment card). */
   initialPendingAction?: 'cancel' | null;
 };
@@ -100,6 +103,7 @@ export function AppointmentQuickEditSheet({
   onRebook,
   onViewReceipt,
   onRetryLoad,
+  onReminderSent,
   initialPendingAction = null,
 }: AppointmentQuickEditSheetProps) {
   const [baseServiceId, setBaseServiceId] = useState('');
@@ -108,6 +112,7 @@ export function AppointmentQuickEditSheet({
   const [cancelReason, setCancelReason] = useState('client_request');
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | null>(null);
+  const editSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!detail) {
@@ -170,12 +175,12 @@ export function AppointmentQuickEditSheet({
       // unsaved, the sheet only closes through its explicit buttons.
       closeOnBackdrop={!isDirty && !saving}
       closeOnEscape={!isDirty && !saving}
-      maxWidthClassName="w-full sm:max-w-lg"
+      maxWidthClassName="w-full sm:h-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
-      contentClassName="flex max-h-[92vh] min-h-[60vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl"
+      contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
     >
-      <div data-testid="appointment-quick-edit-sheet" className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
+      <div data-testid="appointment-quick-edit-sheet" className="flex min-h-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
           <div>
             <div className="text-lg font-semibold text-neutral-900">Appointment</div>
             <div className="text-sm text-neutral-500">Quick edit</div>
@@ -190,8 +195,8 @@ export function AppointmentQuickEditSheet({
         </div>
 
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 sm:px-5"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }}
+          data-testid="appointment-sheet-scroll-region"
+          className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-4 sm:px-5"
         >
           {loading
             ? (
@@ -265,21 +270,74 @@ export function AppointmentQuickEditSheet({
                             </div>
                           </div>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <a href={`tel:${detail.appointment.clientPhone}`} className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm font-medium text-neutral-700">
-                            <Phone className="size-4" />
-                            Call client
-                          </a>
-                          {detail.appointment.clientEmail
-                            ? (
-                                <a href={`mailto:${detail.appointment.clientEmail}`} className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm font-medium text-neutral-700">
-                                  <Mail className="size-4" />
-                                  Email client
-                                </a>
-                              )
-                            : <div className="rounded-xl border border-dashed border-neutral-200 p-2.5 text-center text-xs text-neutral-400">No email saved</div>}
-                        </div>
                       </div>
+
+                      {['pending', 'confirmed'].includes(detail.appointment.status) && (
+                        <UpcomingAppointmentActions
+                          detail={detail}
+                          saving={saving}
+                          onChangeAppointment={() => {
+                            editSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            window.setTimeout(() => {
+                              const firstEnabledControl = editSectionRef.current?.querySelector<HTMLElement>(
+                                'select:not(:disabled), input:not(:disabled)',
+                              );
+                              firstEnabledControl?.focus({ preventScroll: true });
+                            }, 250);
+                          }}
+                          onCancelAppointment={() => setPendingConfirm('cancel')}
+                          onReminderSent={onReminderSent}
+                        />
+                      )}
+
+                      {(detail.client?.sensitivities
+                        || detail.client?.notes
+                        || Object.values(detail.client?.nailPreferences ?? {}).some(Boolean)
+                        || detail.appointment.notes
+                        || detail.appointment.techNotes) && (
+                        <div className="rounded-2xl border border-neutral-200 p-4" data-testid="appointment-client-prep-notes">
+                          <div className="text-sm font-semibold text-neutral-900">Client prep notes</div>
+                          {detail.client?.sensitivities && (
+                            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-800">Sensitivities</div>
+                              <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-amber-950">{detail.client.sensitivities}</p>
+                            </div>
+                          )}
+                          {Object.entries(detail.client?.nailPreferences ?? {}).some(([, value]) => Boolean(value)) && (
+                            <div className="mt-3 rounded-xl bg-neutral-50 p-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">Nail preferences</div>
+                              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                                {Object.entries(detail.client?.nailPreferences ?? {}).map(([key, value]) => value
+                                  ? (
+                                      <div key={key}>
+                                        <dt className="capitalize text-neutral-500">{key.replace(/([A-Z])/g, ' $1')}</dt>
+                                        <dd className="font-medium text-neutral-900">{value}</dd>
+                                      </div>
+                                    )
+                                  : null)}
+                              </dl>
+                            </div>
+                          )}
+                          {detail.client?.notes && (
+                            <div className="mt-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">Client note</div>
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">{detail.client.notes}</p>
+                            </div>
+                          )}
+                          {detail.appointment.notes && (
+                            <div className="mt-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500">Appointment request</div>
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">{detail.appointment.notes}</p>
+                            </div>
+                          )}
+                          {detail.appointment.techNotes && (
+                            <div className="mt-3 rounded-xl bg-amber-50 p-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-800">Private tech note</div>
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-amber-950">{detail.appointment.techNotes}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="rounded-2xl border border-neutral-200 p-4">
                         <div className="flex items-start justify-between gap-4">
@@ -308,19 +366,6 @@ export function AppointmentQuickEditSheet({
                           Resend confirmation & management link
                         </button>
                       </div>
-
-                      {(detail.appointment.notes || detail.appointment.techNotes) && (
-                        <div className="rounded-2xl border border-neutral-200 p-4">
-                          <div className="text-sm font-semibold text-neutral-900">Notes</div>
-                          {detail.appointment.notes && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">{detail.appointment.notes}</p>}
-                          {detail.appointment.techNotes && (
-                            <p className="mt-2 whitespace-pre-wrap rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
-                              Private nail-tech note:
-                              {detail.appointment.techNotes}
-                            </p>
-                          )}
-                        </div>
-                      )}
 
                       {(detail.communications?.length ?? 0) > 0 && (
                         <div className="rounded-2xl border border-neutral-200 p-4">
@@ -413,7 +458,7 @@ export function AppointmentQuickEditSheet({
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-neutral-200 p-4">
+                      <div ref={editSectionRef} className="scroll-mt-4 rounded-2xl border border-neutral-200 p-4">
                         <div className="mb-3 text-sm font-semibold text-neutral-900">Edit booking details</div>
                         <div className="space-y-3">
                           <label className="block" htmlFor="appointment-service-select">
@@ -633,17 +678,6 @@ export function AppointmentQuickEditSheet({
                               Mark no-show
                             </button>
                           )}
-                          {detail.permissions.canCancel && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-cancel"
-                              onClick={() => setPendingConfirm('cancel')}
-                              disabled={saving}
-                              className="col-span-2 rounded-xl border border-red-200 bg-white p-3 text-sm font-medium text-red-600"
-                            >
-                              Cancel appointment
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -652,7 +686,7 @@ export function AppointmentQuickEditSheet({
 
         {detail && (
           <div
-            className="sticky bottom-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
+            className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             <div className="flex gap-3">

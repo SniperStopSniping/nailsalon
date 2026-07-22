@@ -15,6 +15,9 @@ const baseDetail: AppointmentManageDetail = {
     id: 'appt_1',
     salonId: 'salon_1',
     salonSlug: 'salon-a',
+    salonName: 'Salon A',
+    timeZone: 'America/Toronto',
+    parkingInstructions: 'Use the lot behind the salon.',
     clientName: 'Avery',
     clientPhone: '4165551234',
     technicianId: 'tech_1',
@@ -36,6 +39,25 @@ const baseDetail: AppointmentManageDetail = {
     discountAmountCents: 0,
     notes: null,
     techNotes: null,
+  },
+  client: {
+    id: 'client_1',
+    notes: 'Prefers quiet appointments',
+    sensitivities: 'HEMA sensitivity',
+    nailPreferences: {
+      shape: 'Almond',
+      length: 'Short',
+      favoriteColors: 'Neutral pinks',
+      productsUsed: 'Builder gel',
+    },
+  },
+  location: {
+    id: 'loc_1',
+    name: 'Front St',
+    address: '123 Front St W',
+    city: 'Toronto',
+    state: 'ON',
+    zipCode: 'M5J 2M2',
   },
   services: [{
     id: 'svc_1',
@@ -69,6 +91,66 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  it('keeps one bounded mobile scroll region between a fixed header and footer', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const sheet = screen.getByTestId('appointment-quick-edit-sheet');
+    const scrollRegion = screen.getByTestId('appointment-sheet-scroll-region');
+
+    expect(sheet).toHaveClass('min-h-0', 'flex-1');
+    expect(sheet.parentElement).toHaveClass('h-[92vh]', 'supports-[height:100dvh]:h-[92dvh]');
+    expect(scrollRegion).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-contain');
+    expect(screen.getByTestId('appointment-sheet-close').parentElement?.parentElement).toHaveClass('shrink-0');
+  });
+
+  it('puts upcoming client actions and preparation notes near the appointment summary', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    for (const label of [
+      'Call',
+      'Text',
+      'Send reminder',
+      'Send details',
+      'Directions',
+      'Change appointment',
+      'Cancel appointment',
+    ]) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+
+    expect(screen.getByTestId('appointment-client-prep-notes')).toHaveTextContent('HEMA sensitivity');
+    expect(screen.getByTestId('appointment-client-prep-notes')).toHaveTextContent('Almond');
+    expect(screen.getByTestId('appointment-client-prep-notes')).toHaveTextContent('Prefers quiet appointments');
+  });
+
   it('disables technician reassignment for staff permissions', () => {
     render(
       <AppointmentQuickEditSheet

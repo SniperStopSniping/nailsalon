@@ -12,6 +12,7 @@ import {
 import { db } from '@/libs/DB';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { getLocationById, getTechnicianById, getTechniciansBySalonId } from '@/libs/queries';
+import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type AddOnCategory,
@@ -22,6 +23,7 @@ import {
   type AppointmentService,
   appointmentServicesSchema,
   notificationDeliverySchema,
+  salonClientSchema,
   salonLocationSchema,
   salonSchema,
   type Service,
@@ -100,6 +102,9 @@ export type AppointmentManageDetail = {
     id: string;
     salonId: string;
     salonSlug: string;
+    salonName: string;
+    timeZone: string;
+    parkingInstructions: string | null;
     clientName: string | null;
     clientEmail?: string | null;
     clientPhone: string;
@@ -123,6 +128,25 @@ export type AppointmentManageDetail = {
     notes: string | null;
     techNotes: string | null;
   };
+  client: {
+    id: string;
+    notes: string | null;
+    sensitivities: string | null;
+    nailPreferences: {
+      shape?: string;
+      length?: string;
+      favoriteColors?: string;
+      productsUsed?: string;
+    } | null;
+  } | null;
+  location: {
+    id: string;
+    name: string;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  } | null;
   services: Array<{
     id: string;
     name: string;
@@ -420,7 +444,10 @@ async function loadManagedAppointment(
           zipCode: salonLocationSchema.zipCode,
         })
         .from(salonLocationSchema)
-        .where(eq(salonLocationSchema.id, appointment.locationId))
+        .where(and(
+          eq(salonLocationSchema.id, appointment.locationId),
+          eq(salonLocationSchema.salonId, appointment.salonId),
+        ))
         .limit(1)
         .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
@@ -663,17 +690,42 @@ export async function getAppointmentManageDetail(args: {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
-  const deliveryRows = await db.select({
-    channel: notificationDeliverySchema.channel,
-    purpose: notificationDeliverySchema.purpose,
-    status: notificationDeliverySchema.status,
-    errorCode: notificationDeliverySchema.errorCode,
-    retryable: notificationDeliverySchema.retryable,
-    updatedAt: notificationDeliverySchema.updatedAt,
-  }).from(notificationDeliverySchema).where(and(
-    eq(notificationDeliverySchema.salonId, args.salonId),
-    eq(notificationDeliverySchema.appointmentId, args.appointmentId),
-  )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(8);
+  const [deliveryRows, salon, salonClient, retentionSettings] = await Promise.all([
+    db.select({
+      channel: notificationDeliverySchema.channel,
+      purpose: notificationDeliverySchema.purpose,
+      status: notificationDeliverySchema.status,
+      errorCode: notificationDeliverySchema.errorCode,
+      retryable: notificationDeliverySchema.retryable,
+      updatedAt: notificationDeliverySchema.updatedAt,
+    }).from(notificationDeliverySchema).where(and(
+      eq(notificationDeliverySchema.salonId, args.salonId),
+      eq(notificationDeliverySchema.appointmentId, args.appointmentId),
+    )).orderBy(desc(notificationDeliverySchema.updatedAt)).limit(8),
+    db
+      .select({ name: salonSchema.name })
+      .from(salonSchema)
+      .where(eq(salonSchema.id, args.salonId))
+      .limit(1)
+      .then(rows => rows[0] ?? null),
+    loaded.appointment.salonClientId
+      ? db
+        .select({
+          id: salonClientSchema.id,
+          notes: salonClientSchema.notes,
+          sensitivities: salonClientSchema.sensitivities,
+          nailPreferences: salonClientSchema.nailPreferences,
+        })
+        .from(salonClientSchema)
+        .where(and(
+          eq(salonClientSchema.id, loaded.appointment.salonClientId),
+          eq(salonClientSchema.salonId, args.salonId),
+        ))
+        .limit(1)
+        .then(rows => rows[0] ?? null)
+      : Promise.resolve(null),
+    getRetentionSettingsForSalon(args.salonId),
+  ]);
   const confirmationDelivery = deliveryRows.find(delivery => delivery.channel === 'email' && delivery.purpose.includes('booking_confirmation'))
     ?? deliveryRows.find(delivery => delivery.channel === 'email');
 
@@ -682,6 +734,9 @@ export async function getAppointmentManageDetail(args: {
       id: loaded.appointment.id,
       salonId: loaded.appointment.salonId,
       salonSlug: args.salonSlug,
+      salonName: salon?.name ?? 'Salon',
+      timeZone: loaded.timeZone,
+      parkingInstructions: retentionSettings.parkingInstructions,
       clientName: loaded.appointment.clientName,
       clientEmail: loaded.appointment.clientEmail,
       clientPhone: loaded.appointment.clientPhone,
@@ -705,6 +760,8 @@ export async function getAppointmentManageDetail(args: {
       notes: loaded.appointment.notes,
       techNotes: loaded.appointment.techNotes,
     },
+    client: salonClient,
+    location: loaded.salonLocation,
     services: loaded.appointmentServices.map((entry, index) => ({
       id: entry.row.serviceId,
       name: entry.row.nameSnapshot ?? entry.liveService?.name ?? 'Service',

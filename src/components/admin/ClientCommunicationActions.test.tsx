@@ -6,6 +6,7 @@ import { ClientCommunicationActions } from './ClientCommunicationActions';
 const fetchMock = vi.fn();
 let retentionData: Record<string, unknown>;
 let retentionSettings: Record<string, unknown>;
+let smartReminderResponse: Record<string, unknown>;
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -53,6 +54,13 @@ describe('ClientCommunicationActions', () => {
       googleReviewUrl: 'https://g.page/r/isla/review',
       parkingInstructions: 'Use the lot behind the salon.',
     };
+    smartReminderResponse = {
+      mode: 'manual',
+      sent: false,
+      reason: 'TWILIO_UNAVAILABLE',
+      phone: '4165551234',
+      body: 'Hi Ava, appointment reminder: https://isla.test/en/isla/manage/secure-token',
+    };
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith('/api/admin/retention/settings')) {
@@ -80,6 +88,11 @@ describe('ClientCommunicationActions', () => {
             timeZone: 'America/Toronto',
             links: { bookingUrl: 'https://isla.test/en/isla/book' },
           },
+        }));
+      }
+      if (url.includes('/send-reminder')) {
+        return Promise.resolve(jsonResponse({
+          data: smartReminderResponse,
         }));
       }
       if (url.includes('/manage-link')) {
@@ -165,7 +178,7 @@ describe('ClientCommunicationActions', () => {
     expect(screen.queryByRole('dialog', { name: 'Confirm text status' })).not.toBeInTheDocument();
   });
 
-  it('mints a secure management link before preparing a reminder', async () => {
+  it('uses the smart reminder endpoint and opens its manual draft when Twilio is unavailable', async () => {
     const { onOpenNativeUrl } = renderActions();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
@@ -173,8 +186,12 @@ describe('ClientCommunicationActions', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/appointments/appt_1/manage-link?salonSlug=isla',
-        { method: 'POST' },
+        '/api/appointments/appt_1/send-reminder?salonSlug=isla',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false }),
+        },
       );
       expect(onOpenNativeUrl).toHaveBeenCalledTimes(1);
     });
@@ -196,6 +213,21 @@ describe('ClientCommunicationActions', () => {
         status: 'prepared',
       });
     });
+  });
+
+  it('sends the reminder automatically when the salon SMS integration is ready', async () => {
+    smartReminderResponse = {
+      mode: 'automatic',
+      sent: true,
+      sentAt: '2026-07-18T12:00:00.000Z',
+    };
+    const { onOpenNativeUrl } = renderActions();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Reminder sent automatically');
+    expect(onOpenNativeUrl).not.toHaveBeenCalled();
   });
 
   it('uses the upcoming appointment secondary location for the Directions draft', async () => {

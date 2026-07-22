@@ -1336,6 +1336,7 @@ function ClientDetail({
         onResendConfirmation={appointmentActions.resendConfirmation}
         onViewReceipt={appointmentActions.openReceipt}
         onRetryLoad={() => void appointmentActions.refreshDetail()}
+        onReminderSent={() => appointmentActions.refreshDetail()}
         initialPendingAction={cancelIntent ? 'cancel' : null}
         onRebook={() => {
           const prefill = appointmentActions.buildRebookPrefill();

@@ -234,13 +234,14 @@ async function sendDayBeforeReminder(
   },
 ): Promise<ReminderSendResult> {
   const clientEmail = await resolveClientEmail(candidate);
+  const manageUrl = await resolveReminderManageUrl(candidate);
   const emailSent = clientEmail
     ? await sendTransactionalEmail(
       buildDayBeforeEmailPayload(candidate, {
         to: clientEmail,
         services: context.services,
         timeZone: context.timeZone,
-        manageUrl: await resolveReminderManageUrl(candidate),
+        manageUrl,
       }),
     )
     : false;
@@ -261,6 +262,7 @@ async function sendDayBeforeReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
+    manageUrl,
   });
 
   return {
@@ -277,12 +279,13 @@ async function sendSameDayReminder(
   },
 ): Promise<ReminderSendResult> {
   const clientEmail = await resolveClientEmail(candidate);
+  const manageUrl = await resolveReminderManageUrl(candidate);
   const emailSent = clientEmail
     ? await sendTransactionalEmail(buildSameDayEmailPayload(candidate, {
       to: clientEmail,
       services: context.services,
       timeZone: context.timeZone,
-      manageUrl: await resolveReminderManageUrl(candidate),
+      manageUrl,
     }))
     : false;
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
@@ -301,6 +304,7 @@ async function sendSameDayReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
+    manageUrl,
   });
 
   return {

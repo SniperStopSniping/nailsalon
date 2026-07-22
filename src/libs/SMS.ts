@@ -11,7 +11,7 @@
  * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import twilio from 'twilio';
 
 import { db } from '@/libs/DB';
@@ -85,11 +85,38 @@ export type ReminderParams = {
   salonName: string;
   startTime: string;
   hoursUntil: number;
-  kind?: 'generic' | 'day_before' | 'same_day';
+  kind?: 'generic' | 'day_before' | 'same_day' | 'manual';
   services?: string[];
   technicianName?: string | null;
   timeZone?: string;
+  manageUrl?: string | null;
 };
+
+export type SmartAppointmentReminderReason =
+  | 'INVALID_PHONE'
+  | 'SMS_DISABLED'
+  | 'SMS_CONSENT_REQUIRED'
+  | 'TWILIO_UNAVAILABLE';
+
+export type SmartAppointmentReminderResult =
+  | {
+    outcome: 'sent' | 'duplicate';
+    phone: string;
+    body: string;
+    sentAt: string;
+  }
+  | {
+    outcome: 'manual';
+    phone: string;
+    body: string;
+    reason: SmartAppointmentReminderReason;
+  }
+  | {
+    outcome: 'provider_failure';
+    phone: string;
+    body: string;
+    errorCode: string | null;
+  };
 
 export type ReferralInviteParams = {
   refereePhone: string;
@@ -143,7 +170,10 @@ function getLegacyTwilioClient() {
  * Send an SMS message via Twilio
  * Falls back to console logging if Twilio is not configured
  */
-async function getSalonTwilioSender(salonId: string) {
+async function getSalonTwilioSender(
+  salonId: string,
+  options: { allowLegacy?: boolean } = {},
+) {
   const [connection] = await db
     .select()
     .from(salonTwilioConnectionSchema)
@@ -156,12 +186,206 @@ async function getSalonTwilioSender(salonId: string) {
       phoneNumber: connection.phoneNumber,
     };
   }
+  if (options.allowLegacy === false) {
+    return null;
+  }
   const [salon] = await db.select({ freeSoloEnabled: salonSchema.freeSoloEnabled }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
   if (salon?.freeSoloEnabled) {
     return null;
   }
   const legacyClient = getLegacyTwilioClient();
   return legacyClient ? { client: legacyClient, messagingServiceSid: null, phoneNumber: Env.TWILIO_PHONE_NUMBER ?? null } : null;
+}
+
+const RAPID_MANUAL_REMINDER_WINDOW_MS = 2 * 60 * 1000;
+const MANUAL_REMINDER_DEDUPE_BUCKET_MS = 5 * 60 * 1000;
+const MANUAL_REMINDER_PURPOSE = 'appointment_reminder_manual';
+
+/**
+ * Sends a staff-triggered reminder only through the salon's own active Twilio
+ * connection. Known eligibility gaps return an editable native-SMS draft;
+ * once Twilio is called, a failure is intentionally reported separately so a
+ * caller cannot accidentally double-send by opening the fallback immediately.
+ */
+export async function sendSmartAppointmentReminder(
+  salonId: string,
+  params: ReminderParams & { force?: boolean; now?: Date },
+): Promise<SmartAppointmentReminderResult> {
+  const body = buildAppointmentReminderMessage({ ...params, kind: 'manual' });
+  const normalizedPhone = normalizeSmsRecipient(params.phone);
+  const fallbackPhone = normalizedPhone ?? params.phone.trim();
+
+  if (!normalizedPhone) {
+    return {
+      outcome: 'manual',
+      phone: fallbackPhone,
+      body,
+      reason: 'INVALID_PHONE',
+    };
+  }
+
+  if (!await isSmsEnabled(salonId)) {
+    return {
+      outcome: 'manual',
+      phone: normalizedPhone,
+      body,
+      reason: 'SMS_DISABLED',
+    };
+  }
+
+  if (!await hasTransactionalSmsConsent(salonId, normalizedPhone)) {
+    return {
+      outcome: 'manual',
+      phone: normalizedPhone,
+      body,
+      reason: 'SMS_CONSENT_REQUIRED',
+    };
+  }
+
+  const sender = await getSalonTwilioSender(salonId, { allowLegacy: false });
+  if (!sender) {
+    return {
+      outcome: 'manual',
+      phone: normalizedPhone,
+      body,
+      reason: 'TWILIO_UNAVAILABLE',
+    };
+  }
+
+  const now = params.now ?? new Date();
+  if (!params.force) {
+    const [recentDelivery] = await db
+      .select({
+        status: notificationDeliverySchema.status,
+        updatedAt: notificationDeliverySchema.updatedAt,
+      })
+      .from(notificationDeliverySchema)
+      .where(and(
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.appointmentId, params.appointmentId),
+        eq(notificationDeliverySchema.channel, 'sms'),
+        eq(notificationDeliverySchema.purpose, MANUAL_REMINDER_PURPOSE),
+        gte(
+          notificationDeliverySchema.createdAt,
+          new Date(now.getTime() - RAPID_MANUAL_REMINDER_WINDOW_MS),
+        ),
+        inArray(notificationDeliverySchema.status, [
+          'queued',
+          'accepted',
+          'sending',
+          'sent',
+          'delivered',
+        ]),
+      ))
+      .orderBy(desc(notificationDeliverySchema.updatedAt))
+      .limit(1);
+
+    if (recentDelivery) {
+      return {
+        outcome: 'duplicate',
+        phone: normalizedPhone,
+        body,
+        sentAt: recentDelivery.updatedAt.toISOString(),
+      };
+    }
+  }
+
+  const deliveryId = crypto.randomUUID();
+  const bucket = Math.floor(now.getTime() / MANUAL_REMINDER_DEDUPE_BUCKET_MS);
+  const dedupeKey = params.force
+    ? `sms:appointment-reminder-manual:${params.appointmentId}:resend:${deliveryId}`
+    : `sms:appointment-reminder-manual:${params.appointmentId}:${bucket}`;
+  const inserted = await db
+    .insert(notificationDeliverySchema)
+    .values({
+      id: deliveryId,
+      salonId,
+      appointmentId: params.appointmentId,
+      channel: 'sms',
+      purpose: MANUAL_REMINDER_PURPOSE,
+      dedupeKey,
+      status: 'queued',
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (inserted.length === 0) {
+    const [existingDelivery] = await db
+      .select({ updatedAt: notificationDeliverySchema.updatedAt })
+      .from(notificationDeliverySchema)
+      .where(and(
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+      ))
+      .limit(1);
+
+    return {
+      outcome: 'duplicate',
+      phone: normalizedPhone,
+      body,
+      sentAt: (existingDelivery?.updatedAt ?? now).toISOString(),
+    };
+  }
+
+  try {
+    const normalizedTo = `+1${normalizedPhone}`;
+    const statusCallback = Env.NEXT_PUBLIC_APP_URL
+      ? `${Env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`
+      : null;
+    const message = await sender.client.messages.create({
+      body,
+      ...(sender.messagingServiceSid
+        ? { messagingServiceSid: sender.messagingServiceSid }
+        : { from: sender.phoneNumber! }),
+      ...(statusCallback ? { statusCallback } : {}),
+      to: normalizedTo,
+    });
+    const sentAt = new Date();
+    await db
+      .update(notificationDeliverySchema)
+      .set({
+        status: message.status || 'accepted',
+        providerMessageId: message.sid,
+      })
+      .where(and(
+        eq(notificationDeliverySchema.id, deliveryId),
+        eq(notificationDeliverySchema.salonId, salonId),
+      ))
+      .catch(() => undefined);
+
+    return {
+      outcome: 'sent',
+      phone: normalizedPhone,
+      body,
+      sentAt: sentAt.toISOString(),
+    };
+  } catch (error) {
+    console.error('Failed to send staff-triggered appointment reminder SMS:', error);
+    const providerError = error as { code?: number | string; status?: number };
+    const errorCode = providerError.code ? String(providerError.code) : null;
+    const retryable = (providerError.status ?? 0) >= 500
+      || ['30001', '30008'].includes(errorCode || '');
+    await db
+      .update(notificationDeliverySchema)
+      .set({
+        status: 'failed',
+        errorCode,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        retryable,
+      })
+      .where(and(
+        eq(notificationDeliverySchema.id, deliveryId),
+        eq(notificationDeliverySchema.salonId, salonId),
+      ))
+      .catch(() => undefined);
+
+    return {
+      outcome: 'provider_failure',
+      phone: normalizedPhone,
+      body,
+      errorCode,
+    };
+  }
 }
 
 async function hasTransactionalSmsConsent(salonId: string, phone: string): Promise<boolean> {
@@ -178,6 +402,11 @@ async function hasTransactionalSmsConsent(salonId: string, phone: string): Promi
     .orderBy(desc(communicationConsentSchema.createdAt))
     .limit(1);
   return consent?.status === 'granted';
+}
+
+function normalizeSmsRecipient(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  return digits.length === 10 ? digits : null;
 }
 
 type SmsDeliveryContext = {
@@ -410,22 +639,8 @@ export async function sendInternalCancellationNotificationSms(
 /**
  * Send appointment reminder SMS to the client
  */
-export async function sendAppointmentReminder(
-  salonId: string,
-  params: ReminderParams,
-): Promise<boolean> {
-  // Check if SMS is enabled for this salon
-  if (!await isSmsEnabled(salonId)) {
-    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
-    return false;
-  }
-  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
-    console.warn('[SMS CONSENT MISSING] Appointment reminder skipped:', salonId);
-    return false;
-  }
-
+export function buildAppointmentReminderMessage(params: ReminderParams): string {
   const {
-    phone,
     clientName,
     salonName,
     startTime,
@@ -434,6 +649,7 @@ export async function sendAppointmentReminder(
     services = [],
     technicianName = null,
     timeZone,
+    manageUrl,
   } = params;
 
   const date = new Date(startTime);
@@ -453,34 +669,77 @@ export async function sendAppointmentReminder(
   const timeUntilText = hoursUntil >= 24
     ? 'tomorrow'
     : `in ${hoursUntil} hours`;
+  const manageLine = manageUrl
+    ? `View, reschedule, or cancel: ${manageUrl}`
+    : null;
 
-  const message = kind === 'day_before'
-    ? [
-        `Hi ${clientName || 'there'}!`,
-        '',
-        `Reminder: Your appointment at ${salonName} is tomorrow at ${formattedTime}.`,
-        ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
-        ...(technicianName ? [`Artist: ${technicianName}`] : []),
-        'Need to reschedule? Reply or call us.',
-      ].join('\n')
-    : kind === 'same_day'
-      ? [
-          `Hi ${clientName || 'there'}!`,
-          '',
-          `Your appointment at ${salonName} is today at ${formattedTime}.`,
-          ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
-          ...(technicianName ? [`Artist: ${technicianName}`] : []),
-          `See you soon on ${formattedDate}.`,
-        ].join('\n')
-      : `Hi ${clientName || 'there'},
+  if (kind === 'day_before') {
+    return [
+      `Hi ${clientName || 'there'}!`,
+      '',
+      `Reminder: Your appointment at ${salonName} is tomorrow at ${formattedTime}.`,
+      ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
+      ...(technicianName ? [`Artist: ${technicianName}`] : []),
+      ...(manageLine ? [manageLine] : ['Need to reschedule? Reply or call us.']),
+    ].join('\n');
+  }
 
-Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTime}.
+  if (kind === 'same_day') {
+    return [
+      `Hi ${clientName || 'there'}!`,
+      '',
+      `Your appointment at ${salonName} is today at ${formattedTime}.`,
+      ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
+      ...(technicianName ? [`Artist: ${technicianName}`] : []),
+      `See you soon on ${formattedDate}.`,
+      ...(manageLine ? [manageLine] : []),
+    ].join('\n');
+  }
 
-Need to reschedule? Reply or call us.`;
+  if (kind === 'manual') {
+    return [
+      `Hi ${clientName || 'there'}!`,
+      '',
+      `Reminder: Your appointment at ${salonName} is on ${formattedDate} at ${formattedTime}.`,
+      ...(services.length > 0 ? [`Service: ${services.join(', ')}`] : []),
+      ...(technicianName ? [`Artist: ${technicianName}`] : []),
+      ...(manageLine ? ['', manageLine] : []),
+      '',
+      'Reply STOP to opt out. Reply to this text if you need help.',
+    ].join('\n');
+  }
 
-  return sendSMS(salonId, phone, message, {
+  return [
+    `Hi ${clientName || 'there'},`,
+    '',
+    `Reminder: Your appointment at ${salonName} is ${timeUntilText} at ${formattedTime}.`,
+    ...(manageLine ? ['', manageLine] : []),
+    '',
+    'Need to reschedule? Reply or call us.',
+  ].join('\n');
+}
+
+export async function sendAppointmentReminder(
+  salonId: string,
+  params: ReminderParams,
+): Promise<boolean> {
+  // Check if SMS is enabled for this salon
+  if (!await isSmsEnabled(salonId)) {
+    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
+    return false;
+  }
+  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+    console.warn('[SMS CONSENT MISSING] Appointment reminder skipped:', salonId);
+    return false;
+  }
+
+  return sendSMS(salonId, params.phone, buildAppointmentReminderMessage(params), {
     appointmentId: params.appointmentId,
-    purpose: kind === 'day_before' ? 'appointment_reminder_24h' : kind === 'same_day' ? 'appointment_reminder_2h' : 'appointment_reminder',
+    purpose: params.kind === 'day_before'
+      ? 'appointment_reminder_24h'
+      : params.kind === 'same_day'
+        ? 'appointment_reminder_2h'
+        : 'appointment_reminder',
   });
 }
 
