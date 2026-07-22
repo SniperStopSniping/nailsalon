@@ -1,3 +1,10 @@
+## [1.29.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.1...v1.29.2) (2026-07-22)
+
+
+### Bug Fixes
+
+* release cancelled Google calendar time ([bdf8f7c](https://github.com/SniperStopSniping/nailsalon/commit/bdf8f7c7c2aaf5a23a9529224a220199095f3e48))
+
 ## [1.29.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.0...v1.29.1) (2026-07-22)
 
 
