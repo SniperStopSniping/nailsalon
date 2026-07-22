@@ -189,4 +189,28 @@ describe('sendSmartAppointmentReminder', () => {
       retryable: true,
     }));
   });
+
+  it('does not report a failed dedupe-key collision as a successful duplicate', async () => {
+    queueSelectResults(
+      [{ status: 'granted' }],
+      [activeConnection],
+      [],
+      [{
+        status: 'failed',
+        errorCode: '30008',
+        updatedAt: new Date('2026-07-22T17:59:30.000Z'),
+      }],
+    );
+    queueInsertResults([]);
+
+    const result = await sendSmartAppointmentReminder('salon_1', params);
+
+    expect(result).toMatchObject({
+      outcome: 'provider_failure',
+      errorCode: '30008',
+      phone: '4165550198',
+      body: expect.stringContaining('BIAB Fill'),
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
 });

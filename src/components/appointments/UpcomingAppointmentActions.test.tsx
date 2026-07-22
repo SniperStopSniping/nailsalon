@@ -182,6 +182,27 @@ describe('UpcomingAppointmentActions', () => {
     expect(JSON.parse(String(request?.[1]?.body))).toEqual({ force: false });
   });
 
+  it('does not add another history entry when a duplicate reminder is suppressed', async () => {
+    reminderResponse = jsonResponse({
+      data: {
+        mode: 'automatic',
+        sent: true,
+        reason: 'DUPLICATE_SUPPRESSED',
+      },
+    });
+    const { onReminderSent } = renderActions();
+
+    fireEvent.click(screen.getByTestId('appointment-send-reminder'));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'A reminder was just sent, so the duplicate was skipped.',
+    );
+    expect(onReminderSent).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.filter(([input, init]) => (
+      String(input).includes('/communication') && init?.method === 'POST'
+    ))).toHaveLength(0);
+  });
+
   it('opens the server-provided SMS draft when automatic delivery is known to be unavailable', async () => {
     reminderResponse = jsonResponse({
       data: {

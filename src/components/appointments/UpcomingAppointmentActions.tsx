@@ -322,20 +322,24 @@ export function UpcomingAppointmentActions({
 
       const result = payload?.data as ReminderResponse | undefined;
       if (result?.mode === 'automatic' && result.sent) {
+        const duplicateSuppressed = result.reason === 'DUPLICATE_SUPPRESSED';
+
         setReminderDue(false);
         setActionNotice(
-          result.reason === 'DUPLICATE_SUPPRESSED'
+          duplicateSuppressed
             ? 'A reminder was just sent, so the duplicate was skipped.'
             : 'Reminder sent automatically from your salon number.',
         );
-        await recordOutreach({
-          kind: 'reminder',
-          label: 'Appointment reminder',
-          body: 'Automatic appointment reminder sent through Twilio.',
-          appointmentId: detail.appointment.id,
-        }, 'marked_sent').catch(() => {
-          setActionError('The reminder was sent, but its client-history entry could not be updated.');
-        });
+        if (!duplicateSuppressed) {
+          await recordOutreach({
+            kind: 'reminder',
+            label: 'Appointment reminder',
+            body: 'Automatic appointment reminder sent through Twilio.',
+            appointmentId: detail.appointment.id,
+          }, 'marked_sent').catch(() => {
+            setActionError('The reminder was sent, but its client-history entry could not be updated.');
+          });
+        }
         await onReminderSent?.();
         return;
       }

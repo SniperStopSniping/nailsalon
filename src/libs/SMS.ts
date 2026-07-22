@@ -311,7 +311,11 @@ export async function sendSmartAppointmentReminder(
 
   if (inserted.length === 0) {
     const [existingDelivery] = await db
-      .select({ updatedAt: notificationDeliverySchema.updatedAt })
+      .select({
+        status: notificationDeliverySchema.status,
+        errorCode: notificationDeliverySchema.errorCode,
+        updatedAt: notificationDeliverySchema.updatedAt,
+      })
       .from(notificationDeliverySchema)
       .where(and(
         eq(notificationDeliverySchema.salonId, salonId),
@@ -319,11 +323,26 @@ export async function sendSmartAppointmentReminder(
       ))
       .limit(1);
 
+    if (existingDelivery && [
+      'queued',
+      'accepted',
+      'sending',
+      'sent',
+      'delivered',
+    ].includes(existingDelivery.status)) {
+      return {
+        outcome: 'duplicate',
+        phone: normalizedPhone,
+        body,
+        sentAt: existingDelivery.updatedAt.toISOString(),
+      };
+    }
+
     return {
-      outcome: 'duplicate',
+      outcome: 'provider_failure',
       phone: normalizedPhone,
       body,
-      sentAt: (existingDelivery?.updatedAt ?? now).toISOString(),
+      errorCode: existingDelivery?.errorCode ?? null,
     };
   }
 

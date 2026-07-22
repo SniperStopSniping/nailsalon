@@ -230,6 +230,26 @@ describe('ClientCommunicationActions', () => {
     expect(onOpenNativeUrl).not.toHaveBeenCalled();
   });
 
+  it('does not add another history entry when a duplicate reminder is suppressed', async () => {
+    smartReminderResponse = {
+      mode: 'automatic',
+      sent: true,
+      reason: 'DUPLICATE_SUPPRESSED',
+    };
+    const { onOpenNativeUrl } = renderActions();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'A reminder was just sent, so the duplicate was skipped.',
+    );
+    expect(onOpenNativeUrl).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([url, init]) => (
+      url === '/api/admin/retention' && init?.method === 'POST'
+    ))).toHaveLength(0);
+  });
+
   it('uses the upcoming appointment secondary location for the Directions draft', async () => {
     const { onOpenNativeUrl } = renderActions({
       upcomingAppointment: {

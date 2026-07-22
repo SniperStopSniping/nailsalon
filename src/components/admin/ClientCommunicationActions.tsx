@@ -501,20 +501,24 @@ export function ClientCommunicationActions({
           throw new Error(reminderPayload?.error?.message || 'The reminder could not be sent.');
         }
         if (reminderPayload?.data?.mode === 'automatic' && reminderPayload.data.sent) {
+          const duplicateSuppressed = reminderPayload.data.reason === 'DUPLICATE_SUPPRESSED';
+
           setReminderDue(null);
           setActionNotice(
-            reminderPayload.data.reason === 'DUPLICATE_SUPPRESSED'
+            duplicateSuppressed
               ? 'A reminder was just sent, so the duplicate was skipped.'
               : 'Reminder sent automatically from your salon number.',
           );
-          await recordOutreach({
-            kind: 'reminder',
-            label: 'Appointment reminder',
-            messageSnapshot: 'Automatic appointment reminder sent through Twilio.',
-            appointmentId: upcomingAppointment.id,
-          }, 'marked_sent').catch(() => {
-            setActionError('The reminder was sent, but its client-history entry could not be updated.');
-          });
+          if (!duplicateSuppressed) {
+            await recordOutreach({
+              kind: 'reminder',
+              label: 'Appointment reminder',
+              messageSnapshot: 'Automatic appointment reminder sent through Twilio.',
+              appointmentId: upcomingAppointment.id,
+            }, 'marked_sent').catch(() => {
+              setActionError('The reminder was sent, but its client-history entry could not be updated.');
+            });
+          }
           notifyRetentionDataChanged();
           return;
         }
