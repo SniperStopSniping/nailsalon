@@ -466,6 +466,7 @@ export async function processIntegrationOutbox(limit = 50) {
         .select({
           id: appointmentSchema.id,
           status: appointmentSchema.status,
+          canvasState: appointmentSchema.canvasState,
           deletedAt: appointmentSchema.deletedAt,
         })
         .from(appointmentSchema)
@@ -485,7 +486,8 @@ export async function processIntegrationOutbox(limit = 50) {
         const appointment = appointmentsById.get(event.appointmentId);
         const safeToDelete = !appointment
           || Boolean(appointment.deletedAt)
-          || ['cancelled', 'no_show'].includes(appointment.status);
+          || ['cancelled', 'no_show'].includes(appointment.status)
+          || ['cancelled', 'no_show'].includes(appointment.canvasState ?? '');
         if (!safeToDelete) {
           continue;
         }
