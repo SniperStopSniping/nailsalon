@@ -132,6 +132,43 @@ describe('POST /api/admin/auth/password-login', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('accepts login when SUPER_ADMIN_TEST_PHONE is configured without the +1 prefix', async () => {
+    // Regression: a configured phone stored as bare digits used to fail both the
+    // constant-time compare and the phone_e164 lookup because only the submitted
+    // phone was normalized. It must now succeed on equal footing.
+    process.env.SUPER_ADMIN_TEST_PHONE = '4165550123';
+    const response = await POST(request('+14165550123', fakePassword));
+
+    expect(response.status).toBe(200);
+    // Compare, DB lookup, and rate-limit account key all key off the normalized phone.
+    expect(clearFailures).toHaveBeenCalledWith(fakePhone);
+  });
+
+  it('accepts login when SUPER_ADMIN_TEST_PHONE is configured as 11 digits without a plus', async () => {
+    process.env.SUPER_ADMIN_TEST_PHONE = '14165550123';
+    const response = await POST(request('416-555-0123', fakePassword));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('still rejects a wrong password even when the configured phone lacks the +1 prefix', async () => {
+    process.env.SUPER_ADMIN_TEST_PHONE = '4165550123';
+    const response = await POST(request('+14165550123', 'wrong-passcode'));
+
+    expect(response.status).toBe(401);
+    expect(db.select).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it('returns the generic body and Retry-After when the account is locked out', async () => {
+    beginAttempt.mockResolvedValue({ allowed: false, reason: 'account_locked', retryAfterSeconds: 1800 });
+    const response = await POST(request());
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('1800');
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid credentials' });
+  });
+
   it.each([
     ['incorrect phone', '+14165550999', fakePassword],
     ['incorrect password', fakePhone, 'wrong-passcode'],

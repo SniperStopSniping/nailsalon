@@ -25,6 +25,25 @@ import { adminSessionSchema, adminUserSchema } from '@/models/Schema';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 const INVALID_CREDENTIALS = { error: 'Invalid credentials' } as const;
 
+/**
+ * The configured super-admin phone (`SUPER_ADMIN_TEST_PHONE`) may be stored with
+ * or without the E.164 `+1` prefix — a deploy-time footgun, since the submitted
+ * phone is always normalized to E.164 before comparison. Normalize the configured
+ * value the same way so the constant-time compare and the `phone_e164` database
+ * lookup operate on equal footing regardless of how the env var was entered. Fall
+ * back to the raw value when it cannot be parsed as a phone number.
+ */
+function normalizeConfiguredPhone(raw: string | null): string | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    return formatPhoneE164(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function failure(status: number, retryAfterSeconds?: number) {
   const headers = retryAfterSeconds
     ? { 'Retry-After': String(Math.max(1, Math.ceil(retryAfterSeconds))) }
@@ -45,7 +64,8 @@ async function auditFailure(outcome: 'failure' | 'locked' | 'unavailable') {
 
 export async function POST(request: Request) {
   const config = getSuperAdminPasswordConfig();
-  const configuredAccount = config.phone ?? 'unconfigured-super-admin';
+  const configuredPhone = normalizeConfiguredPhone(config.phone);
+  const configuredAccount = configuredPhone ?? 'unconfigured-super-admin';
   const ip = getClientIp(request);
 
   try {
@@ -71,14 +91,14 @@ export async function POST(request: Request) {
     // Use empty values so malformed requests follow the same comparison path.
   }
 
-  const expectedPhone = config.phone ?? 'invalid-configured-phone';
+  const expectedPhone = configuredPhone ?? 'invalid-configured-phone';
   const expectedPassword = config.password ?? 'invalid-configured-password';
   const phoneMatches = constantTimeSecretEqual(submittedPhone, expectedPhone);
   const passwordMatches = constantTimeSecretEqual(submittedPassword, expectedPassword);
 
   let admin: { id: string; isSuperAdmin: boolean } | null = null;
   try {
-    if (config.enabled && phoneMatches && passwordMatches && config.phone) {
+    if (config.enabled && phoneMatches && passwordMatches && configuredPhone) {
       const [existing] = await db
         .select({
           id: adminUserSchema.id,
@@ -87,7 +107,7 @@ export async function POST(request: Request) {
         .from(adminUserSchema)
         .where(
           and(
-            eq(adminUserSchema.phoneE164, config.phone),
+            eq(adminUserSchema.phoneE164, configuredPhone),
             eq(adminUserSchema.isSuperAdmin, true),
           ),
         )
