@@ -1,3 +1,10 @@
+## [1.28.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.28.0...v1.28.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **admin:** recover dashboard after salon URL changes ([582979f](https://github.com/SniperStopSniping/nailsalon/commit/582979f5c39f391d5bfe221089ce4e4b833b29f8))
+
 # [1.28.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.27.2...v1.28.0) (2026-07-22)
 
 
