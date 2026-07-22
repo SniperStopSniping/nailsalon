@@ -74,7 +74,7 @@ describe('GET /api/admin/auth/me', () => {
     }]);
   });
 
-  it('rejects a salon query outside the locked impersonation scope', async () => {
+  it('recovers a stale salon query while keeping the response locked to the impersonated salon', async () => {
     getAdminImpersonationForAdmin.mockResolvedValue({
       salonId: 'salon_locked',
       salonSlug: 'locked-salon',
@@ -89,8 +89,15 @@ describe('GET /api/admin/auth/me', () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(body.error).toBe('Impersonation is locked to a different salon');
+    expect(response.status).toBe(200);
+    expect(body.user.salons).toEqual([
+      expect.objectContaining({
+        id: 'salon_locked',
+        slug: 'locked-salon',
+        role: 'impersonation',
+      }),
+    ]);
+    expect(body.user.impersonation.salonSlug).toBe('locked-salon');
   });
 
   it('returns the exact requested salon for a super-admin without a membership', async () => {

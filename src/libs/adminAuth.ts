@@ -8,7 +8,12 @@
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
-import { type AdminImpersonationSession, getAdminImpersonationSession } from '@/libs/adminImpersonation';
+import {
+  type AdminImpersonationSession,
+  clearAdminImpersonationSession,
+  getAdminImpersonationSession,
+  setAdminImpersonationSession,
+} from '@/libs/adminImpersonation';
 import { logAuditEvent } from '@/libs/auditLog';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
@@ -360,6 +365,29 @@ async function getValidatedAdminImpersonation(
 
   if (impersonation.adminUserId !== admin.id) {
     return null;
+  }
+
+  // Impersonation is keyed by the stable salon id, but the signed cookie also
+  // carries display and routing fields. A super-admin can rename a salon while
+  // this cookie is still active. Refresh those mutable fields so the owner
+  // dashboard never keeps requesting the now-retired slug.
+  const salon = await getSalonById(impersonation.salonId);
+  if (!salon) {
+    await clearAdminImpersonationSession();
+    return null;
+  }
+
+  if (
+    salon.slug !== impersonation.salonSlug
+    || salon.name !== impersonation.salonName
+  ) {
+    const refreshedImpersonation = {
+      ...impersonation,
+      salonSlug: salon.slug,
+      salonName: salon.name,
+    };
+    await setAdminImpersonationSession(refreshedImpersonation);
+    return refreshedImpersonation;
   }
 
   return impersonation;

@@ -69,13 +69,11 @@ export async function GET(request: Request) {
 
       // If salonSlug provided, validate membership and filter
       if (salonSlug) {
-        if (impersonation && salonSlug !== impersonation.salonSlug.toLowerCase()) {
-          return NextResponse.json(
-            { error: 'Impersonation is locked to a different salon' },
-            { status: 403 },
-          );
-        }
-
+        // The URL can still contain the previous slug immediately after a
+        // super-admin renames the impersonated salon. Keep the response locked
+        // to the impersonated salon and let the dashboard replace the stale URL
+        // with the refreshed slug. This cannot broaden tenant access because
+        // `salons` contains only the locked impersonation target here.
         const hasMembership = salons.some(
           s => s.slug?.toLowerCase() === salonSlug,
         );
@@ -92,7 +90,9 @@ export async function GET(request: Request) {
         // A super-admin opening a salon directly may not have a membership;
         // load that exact tenant instead of silently displaying their first
         // membership under the requested salon URL.
-        if (hasMembership) {
+        if (impersonation) {
+          // Already locked to the one impersonated salon above.
+        } else if (hasMembership) {
           salons = salons.filter(s => s.slug?.toLowerCase() === salonSlug);
         } else if (admin.isSuperAdmin && !impersonation) {
           const requestedSalon = await getSalonBySlug(salonSlug);
