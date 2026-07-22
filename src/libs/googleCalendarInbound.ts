@@ -11,6 +11,7 @@ import {
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon } from '@/libs/googleCalendar';
+import { extractGoogleEventContact } from '@/libs/googleEventAutofill';
 import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import {
   appointmentSchema,
@@ -177,6 +178,7 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
       summary.scannedEvents += latestById.size;
 
       for (const remoteEvent of latestById.values()) {
+        const attendeeContact = extractGoogleEventContact(remoteEvent.attendees, remoteEvent.summary);
         const [storedEvent] = await db.select({
           id: googleCalendarEventSchema.id,
           appointmentId: googleCalendarEventSchema.appointmentId,
@@ -216,6 +218,9 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             title: remoteEvent.summary,
             description: remoteEvent.description,
             location: remoteEvent.location,
+            attendeeName: attendeeContact?.fullName ?? null,
+            attendeePhone: attendeeContact?.phone || null,
+            attendeeEmail: attendeeContact?.email ?? null,
             startTime: remoteEvent.startTime,
             endTime: remoteEvent.endTime,
             durationMinutes,
@@ -239,6 +244,9 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
               title: remoteEvent.summary,
               description: remoteEvent.description,
               location: remoteEvent.location,
+              attendeeName: attendeeContact?.fullName ?? null,
+              attendeePhone: attendeeContact?.phone || null,
+              attendeeEmail: attendeeContact?.email ?? null,
               startTime: remoteEvent.startTime,
               endTime: remoteEvent.endTime,
               durationMinutes,

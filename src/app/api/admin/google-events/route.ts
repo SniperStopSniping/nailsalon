@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
+import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { getRecordedGoogleEventDecision, normalizeGoogleEventTitle } from '@/libs/googleEventReview';
 import { googleCalendarEventSchema, salonClientSchema, serviceSchema } from '@/models/Schema';
 
@@ -16,6 +17,11 @@ const querySchema = z.object({
 function includesAllTokens(haystack: string, needle: string) {
   const tokens = needle.split(' ').filter(token => token.length >= 2);
   return tokens.length > 0 && tokens.every(token => haystack.includes(token));
+}
+
+function normalizePhone(value: string | null | undefined) {
+  const digits = value?.replace(/\D/g, '') || '';
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
 }
 
 export async function GET(request: Request) {
@@ -44,7 +50,22 @@ export async function GET(request: Request) {
   ]);
   const data = await Promise.all(events.map(async (event) => {
     const normalizedTitle = normalizeGoogleEventTitle(event.title);
-    const clientMatches = clients.filter(client => client.fullName && includesAllTokens(normalizedTitle, normalizeGoogleEventTitle(client.fullName)));
+    const parsedTitle = parseGoogleEventTitle(event.title);
+    const attendeePhone = normalizePhone(event.attendeePhone);
+    const attendeeEmail = event.attendeeEmail?.trim().toLowerCase() || null;
+    const directClientMatches = clients.filter(client =>
+      (attendeePhone && normalizePhone(client.phone) === attendeePhone)
+      || (attendeeEmail && client.email?.trim().toLowerCase() === attendeeEmail));
+    const titleClientMatches = clients.filter(client => client.fullName && includesAllTokens(normalizedTitle, normalizeGoogleEventTitle(client.fullName)));
+    const matchedClients = directClientMatches.length === 1 ? directClientMatches : titleClientMatches;
+    const matchedClient = matchedClients.length === 1 ? matchedClients[0]! : null;
+    const suggestedClient = event.attendeePhone || event.attendeeEmail || event.attendeeName || parsedTitle.clientName || matchedClient
+      ? {
+          fullName: event.attendeeName || parsedTitle.clientName || matchedClient?.fullName || null,
+          phone: event.attendeePhone || matchedClient?.phone || '',
+          email: event.attendeeEmail || matchedClient?.email || null,
+        }
+      : null;
     const serviceMatches = services
       .filter(service => includesAllTokens(normalizedTitle, normalizeGoogleEventTitle(service.name)))
       .sort((a, b) => Math.abs(a.durationMinutes - event.durationMinutes) - Math.abs(b.durationMinutes - event.durationMinutes));
@@ -52,7 +73,7 @@ export async function GET(request: Request) {
       ...event,
       isReadOnly: !['owner', 'writer'].includes(event.sourceAccessRole),
       suggestion: {
-        client: clientMatches.length === 1 ? clientMatches[0] : null,
+        client: suggestedClient,
         service: serviceMatches.length === 1 ? serviceMatches[0] : null,
         recordedDecision: await getRecordedGoogleEventDecision(salon.id, event.title),
       },

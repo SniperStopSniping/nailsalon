@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
+import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import type { BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
@@ -164,6 +165,7 @@ export function NewAppointmentModal({
   const idempotencyKeyRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
   const pendingTechDefaultRef = useRef(false);
+  const pendingGoogleServiceNameRef = useRef<string | null>(null);
 
   const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
 
@@ -178,15 +180,17 @@ export function NewAppointmentModal({
     sourceFingerprintRef.current = googleEventFingerprint(googleEventPrefill);
     idempotencyKeyRef.current = createIdempotencyKey();
     const start = new Date(googleEventPrefill.startTime);
+    const parsedTitle = parseGoogleEventTitle(googleEventPrefill.title);
     setSelectedDate(formatDateForInput(start));
     setSelectedTime(`${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`);
-    setClientName(googleEventPrefill.suggestedClient?.fullName || '');
+    setClientName(googleEventPrefill.suggestedClient?.fullName || parsedTitle.clientName || '');
     setClientPhone((googleEventPrefill.suggestedClient?.phone || '').replace(/\D/g, '').slice(-10));
     setClientEmail(googleEventPrefill.suggestedClient?.email || '');
     setSelectedServiceIds(googleEventPrefill.suggestedService ? [googleEventPrefill.suggestedService.id] : []);
+    pendingGoogleServiceNameRef.current = googleEventPrefill.suggestedService ? null : parsedTitle.serviceName;
     setPriceOverride(googleEventPrefill.suggestedService ? String(googleEventPrefill.suggestedService.price / 100) : '');
     setDurationOverride(String(googleEventPrefill.durationMinutes));
-    setNotes('');
+    setNotes(googleEventPrefill.description?.trim().slice(0, 2000) || '');
     setSourceChanged(false);
     setSubmissionSourceStatus(null);
     setSubmitFailed(false);
@@ -194,6 +198,25 @@ export function NewAppointmentModal({
     // loads (still editable) — a Google event has no technician of its own.
     pendingTechDefaultRef.current = true;
   }, [googleEventPrefill, isOpen]);
+
+  useEffect(() => {
+    const candidate = pendingGoogleServiceNameRef.current;
+    if (!isOpen || !googleEventPrefill || !candidate || services.length === 0) {
+      return;
+    }
+    const normalizedCandidate = candidate.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const matches = services.filter((service) => {
+      const normalizedService = service.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      return normalizedCandidate === normalizedService
+        || normalizedCandidate.includes(normalizedService)
+        || normalizedService.includes(normalizedCandidate);
+    });
+    pendingGoogleServiceNameRef.current = null;
+    if (matches.length === 1) {
+      setSelectedServiceIds([matches[0]!.id]);
+      setPriceOverride(String(matches[0]!.price / 100));
+    }
+  }, [googleEventPrefill, isOpen, services]);
 
   useEffect(() => {
     if (!isOpen || !googleEventPrefill || !pendingTechDefaultRef.current || technicians.length === 0) {
@@ -353,6 +376,7 @@ export function NewAppointmentModal({
       sourceFingerprintRef.current = null;
       idempotencyKeyRef.current = null;
       submittingRef.current = false;
+      pendingGoogleServiceNameRef.current = null;
     }
   }, [isOpen]);
 

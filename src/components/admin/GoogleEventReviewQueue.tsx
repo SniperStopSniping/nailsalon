@@ -52,7 +52,11 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
       const response = await fetch(`/api/admin/google-events/${encodeURIComponent(active.id)}?${new URLSearchParams({ salonSlug })}`, { cache: 'no-store' });
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.data?.event) {
-        const verified = { ...active, ...payload.data.event } as ReviewEvent;
+        const verified = {
+          ...active,
+          ...payload.data.event,
+          suggestion: { ...active.suggestion, ...payload.data.event.suggestion },
+        } as ReviewEvent;
         convertingRef.current = verified;
         setConverting(verified);
         setConversionSourceStatus('available');

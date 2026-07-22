@@ -421,6 +421,13 @@
       "when": 1784950000004,
       "tag": "0059_salon_delete_cascade",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1784950000005,
+      "tag": "0060_google_event_attendee_contact",
+      "breakpoints": true
     }
   ]
 }
