@@ -1,3 +1,10 @@
+## [1.29.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.6...v1.29.7) (2026-07-22)
+
+
+### Bug Fixes
+
+* ignore verified Google freebusy ghosts ([4c9ea15](https://github.com/SniperStopSniping/nailsalon/commit/4c9ea159a9bd665ad1bc939e892af906440b9aad))
+
 ## [1.29.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.5...v1.29.6) (2026-07-22)
 
 
