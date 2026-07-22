@@ -187,7 +187,7 @@ describe('processIntegrationOutbox', () => {
       [],
       [],
       [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
-      [{ id: 'appt_orphan' }],
+      [{ id: 'appt_orphan', status: 'cancelled', deletedAt: null }],
     );
     listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
       id: 'google_event_orphan',
@@ -222,6 +222,40 @@ describe('processIntegrationOutbox', () => {
       appointmentId: 'appt_orphan',
       salonId: 'salon_1',
       googleCalendarEventId: 'google_event_orphan',
+    });
+  });
+
+  it('repairs an app-owned mirror whose appointment row no longer exists', async () => {
+    selectResults.push(
+      [],
+      [],
+      [],
+      [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
+      [],
+    );
+    listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
+      id: 'google_event_missing_appointment',
+      calendarId: 'primary',
+      status: 'confirmed',
+      summary: 'Manicure',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      startTime: new Date('2026-08-31T16:00:00.000Z'),
+      endTime: new Date('2026-08-31T17:00:00.000Z'),
+      updatedAt: new Date('2026-07-22T16:00:00.000Z'),
+      appointmentId: 'appt_missing',
+      salonId: 'salon_1',
+    }]);
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({
+      remoteAppointmentMirrorsScanned: 1,
+      remoteCancelledEventCandidates: 1,
+      reconciledCancelledEvents: 1,
     });
   });
 });

@@ -462,18 +462,31 @@ export async function processIntegrationOutbox(limit = 50) {
       if (!appointmentIds.length) {
         continue;
       }
-      const terminalAppointments = await db
-        .select({ id: appointmentSchema.id })
+      const storedAppointments = await db
+        .select({
+          id: appointmentSchema.id,
+          status: appointmentSchema.status,
+          deletedAt: appointmentSchema.deletedAt,
+        })
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, connection.salonId),
           inArray(appointmentSchema.id, appointmentIds),
-          inArray(appointmentSchema.status, ['cancelled', 'no_show']),
         ))
         .limit(reconciliationLimit);
-      const terminalIds = new Set(terminalAppointments.map(appointment => appointment.id));
+      const appointmentsById = new Map(storedAppointments.map(appointment => [
+        appointment.id,
+        appointment,
+      ]));
       for (const event of appEvents) {
-        if (!event.appointmentId || !terminalIds.has(event.appointmentId)) {
+        if (!event.appointmentId) {
+          continue;
+        }
+        const appointment = appointmentsById.get(event.appointmentId);
+        const safeToDelete = !appointment
+          || Boolean(appointment.deletedAt)
+          || ['cancelled', 'no_show'].includes(appointment.status);
+        if (!safeToDelete) {
           continue;
         }
         const key = `${connection.salonId}:${event.appointmentId}:${event.id}`;
