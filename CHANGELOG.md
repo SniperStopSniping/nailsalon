@@ -1,3 +1,10 @@
+## [1.28.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.28.1...v1.28.2) (2026-07-22)
+
+
+### Bug Fixes
+
+* **admin:** recover renamed active salon ([9c65f34](https://github.com/SniperStopSniping/nailsalon/commit/9c65f34349ef16765e8b7cb314e9cf7080fcbe48))
+
 ## [1.28.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.28.0...v1.28.1) (2026-07-22)
 
 
