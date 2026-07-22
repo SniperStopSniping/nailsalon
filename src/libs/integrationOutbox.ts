@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import {
@@ -14,8 +14,10 @@ import type {
 } from '@/libs/salonNotificationEmail';
 import {
   appointmentSchema,
+  googleCalendarEventSchema,
   integrationOutboxSchema,
   notificationDeliverySchema,
+  salonGoogleCalendarConnectionSchema,
   salonSchema,
 } from '@/models/Schema';
 
@@ -123,7 +125,13 @@ export async function processIntegrationOutbox(limit = 50) {
     )
     .orderBy(asc(integrationOutboxSchema.createdAt))
     .limit(limit);
-  const summary = { scanned: jobs.length, succeeded: 0, retried: 0, failed: 0 };
+  const summary = {
+    scanned: jobs.length,
+    succeeded: 0,
+    retried: 0,
+    failed: 0,
+    reconciledCancelledEvents: 0,
+  };
   for (const job of jobs) {
     const claimed = await db
       .update(integrationOutboxSchema)
@@ -219,6 +227,8 @@ export async function processIntegrationOutbox(limit = 50) {
         const [appointment] = await db
           .select({
             googleCalendarEventId: appointmentSchema.googleCalendarEventId,
+            status: appointmentSchema.status,
+            deletedAt: appointmentSchema.deletedAt,
           })
           .from(appointmentSchema)
           .where(
@@ -228,13 +238,27 @@ export async function processIntegrationOutbox(limit = 50) {
             ),
           )
           .limit(1);
-        result = await syncGoogleCalendarEventForAppointment({
-          ...payload,
-          startTime: new Date(payload.startTime),
-          endTime: new Date(payload.endTime),
-          googleCalendarEventId:
-            appointment?.googleCalendarEventId || payload.googleCalendarEventId,
-        });
+        if (
+          !appointment
+          || appointment.deletedAt
+          || appointment.status === 'cancelled'
+          || appointment.status === 'no_show'
+        ) {
+          result = await deleteGoogleCalendarEventForAppointment({
+            appointmentId: job.appointmentId!,
+            salonId: job.salonId,
+            googleCalendarEventId:
+              appointment?.googleCalendarEventId || payload.googleCalendarEventId,
+          });
+        } else {
+          result = await syncGoogleCalendarEventForAppointment({
+            ...payload,
+            startTime: new Date(payload.startTime),
+            endTime: new Date(payload.endTime),
+            googleCalendarEventId:
+              appointment.googleCalendarEventId || payload.googleCalendarEventId,
+          });
+        }
       }
       if (result.status === 'failed') {
         throw new Error(result.error);
@@ -328,5 +352,83 @@ export async function processIntegrationOutbox(limit = 50) {
       }
     }
   }
+
+  const [appointmentMirrors, linkedMirrors] = await Promise.all([
+    db
+      .select({
+        appointmentId: appointmentSchema.id,
+        salonId: appointmentSchema.salonId,
+        googleCalendarEventId: appointmentSchema.googleCalendarEventId,
+      })
+      .from(appointmentSchema)
+      .innerJoin(
+        salonGoogleCalendarConnectionSchema,
+        eq(salonGoogleCalendarConnectionSchema.salonId, appointmentSchema.salonId),
+      )
+      .where(and(
+        inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+        isNotNull(appointmentSchema.googleCalendarEventId),
+        inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
+      ))
+      .limit(limit),
+    db
+      .select({
+        appointmentId: appointmentSchema.id,
+        salonId: appointmentSchema.salonId,
+        googleCalendarEventId: googleCalendarEventSchema.googleEventId,
+      })
+      .from(appointmentSchema)
+      .innerJoin(
+        googleCalendarEventSchema,
+        and(
+          eq(googleCalendarEventSchema.salonId, appointmentSchema.salonId),
+          eq(googleCalendarEventSchema.appointmentId, appointmentSchema.id),
+        ),
+      )
+      .innerJoin(
+        salonGoogleCalendarConnectionSchema,
+        eq(salonGoogleCalendarConnectionSchema.salonId, appointmentSchema.salonId),
+      )
+      .where(and(
+        inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+        isNull(googleCalendarEventSchema.deletedAt),
+        ne(googleCalendarEventSchema.googleStatus, 'cancelled'),
+        eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
+        inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
+        inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
+      ))
+      .limit(limit),
+  ]);
+
+  const cancelledMirrors = new Map<string, (typeof appointmentMirrors)[number]>();
+  for (const appointment of [...appointmentMirrors, ...linkedMirrors]) {
+    if (!appointment.googleCalendarEventId) {
+      continue;
+    }
+    cancelledMirrors.set(
+      `${appointment.salonId}:${appointment.appointmentId}:${appointment.googleCalendarEventId}`,
+      appointment,
+    );
+  }
+
+  for (const appointment of cancelledMirrors.values()) {
+    try {
+      const result = await deleteGoogleCalendarEventForAppointment({
+        appointmentId: appointment.appointmentId,
+        salonId: appointment.salonId,
+        googleCalendarEventId: appointment.googleCalendarEventId,
+      });
+      if (result.status === 'deleted') {
+        summary.reconciledCancelledEvents += 1;
+      }
+    } catch (error) {
+      console.error('[GoogleCalendar] Failed to reconcile a cancelled appointment event:', {
+        appointmentId: appointment.appointmentId,
+        salonId: appointment.salonId,
+        error: safeJobError(error),
+      });
+    }
+  }
+
   return summary;
 }
