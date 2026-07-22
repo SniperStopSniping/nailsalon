@@ -5,6 +5,7 @@ const {
   db,
   deleteGoogleCalendarEventForAppointment,
   syncGoogleCalendarEventForAppointment,
+  listGoogleCalendarEventsForSalon,
   selectResults,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
@@ -34,6 +35,7 @@ const {
     db: { select, update },
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     syncGoogleCalendarEventForAppointment: vi.fn(),
+    listGoogleCalendarEventsForSalon: vi.fn(),
     selectResults,
   };
 });
@@ -43,6 +45,7 @@ vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
   syncGoogleCalendarEventForAppointment,
+  listGoogleCalendarEventsForSalon,
 }));
 
 import { processIntegrationOutbox } from './integrationOutbox';
@@ -56,6 +59,7 @@ describe('processIntegrationOutbox', () => {
       status: 'synced',
       eventId: 'google_event_1',
     });
+    listGoogleCalendarEventsForSalon.mockResolvedValue([]);
   });
 
   it('turns a delayed upsert into a delete after the appointment is cancelled', async () => {
@@ -96,6 +100,7 @@ describe('processIntegrationOutbox', () => {
       }],
       [],
       [],
+      [],
     );
 
     const result = await processIntegrationOutbox();
@@ -106,6 +111,8 @@ describe('processIntegrationOutbox', () => {
       retried: 0,
       failed: 0,
       cancelledEventCandidates: 0,
+      remoteAppointmentMirrorsScanned: 0,
+      remoteCancelledEventCandidates: 0,
       reconciledCancelledEvents: 0,
       skippedCancelledEvents: 0,
       failedCancelledEvents: 0,
@@ -127,6 +134,7 @@ describe('processIntegrationOutbox', () => {
         salonId: 'salon_1',
         googleCalendarEventId: 'google_event_stuck',
       }],
+      [],
     );
 
     const result = await processIntegrationOutbox();
@@ -137,6 +145,8 @@ describe('processIntegrationOutbox', () => {
       retried: 0,
       failed: 0,
       cancelledEventCandidates: 1,
+      remoteAppointmentMirrorsScanned: 0,
+      remoteCancelledEventCandidates: 0,
       reconciledCancelledEvents: 1,
       skippedCancelledEvents: 0,
       failedCancelledEvents: 0,
@@ -150,6 +160,7 @@ describe('processIntegrationOutbox', () => {
 
   it('reports a future cancelled mirror that cannot be safely deleted', async () => {
     selectResults.push(
+      [],
       [],
       [{
         appointmentId: 'appt_read_only',
@@ -167,6 +178,50 @@ describe('processIntegrationOutbox', () => {
       reconciledCancelledEvents: 0,
       skippedCancelledEvents: 1,
       failedCancelledEvents: 0,
+    });
+  });
+
+  it('repairs an orphaned remote mirror from private appointment metadata', async () => {
+    selectResults.push(
+      [],
+      [],
+      [],
+      [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
+      [{ id: 'appt_orphan' }],
+    );
+    listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
+      id: 'google_event_orphan',
+      calendarId: 'primary',
+      status: 'confirmed',
+      summary: 'Manicure',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      startTime: new Date('2026-08-31T16:00:00.000Z'),
+      endTime: new Date('2026-08-31T17:00:00.000Z'),
+      updatedAt: new Date('2026-07-22T16:00:00.000Z'),
+      appointmentId: 'appt_orphan',
+      salonId: 'salon_1',
+    }]);
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({
+      cancelledEventCandidates: 1,
+      remoteAppointmentMirrorsScanned: 1,
+      remoteCancelledEventCandidates: 1,
+      reconciledCancelledEvents: 1,
+    });
+    expect(listGoogleCalendarEventsForSalon).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      privateExtendedProperties: ['salonId=salon_1'],
+    }));
+    expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
+      appointmentId: 'appt_orphan',
+      salonId: 'salon_1',
+      googleCalendarEventId: 'google_event_orphan',
     });
   });
 });
