@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import {
@@ -130,7 +130,10 @@ export async function processIntegrationOutbox(limit = 50) {
     succeeded: 0,
     retried: 0,
     failed: 0,
+    cancelledEventCandidates: 0,
     reconciledCancelledEvents: 0,
+    skippedCancelledEvents: 0,
+    failedCancelledEvents: 0,
   };
   for (const job of jobs) {
     const claimed = await db
@@ -353,6 +356,12 @@ export async function processIntegrationOutbox(limit = 50) {
     }
   }
 
+  // Past mirrors cannot block a future booking, and allowing them into this
+  // bounded repair batch can permanently starve a recently cancelled future
+  // appointment. Prefer the newest future cancellations and scan a wider but
+  // still bounded set so one salon's history cannot monopolize the worker.
+  const reconciliationLimit = Math.min(Math.max(limit * 4, 200), 500);
+  const reconciliationCutoff = new Date();
   const [appointmentMirrors, linkedMirrors] = await Promise.all([
     db
       .select({
@@ -367,10 +376,12 @@ export async function processIntegrationOutbox(limit = 50) {
       )
       .where(and(
         inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+        gte(appointmentSchema.endTime, reconciliationCutoff),
         isNotNull(appointmentSchema.googleCalendarEventId),
         inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
       ))
-      .limit(limit),
+      .orderBy(desc(appointmentSchema.updatedAt))
+      .limit(reconciliationLimit),
     db
       .select({
         appointmentId: appointmentSchema.id,
@@ -391,13 +402,15 @@ export async function processIntegrationOutbox(limit = 50) {
       )
       .where(and(
         inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+        gte(appointmentSchema.endTime, reconciliationCutoff),
         isNull(googleCalendarEventSchema.deletedAt),
         ne(googleCalendarEventSchema.googleStatus, 'cancelled'),
         eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
         inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
         inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
       ))
-      .limit(limit),
+      .orderBy(desc(appointmentSchema.updatedAt))
+      .limit(reconciliationLimit),
   ]);
 
   const cancelledMirrors = new Map<string, (typeof appointmentMirrors)[number]>();
@@ -410,6 +423,7 @@ export async function processIntegrationOutbox(limit = 50) {
       appointment,
     );
   }
+  summary.cancelledEventCandidates = cancelledMirrors.size;
 
   for (const appointment of cancelledMirrors.values()) {
     try {
@@ -420,8 +434,13 @@ export async function processIntegrationOutbox(limit = 50) {
       });
       if (result.status === 'deleted') {
         summary.reconciledCancelledEvents += 1;
+      } else if (result.status === 'disabled') {
+        summary.skippedCancelledEvents += 1;
+      } else {
+        summary.failedCancelledEvents += 1;
       }
     } catch (error) {
+      summary.failedCancelledEvents += 1;
       console.error('[GoogleCalendar] Failed to reconcile a cancelled appointment event:', {
         appointmentId: appointment.appointmentId,
         salonId: appointment.salonId,

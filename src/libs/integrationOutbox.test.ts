@@ -105,7 +105,10 @@ describe('processIntegrationOutbox', () => {
       succeeded: 1,
       retried: 0,
       failed: 0,
+      cancelledEventCandidates: 0,
       reconciledCancelledEvents: 0,
+      skippedCancelledEvents: 0,
+      failedCancelledEvents: 0,
     });
     expect(syncGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
     expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
@@ -133,12 +136,37 @@ describe('processIntegrationOutbox', () => {
       succeeded: 0,
       retried: 0,
       failed: 0,
+      cancelledEventCandidates: 1,
       reconciledCancelledEvents: 1,
+      skippedCancelledEvents: 0,
+      failedCancelledEvents: 0,
     });
     expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
       appointmentId: 'appt_old_cancel',
       salonId: 'salon_1',
       googleCalendarEventId: 'google_event_stuck',
+    });
+  });
+
+  it('reports a future cancelled mirror that cannot be safely deleted', async () => {
+    selectResults.push(
+      [],
+      [{
+        appointmentId: 'appt_read_only',
+        salonId: 'salon_1',
+        googleCalendarEventId: 'google_event_read_only',
+      }],
+      [],
+    );
+    deleteGoogleCalendarEventForAppointment.mockResolvedValueOnce({ status: 'disabled' });
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({
+      cancelledEventCandidates: 1,
+      reconciledCancelledEvents: 0,
+      skippedCancelledEvents: 1,
+      failedCancelledEvents: 0,
     });
   });
 });
