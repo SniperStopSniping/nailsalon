@@ -31,6 +31,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # main rejects every direct human/token push. This repository-only
+          # deploy key is stored exclusively as an Actions secret and is the
+          # sole ruleset bypass used by semantic-release.
+          ssh-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
