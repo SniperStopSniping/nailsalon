@@ -434,7 +434,11 @@ export async function createAppointmentViaApi(
 
       expect(availability.ok, JSON.stringify(availability.body)).toBeTruthy();
 
-      const visibleSlots = ((availability.body as AvailabilityResponse | null)?.visibleSlots ?? []).slice(0, maxAttempts);
+      const availabilityBody = availability.body as AvailabilityResponse | null;
+      const bookedSlots = new Set(availabilityBody?.bookedSlots ?? []);
+      const visibleSlots = (availabilityBody?.visibleSlots ?? [])
+        .filter(slot => !bookedSlots.has(slot))
+        .slice(0, maxAttempts);
 
       for (const time of visibleSlots) {
         attemptedSlots += 1;

@@ -144,12 +144,27 @@ export async function openAdminBookings(page: Page) {
   });
 
   await expect(page).toHaveURL(appPathPattern('/admin'));
+  await expect(page.getByTestId('owner-today-workspace')).toBeVisible();
 
   const pageTwoButton = page.getByRole('button', { name: 'Go to page 2' });
   if (await pageTwoButton.isVisible().catch(() => false)) {
     await pageTwoButton.click();
   }
-  await page.getByTestId('admin-app-tile-bookings').click();
+
+  const bookingsTile = page.getByTestId('admin-app-tile-bookings');
+  if (await bookingsTile.isVisible().catch(() => false)) {
+    await bookingsTile.click();
+  } else {
+    const calendarNav = page.getByTestId('owner-nav-calendar');
+    await calendarNav.click();
+
+    await expect(calendarNav).toHaveAttribute('aria-current', 'page');
+  }
+
+  const weeklyView = page.getByRole('button', { name: 'Weekly', exact: true });
+  if (await weeklyView.isVisible().catch(() => false)) {
+    await weeklyView.click();
+  }
 
   await expect(page.getByRole('button', { name: /next week/i })).toBeVisible();
 }
@@ -389,7 +404,24 @@ export async function waitForSheet(page: Page) {
 }
 
 export async function openAdminAppointmentSheet(page: Page, appointmentId: string, dateString: string) {
+  const usesScheduleDayDetails = await page
+    .getByRole('button', { name: 'Monthly', exact: true })
+    .isVisible()
+    .catch(() => false);
+
   await selectCalendarDay(page, dateString);
+
+  if (usesScheduleDayDetails) {
+    const appointment = page.getByTestId(`day-detail-appointment-${appointmentId}`);
+
+    await expect(appointment).toBeVisible();
+
+    await appointment.click();
+    await waitForSheet(page);
+
+    return;
+  }
+
   const block = await getAppointmentBlock(page, appointmentId);
   await block.click();
   await waitForSheet(page);
