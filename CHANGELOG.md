@@ -1,3 +1,10 @@
+## [1.29.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.4...v1.29.5) (2026-07-22)
+
+
+### Bug Fixes
+
+* remove mirrors for missing appointments ([84ef4ba](https://github.com/SniperStopSniping/nailsalon/commit/84ef4bae9ae93a635daa5d5840fa17df3a18e93b))
+
 ## [1.29.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.3...v1.29.4) (2026-07-22)
 
 
