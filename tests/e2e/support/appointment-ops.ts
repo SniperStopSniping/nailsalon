@@ -38,15 +38,13 @@ type ManageMutationResponse = {
 
 async function fetchTargetSalon(context: APIRequestContext) {
   const response = await context.get(
-    `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonName)}`,
+    `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonSlug)}`,
   );
   const body = await response.json().catch(() => null) as { items?: SuperAdminOrganization[] } | null;
 
   expect(response.ok(), JSON.stringify(body)).toBeTruthy();
 
-  const target = body?.items?.find(item => item.slug === e2eConfig.salonSlug)
-    ?? body?.items?.[0]
-    ?? null;
+  const target = body?.items?.find(item => item.slug === e2eConfig.salonSlug) ?? null;
 
   expect(target?.id, `Missing target salon for ${e2eConfig.salonSlug}`).toBeTruthy();
 
@@ -121,15 +119,13 @@ export async function impersonateSalonAsSuperAdmin(page: Page) {
   });
 
   const listResponse = await page.request.get(
-    `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonName)}`,
+    `/api/super-admin/organizations?page=1&pageSize=50&q=${encodeURIComponent(e2eConfig.salonSlug)}`,
   );
   const listBody = await listResponse.json().catch(() => null) as { items?: SuperAdminOrganization[] } | null;
 
   expect(listResponse.ok(), JSON.stringify(listBody)).toBeTruthy();
 
-  const targetSalon = listBody?.items?.find(item => item.slug === e2eConfig.salonSlug)
-    ?? listBody?.items?.[0]
-    ?? null;
+  const targetSalon = listBody?.items?.find(item => item.slug === e2eConfig.salonSlug) ?? null;
 
   expect(targetSalon?.id, `Missing target salon id for ${e2eConfig.salonSlug}`).toBeTruthy();
 
