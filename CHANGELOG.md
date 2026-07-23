@@ -1,3 +1,10 @@
+## [1.29.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.7...v1.29.8) (2026-07-23)
+
+
+### Bug Fixes
+
+* **dashboard:** restore mobile modal scrolling ([028e396](https://github.com/SniperStopSniping/nailsalon/commit/028e3961bdfcc4d7424bb181a48b10c7ee1205bd))
+
 ## [1.29.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.6...v1.29.7) (2026-07-22)
 
 
