@@ -1,6 +1,6 @@
 # Client CRM and Insights Redesign — Phase 0 Plan
 
-**Status:** Phase 0–2 implemented; entitlement checkpoint verified; Phase 3 not started
+**Status:** Phase 0–2 implemented; entitlement checkpoint verified; responsive client workspace pulled forward as the next checkpoint; Client Insights not started
 **Scope:** Owner Client CRM, Client Insights, and owner revenue summary correctness
 **Phase 0 rule:** This document changes no production behavior, schema, or data.
 
@@ -313,6 +313,10 @@ Do not silently merge the two preference models. Initially:
 - No migration or production-data mutation.
 
 ### Phase 3 — Client Insights
+
+> Sequencing note: the responsive client workspace checkpoint documented in
+> `docs/client-profile-responsive-workspace-phase.md` is being delivered before
+> this phase. Client Insights remains deferred and unchanged.
 
 - Change copy to Clients | Client Insights.
 - Replace passive Hub Overview/Reports with client-health Overview, actionable Follow-ups, and clickable Segments.
