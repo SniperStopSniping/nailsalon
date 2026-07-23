@@ -1446,7 +1446,7 @@ export function MarketingModal({
       {/* Message preview — editable draft with friendly insertion chips */}
       {preview && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 sm:rounded-2xl" data-testid="marketing-message-preview">
+          <div className="max-h-[90vh] w-full max-w-md touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl" data-testid="marketing-message-preview">
             <h3 className="text-[17px] font-semibold text-[#1C1C1E]">
               Review and text
             </h3>
@@ -1534,7 +1534,7 @@ export function MarketingModal({
       {/* "Did you send?" — opening the composer is a decision point, not proof */}
       {pendingAsk && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-t-2xl bg-white p-4 sm:rounded-2xl" data-testid="marketing-did-you-send">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-md touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] sm:rounded-2xl" data-testid="marketing-did-you-send">
             <h3 className="text-[17px] font-semibold text-[#1C1C1E]">
               Did you send the
               {' '}

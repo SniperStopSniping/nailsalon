@@ -100,7 +100,8 @@ export function AppModal({
 
           {/* Modal */}
           <motion.div
-            className="fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
+            data-testid="app-modal-panel"
+            className="fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -145,7 +146,10 @@ export function AppModal({
             )}
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto overscroll-contain">
+            <div
+              data-testid="app-modal-scroll-region"
+              className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
+            >
               {children}
             </div>
           </motion.div>

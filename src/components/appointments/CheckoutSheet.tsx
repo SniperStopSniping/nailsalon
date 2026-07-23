@@ -148,6 +148,49 @@ function inputToCents(value: string): number {
   return Number.isNaN(parsed) || parsed < 0 ? 0 : Math.round(parsed * 100);
 }
 
+type CheckoutDraftFields = {
+  items: CheckoutItem[];
+  discountInput: string;
+  discountReason: string;
+  tipInput: string;
+  taxExempt: boolean;
+  taxExemptReason: string;
+  actualStart: string;
+  actualEnd: string;
+  amountReceivedCents: number;
+  paymentMethod: string | null;
+  paymentRefInput: string;
+  comp: boolean;
+  notes: string;
+};
+
+function checkoutDraftSignature(fields: CheckoutDraftFields): string {
+  return JSON.stringify({
+    items: fields.items.map(item => ({
+      kind: item.kind,
+      catalogServiceId: item.catalogServiceId,
+      catalogAddOnId: item.catalogAddOnId,
+      name: item.name,
+      quantity: item.quantity,
+      unitPriceCents: item.unitPriceCents,
+      durationMinutes: item.durationMinutes,
+      taxable: item.taxable,
+    })),
+    discountCents: inputToCents(fields.discountInput),
+    discountReason: fields.discountReason.trim(),
+    tipCents: inputToCents(fields.tipInput),
+    taxExempt: fields.taxExempt,
+    taxExemptReason: fields.taxExemptReason.trim(),
+    actualStart: fields.actualStart,
+    actualEnd: fields.actualEnd,
+    amountReceivedCents: fields.amountReceivedCents,
+    paymentMethod: fields.paymentMethod,
+    paymentReference: fields.paymentRefInput.trim(),
+    comp: fields.comp,
+    notes: fields.notes.trim(),
+  });
+}
+
 function toDatetimeLocal(iso: string | null): string {
   if (!iso) {
     return '';
@@ -193,6 +236,8 @@ export function CheckoutSheet({
   const [paymentRefInput, setPaymentRefInput] = useState('');
   const [comp, setComp] = useState(false);
   const [notes, setNotes] = useState('');
+  const [initialDraftSignature, setInitialDraftSignature] = useState<string | null>(null);
+  const [showDiscardPrompt, setShowDiscardPrompt] = useState(false);
   const [skipPhotoConfirmed, setSkipPhotoConfirmed] = useState(false);
   const [showPhotoPrompt, setShowPhotoPrompt] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -213,7 +258,7 @@ export function CheckoutSheet({
 
   const seedFromContext = useCallback((data: CheckoutContext) => {
     const source = data.finalItems.length > 0 ? data.finalItems : data.bookedItems;
-    setItems(source.map(item => ({
+    const seededItems = source.map(item => ({
       key: nextItemKey(),
       kind: item.kind,
       catalogServiceId: item.catalogServiceId,
@@ -229,32 +274,71 @@ export function CheckoutSheet({
           : item.kind === 'addon'
             ? data.taxConfig.taxAddOnsByDefault
             : data.taxConfig.taxCustomByDefault,
-    })));
+    }));
+    let seededDiscountInput = '';
+    let seededDiscountReason = '';
     if (data.appointment.finalDiscountCents != null) {
       // A prior itemized checkout already recorded a discount decision
       // (including an explicit 0) — honor it verbatim on reopen.
-      setDiscountInput(data.appointment.finalDiscountCents ? centsToInput(data.appointment.finalDiscountCents) : '');
-      setDiscountReason(data.appointment.finalDiscountReason ?? '');
+      seededDiscountInput = data.appointment.finalDiscountCents ? centsToInput(data.appointment.finalDiscountCents) : '';
+      seededDiscountReason = data.appointment.finalDiscountReason ?? '';
     } else {
       // First itemized checkout: carry the booking-time discount
       // (first-visit / reward / campaign snapshot) into the sheet so it is
       // never silently dropped from the recomputed totals.
       const bookedDiscountCents = data.appointment.discountAmountCents ?? 0;
-      setDiscountInput(bookedDiscountCents > 0 ? centsToInput(bookedDiscountCents) : '');
-      setDiscountReason(bookedDiscountCents > 0 ? (data.appointment.discountLabel ?? 'Booked discount') : '');
+      seededDiscountInput = bookedDiscountCents > 0 ? centsToInput(bookedDiscountCents) : '';
+      seededDiscountReason = bookedDiscountCents > 0 ? (data.appointment.discountLabel ?? 'Booked discount') : '';
     }
-    setTipInput(data.appointment.tipCents ? centsToInput(data.appointment.tipCents) : '');
-    setTaxExempt(data.appointment.taxExempt ?? false);
-    setTaxExemptReason(data.appointment.taxExemptReason ?? '');
-    setActualStart(toDatetimeLocal(data.appointment.actualStartAt ?? data.appointment.startedAt ?? data.appointment.startTime));
-    setActualEnd(toDatetimeLocal(data.appointment.actualEndAt));
-    setPaymentMethod(data.appointment.paymentMethod);
+    const seededTipInput = data.appointment.tipCents ? centsToInput(data.appointment.tipCents) : '';
+    const seededTaxExempt = data.appointment.taxExempt ?? false;
+    const seededTaxExemptReason = data.appointment.taxExemptReason ?? '';
+    const seededActualStart = toDatetimeLocal(data.appointment.actualStartAt ?? data.appointment.startedAt ?? data.appointment.startTime);
+    const seededActualEnd = toDatetimeLocal(data.appointment.actualEndAt);
+    const seededTotals = computeCheckoutTotals({
+      items: seededItems.map(item => ({
+        lineTotalCents: item.unitPriceCents * item.quantity,
+        taxable: item.taxable,
+      })),
+      discountCents: inputToCents(seededDiscountInput),
+      taxConfig: data.taxConfig,
+      taxExempt: seededTaxExempt,
+      tipCents: inputToCents(seededTipInput),
+    });
+
+    setItems(seededItems);
+    setDiscountInput(seededDiscountInput);
+    setDiscountReason(seededDiscountReason);
+    setTipInput(seededTipInput);
+    setTaxExempt(seededTaxExempt);
+    setTaxExemptReason(seededTaxExemptReason);
+    setActualStart(seededActualStart);
+    setActualEnd(seededActualEnd);
+    setAmountReceivedInput('');
     setAmountTouched(false);
+    setPaymentMethod(data.appointment.paymentMethod);
+    setPaymentRefInput('');
     setComp(false);
+    setNotes('');
     setSkipPhotoConfirmed(false);
+    setInitialDraftSignature(checkoutDraftSignature({
+      items: seededItems,
+      discountInput: seededDiscountInput,
+      discountReason: seededDiscountReason,
+      tipInput: seededTipInput,
+      taxExempt: seededTaxExempt,
+      taxExemptReason: seededTaxExemptReason,
+      actualStart: seededActualStart,
+      actualEnd: seededActualEnd,
+      amountReceivedCents: seededTotals.totalDueCents,
+      paymentMethod: data.appointment.paymentMethod,
+      paymentRefInput: '',
+      comp: false,
+      notes: '',
+    }));
   }, []);
 
-  const fetchContext = useCallback(async () => {
+  const fetchContext = useCallback(async (seedDraft = true) => {
     if (!appointmentId) {
       return;
     }
@@ -267,7 +351,9 @@ export function CheckoutSheet({
         throw new Error(result?.error?.message ?? 'Failed to load checkout details');
       }
       setContext(result.data);
-      seedFromContext(result.data);
+      if (seedDraft) {
+        seedFromContext(result.data);
+      }
     } catch (fetchError) {
       setContext(null);
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load checkout details');
@@ -281,7 +367,9 @@ export function CheckoutSheet({
       setView(initialView);
       setSuccessResult(null);
       setQrDataUrl(null);
-      void fetchContext();
+      setShowDiscardPrompt(false);
+      setInitialDraftSignature(null);
+      void fetchContext(true);
     }
   }, [isOpen, appointmentId, initialView, fetchContext]);
 
@@ -306,6 +394,36 @@ export function CheckoutSheet({
     : amountTouched
       ? inputToCents(amountReceivedInput)
       : totals?.totalDueCents ?? 0;
+
+  const currentDraftSignature = useMemo(() => checkoutDraftSignature({
+    items,
+    discountInput,
+    discountReason,
+    tipInput,
+    taxExempt,
+    taxExemptReason,
+    actualStart,
+    actualEnd,
+    amountReceivedCents,
+    paymentMethod,
+    paymentRefInput,
+    comp,
+    notes,
+  }), [items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, amountReceivedCents, paymentMethod, paymentRefInput, comp, notes]);
+
+  const hasUnsavedChanges = initialDraftSignature !== null
+    && currentDraftSignature !== initialDraftSignature;
+
+  const requestClose = useCallback(() => {
+    if (submitting) {
+      return;
+    }
+    if ((view === 'edit' || view === 'review') && hasUnsavedChanges) {
+      setShowDiscardPrompt(true);
+      return;
+    }
+    onClose();
+  }, [hasUnsavedChanges, onClose, submitting, view]);
 
   const hasAfterPhoto = context?.photos.some(photo => photo.photoType === 'after') ?? false;
   const photoPolicyMode = context?.photoPolicy.requireAfterPhotoToFinish ?? 'off';
@@ -345,7 +463,7 @@ export function CheckoutSheet({
       if (!response.ok) {
         throw new Error(result?.error?.message ?? 'Photo upload failed');
       }
-      await fetchContext();
+      await fetchContext(false);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Photo upload failed');
     } finally {
@@ -366,7 +484,7 @@ export function CheckoutSheet({
       if (!response.ok) {
         throw new Error(result?.error?.message ?? 'Could not remove the photo');
       }
-      await fetchContext();
+      await fetchContext(false);
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : 'Could not remove the photo');
     }
@@ -451,14 +569,14 @@ export function CheckoutSheet({
         }
         if (code === 'TOTALS_MISMATCH') {
           setError('Salon pricing or tax settings changed — totals were refreshed. Review and try again.');
-          await fetchContext();
+          await fetchContext(true);
           return;
         }
         throw new Error(result?.error?.message ?? 'Unable to complete appointment');
       }
       setSuccessResult({ showReviewPrompt: Boolean(result?.data?.showReviewPrompt) });
       setView('success');
-      await fetchContext();
+      await fetchContext(false);
       onCompleted?.({ showReviewPrompt: Boolean(result?.data?.showReviewPrompt) });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Unable to complete appointment');
@@ -491,7 +609,7 @@ export function CheckoutSheet({
         throw new Error(result?.error?.message ?? 'Could not record the payment');
       }
       setPostPaymentAmount('');
-      await fetchContext();
+      await fetchContext(false);
     } catch (paymentError) {
       setError(paymentError instanceof Error ? paymentError.message : 'Could not record the payment');
     } finally {
@@ -754,16 +872,16 @@ export function CheckoutSheet({
   return (
     <DialogShell
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={requestClose}
       closeOnBackdrop={!submitting}
       closeOnEscape={!submitting}
-      maxWidthClassName="w-full sm:max-w-lg"
+      maxWidthClassName="w-full sm:h-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
-      contentClassName="flex max-h-[92vh] min-h-[70vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl"
+      contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
     >
-      <div data-testid="checkout-sheet" className="flex h-full flex-col">
+      <div data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
+        <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
           <div>
             <div className="text-lg font-semibold text-neutral-900">
               {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : 'Complete appointment'}
@@ -773,20 +891,12 @@ export function CheckoutSheet({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {view === 'review' && (
-              <button
-                type="button"
-                data-testid="checkout-back"
-                onClick={() => setView('edit')}
-                className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700"
-              >
-                Back
-              </button>
-            )}
             <button
               type="button"
               data-testid="checkout-close"
-              onClick={onClose}
+              aria-label="Close checkout"
+              disabled={submitting}
+              onClick={requestClose}
               className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               ×
@@ -796,8 +906,9 @@ export function CheckoutSheet({
 
         {/* Body */}
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 sm:px-5"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }}
+          data-testid="checkout-scroll-region"
+          className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 pt-4 sm:px-5"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
         >
           {loading && (
             <div className="py-10 text-sm text-neutral-500">Loading checkout…</div>
@@ -1505,10 +1616,11 @@ export function CheckoutSheet({
           {!loading && context && view === 'receipt' && renderReceipt()}
         </div>
 
-        {/* Sticky action bar */}
+        {/* Action bar stays outside the dedicated scroll region. */}
         {context && (view === 'edit' || view === 'review') && totals && (
           <div
-            className="sticky bottom-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
+            data-testid="checkout-action-bar"
+            className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             <div className="flex items-center gap-3">
@@ -1520,34 +1632,56 @@ export function CheckoutSheet({
               </div>
               {view === 'edit'
                 ? (
-                    <button
-                      type="button"
-                      data-testid="checkout-review-button"
-                      disabled={submitting || isCompleted || Boolean(actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart))}
-                      onClick={() => setView('review')}
-                      className="ml-auto flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: themeVars.primary }}
-                    >
-                      Review
-                    </button>
+                    <div className="ml-auto flex min-w-0 flex-[1.8] gap-2">
+                      <button
+                        type="button"
+                        data-testid="checkout-cancel"
+                        disabled={submitting}
+                        onClick={requestClose}
+                        className="rounded-2xl border border-neutral-200 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="checkout-review-button"
+                        disabled={submitting || isCompleted || Boolean(actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart))}
+                        onClick={() => setView('review')}
+                        className="min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: themeVars.primary }}
+                      >
+                        Review
+                      </button>
+                    </div>
                   )
                 : (
-                    <button
-                      type="button"
-                      data-testid="checkout-complete-button"
-                      disabled={submitting}
-                      onClick={() => {
-                        if (!hasAfterPhoto && photoPolicyMode !== 'required' && !skipPhotoConfirmed) {
-                          setShowPhotoPrompt(true);
-                          return;
-                        }
-                        void submitCompletion();
-                      }}
-                      className="ml-auto flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: themeVars.primary }}
-                    >
-                      {submitting ? 'Completing…' : 'Complete appointment'}
-                    </button>
+                    <div className="ml-auto flex min-w-0 flex-[2.2] gap-2">
+                      <button
+                        type="button"
+                        data-testid="checkout-back"
+                        disabled={submitting}
+                        onClick={() => setView('edit')}
+                        className="rounded-2xl border border-neutral-200 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="checkout-complete-button"
+                        disabled={submitting}
+                        onClick={() => {
+                          if (!hasAfterPhoto && photoPolicyMode !== 'required' && !skipPhotoConfirmed) {
+                            setShowPhotoPrompt(true);
+                            return;
+                          }
+                          void submitCompletion();
+                        }}
+                        className="min-w-0 flex-1 rounded-2xl p-3 text-sm font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: themeVars.primary }}
+                      >
+                        {submitting ? 'Completing…' : 'Complete appointment'}
+                      </button>
+                    </div>
                   )}
             </div>
           </div>
@@ -1572,6 +1706,20 @@ export function CheckoutSheet({
           setShowPhotoPrompt(false);
           setSkipPhotoConfirmed(true);
           void submitCompletion({ skipPhoto: true });
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={showDiscardPrompt}
+        title="Discard checkout changes?"
+        description="Your checkout changes haven't been saved. Return to the appointment without completing?"
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        tone="danger"
+        onClose={() => setShowDiscardPrompt(false)}
+        onConfirm={() => {
+          setShowDiscardPrompt(false);
+          onClose();
         }}
       />
     </DialogShell>

@@ -242,6 +242,7 @@ describe('MarketingModal', () => {
     const preview = await screen.findByTestId('marketing-message-preview');
 
     expect(preview).toHaveTextContent('4165550111');
+    expect(preview).toHaveClass('touch-pan-y', 'overflow-y-auto', 'overscroll-contain');
     expect(screen.getByText(/Messages app will open with this message ready to review/i)).toBeInTheDocument();
 
     // Editable message with prefilled, fully-resolved copy (no {placeholders}).
@@ -269,7 +270,11 @@ describe('MarketingModal', () => {
 
     expect(prepared).toHaveLength(1);
     expect(JSON.parse(String((prepared[0]![1] as RequestInit).body)).status).toBe('prepared');
-    expect(await screen.findByTestId('marketing-did-you-send')).toBeInTheDocument();
+    expect(await screen.findByTestId('marketing-did-you-send')).toHaveClass(
+      'touch-pan-y',
+      'overflow-y-auto',
+      'overscroll-contain',
+    );
 
     // Only the explicit confirmation records marked_sent.
     fireEvent.click(screen.getByTestId('marketing-mark-sent'));
