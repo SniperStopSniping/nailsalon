@@ -159,6 +159,91 @@ describe('CheckoutSheet', () => {
     expect(scrollRegion).toHaveClass('min-h-0', 'flex-1', 'touch-pan-y', 'overflow-y-auto', 'overscroll-contain');
     expect(actionBar).toHaveClass('shrink-0');
     expect(screen.getByTestId('checkout-close').parentElement?.parentElement).toHaveClass('shrink-0');
+    expect(screen.getByRole('button', { name: 'Close checkout' })).toBeVisible();
+    expect(screen.getByTestId('checkout-cancel')).toBeVisible();
+    expect(screen.getByTestId('checkout-review-button')).toBeVisible();
+  });
+
+  it('closes immediately from Cancel when checkout is unchanged', async () => {
+    const onClose = vi.fn();
+    await renderSheet(buildContext(), { onClose });
+
+    fireEvent.click(screen.getByTestId('checkout-cancel'));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByText('Discard checkout changes?')).not.toBeInTheDocument();
+  });
+
+  it('warns before discarding changes from Cancel, close, or Escape', async () => {
+    const onClose = vi.fn();
+    await renderSheet(buildContext(), { onClose });
+
+    fireEvent.change(screen.getByTestId('checkout-discount'), { target: { value: '5' } });
+    fireEvent.click(screen.getByTestId('checkout-cancel'));
+
+    expect(screen.getByText('Discard checkout changes?')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));
+
+    expect(screen.queryByText('Discard checkout changes?')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close checkout' }));
+
+    expect(screen.getByText('Discard checkout changes?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.getByText('Discard checkout changes?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Back beside Complete appointment in the persistent review action bar', async () => {
+    await renderSheet();
+
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.getByTestId('checkout-back')).toBeVisible();
+    expect(screen.getByTestId('checkout-complete-button')).toBeVisible();
+    expect(screen.getByTestId('checkout-back').closest('[data-testid="checkout-action-bar"]')).toBe(
+      screen.getByTestId('checkout-action-bar'),
+    );
+
+    fireEvent.click(screen.getByTestId('checkout-back'));
+
+    expect(screen.getByTestId('checkout-review-button')).toBeVisible();
+  });
+
+  it('preserves unsaved checkout fields while refreshing persisted photos', async () => {
+    const contextWithPhoto = buildContext({
+      photos: [{ id: 'photo_1', imageUrl: 'https://img/after.jpg', thumbnailUrl: null, photoType: 'after' }],
+    });
+    await renderSheet(contextWithPhoto);
+
+    fireEvent.change(screen.getByTestId('checkout-discount'), { target: { value: '5' } });
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/photos/photo_1') && init?.method === 'DELETE') {
+        return Promise.resolve(new Response(JSON.stringify({ data: { id: 'photo_1' } }), { status: 200 }));
+      }
+      if (url.includes('/checkout')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: { ...contextWithPhoto, photos: [] },
+        }), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${url} ${init?.method ?? 'GET'}`));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove after photo' }));
+
+    await screen.findByTestId('checkout-photo-nudge');
+
+    expect(screen.getByTestId('checkout-discount')).toHaveValue('5');
   });
 
   it('prefills the booked items and computes live totals with tax', async () => {
