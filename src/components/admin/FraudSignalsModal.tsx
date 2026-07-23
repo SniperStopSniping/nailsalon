@@ -255,7 +255,7 @@ export function FraudSignalsModal({
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="absolute inset-x-0 bottom-0 max-h-[90vh] overflow-hidden rounded-t-3xl bg-[#F2F2F7]"
+        className="absolute inset-x-0 bottom-0 max-h-[90vh] overflow-hidden rounded-t-3xl bg-[#F2F2F7] supports-[height:100dvh]:max-h-[90dvh]"
       >
         {/* Header */}
         <ModalHeader
@@ -274,7 +274,7 @@ export function FraudSignalsModal({
         />
 
         {/* Content */}
-        <div className="max-h-[calc(90vh-60px)] overflow-y-auto px-4 pb-8">
+        <div className="max-h-[calc(90vh-60px)] touch-pan-y overflow-y-auto overscroll-contain px-4 pb-8 supports-[height:100dvh]:max-h-[calc(90dvh-60px)]">
           {loading && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="size-8 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />

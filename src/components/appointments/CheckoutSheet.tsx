@@ -757,13 +757,13 @@ export function CheckoutSheet({
       onClose={onClose}
       closeOnBackdrop={!submitting}
       closeOnEscape={!submitting}
-      maxWidthClassName="w-full sm:max-w-lg"
+      maxWidthClassName="w-full sm:h-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
-      contentClassName="flex max-h-[92vh] min-h-[70vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl"
+      contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
     >
-      <div data-testid="checkout-sheet" className="flex h-full flex-col">
+      <div data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
+        <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
           <div>
             <div className="text-lg font-semibold text-neutral-900">
               {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : 'Complete appointment'}
@@ -796,8 +796,9 @@ export function CheckoutSheet({
 
         {/* Body */}
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 sm:px-5"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }}
+          data-testid="checkout-scroll-region"
+          className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 pt-4 sm:px-5"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
         >
           {loading && (
             <div className="py-10 text-sm text-neutral-500">Loading checkout…</div>
@@ -1505,10 +1506,11 @@ export function CheckoutSheet({
           {!loading && context && view === 'receipt' && renderReceipt()}
         </div>
 
-        {/* Sticky action bar */}
+        {/* Action bar stays outside the dedicated scroll region. */}
         {context && (view === 'edit' || view === 'review') && totals && (
           <div
-            className="sticky bottom-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
+            data-testid="checkout-action-bar"
+            className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             <div className="flex items-center gap-3">

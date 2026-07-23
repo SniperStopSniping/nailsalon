@@ -1024,7 +1024,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 100 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-t-[20px] bg-white shadow-xl sm:rounded-[20px]"
+        className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-t-[20px] bg-white shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
@@ -1040,7 +1040,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         </div>
 
         {/* Content */}
-        <div className="max-h-[calc(90vh-120px)] overflow-y-auto p-5">
+        <div className="max-h-[calc(90vh-120px)] touch-pan-y overflow-y-auto overscroll-contain p-5 supports-[height:100dvh]:max-h-[calc(90dvh-120px)]">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {Object.entries(PLAN_FEATURES).map(([key, plan]) => (
               <div

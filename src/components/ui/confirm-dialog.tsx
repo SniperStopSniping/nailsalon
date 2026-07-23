@@ -37,7 +37,7 @@ export function ConfirmDialog({
       closeOnBackdrop={!busy}
       closeOnEscape={!busy}
       maxWidthClassName="max-w-sm"
-      contentClassName="rounded-2xl bg-white p-5 shadow-2xl"
+      contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
     >
       <div data-testid="confirm-dialog">
         <div className="text-base font-semibold text-neutral-900">{title}</div>

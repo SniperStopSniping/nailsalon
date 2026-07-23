@@ -147,6 +147,20 @@ describe('CheckoutSheet', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
+  it('keeps checkout in a bounded mobile scroll region between a fixed header and action bar', async () => {
+    await renderSheet();
+
+    const sheet = screen.getByTestId('checkout-sheet');
+    const scrollRegion = screen.getByTestId('checkout-scroll-region');
+    const actionBar = screen.getByTestId('checkout-action-bar');
+
+    expect(sheet).toHaveClass('min-h-0', 'flex-1');
+    expect(sheet.parentElement).toHaveClass('h-[92vh]', 'supports-[height:100dvh]:h-[92dvh]');
+    expect(scrollRegion).toHaveClass('min-h-0', 'flex-1', 'touch-pan-y', 'overflow-y-auto', 'overscroll-contain');
+    expect(actionBar).toHaveClass('shrink-0');
+    expect(screen.getByTestId('checkout-close').parentElement?.parentElement).toHaveClass('shrink-0');
+  });
+
   it('prefills the booked items and computes live totals with tax', async () => {
     await renderSheet();
 

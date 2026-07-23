@@ -206,31 +206,34 @@ export function useTheme(): ThemeContextValue {
  * - `border-[var(--theme-card-border)]`
  */
 export const themeVars = {
-  primary: 'var(--theme-primary)',
-  primaryDark: 'var(--theme-primary-dark)',
-  primaryLight: 'var(--theme-primary-light)',
-  accent: 'var(--theme-accent)',
-  accentLight: 'var(--theme-accent-light)',
-  background: 'var(--theme-background)',
-  cardBackground: 'var(--theme-card-background)',
-  cardBg: 'var(--theme-card-background)', // Alias for cardBackground
-  surfaceAlt: 'var(--theme-surface-alt)',
-  selectedBackground: 'var(--theme-selected-background)',
-  accentSelected: 'var(--theme-accent-selected)',
-  inputBackground: 'var(--theme-input-background)',
-  highlightBackground: 'var(--theme-highlight-background)',
-  cardBorder: 'var(--theme-card-border)',
-  borderMuted: 'var(--theme-border-muted)',
-  selectedRing: 'var(--theme-selected-ring)',
-  titleText: 'var(--theme-title-text)',
-  secondaryText: 'var(--theme-taupe)', // Alias for muted text
+  // Portals render under document.body instead of beneath ThemeProvider's DOM
+  // wrapper. Keep the configured tenant value when it inherits normally, and
+  // fall back to the default theme so portal buttons never become transparent.
+  primary: 'var(--theme-primary, #D6A249)',
+  primaryDark: 'var(--theme-primary-dark, #C5933E)',
+  primaryLight: 'var(--theme-primary-light, #FFF8E1)',
+  accent: 'var(--theme-accent, #3F2B24)',
+  accentLight: 'var(--theme-accent-light, #8A7E78)',
+  background: 'var(--theme-background, #FDF7F0)',
+  cardBackground: 'var(--theme-card-background, #ffffff)',
+  cardBg: 'var(--theme-card-background, #ffffff)', // Alias for cardBackground
+  surfaceAlt: 'var(--theme-surface-alt, #FAF4EC)',
+  selectedBackground: 'var(--theme-selected-background, #F5EDE5)',
+  accentSelected: 'var(--theme-accent-selected, #FFF8E1)',
+  inputBackground: 'var(--theme-input-background, #FAF4EC)',
+  highlightBackground: 'var(--theme-highlight-background, #FFF8E1)',
+  cardBorder: 'var(--theme-card-border, #F0E6DE)',
+  borderMuted: 'var(--theme-border-muted, #E5DDD5)',
+  selectedRing: 'var(--theme-selected-ring, #D6A249)',
+  titleText: 'var(--theme-title-text, #3F2B24)',
+  secondaryText: 'var(--theme-taupe, #8A7E78)', // Alias for muted text
   // Premium Glass Theme - Additional semantic colors
-  espresso: 'var(--theme-espresso)',
-  taupe: 'var(--theme-taupe)',
-  cream: 'var(--theme-cream)',
-  peach: 'var(--theme-peach)',
-  streakOrange: 'var(--theme-streak-orange)',
-  successGreen: 'var(--theme-success-green)',
+  espresso: 'var(--theme-espresso, #3F2B24)',
+  taupe: 'var(--theme-taupe, #8A7E78)',
+  cream: 'var(--theme-cream, #FDF7F0)',
+  peach: 'var(--theme-peach, #FFF8E1)',
+  streakOrange: 'var(--theme-streak-orange, #FF9500)',
+  successGreen: 'var(--theme-success-green, #34C759)',
 } as const;
 
 /**

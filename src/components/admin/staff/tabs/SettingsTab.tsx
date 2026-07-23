@@ -468,8 +468,9 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
           Tech Dashboard Login
         </h3>
         <div className="rounded-[12px] bg-white p-4">
-          <label className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
+          <label htmlFor="staff-clerk-user-id" className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
           <input
+            id="staff-clerk-user-id"
             type="text"
             value={userId}
             onChange={e => setUserId(e.target.value)}
@@ -697,7 +698,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
               onClick={e => e.stopPropagation()}
             >
               <div className="mb-4 flex justify-center">
@@ -760,7 +761,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
               onClick={e => e.stopPropagation()}
             >
               <div className="mb-4 flex justify-center">
@@ -833,7 +834,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
               onClick={e => e.stopPropagation()}
             >
               <div className="mb-4 flex justify-center">

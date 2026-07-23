@@ -464,7 +464,7 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-[20px] bg-white p-6"
+              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
               onClick={e => e.stopPropagation()}
             >
               <div className="mb-4 flex items-center justify-between">
@@ -508,7 +508,7 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
 
                 {/* Reason */}
                 <div>
-                  <label className="mb-1 block text-[13px] text-[#8E8E93]">Reason</label>
+                  <div className="mb-1 text-[13px] text-[#8E8E93]">Reason</div>
                   <div className="flex flex-wrap gap-2">
                     {REASON_OPTIONS.map(option => (
                       <button
@@ -529,8 +529,9 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
 
                 {/* Notes */}
                 <div>
-                  <label className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
+                  <label htmlFor="timeoff-notes" className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
                   <textarea
+                    id="timeoff-notes"
                     value={newTimeOff.notes}
                     onChange={e => setNewTimeOff(prev => ({ ...prev, notes: e.target.value }))}
                     placeholder="Additional details..."

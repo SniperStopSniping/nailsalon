@@ -312,7 +312,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[20px] bg-[#F2F2F7]"
+          className="flex max-h-[90vh] min-h-0 w-full max-w-lg flex-col overflow-hidden rounded-t-[20px] bg-[#F2F2F7] supports-[height:100dvh]:max-h-[90dvh]"
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}
@@ -338,7 +338,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
           </div>
 
           {/* Form Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain">
             {error && (
               <div className="mx-4 mt-4 rounded-lg bg-red-100 p-3">
                 <p className="text-[13px] text-red-600">{error}</p>
