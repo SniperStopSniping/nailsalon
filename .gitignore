@@ -47,6 +47,7 @@ yarn-error.log*
 
 # local folder
 local
+/public/uploads/services/
 
 # vercel
 .vercel

@@ -17,11 +17,13 @@ import {
   ChevronRight,
   Clock,
   DollarSign,
+  ImagePlus,
   Loader2,
   Scissors,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -31,6 +33,10 @@ import { ListSurface } from '@/components/ui/list-surface';
 import { BOOKING_CATEGORY_META, deriveBookingCategory, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { formatMoney } from '@/libs/formatMoney';
+import {
+  isPublicServiceCustomImageUrl,
+  resolveServiceCardImage,
+} from '@/libs/serviceImage';
 import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -74,6 +80,38 @@ type ServicePrefill = {
   isIntroPrice?: boolean;
   introPriceLabel?: string | null;
 };
+
+type ServiceImageIntent = 'keep' | 'replace' | 'remove';
+
+type ServiceSavePhase
+  = | 'idle'
+  | 'saving-details'
+  | 'preparing-image'
+  | 'uploading-image'
+  | 'finalizing-image'
+  | 'removing-image';
+
+type ServiceImagePresignData = {
+  strategy: 'cloudinary' | 'local';
+  uploadUrl?: string;
+  apiKey?: string;
+  timestamp?: number;
+  signature?: string;
+  uploadPreset?: string;
+  publicId?: string;
+  overwrite?: boolean;
+  finalizeToken?: string;
+  cloudName?: string;
+};
+
+const SERVICE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SERVICE_IMAGE_ALLOWED_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+const SERVICE_IMAGE_PARTIAL_SUCCESS_MESSAGE
+  = 'Service details were saved, but the image could not be updated. Open Edit Service to try the image again.';
 
 type AddOnData = {
   id: string;
@@ -335,7 +373,10 @@ function AddServiceDialog({
   /** Position assigned when the owner turns featuring on. */
   nextFeaturedOrder: number;
   onClose: () => void;
-  onSaved: (service: ServiceData) => void;
+  onSaved: (
+    service: ServiceData,
+    options?: { imageOperationFailed?: boolean },
+  ) => void;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -351,10 +392,34 @@ function AddServiceDialog({
   const [isIntroPrice, setIsIntroPrice] = useState(false);
   const [introPriceLabel, setIntroPriceLabel] = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savePhase, setSavePhase] = useState<ServiceSavePhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [imageIntent, setImageIntent] = useState<ServiceImageIntent>('keep');
+  const [stagedImageFile, setStagedImageFile] = useState<File | null>(null);
+  const [stagedPreviewUrl, setStagedPreviewUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const stagedPreviewUrlRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef(false);
+  const saving = savePhase !== 'idle';
+
+  const clearStagedImage = useCallback(() => {
+    if (stagedPreviewUrlRef.current) {
+      URL.revokeObjectURL(stagedPreviewUrlRef.current);
+      stagedPreviewUrlRef.current = null;
+    }
+    setStagedImageFile(null);
+    setStagedPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
 
   useEffect(() => {
+    clearStagedImage();
+    setImageIntent('keep');
+    setImageError(null);
+
     if (isOpen && service) {
       setName(service.name);
       setDescription(
@@ -407,12 +472,251 @@ function AddServiceDialog({
       setIsIntroPrice(false);
       setIntroPriceLabel('');
       setIsActive(true);
-      setSaving(false);
+      setSavePhase('idle');
       setError(null);
+      submitInFlightRef.current = false;
     }
-  }, [isOpen, service, prefill]);
+  }, [clearStagedImage, isOpen, service, prefill]);
+
+  useEffect(() => {
+    return () => {
+      if (stagedPreviewUrlRef.current) {
+        URL.revokeObjectURL(stagedPreviewUrlRef.current);
+        stagedPreviewUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleImageSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    // Clear the native value so choosing the same file again still fires a
+    // change event after validation or removal.
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+    if (!SERVICE_IMAGE_ALLOWED_TYPES.has(file.type)) {
+      clearStagedImage();
+      setImageIntent('keep');
+      setImageError('Choose a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size <= 0) {
+      clearStagedImage();
+      setImageIntent('keep');
+      setImageError('Choose a non-empty image.');
+      return;
+    }
+    if (file.size > SERVICE_IMAGE_MAX_BYTES) {
+      clearStagedImage();
+      setImageIntent('keep');
+      setImageError('Image must be 5 MB or smaller.');
+      return;
+    }
+
+    clearStagedImage();
+    const previewUrl = URL.createObjectURL(file);
+
+    stagedPreviewUrlRef.current = previewUrl;
+    setStagedImageFile(file);
+    setStagedPreviewUrl(previewUrl);
+    setImageIntent('replace');
+    setImageError(null);
+  };
+
+  const handleRemoveImage = () => {
+    setImageError(null);
+    if (stagedImageFile) {
+      clearStagedImage();
+      setImageIntent('keep');
+      return;
+    }
+    if (isPublicServiceCustomImageUrl(service?.imageUrl)) {
+      setImageIntent('remove');
+    }
+  };
+
+  const handleUndoImageRemoval = () => {
+    setImageIntent('keep');
+    setImageError(null);
+  };
+
+  const saveReplacementImage = async (
+    savedService: ServiceData,
+    expectedImageUrl: string | null,
+    file: File,
+  ): Promise<ServiceData> => {
+    if (!salonSlug) {
+      throw new Error('Select a salon before updating a service image.');
+    }
+    setSavePhase('preparing-image');
+    const presignResponse = await fetch(
+      `/api/salon/services/${encodeURIComponent(savedService.id)}/image/presign`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          contentType: file.type,
+          fileSize: file.size,
+          expectedImageUrl,
+        }),
+      },
+    );
+    const presignResult = await presignResponse.json().catch(() => null);
+
+    if (!presignResponse.ok) {
+      throw new Error(
+        presignResult?.error?.message ?? 'Failed to prepare the service image',
+      );
+    }
+
+    const presign = presignResult?.data as ServiceImagePresignData | undefined;
+
+    if (!presign || (presign.strategy !== 'cloudinary' && presign.strategy !== 'local')) {
+      throw new Error('Image upload preparation was missing from the response');
+    }
+
+    const imageUrl = `/api/salon/services/${encodeURIComponent(savedService.id)}/image`;
+
+    if (presign.strategy === 'local') {
+      setSavePhase('uploading-image');
+      const localForm = new FormData();
+
+      localForm.append('file', file);
+      localForm.append('salonSlug', salonSlug);
+      localForm.append('expectedImageUrl', expectedImageUrl ?? '');
+
+      const imageResponse = await fetch(imageUrl, {
+        method: 'POST',
+        body: localForm,
+      });
+      const imageResult = await imageResponse.json().catch(() => null);
+
+      if (!imageResponse.ok) {
+        throw new Error(
+          imageResult?.error?.message ?? 'Failed to update the service image',
+        );
+      }
+      const updatedService = imageResult?.data?.service as ServiceData | undefined;
+
+      if (!updatedService) {
+        throw new Error('Updated service was missing from the image response');
+      }
+      return updatedService;
+    }
+
+    const {
+      uploadUrl,
+      apiKey,
+      timestamp,
+      signature,
+      uploadPreset,
+      publicId,
+      overwrite,
+      finalizeToken,
+    } = presign;
+
+    if (
+      !uploadUrl
+      || !apiKey
+      || timestamp == null
+      || !signature
+      || !uploadPreset
+      || !publicId
+      || overwrite == null
+      || !finalizeToken
+    ) {
+      throw new Error('Cloud image upload parameters were incomplete');
+    }
+
+    setSavePhase('uploading-image');
+    const cloudinaryForm = new FormData();
+
+    cloudinaryForm.append('file', file);
+    cloudinaryForm.append('api_key', apiKey);
+    cloudinaryForm.append('timestamp', String(timestamp));
+    cloudinaryForm.append('signature', signature);
+    cloudinaryForm.append('upload_preset', uploadPreset);
+    cloudinaryForm.append('public_id', publicId);
+    cloudinaryForm.append('overwrite', String(overwrite));
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      body: cloudinaryForm,
+    });
+    const uploadResult = await uploadResponse.json().catch(() => null);
+
+    if (!uploadResponse.ok) {
+      throw new Error(
+        uploadResult?.error?.message ?? 'Failed to upload the service image',
+      );
+    }
+
+    setSavePhase('finalizing-image');
+    const imageResponse = await fetch(imageUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug,
+        publicId,
+        expectedImageUrl,
+        timestamp,
+        finalizeToken,
+      }),
+    });
+    const imageResult = await imageResponse.json().catch(() => null);
+
+    if (!imageResponse.ok) {
+      throw new Error(
+        imageResult?.error?.message ?? 'Failed to update the service image',
+      );
+    }
+    const updatedService = imageResult?.data?.service as ServiceData | undefined;
+
+    if (!updatedService) {
+      throw new Error('Updated service was missing from the image response');
+    }
+    return updatedService;
+  };
+
+  const removeSavedImage = async (
+    savedService: ServiceData,
+    expectedImageUrl: string | null,
+  ): Promise<ServiceData> => {
+    if (!salonSlug) {
+      throw new Error('Select a salon before removing a service image.');
+    }
+    setSavePhase('removing-image');
+    const params = new URLSearchParams({
+      salonSlug,
+      expectedImageUrl: expectedImageUrl ?? '',
+    });
+    const response = await fetch(
+      `/api/salon/services/${encodeURIComponent(savedService.id)}/image?${params.toString()}`,
+      { method: 'DELETE' },
+    );
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(
+        result?.error?.message ?? 'Failed to remove the service image',
+      );
+    }
+    const updatedService = result?.data?.service as ServiceData | undefined;
+
+    if (!updatedService) {
+      throw new Error('Updated service was missing from the image response');
+    }
+    return updatedService;
+  };
 
   const handleSubmit = async () => {
+    if (submitInFlightRef.current) {
+      return;
+    }
     if (!salonSlug) {
       setError('Select a salon before adding services.');
       return;
@@ -453,9 +757,17 @@ function AddServiceDialog({
       return;
     }
 
-    setSaving(true);
-    setError(null);
+    if (imageIntent === 'replace' && !stagedImageFile) {
+      setImageError('Choose an image before saving.');
+      return;
+    }
 
+    submitInFlightRef.current = true;
+    setSavePhase('saving-details');
+    setError(null);
+    setImageError(null);
+
+    let savedService: ServiceData | null = null;
     try {
       const response = await fetch(
         service
@@ -497,22 +809,85 @@ function AddServiceDialog({
         throw new Error(result?.error?.message ?? 'Failed to save service');
       }
 
-      const createdService = result?.data?.service as ServiceData | undefined;
-      if (!createdService) {
+      const savedResponse
+        = result?.data?.service as ServiceData | undefined;
+      if (!savedResponse) {
         throw new Error('Saved service was missing from the response');
       }
+      savedService = Object.prototype.hasOwnProperty.call(savedResponse, 'imageUrl')
+        ? savedResponse
+        : {
+            ...savedResponse,
+            imageUrl: service?.imageUrl ?? null,
+          };
 
-      onSaved(createdService);
-    } catch (createError) {
+      const expectedImageUrl = savedService.imageUrl;
+      let finalService = savedService;
+
+      try {
+        if (imageIntent === 'replace' && stagedImageFile) {
+          finalService = await saveReplacementImage(
+            savedService,
+            expectedImageUrl,
+            stagedImageFile,
+          );
+        } else if (imageIntent === 'remove') {
+          finalService = await removeSavedImage(savedService, expectedImageUrl);
+        }
+      } catch {
+        onSaved(savedService, { imageOperationFailed: true });
+        return;
+      }
+
+      onSaved(finalService);
+    } catch (saveError) {
       setError(
-        createError instanceof Error
-          ? createError.message
+        saveError instanceof Error
+          ? saveError.message
           : 'Failed to save service',
       );
     } finally {
-      setSaving(false);
+      submitInFlightRef.current = false;
+      setSavePhase('idle');
     }
   };
+
+  const hasPersistedImageValue = Boolean(service?.imageUrl);
+  const hasPersistedCustomImage
+    = isPublicServiceCustomImageUrl(service?.imageUrl);
+  const previewIsCustom
+    = Boolean(stagedPreviewUrl)
+    || (hasPersistedCustomImage && imageIntent === 'keep');
+  const previewImageUrl
+    = stagedPreviewUrl
+    ?? resolveServiceCardImage({
+      imageUrl:
+        hasPersistedImageValue && imageIntent === 'keep'
+          ? service?.imageUrl
+          : null,
+      templateKey: service?.templateKey ?? prefill?.templateKey ?? null,
+      bookingCategory,
+      name,
+    });
+  const hasCurrentCustomImage
+    = Boolean(stagedImageFile)
+    || (hasPersistedCustomImage && imageIntent === 'keep');
+  const saveStatus = (() => {
+    switch (savePhase) {
+      case 'saving-details':
+        return 'Saving service details…';
+      case 'preparing-image':
+        return 'Preparing image upload…';
+      case 'uploading-image':
+        return 'Uploading service image…';
+      case 'finalizing-image':
+        return 'Finishing service image…';
+      case 'removing-image':
+        return 'Removing service image…';
+      default:
+        return '';
+    }
+  })();
 
   return (
     <DialogShell
@@ -522,11 +897,13 @@ function AddServiceDialog({
           onClose();
         }
       }}
+      closeOnBackdrop={!saving}
+      closeOnEscape={!saving}
       maxWidthClassName="max-w-md"
       contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
       alignClassName="items-end justify-center p-4 sm:items-center"
     >
-      <div className="space-y-4">
+      <div className="space-y-4" aria-busy={saving}>
         <div>
           <h2 className="text-xl font-semibold text-[#1C1C1E]">
             {service ? 'Edit Service' : 'Add Service'}
@@ -537,6 +914,95 @@ function AddServiceDialog({
               : 'Create a new bookable service for this salon.'}
           </p>
         </div>
+
+        <fieldset
+          className="space-y-3 rounded-2xl border border-gray-200 p-3"
+          disabled={saving}
+          aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
+        >
+          <legend className="px-1 text-sm font-semibold text-[#1C1C1E]">
+            Service image
+          </legend>
+          <div className="overflow-hidden rounded-xl border border-gray-100 bg-gray-50">
+            {/* A native img can preview browser blob URLs selected before save. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewImageUrl}
+              alt={
+                previewIsCustom
+                  ? `Preview of custom image for ${name.trim() || 'this service'}`
+                  : `Built-in booking artwork preview for ${name.trim() || 'this service'}`
+              }
+              data-testid="service-image-preview"
+              className="aspect-[16/9] w-full object-cover"
+            />
+          </div>
+          <p
+            id="service-image-help"
+            className="text-xs leading-5 text-[#6B7280]"
+          >
+            {previewIsCustom
+              ? 'Custom image. Replacing or removing it takes effect only when you save.'
+              : imageIntent === 'remove'
+                ? 'The custom image will be removed when you update. Built-in booking artwork will remain.'
+                : 'Built-in booking artwork is shown until you add a custom image.'}
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleImageSelection}
+            className="sr-only"
+            aria-label="Service image"
+            aria-invalid={Boolean(imageError)}
+            aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="brandSoft"
+              size="pillSm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={saving}
+            >
+              <ImagePlus className="mr-2 size-4" />
+              {hasCurrentCustomImage ? 'Replace image' : 'Add image'}
+            </Button>
+            {imageIntent === 'remove'
+              ? (
+                  <Button
+                    type="button"
+                    variant="brandSoft"
+                    size="pillSm"
+                    onClick={handleUndoImageRemoval}
+                    disabled={saving}
+                  >
+                    Undo removal
+                  </Button>
+                )
+              : (
+                  <Button
+                    type="button"
+                    variant="brandSoft"
+                    size="pillSm"
+                    onClick={handleRemoveImage}
+                    disabled={saving || (!stagedImageFile && !hasPersistedCustomImage)}
+                  >
+                    <Trash2 className="mr-2 size-4" />
+                    Remove image
+                  </Button>
+                )}
+          </div>
+          {imageError && (
+            <p
+              id="service-image-error"
+              role="alert"
+              className="text-sm text-red-600"
+            >
+              {imageError}
+            </p>
+          )}
+        </fieldset>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
@@ -550,6 +1016,7 @@ function AddServiceDialog({
               step="5"
               inputMode="numeric"
               value={preparationBufferMinutes}
+              disabled={saving}
               onChange={event =>
                 setPreparationBufferMinutes(event.target.value)}
               className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -566,6 +1033,7 @@ function AddServiceDialog({
               step="5"
               inputMode="numeric"
               value={cleanupBufferMinutes}
+              disabled={saving}
               onChange={event => setCleanupBufferMinutes(event.target.value)}
               className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
             />
@@ -583,6 +1051,7 @@ function AddServiceDialog({
           <input
             type="text"
             value={name}
+            disabled={saving}
             onChange={event => setName(event.target.value)}
             placeholder="BIAB Short"
             className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -600,6 +1069,7 @@ function AddServiceDialog({
               step="0.01"
               inputMode="decimal"
               value={price}
+              disabled={saving}
               onChange={event => setPrice(event.target.value)}
               placeholder="65"
               className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -616,6 +1086,7 @@ function AddServiceDialog({
               step="5"
               inputMode="numeric"
               value={durationMinutes}
+              disabled={saving}
               onChange={event => setDurationMinutes(event.target.value)}
               placeholder="75"
               className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -629,6 +1100,7 @@ function AddServiceDialog({
           </span>
           <select
             value={category}
+            disabled={saving}
             onChange={(event) => {
               const nextCategory = event.target.value as ServiceCategory;
               setCategory(nextCategory);
@@ -660,6 +1132,7 @@ function AddServiceDialog({
           <select
             data-testid="service-booking-category"
             value={bookingCategory}
+            disabled={saving}
             onChange={(event) => {
               setBookingCategory(event.target.value as BookingCategory);
               setBookingCategoryTouched(true);
@@ -690,6 +1163,7 @@ function AddServiceDialog({
             type="checkbox"
             data-testid="service-featured-toggle"
             checked={isFeatured}
+            disabled={saving}
             onChange={event => setIsFeatured(event.target.checked)}
             className="size-4"
           />
@@ -701,6 +1175,7 @@ function AddServiceDialog({
           </span>
           <textarea
             value={description}
+            disabled={saving}
             onChange={event => setDescription(event.target.value)}
             rows={3}
             placeholder={
@@ -717,6 +1192,7 @@ function AddServiceDialog({
           <input
             type="text"
             value={priceDisplayText}
+            disabled={saving}
             onChange={event => setPriceDisplayText(event.target.value)}
             placeholder="$70+"
             className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -730,6 +1206,7 @@ function AddServiceDialog({
           <input
             type="checkbox"
             checked={isIntroPrice}
+            disabled={saving}
             onChange={event => setIsIntroPrice(event.target.checked)}
             className="size-4"
           />
@@ -748,6 +1225,7 @@ function AddServiceDialog({
             <input
               type="checkbox"
               checked={isActive}
+              disabled={saving}
               onChange={event => setIsActive(event.target.checked)}
               className="size-4"
             />
@@ -762,6 +1240,7 @@ function AddServiceDialog({
             <input
               type="text"
               value={introPriceLabel}
+              disabled={saving}
               onChange={event => setIntroPriceLabel(event.target.value)}
               placeholder="Founding Client Price"
               className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
@@ -770,10 +1249,18 @@ function AddServiceDialog({
         )}
 
         {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </div>
         )}
+
+        <p
+          className="sr-only"
+          aria-live="polite"
+          data-testid="service-save-status"
+        >
+          {saveStatus}
+        </p>
 
         <div className="flex justify-end gap-2">
           <Button
@@ -796,7 +1283,7 @@ function AddServiceDialog({
               ? (
                   <>
                     <Loader2 className="mr-2 size-4 animate-spin" />
-                    Saving...
+                    {saveStatus || 'Saving…'}
                   </>
                 )
               : service
@@ -1853,6 +2340,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
 
       {operationNotice && (
         <div
+          role="alert"
           data-testid="service-operation-notice"
           className={`mx-4 mt-3 rounded-2xl border p-3 text-[13px] leading-relaxed ${operationNotice.tone === 'error'
             ? 'border-red-200 bg-red-50 text-red-800'
@@ -2127,13 +2615,22 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setEditingService(null);
           setAddDialogPrefill(null);
         }}
-        onSaved={(savedService) => {
+        onSaved={(savedService, options) => {
           setShowAddDialog(false);
           setEditingService(null);
           setAddDialogPrefill(null);
           setSelectedService(savedService);
           setActiveTab('menu');
           setActiveCategory(savedService.category);
+          if (options?.imageOperationFailed) {
+            setOperationNotice({
+              tone: 'warning',
+              assignmentRequired: false,
+              message: SERVICE_IMAGE_PARTIAL_SUCCESS_MESSAGE,
+            });
+          } else {
+            setOperationNotice(null);
+          }
           void fetchServices();
           void fetchOwnedTemplateKeys();
         }}
