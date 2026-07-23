@@ -32,6 +32,7 @@ import {
 } from '@/libs/clientSmsComposer';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
+import { normalizePhone } from '@/libs/phone';
 import { firstNameForMessage, renderPromotionMessage } from '@/libs/promotionMessage';
 import {
   type ClientCommunicationKind,
@@ -867,7 +868,7 @@ export function ClientCommunicationActions({
           <ActionButton
             icon={<Phone size={15} />}
             label="Call"
-            onClick={() => onOpenNativeUrl(`tel:${client.phone}`)}
+            onClick={() => onOpenNativeUrl(`tel:${normalizePhone(client.phone)}`)}
           />
         </div>
 

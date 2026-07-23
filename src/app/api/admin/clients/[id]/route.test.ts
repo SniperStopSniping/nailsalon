@@ -67,7 +67,7 @@ describe('GET /api/admin/clients/[id]', () => {
     selectQueue.length = 0;
   });
 
-  it('rejects wrong-tenant admins', async () => {
+  it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
     requireAdminSalon.mockResolvedValue({
       error: new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403,
@@ -77,11 +77,50 @@ describe('GET /api/admin/clients/[id]', () => {
     });
 
     const response = await GET(
-      new Request('http://localhost/api/admin/clients/client_1?salonSlug=salon-a'),
-      { params: Promise.resolve({ id: 'client_1' }) },
+      new Request('http://localhost/api/admin/clients/client_fixture_foreign?salonSlug=salon-fixture-foreign'),
+      { params: Promise.resolve({ id: 'client_fixture_foreign' }) },
     );
+    const body = await response.json();
 
     expect(response.status).toBe(403);
+    expect(response.headers.get('cache-control')).toContain('private');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toEqual({ error: 'Forbidden' });
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).not.toMatch(
+      /client|phone|email|currency|timezone|financial|preference|record/i,
+    );
+  });
+
+  it('uses the same non-disclosing 404 for an unknown synthetic client in an authorized salon', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_fixture_owned' },
+    });
+    getSalonClientById.mockResolvedValue(null);
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/clients/client_fixture_unknown?salonSlug=salon-fixture-owned'),
+      { params: Promise.resolve({ id: 'client_fixture_unknown' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('cache-control')).toContain('private');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toEqual({
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    });
+    expect(getSalonClientById).toHaveBeenCalledWith(
+      'salon_fixture_owned',
+      'client_fixture_unknown',
+    );
+    expect(JSON.stringify(body)).not.toMatch(
+      /phone|email|currency|timezone|financial|preference|record/i,
+    );
   });
 
   it('returns upcoming appointments separately from completed history and recent issues', async () => {

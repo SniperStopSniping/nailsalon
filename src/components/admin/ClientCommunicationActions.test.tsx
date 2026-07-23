@@ -149,8 +149,13 @@ describe('ClientCommunicationActions', () => {
     });
   });
 
-  it('opens an editable generic iPhone message and asks for an honest result', async () => {
-    const { onOpenNativeUrl } = renderActions();
+  it('normalizes the synthetic client phone, opens an encoded message, and records only honest states', async () => {
+    const syntheticClient = {
+      id: 'client_fixture_sms',
+      fullName: 'Casey Fixture',
+      phone: '+1 (416) 555-1234',
+    };
+    const { onOpenNativeUrl } = renderActions({ client: syntheticClient });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
     fireEvent.click(screen.getByRole('button', { name: 'Text' }));
@@ -158,24 +163,59 @@ describe('ClientCommunicationActions', () => {
     expect(onOpenNativeUrl).toHaveBeenCalledTimes(1);
 
     const href = String(onOpenNativeUrl.mock.calls[0]?.[0]);
+    const encodedBody = href.split('body=')[1]!;
+    const decodedBody = decodeURIComponent(encodedBody);
 
     expect(href).toMatch(/^sms:4165551234[?&]body=/);
-    expect(decodeURIComponent(href.split('body=')[1]!)).toContain('Hi Ava');
+    expect(encodedBody).toBe(encodeURIComponent(decodedBody));
+    expect(decodedBody).toContain('Hi Casey');
     expect(screen.getByRole('dialog', { name: 'Confirm text status' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mark as sent' }));
+    await waitFor(() => {
+      const retentionCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/admin/retention');
+
+      expect(retentionCalls).toHaveLength(1);
+      expect(JSON.parse(String(retentionCalls[0]?.[1]?.body))).toMatchObject({
+        kind: 'generic_text',
+        status: 'prepared',
+        clientId: syntheticClient.id,
+      });
+      expect(retentionCalls.map(([, init]) => JSON.parse(String(init?.body)).status))
+        .not.toEqual(expect.arrayContaining(['marked_sent', 'completed', 'converted']));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not sent' }));
     await waitFor(() => {
       const retentionCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/admin/retention');
 
       expect(retentionCalls).toHaveLength(2);
       expect(JSON.parse(String(retentionCalls[1]?.[1]?.body))).toMatchObject({
         kind: 'generic_text',
-        status: 'marked_sent',
-        clientId: 'client_1',
+        status: 'not_sent',
+        clientId: syntheticClient.id,
       });
     });
 
     expect(screen.queryByRole('dialog', { name: 'Confirm text status' })).not.toBeInTheDocument();
+  });
+
+  it('normalizes the synthetic Call target without recording communication history', async () => {
+    const { onOpenNativeUrl } = renderActions({
+      client: {
+        id: 'client_fixture_call',
+        fullName: 'Jordan Fixture',
+        phone: '+1 (647) 555-0198',
+      },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Call' }));
+
+    expect(onOpenNativeUrl).toHaveBeenCalledOnce();
+    expect(onOpenNativeUrl).toHaveBeenCalledWith('tel:6475550198');
+    expect(fetchMock.mock.calls.filter(([url, init]) => (
+      url === '/api/admin/retention' && init?.method === 'POST'
+    ))).toHaveLength(0);
   });
 
   it('uses the smart reminder endpoint and opens its manual draft when Twilio is unavailable', async () => {
