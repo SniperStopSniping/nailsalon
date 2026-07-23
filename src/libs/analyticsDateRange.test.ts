@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getAnalyticsDateRange } from './analyticsDateRange';
+import { getAnalyticsDateRange, getAnalyticsToDateRange } from './analyticsDateRange';
 
 /**
  * Prompt 9 audit fix: analytics date boundaries must follow the SALON's
@@ -28,21 +28,28 @@ describe('getAnalyticsDateRange (salon-timezone boundaries)', () => {
     expect(end.toISOString()).toBe('2026-07-15T15:00:00.000Z');
   });
 
-  it('starts the week on the salon-local Sunday', () => {
-    // 2026-07-15 is a Wednesday; the containing week starts Sunday 2026-07-12.
+  it('starts the week on the salon-local Monday', () => {
+    // 2026-07-15 is a Wednesday; the containing week starts Monday 2026-07-13.
     const { start, end, previousStart, previousEnd } = getAnalyticsDateRange('weekly', TORONTO, '2026-07-15');
 
-    expect(start.toISOString()).toBe('2026-07-12T04:00:00.000Z');
-    expect(end.toISOString()).toBe('2026-07-19T04:00:00.000Z');
-    expect(previousStart.toISOString()).toBe('2026-07-05T04:00:00.000Z');
+    expect(start.toISOString()).toBe('2026-07-13T04:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-07-20T04:00:00.000Z');
+    expect(previousStart.toISOString()).toBe('2026-07-06T04:00:00.000Z');
     expect(previousEnd.toISOString()).toBe(start.toISOString());
   });
 
-  it('anchors an anchor that IS a Sunday to itself', () => {
+  it('keeps a Sunday inside the Monday-through-Sunday week', () => {
     const { start, end } = getAnalyticsDateRange('weekly', TORONTO, '2026-07-12');
 
-    expect(start.toISOString()).toBe('2026-07-12T04:00:00.000Z');
-    expect(end.toISOString()).toBe('2026-07-19T04:00:00.000Z');
+    expect(start.toISOString()).toBe('2026-07-06T04:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-07-13T04:00:00.000Z');
+  });
+
+  it('anchors a Monday to itself', () => {
+    const { start, end } = getAnalyticsDateRange('weekly', TORONTO, '2026-07-13');
+
+    expect(start.toISOString()).toBe('2026-07-13T04:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-07-20T04:00:00.000Z');
   });
 
   it('computes month bounds across a DST transition with the correct offsets', () => {
@@ -87,5 +94,55 @@ describe('getAnalyticsDateRange (salon-timezone boundaries)', () => {
     expect(now.getTime()).toBeGreaterThanOrEqual(start.getTime());
     expect(now.getTime()).toBeLessThan(end.getTime());
     expect(end.getTime() - start.getTime()).toBe(86_400_000);
+  });
+});
+
+describe('getAnalyticsToDateRange (equal-elapsed comparisons)', () => {
+  const TORONTO = 'America/Toronto';
+
+  it('compares today through now with yesterday through the same local time', () => {
+    const now = new Date('2026-07-15T18:34:56.789Z'); // 2:34:56 PM EDT
+    const range = getAnalyticsToDateRange('daily', TORONTO, now);
+
+    expect(range.start.toISOString()).toBe('2026-07-15T04:00:00.000Z');
+    expect(range.end).toEqual(now);
+    expect(range.previousStart.toISOString()).toBe('2026-07-14T04:00:00.000Z');
+    expect(range.previousEnd.toISOString()).toBe('2026-07-14T18:34:56.789Z');
+  });
+
+  it('compares week-to-date with the same weekday and local time last week', () => {
+    const now = new Date('2026-07-15T18:34:56.789Z'); // Wednesday, 2:34:56 PM EDT
+    const range = getAnalyticsToDateRange('weekly', TORONTO, now);
+
+    expect(range.start.toISOString()).toBe('2026-07-13T04:00:00.000Z');
+    expect(range.end).toEqual(now);
+    expect(range.previousStart.toISOString()).toBe('2026-07-06T04:00:00.000Z');
+    expect(range.previousEnd.toISOString()).toBe('2026-07-08T18:34:56.789Z');
+  });
+
+  it('clamps a month-to-date comparison to the prior month length', () => {
+    const now = new Date('2026-03-31T19:30:00.123Z'); // March 31, 3:30 PM EDT
+    const range = getAnalyticsToDateRange('monthly', TORONTO, now);
+
+    expect(range.start.toISOString()).toBe('2026-03-01T05:00:00.000Z');
+    expect(range.end).toEqual(now);
+    expect(range.previousStart.toISOString()).toBe('2026-02-01T05:00:00.000Z');
+    expect(range.previousEnd.toISOString()).toBe('2026-03-01T05:00:00.000Z');
+  });
+
+  it('preserves salon-local clock time when comparison weeks cross DST', () => {
+    const now = new Date('2026-03-09T13:30:00.000Z'); // Monday, 9:30 AM EDT
+    const range = getAnalyticsToDateRange('weekly', TORONTO, now);
+
+    expect(range.start.toISOString()).toBe('2026-03-09T04:00:00.000Z');
+    expect(range.previousStart.toISOString()).toBe('2026-03-02T05:00:00.000Z');
+    expect(range.previousEnd.toISOString()).toBe('2026-03-02T14:30:00.000Z');
+  });
+
+  it('keeps the complete-period helper unchanged for historical reporting', () => {
+    const range = getAnalyticsDateRange('monthly', TORONTO, '2026-07-15');
+
+    expect(range.end.toISOString()).toBe('2026-08-01T04:00:00.000Z');
+    expect(range.previousEnd.toISOString()).toBe('2026-07-01T04:00:00.000Z');
   });
 });

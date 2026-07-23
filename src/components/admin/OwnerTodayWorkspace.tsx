@@ -5,6 +5,7 @@ import {
   BellRing,
   CalendarDays,
   ChevronRight,
+  CircleDollarSign,
   Clock3,
   ExternalLink,
   Gift,
@@ -17,7 +18,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
@@ -26,6 +27,9 @@ import {
   APPOINTMENT_DATA_CHANGED_EVENT,
   RETENTION_DATA_CHANGED_EVENT,
 } from '@/libs/dashboardEvents';
+import type { ReportingProvenance } from '@/libs/financialReporting';
+import { formatMoney } from '@/libs/formatMoney';
+import type { OwnerFinancialSummary } from '@/types/ownerFinancialSummary';
 import type { RetentionStage } from '@/types/retention';
 
 type AppointmentGlance = {
@@ -100,6 +104,39 @@ const RETENTION_STAGE_PRIORITY: Record<RetentionStage, number> = {
   promo_8w: 3,
 };
 
+const INCOMPLETE_HISTORY_EXPLANATION
+  = 'Some historical appointments could not be included because their financial details are unavailable.';
+const ESTIMATED_HISTORY_EXPLANATION
+  = 'Some historical totals use booked values because finalized checkout details are unavailable.';
+
+function getFinancialHistoryNotice(summary: OwnerFinancialSummary): {
+  label: 'Incomplete history' | 'Estimated history';
+  explanation: string;
+} | null {
+  const provenances: ReportingProvenance[] = [
+    summary.currentPeriods.today.provenance,
+    summary.currentPeriods.weekToDate.provenance,
+    summary.currentPeriods.monthToDate.provenance,
+    summary.balances.completed,
+  ];
+
+  if (provenances.some(item => item.unresolvedAppointmentCount > 0)) {
+    return {
+      label: 'Incomplete history',
+      explanation: INCOMPLETE_HISTORY_EXPLANATION,
+    };
+  }
+
+  if (provenances.some(item => item.legacyAppointmentCount > 0)) {
+    return {
+      label: 'Estimated history',
+      explanation: ESTIMATED_HISTORY_EXPLANATION,
+    };
+  }
+
+  return null;
+}
+
 function retentionPresentation(stage: RetentionStage) {
   if (stage === 'promo_8w') {
     return {
@@ -157,6 +194,22 @@ export function OwnerTodayWorkspace({
   const [retention, setRetention] = useState<RetentionQueueData | null>(null);
   const [retentionLoading, setRetentionLoading] = useState(true);
   const [retentionError, setRetentionError] = useState<string | null>(null);
+  const [financialSummaryState, setFinancialSummaryState] = useState<{
+    salonSlug: string;
+    data: OwnerFinancialSummary;
+  } | null>(null);
+  const [financialSummaryLoading, setFinancialSummaryLoading] = useState(true);
+  const [financialSummaryError, setFinancialSummaryError]
+    = useState<string | null>(null);
+  const financialSummaryCacheRef = useRef<
+    Record<string, OwnerFinancialSummary>
+  >({});
+  const latestFinancialRequestRef = useRef(0);
+
+  const financialSummary
+    = financialSummaryState?.salonSlug === salonSlug
+      ? financialSummaryState.data
+      : null;
 
   const loadToday = useCallback(async () => {
     if (!salonSlug) {
@@ -227,6 +280,68 @@ export function OwnerTodayWorkspace({
     }
   }, [salonSlug]);
 
+  const loadFinancialSummary = useCallback(async () => {
+    const requestId = latestFinancialRequestRef.current + 1;
+    latestFinancialRequestRef.current = requestId;
+
+    if (!salonSlug) {
+      setFinancialSummaryState(null);
+      setFinancialSummaryLoading(false);
+      setFinancialSummaryError(null);
+      return;
+    }
+
+    const cached = financialSummaryCacheRef.current[salonSlug];
+    setFinancialSummaryState(current =>
+      current?.salonSlug === salonSlug
+        ? current
+        : cached
+          ? { salonSlug, data: cached }
+          : null,
+    );
+    setFinancialSummaryLoading(true);
+    setFinancialSummaryError(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/financial-summary?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json().catch(() => null) as {
+        data?: OwnerFinancialSummary;
+        error?: { message?: string } | string;
+      } | null;
+
+      if (!response.ok || !payload?.data) {
+        const message
+          = typeof payload?.error === 'string'
+            ? payload.error
+            : payload?.error?.message;
+        throw new Error(message || 'Revenue summary could not be loaded.');
+      }
+
+      if (latestFinancialRequestRef.current !== requestId) {
+        return;
+      }
+
+      financialSummaryCacheRef.current[salonSlug] = payload.data;
+      setFinancialSummaryState({ salonSlug, data: payload.data });
+    } catch (error) {
+      if (latestFinancialRequestRef.current !== requestId) {
+        return;
+      }
+      setFinancialSummaryError(
+        error instanceof Error
+          ? error.message
+          : 'Revenue summary could not be loaded.',
+      );
+    } finally {
+      if (latestFinancialRequestRef.current === requestId) {
+        setFinancialSummaryLoading(false);
+      }
+    }
+  }, [salonSlug]);
+
   useEffect(() => {
     void loadToday();
     const timer = window.setInterval(() => void loadToday(), 60_000);
@@ -240,7 +355,22 @@ export function OwnerTodayWorkspace({
   }, [loadRetention]);
 
   useEffect(() => {
-    const refreshToday = () => void loadToday();
+    void loadFinancialSummary();
+    const timer = window.setInterval(
+      () => void loadFinancialSummary(),
+      60_000,
+    );
+    return () => {
+      latestFinancialRequestRef.current += 1;
+      window.clearInterval(timer);
+    };
+  }, [loadFinancialSummary]);
+
+  useEffect(() => {
+    const refreshToday = () => {
+      void loadToday();
+      void loadFinancialSummary();
+    };
     const refreshRetention = () => void loadRetention();
 
     window.addEventListener(APPOINTMENT_DATA_CHANGED_EVENT, refreshToday);
@@ -250,7 +380,7 @@ export function OwnerTodayWorkspace({
       window.removeEventListener(APPOINTMENT_DATA_CHANGED_EVENT, refreshToday);
       window.removeEventListener(RETENTION_DATA_CHANGED_EVENT, refreshRetention);
     };
-  }, [loadRetention, loadToday]);
+  }, [loadFinancialSummary, loadRetention, loadToday]);
 
   const retentionItems = useMemo(() => {
     const oneStagePerClient = new Map<
@@ -386,14 +516,24 @@ export function OwnerTodayWorkspace({
           </div>
           <button
             type="button"
-            onClick={() => void Promise.all([loadToday(), loadRetention()])}
-            disabled={todayLoading || retentionLoading}
+            onClick={() => void Promise.all([
+              loadToday(),
+              loadRetention(),
+              loadFinancialSummary(),
+            ])}
+            disabled={
+              todayLoading || retentionLoading || financialSummaryLoading
+            }
             aria-label="Refresh dashboard"
             className="rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
           >
             <RefreshCw
               size={17}
-              className={todayLoading || retentionLoading ? 'animate-spin' : ''}
+              className={
+                todayLoading || retentionLoading || financialSummaryLoading
+                  ? 'animate-spin'
+                  : ''
+              }
             />
           </button>
         </div>
@@ -481,6 +621,200 @@ export function OwnerTodayWorkspace({
           Open appointment calendar
           <ChevronRight size={15} />
         </button>
+      </section>
+
+      <section
+        className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+        data-testid="owner-revenue-summary"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-800">
+              <CircleDollarSign size={20} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-stone-950">Revenue</h2>
+              <p className="mt-0.5 text-xs text-stone-500">
+                Completed appointments · tax and tips separate
+              </p>
+            </div>
+          </div>
+          {financialSummary && (
+            <button
+              type="button"
+              onClick={() => void loadFinancialSummary()}
+              disabled={financialSummaryLoading}
+              aria-label="Refresh revenue summary"
+              className="shrink-0 rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
+            >
+              <RefreshCw
+                size={17}
+                className={financialSummaryLoading ? 'animate-spin' : ''}
+              />
+            </button>
+          )}
+        </div>
+
+        {financialSummaryLoading && !financialSummary
+          ? (
+              <div
+                className="space-y-3 p-4"
+                data-testid="owner-revenue-summary-loading"
+              >
+                <div className="h-28 animate-pulse rounded-2xl bg-stone-100" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
+                  <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div
+                      key={index}
+                      className="h-12 animate-pulse rounded-xl bg-stone-100"
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          : !financialSummary
+              ? (
+                  <div
+                    role="alert"
+                    className="m-4 flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-800"
+                  >
+                    <AlertCircle size={18} className="shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      Revenue summary is temporarily unavailable.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void loadFinancialSummary()}
+                      className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-red-800 shadow-sm"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )
+              : (() => {
+                  const todayPeriod = financialSummary.currentPeriods.today;
+                  const secondaryMetrics = [
+                    ['Collected today', todayPeriod.cashCollectedCents],
+                    [
+                      'Completed outstanding',
+                      financialSummary.balances.completedOutstandingCents,
+                    ],
+                    ['Tips today', todayPeriod.tipsCents],
+                    ['Tax today', todayPeriod.taxCents],
+                    ['Discounts today', todayPeriod.discountsCents],
+                  ] as const;
+                  const allDisplayedValues = [
+                    todayPeriod.completedAppointmentRevenueCents,
+                    financialSummary.currentPeriods.weekToDate
+                      .completedAppointmentRevenueCents,
+                    financialSummary.currentPeriods.monthToDate
+                      .completedAppointmentRevenueCents,
+                    ...secondaryMetrics.map(([, cents]) => cents),
+                  ];
+                  const isEmpty = allDisplayedValues.every(cents => cents === 0);
+                  const historyNotice
+                    = getFinancialHistoryNotice(financialSummary);
+
+                  return (
+                    <div className="space-y-3 p-4">
+                      <div className="rounded-2xl bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] p-4 text-white">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-100">
+                          Revenue today
+                        </p>
+                        <p className="mt-1 text-3xl font-bold tabular-nums">
+                          {formatMoney(
+                            todayPeriod.completedAppointmentRevenueCents,
+                            financialSummary.currency,
+                          )}
+                        </p>
+                        <p className="mt-1 text-xs text-rose-100">
+                          Completed appointment revenue
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          [
+                            'Revenue this week',
+                            financialSummary.currentPeriods.weekToDate,
+                          ],
+                          [
+                            'Revenue this month',
+                            financialSummary.currentPeriods.monthToDate,
+                          ],
+                        ].map(([label, period]) => {
+                          const summary = period as typeof todayPeriod;
+                          return (
+                            <div
+                              key={label as string}
+                              className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3"
+                            >
+                              <p className="text-[11px] font-bold uppercase tracking-widest text-rose-700">
+                                {label as string}
+                              </p>
+                              <p className="mt-1 text-xl font-bold tabular-nums text-stone-950">
+                                {formatMoney(
+                                  summary.completedAppointmentRevenueCents,
+                                  financialSummary.currency,
+                                )}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {isEmpty && (
+                        <div
+                          className="rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-xs text-stone-600"
+                          data-testid="owner-revenue-summary-empty"
+                        >
+                          No completed financial activity yet.
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-100 pt-4 text-sm">
+                        {secondaryMetrics.map(([label, cents]) => (
+                          <div key={label}>
+                            <p className="text-xs text-stone-500">{label}</p>
+                            <p className="mt-0.5 font-semibold tabular-nums text-stone-900">
+                              {formatMoney(cents, financialSummary.currency)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      {historyNotice && (
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950">
+                          <p className="font-semibold">
+                            {historyNotice.label}
+                          </p>
+                          <p className="mt-0.5">
+                            {historyNotice.explanation}
+                          </p>
+                        </div>
+                      )}
+                      {financialSummaryError && (
+                        <div
+                          role="alert"
+                          className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-950"
+                        >
+                          <AlertCircle size={16} className="shrink-0" />
+                          <span className="min-w-0 flex-1">
+                            Showing the last available revenue summary. Try
+                            again in a moment.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void loadFinancialSummary()}
+                            className="shrink-0 rounded-full bg-white px-3 py-1.5 font-semibold text-amber-950 shadow-sm"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
       </section>
 
       {retentionLoading

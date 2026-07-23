@@ -63,6 +63,7 @@ function getEmptyAnalytics(): PartialAnalytics {
       tips: 0,
       taxCollected: 0,
       trend: 0,
+      trendAvailable: false,
       completed: 0,
       series: [],
     },
@@ -204,6 +205,7 @@ type DashboardData = {
     today: number;
     completed: number;
     trend: number;
+    trendAvailable: boolean;
   };
   appointments: {
     total: number;
@@ -246,7 +248,12 @@ type ModuleSettingsResponse = {
 
 function getEmptyDashboardData(): DashboardData {
   return {
-    revenue: { today: 0, completed: 0, trend: 0 },
+    revenue: {
+      today: 0,
+      completed: 0,
+      trend: 0,
+      trendAvailable: false,
+    },
     appointments: { total: 0, completed: 0, noShows: 0, upcoming: 0 },
     openSpots: { count: 0, nextTime: null, slots: [] },
     staff: [],
@@ -512,11 +519,7 @@ function AdminDashboardContent() {
         resetAnalyticsPresentation();
         setNonBlockingMessage(null);
         setAnalyticsModuleStatus(cached);
-        if (cached === 'enabled') {
-          setLoading(true);
-        } else {
-          setLoading(false);
-        }
+        setLoading(false);
         return cached;
       }
 
@@ -573,9 +576,7 @@ function AdminDashboardContent() {
             = nextStatus;
         }
 
-        if (nextStatus !== 'enabled') {
-          setLoading(false);
-        }
+        setLoading(false);
 
         return nextStatus;
       } catch {
@@ -776,6 +777,7 @@ function AdminDashboardContent() {
             today: analytics?.revenue?.total ?? 0,
             completed: analytics?.revenue?.completed ?? 0,
             trend: analytics?.revenue?.trend ?? 0,
+            trendAvailable: analytics?.revenue?.trendAvailable ?? false,
           },
           appointments: {
             total: analytics?.appointments?.total ?? 0,
@@ -927,13 +929,15 @@ function AdminDashboardContent() {
     return () => controller.abort();
   }, [activeDashboardSalonSlug, adminUser, authLoading, showSalonSelector]);
 
-  // Fetch analytics only when module availability is explicitly enabled
+  // Advanced analytics is optional and potentially expensive. Load it only
+  // while its entitled surface is actually visible, never for Owner Today.
   useEffect(() => {
     if (
       !authLoading
       && adminUser
       && !showSalonSelector
       && analyticsModuleStatus === 'enabled'
+      && activeModal === 'analytics'
     ) {
       fetchData();
       const interval = setInterval(fetchData, 30000);
@@ -945,6 +949,7 @@ function AdminDashboardContent() {
     adminUser,
     showSalonSelector,
     analyticsModuleStatus,
+    activeModal,
     fetchData,
   ]);
 
@@ -1117,10 +1122,10 @@ function AdminDashboardContent() {
     const nextStatus = await resolveAnalyticsModuleAvailability({
       force: true,
     });
-    if (nextStatus === 'enabled') {
+    if (nextStatus === 'enabled' && activeModal === 'analytics') {
       await fetchData({ skipModuleCheck: true });
     }
-  }, [fetchData, resolveAnalyticsModuleAvailability]);
+  }, [activeModal, fetchData, resolveAnalyticsModuleAvailability]);
 
   const handleWorkspaceTab = useCallback((tab: OwnerWorkspaceTab) => {
     setShowScheduleCalendar(false);
@@ -1255,7 +1260,7 @@ function AdminDashboardContent() {
       id: index + 1,
       name: tech.name,
       role: tech.role || 'Technician',
-      revenue: formatMoney(tech.revenue),
+      revenue: formatMoney(tech.revenue, analyticsData?.currency ?? 'CAD'),
       avatarColor: avatarColors[index % avatarColors.length]!,
     })) || [];
 
@@ -1404,11 +1409,7 @@ function AdminDashboardContent() {
           : (
               <OwnerTodayWorkspace
                 salonSlug={activeDashboardSalonSlug || ''}
-                appointments={
-                  analyticsModuleStatus === 'enabled'
-                    ? data.appointments
-                    : coreAppointments
-                }
+                appointments={coreAppointments}
                 analyticsTitle={analyticsUnavailableState?.title}
                 analyticsMessage={analyticsUnavailableState?.description}
                 onRefreshAnalytics={
@@ -1490,7 +1491,11 @@ function AdminDashboardContent() {
         userInitial={userInitial}
         analyticsProps={{
           revenue: data.revenue.today ?? 0,
+          tips: analyticsData?.revenue?.tips ?? 0,
+          currency: analyticsData?.currency ?? 'CAD',
           revenueTrend: data.revenue.trend ?? 0,
+          revenueTrendAvailable: data.revenue.trendAvailable,
+          revenueSeries: analyticsData?.revenue?.series ?? [],
           staffData,
           utilization,
           services,
