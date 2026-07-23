@@ -15,7 +15,9 @@ const {
     const query = {
       from: vi.fn(() => query),
       innerJoin: vi.fn(() => query),
+      leftJoin: vi.fn(() => query),
       where: vi.fn(() => query),
+      groupBy: vi.fn(() => query),
       orderBy: vi.fn(() => query),
       limit: vi.fn(async () => result),
       then: (resolve: (value: unknown) => void, reject?: (reason: unknown) => void) =>
@@ -55,6 +57,8 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+vi.mock('server-only', () => ({}));
+
 import { GET } from './route';
 
 describe('GET /api/admin/clients/[id]', () => {
@@ -63,7 +67,7 @@ describe('GET /api/admin/clients/[id]', () => {
     selectQueue.length = 0;
   });
 
-  it('rejects wrong-tenant admins', async () => {
+  it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
     requireAdminSalon.mockResolvedValue({
       error: new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403,
@@ -73,11 +77,50 @@ describe('GET /api/admin/clients/[id]', () => {
     });
 
     const response = await GET(
-      new Request('http://localhost/api/admin/clients/client_1?salonSlug=salon-a'),
-      { params: Promise.resolve({ id: 'client_1' }) },
+      new Request('http://localhost/api/admin/clients/client_fixture_foreign?salonSlug=salon-fixture-foreign'),
+      { params: Promise.resolve({ id: 'client_fixture_foreign' }) },
     );
+    const body = await response.json();
 
     expect(response.status).toBe(403);
+    expect(response.headers.get('cache-control')).toContain('private');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toEqual({ error: 'Forbidden' });
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).not.toMatch(
+      /client|phone|email|currency|timezone|financial|preference|record/i,
+    );
+  });
+
+  it('uses the same non-disclosing 404 for an unknown synthetic client in an authorized salon', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_fixture_owned' },
+    });
+    getSalonClientById.mockResolvedValue(null);
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/clients/client_fixture_unknown?salonSlug=salon-fixture-owned'),
+      { params: Promise.resolve({ id: 'client_fixture_unknown' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('cache-control')).toContain('private');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toEqual({
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    });
+    expect(getSalonClientById).toHaveBeenCalledWith(
+      'salon_fixture_owned',
+      'client_fixture_unknown',
+    );
+    expect(JSON.stringify(body)).not.toMatch(
+      /phone|email|currency|timezone|financial|preference|record/i,
+    );
   });
 
   it('returns upcoming appointments separately from completed history and recent issues', async () => {
@@ -97,6 +140,14 @@ describe('GET /api/admin/clients/[id]', () => {
       totalSpent: 32000,
       noShowCount: 1,
       loyaltyPoints: 150,
+      sensitivities: null,
+      nailPreferences: {},
+      tags: [],
+      rebookIntervalDays: null,
+      nextRebookDueAt: null,
+      lastContactAt: null,
+      hasGoogleReview: false,
+      googleReviewMarkedAt: null,
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
     });
 
@@ -145,10 +196,44 @@ describe('GET /api/admin/clients/[id]', () => {
         zipCode: 'M5R 1A3',
       }],
       [
-        { appointmentId: 'appt_upcoming', serviceName: 'Gel Fill', priceAtBooking: 9500 },
-        { appointmentId: 'appt_completed', serviceName: 'Classic Pedicure', priceAtBooking: 8200 },
-        { appointmentId: 'appt_issue', serviceName: 'Builder Gel Fill', priceAtBooking: 9900 },
+        { appointmentId: 'appt_upcoming', serviceId: 'svc_1', serviceName: 'Gel Fill', priceAtBooking: 9500 },
+        { appointmentId: 'appt_completed', serviceId: 'svc_2', serviceName: 'Classic Pedicure', priceAtBooking: 8200 },
+        { appointmentId: 'appt_issue', serviceId: 'svc_3', serviceName: 'Builder Gel Fill', priceAtBooking: 9900 },
       ],
+      [],
+      [],
+      [],
+      [{
+        totalCents: 8200,
+        finalizedAppointmentCount: 0,
+        legacyAppointmentCount: 1,
+        unresolvedAppointmentCount: 0,
+        finalizedAmountCents: 0,
+        legacyFallbackAmountCents: 8200,
+        completedVisits: 1,
+      }],
+      [{
+        totalCents: 0,
+        finalizedAppointmentCount: 0,
+        legacyAppointmentCount: 0,
+        unresolvedAppointmentCount: 0,
+        finalizedAmountCents: 0,
+        legacyFallbackAmountCents: 0,
+      }],
+      [{
+        finalizedAppointmentCount: 0,
+        legacyAppointmentCount: 0,
+        unresolvedAppointmentCount: 1,
+        finalizedAmountCents: 0,
+        legacyFallbackAmountCents: 0,
+        upcomingBalanceCents: 9500,
+        upcomingAppointmentCount: 1,
+        unresolvedUpcomingAppointmentCount: 0,
+        settledByLegacyPaymentStatusCount: 0,
+      }],
+      [],
+      [{ id: 'svc_2', name: 'Classic Pedicure', count: 1, lastBookedAt: new Date('2026-03-10T14:00:00.000Z') }],
+      [],
     );
 
     const response = await GET(
@@ -158,6 +243,7 @@ describe('GET /api/admin/clients/[id]', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
     expect(normalizePhone).toHaveBeenCalledWith('1111111111');
     expect(body.data.client.preferredTechnician).toEqual({
       id: 'tech_1',
@@ -182,15 +268,25 @@ describe('GET /api/admin/clients/[id]', () => {
       expect.objectContaining({
         id: 'appt_completed',
         status: 'completed',
-        services: [{ name: 'Classic Pedicure', price: 8200 }],
+        services: [expect.objectContaining({ name: 'Classic Pedicure', price: 8200 })],
       }),
     ]);
     expect(body.data.recentIssues).toEqual([
       expect.objectContaining({
         id: 'appt_issue',
         status: 'no_show',
-        services: [{ name: 'Builder Gel Fill', price: 9900 }],
+        services: [expect.objectContaining({ name: 'Builder Gel Fill', price: 9900 })],
       }),
     ]);
+    expect(body.data.summary).toMatchObject({
+      currency: 'CAD',
+      lifetimeSpendCents: 8200,
+      completedVisits: 1,
+      mostBookedService: {
+        id: 'svc_2',
+        name: 'Classic Pedicure',
+        count: 1,
+      },
+    });
   });
 });

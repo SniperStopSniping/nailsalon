@@ -1,17 +1,25 @@
-import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
+import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
+import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
 import {
   getSalonClientById,
   normalizePhone,
   updateSalonClient,
 } from '@/libs/queries';
+import { completedAppointmentRevenueAggregateSql } from '@/libs/revenueSql';
 import {
+  appointmentAddOnSchema,
+  appointmentFinalItemSchema,
+  appointmentPaymentSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   appointmentServicesSchema,
+  clientPreferencesSchema,
   salonLocationSchema,
   serviceSchema,
   technicianSchema,
@@ -57,6 +65,32 @@ type ErrorResponse = {
   };
 };
 
+const PRIVATE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0',
+  'Pragma': 'no-cache',
+  'Vary': 'Cookie',
+};
+
+function privateJson(body: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  for (const [key, value] of Object.entries(PRIVATE_HEADERS)) {
+    headers.set(key, value);
+  }
+  return Response.json(body, { ...init, headers });
+}
+
+function withPrivateNoStore(response: Response): Response {
+  for (const [key, value] of Object.entries(PRIVATE_HEADERS)) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
+
+function numberValue(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isSafeInteger(parsed) ? parsed : 0;
+}
+
 // =============================================================================
 // GET /api/admin/clients/[id] - Get client profile with appointment history
 // =============================================================================
@@ -77,7 +111,7 @@ export async function GET(
     // Validate query params
     const validated = getQuerySchema.safeParse(queryParams);
     if (!validated.success) {
-      return Response.json(
+      return privateJson(
         {
           error: {
             code: 'VALIDATION_ERROR',
@@ -94,13 +128,13 @@ export async function GET(
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
     if (error || !salon) {
-      return error!;
+      return withPrivateNoStore(error!);
     }
 
     // Get client (scoped to salon)
     const client = await getSalonClientById(salon.id, clientId);
     if (!client) {
-      return Response.json(
+      return privateJson(
         {
           error: {
             code: 'CLIENT_NOT_FOUND',
@@ -143,12 +177,19 @@ export async function GET(
         technicianId: appointmentSchema.technicianId,
         locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
+        finalPriceCents: appointmentSchema.finalPriceCents,
+        finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxAmountCents: appointmentSchema.taxAmountCents,
+        tipCents: appointmentSchema.tipCents,
+        paymentStatus: appointmentSchema.paymentStatus,
+        amountPaidCents: appointmentSchema.amountPaidCents,
       })
       .from(appointmentSchema)
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
+          isNull(appointmentSchema.deletedAt),
           gte(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['pending', 'confirmed']),
         ),
@@ -167,12 +208,19 @@ export async function GET(
         technicianId: appointmentSchema.technicianId,
         locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
+        finalPriceCents: appointmentSchema.finalPriceCents,
+        finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxAmountCents: appointmentSchema.taxAmountCents,
+        tipCents: appointmentSchema.tipCents,
+        paymentStatus: appointmentSchema.paymentStatus,
+        amountPaidCents: appointmentSchema.amountPaidCents,
       })
       .from(appointmentSchema)
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
+          isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           eq(appointmentSchema.status, 'completed'),
         ),
@@ -191,12 +239,19 @@ export async function GET(
         technicianId: appointmentSchema.technicianId,
         locationId: appointmentSchema.locationId,
         notes: appointmentSchema.notes,
+        finalPriceCents: appointmentSchema.finalPriceCents,
+        finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxAmountCents: appointmentSchema.taxAmountCents,
+        tipCents: appointmentSchema.tipCents,
+        paymentStatus: appointmentSchema.paymentStatus,
+        amountPaidCents: appointmentSchema.amountPaidCents,
       })
       .from(appointmentSchema)
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
+          isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['cancelled', 'no_show']),
         ),
@@ -266,45 +321,306 @@ export async function GET(
 
     // Get services for each appointment
     const appointmentServicesMap = new Map<string, { id: string; name: string; price: number }[]>();
+    const appointmentAddOnsMap = new Map<string, {
+      id: string;
+      name: string;
+      quantity: number;
+      lineTotalCents: number;
+    }[]>();
+    const appointmentFinalItemsMap = new Map<string, {
+      id: string;
+      kind: string;
+      name: string;
+      quantity: number;
+      lineTotalCents: number;
+    }[]>();
+    const appointmentPaymentsMap = new Map<string, {
+      id: string;
+      amountCents: number;
+      method: string | null;
+      recordedAt: string;
+    }[]>();
+    const appointmentHasPaymentHistory = new Set<string>();
     if (allAppointmentIds.length > 0) {
-      const services = await db
-        .select({
-          appointmentId: appointmentServicesSchema.appointmentId,
-          serviceId: serviceSchema.id,
-          serviceName: serviceSchema.name,
-          priceAtBooking: appointmentServicesSchema.priceAtBooking,
-        })
-        .from(appointmentServicesSchema)
-        .innerJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
-        .where(inArray(appointmentServicesSchema.appointmentId, allAppointmentIds));
+      const [services, addOns, finalItems, paymentRows] = await Promise.all([
+        db
+          .select({
+            appointmentId: appointmentServicesSchema.appointmentId,
+            serviceId: appointmentServicesSchema.serviceId,
+            serviceName: sql<string>`COALESCE(
+              ${appointmentServicesSchema.nameSnapshot},
+              ${serviceSchema.name},
+              'Service'
+            )`,
+            priceAtBooking: sql<number>`COALESCE(
+              ${appointmentServicesSchema.priceCentsSnapshot},
+              ${appointmentServicesSchema.priceAtBooking}
+            )`,
+          })
+          .from(appointmentServicesSchema)
+          .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
+          .where(inArray(appointmentServicesSchema.appointmentId, allAppointmentIds)),
+        db
+          .select()
+          .from(appointmentAddOnSchema)
+          .where(inArray(appointmentAddOnSchema.appointmentId, allAppointmentIds)),
+        db
+          .select()
+          .from(appointmentFinalItemSchema)
+          .where(and(
+            eq(appointmentFinalItemSchema.salonId, salon.id),
+            inArray(appointmentFinalItemSchema.appointmentId, allAppointmentIds),
+          )),
+        db
+          .select()
+          .from(appointmentPaymentSchema)
+          .where(and(
+            eq(appointmentPaymentSchema.salonId, salon.id),
+            inArray(appointmentPaymentSchema.appointmentId, allAppointmentIds),
+          )),
+      ]);
 
       for (const svc of services) {
         const existing = appointmentServicesMap.get(svc.appointmentId) ?? [];
         existing.push({ id: svc.serviceId, name: svc.serviceName, price: svc.priceAtBooking });
         appointmentServicesMap.set(svc.appointmentId, existing);
       }
+
+      for (const addOn of addOns) {
+        const existing = appointmentAddOnsMap.get(addOn.appointmentId) ?? [];
+        existing.push({
+          id: addOn.id,
+          name: addOn.nameSnapshot,
+          quantity: addOn.quantitySnapshot,
+          lineTotalCents: addOn.lineTotalCentsSnapshot,
+        });
+        appointmentAddOnsMap.set(addOn.appointmentId, existing);
+      }
+
+      for (const item of finalItems) {
+        const existing = appointmentFinalItemsMap.get(item.appointmentId) ?? [];
+        existing.push({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          quantity: item.quantity,
+          lineTotalCents: item.lineTotalCents,
+        });
+        appointmentFinalItemsMap.set(item.appointmentId, existing);
+      }
+
+      for (const payment of paymentRows) {
+        appointmentHasPaymentHistory.add(payment.appointmentId);
+        if (payment.voidedAt || payment.amountCents <= 0) {
+          continue;
+        }
+        const existing = appointmentPaymentsMap.get(payment.appointmentId) ?? [];
+        existing.push({
+          id: payment.id,
+          amountCents: payment.amountCents,
+          method: payment.method,
+          recordedAt: payment.recordedAt.toISOString(),
+        });
+        appointmentPaymentsMap.set(payment.appointmentId, existing);
+      }
     }
 
     // Format appointments
-    const formatAppointment = (appt: typeof upcomingAppointments[0]) => ({
-      id: appt.id,
-      startTime: appt.startTime.toISOString(),
-      endTime: appt.endTime.toISOString(),
-      status: appt.status,
-      totalPrice: appt.totalPrice,
-      technician: appt.technicianId ? techMap.get(appt.technicianId) ?? null : null,
-      location: appt.locationId ? locationMap.get(appt.locationId) ?? null : null,
-      services: appointmentServicesMap.get(appt.id) ?? [],
-      notes: appt.notes,
-    });
+    const formatAppointment = (appt: typeof upcomingAppointments[0]) => {
+      const payments = appointmentPaymentsMap.get(appt.id) ?? [];
+      const paymentsReceivedCents = payments.reduce(
+        (total, payment) => total + payment.amountCents,
+        0,
+      );
+      const paymentTrackingKnown
+        = appt.amountPaidCents === 0 || appointmentHasPaymentHistory.has(appt.id);
+      const settledByLegacyStatus = !paymentTrackingKnown && appt.paymentStatus === 'paid';
+      const revenue = resolveCompletedAppointmentRevenue({
+        status: appt.status,
+        paymentStatus: appt.paymentStatus,
+        finalPriceCents: appt.finalPriceCents,
+        legacyBookedTotalCents: appt.totalPrice,
+      });
+      const balance = resolveAppointmentBalance({
+        status: appt.status,
+        paymentStatus: appt.paymentStatus,
+        startTime: appt.startTime,
+        now,
+        finalPriceCents: appt.finalPriceCents,
+        legacyBookedTotalCents: appt.totalPrice,
+        taxAmountCents: appt.taxAmountCents,
+        tipCents: appt.tipCents,
+        nonVoidedPaymentsCents: settledByLegacyStatus
+          ? revenue.amountCents + Math.max(appt.taxAmountCents ?? 0, 0) + Math.max(appt.tipCents ?? 0, 0)
+          : paymentTrackingKnown ? paymentsReceivedCents : null,
+        legacyPaymentDataReliable: paymentTrackingKnown || settledByLegacyStatus,
+      });
+
+      return {
+        id: appt.id,
+        startTime: appt.startTime.toISOString(),
+        endTime: appt.endTime.toISOString(),
+        status: appt.status,
+        totalPrice: appt.totalPrice,
+        technician: appt.technicianId ? techMap.get(appt.technicianId) ?? null : null,
+        location: appt.locationId ? locationMap.get(appt.locationId) ?? null : null,
+        services: appointmentServicesMap.get(appt.id) ?? [],
+        addOns: appointmentAddOnsMap.get(appt.id) ?? [],
+        finalItems: appointmentFinalItemsMap.get(appt.id) ?? [],
+        notes: appt.notes,
+        financial: {
+          completedValueCents: revenue.source === 'excluded' ? null : revenue.amountCents,
+          source: revenue.source,
+          discountCents: Math.max(appt.finalDiscountCents ?? 0, 0),
+          taxCents: Math.max(appt.taxAmountCents ?? 0, 0),
+          tipsCents: Math.max(appt.tipCents ?? 0, 0),
+          paymentsReceivedCents,
+          payments,
+          paymentStatus: appt.paymentStatus,
+          completedOutstandingCents:
+            balance.category === 'completed_outstanding' ? balance.amountCents : null,
+          balanceState: balance.category,
+        },
+      };
+    };
 
     // Calculate average spend
     const averageSpend
       = client.totalVisits && client.totalVisits > 0
         ? Math.round((client.totalSpent ?? 0) / client.totalVisits)
         : 0;
+    const bookingConfig = resolveBookingConfigFromSettings(
+      (salon.settings as Parameters<typeof resolveBookingConfigFromSettings>[0]) ?? null,
+    );
+    const { monthToDate } = getCurrentFinancialReportingRanges(
+      bookingConfig.timezone,
+      now,
+    );
+    const revenueAggregate = completedAppointmentRevenueAggregateSql();
+    const serviceNameExpression = sql<string>`COALESCE(
+      ${appointmentServicesSchema.nameSnapshot},
+      ${serviceSchema.name},
+      'Service'
+    )`;
+
+    const [
+      lifetimeRows,
+      monthRows,
+      balanceSummary,
+      submittedPreferenceRows,
+      mostBookedServiceRows,
+    ] = await Promise.all([
+      db
+        .select({
+          ...revenueAggregate,
+          completedVisits: sql<number>`COUNT(*) FILTER (
+            WHERE ${appointmentSchema.status} = 'completed'
+              AND ${appointmentSchema.deletedAt} IS NULL
+          )::int`,
+        })
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+        )),
+      db
+        .select(revenueAggregate)
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+          gte(appointmentSchema.startTime, monthToDate.start),
+          lt(appointmentSchema.startTime, monthToDate.end),
+        )),
+      getFinancialBalanceSummary({
+        salonId: salon.id,
+        asOf: now,
+        clientPhoneVariants: phoneVariants,
+      }),
+      db
+        .select()
+        .from(clientPreferencesSchema)
+        .where(and(
+          eq(clientPreferencesSchema.salonId, salon.id),
+          eq(clientPreferencesSchema.normalizedClientPhone, normalizedPhone),
+        ))
+        .limit(1),
+      db
+        .select({
+          id: appointmentServicesSchema.serviceId,
+          name: serviceNameExpression,
+          count: sql<number>`COUNT(*)::int`,
+          lastBookedAt: sql<Date>`MAX(${appointmentSchema.startTime})`,
+        })
+        .from(appointmentServicesSchema)
+        .innerJoin(
+          appointmentSchema,
+          eq(appointmentServicesSchema.appointmentId, appointmentSchema.id),
+        )
+        .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
+        .where(and(
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+          eq(appointmentSchema.status, 'completed'),
+          isNull(appointmentSchema.deletedAt),
+        ))
+        .groupBy(appointmentServicesSchema.serviceId, serviceNameExpression)
+        .orderBy(
+          desc(sql`COUNT(*)`),
+          desc(sql`MAX(${appointmentSchema.startTime})`),
+          serviceNameExpression,
+        )
+        .limit(1),
+    ]);
+
+    const buildProvenance = (row: {
+      finalizedAppointmentCount: number;
+      legacyAppointmentCount: number;
+      unresolvedAppointmentCount: number;
+      finalizedAmountCents: number;
+      legacyFallbackAmountCents: number;
+    } | undefined) =>
+      buildReportingProvenance({
+        finalizedAppointmentCount: numberValue(row?.finalizedAppointmentCount),
+        legacyAppointmentCount: numberValue(row?.legacyAppointmentCount),
+        unresolvedAppointmentCount: numberValue(row?.unresolvedAppointmentCount),
+        finalizedAmountCents: numberValue(row?.finalizedAmountCents),
+        legacyFallbackAmountCents: numberValue(row?.legacyFallbackAmountCents),
+      });
+    const lifetimeProvenance = buildProvenance(lifetimeRows[0]);
+    const monthToDateProvenance = buildProvenance(monthRows[0]);
+    const submittedPreferences = submittedPreferenceRows[0] ?? null;
+    let submittedFavoriteTechnician = null;
+    if (submittedPreferences?.favoriteTechId) {
+      const [favoriteTech] = await db
+        .select({
+          id: technicianSchema.id,
+          name: technicianSchema.name,
+          avatarUrl: technicianSchema.avatarUrl,
+        })
+        .from(technicianSchema)
+        .where(and(
+          eq(technicianSchema.salonId, salon.id),
+          eq(technicianSchema.id, submittedPreferences.favoriteTechId),
+        ))
+        .limit(1);
+      submittedFavoriteTechnician = favoriteTech ?? null;
+    }
+
+    const nextAppointment = upcomingAppointments[0] ?? null;
+    const rebooking = nextAppointment
+      ? { status: 'booked', dueAt: client.nextRebookDueAt?.toISOString() ?? null }
+      : !client.lastVisitAt
+          ? { status: 'new_client', dueAt: null }
+          : !client.nextRebookDueAt
+              ? { status: 'not_set', dueAt: null }
+              : client.nextRebookDueAt.getTime() <= now.getTime()
+                ? { status: 'overdue', dueAt: client.nextRebookDueAt.toISOString() }
+                : { status: 'due_later', dueAt: client.nextRebookDueAt.toISOString() };
+
     const clientPhotos = await db.select({
       id: appointmentPhotoSchema.id,
+      appointmentId: appointmentPhotoSchema.appointmentId,
       imageUrl: appointmentPhotoSchema.imageUrl,
       thumbnailUrl: appointmentPhotoSchema.thumbnailUrl,
       photoType: appointmentPhotoSchema.photoType,
@@ -315,7 +631,7 @@ export async function GET(
       eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
     )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
 
-    return Response.json({
+    return privateJson({
       data: {
         client: {
           id: client.id,
@@ -340,6 +656,47 @@ export async function GET(
           googleReviewMarkedAt: client.googleReviewMarkedAt?.toISOString() ?? null,
           createdAt: client.createdAt.toISOString(),
         },
+        summary: {
+          currency: bookingConfig.currency,
+          timeZone: bookingConfig.timezone,
+          lifetimeSpendCents:
+            lifetimeProvenance.finalizedAmountCents
+            + lifetimeProvenance.legacyFallbackAmountCents,
+          spendThisMonthCents:
+            monthToDateProvenance.finalizedAmountCents
+            + monthToDateProvenance.legacyFallbackAmountCents,
+          completedOutstandingCents: balanceSummary.completedOutstandingCents,
+          completedVisits: numberValue(lifetimeRows[0]?.completedVisits),
+          mostBookedService: mostBookedServiceRows[0] ?? null,
+          rebooking,
+          provenance: {
+            lifetimeSpend: lifetimeProvenance,
+            spendThisMonth: monthToDateProvenance,
+            completedOutstanding: balanceSummary.completedOutstandingProvenance,
+          },
+          monthToDateRange: {
+            start: monthToDate.start.toISOString(),
+            end: monthToDate.end.toISOString(),
+          },
+        },
+        submittedPreferences: submittedPreferences
+          ? {
+              favoriteTechnician: submittedFavoriteTechnician,
+              favoriteServices: submittedPreferences.favoriteServices,
+              nailShape: submittedPreferences.nailShape,
+              nailLength: submittedPreferences.nailLength,
+              finishes: submittedPreferences.finishes,
+              colorFamilies: submittedPreferences.colorFamilies,
+              preferredBrands: submittedPreferences.preferredBrands,
+              sensitivities: submittedPreferences.sensitivities,
+              musicPreference: submittedPreferences.musicPreference,
+              conversationLevel: submittedPreferences.conversationLevel,
+              beveragePreference: submittedPreferences.beveragePreference,
+              techNotes: submittedPreferences.techNotes,
+              appointmentNotes: submittedPreferences.appointmentNotes,
+              updatedAt: submittedPreferences.updatedAt.toISOString(),
+            }
+          : null,
         upcomingAppointments: upcomingAppointments.map(formatAppointment),
         pastAppointments: pastAppointments.map(formatAppointment),
         recentIssues: recentIssues.map(formatAppointment),
@@ -378,7 +735,7 @@ export async function PATCH(
     // Validate request body
     const validated = updateSchema.safeParse(body);
     if (!validated.success) {
-      return Response.json(
+      return privateJson(
         {
           error: {
             code: 'VALIDATION_ERROR',

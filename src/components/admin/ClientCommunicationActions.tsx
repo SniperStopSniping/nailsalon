@@ -32,6 +32,7 @@ import {
 } from '@/libs/clientSmsComposer';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
+import { normalizePhone } from '@/libs/phone';
 import { firstNameForMessage, renderPromotionMessage } from '@/libs/promotionMessage';
 import {
   type ClientCommunicationKind,
@@ -241,6 +242,8 @@ export function ClientCommunicationActions({
   onBookAppointment,
   onOpenPromotionSettings,
   onOpenNativeUrl = openNativeUrl,
+  profileLayout = false,
+  showHistory = true,
 }: {
   salonSlug: string;
   salonName: string;
@@ -252,6 +255,8 @@ export function ClientCommunicationActions({
   onBookAppointment: () => void;
   onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
   onOpenNativeUrl?: (href: string) => void;
+  profileLayout?: boolean;
+  showHistory?: boolean;
 }) {
   const [supportData, setSupportData] = useState<SupportData>(DEFAULT_SUPPORT_DATA);
   const [supportLoading, setSupportLoading] = useState(true);
@@ -843,81 +848,93 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <ActionButton
-          icon={<Phone size={15} />}
-          label="Call"
-          onClick={() => onOpenNativeUrl(`tel:${client.phone}`)}
-        />
-        <ActionButton
-          icon={<MessageCircle size={15} />}
-          label="Text"
-          onClick={() => openDraft('text', 'Text', null)}
-        />
-        <ActionButton
-          icon={<RotateCcw size={15} />}
-          label="Rebook"
-          onClick={() => openDraft(
-            'rebook',
-            'Rebook request',
-            toSmsAppointment(lastCompletedAppointment),
-          )}
-        />
-        {(retentionStage === 'promo_6w' || retentionStage === 'promo_8w') && (
+      <div
+        className={profileLayout
+          ? 'sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 -mx-1 rounded-2xl border border-rose-100 bg-[#fffaf5]/95 p-2 shadow-lg backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none'
+          : ''}
+      >
+        <div className="grid grid-cols-3 gap-2">
           <ActionButton
-            icon={preparingPromotion
-              ? <LoaderCircle size={15} className="animate-spin" />
-              : <Gift size={15} />}
-            label={retentionStage === 'promo_6w' ? 'Send 6-week offer' : 'Send 8-week offer'}
-            disabled={preparingPromotion !== null}
-            onClick={() => void preparePromotion(retentionStage)}
-          />
-        )}
-        <ActionButton
-          icon={preparingKind === 'appointment_reminder'
-            ? <LoaderCircle size={15} className="animate-spin" />
-            : <Bell size={15} />}
-          label="Send reminder"
-          disabled={!upcomingAppointment || preparingKind !== null}
-          title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
-          onClick={() => void openAppointmentDraft('appointment_reminder', 'Appointment reminder')}
-        />
-        <ActionButton
-          icon={preparingKind === 'appointment_details'
-            ? <LoaderCircle size={15} className="animate-spin" />
-            : <ClipboardList size={15} />}
-          label="Appointment details"
-          disabled={!upcomingAppointment || preparingKind !== null}
-          title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
-          onClick={() => void openAppointmentDraft('appointment_details', 'Appointment details')}
-        />
-        <ActionButton
-          icon={<MapPin size={15} />}
-          label="Directions"
-          onClick={() => openDraft('directions', 'Directions', null)}
-        />
-        <div className="col-span-2 grid grid-cols-2 gap-2 sm:col-span-3">
-          <ActionButton
-            icon={<Smile size={15} />}
-            label="Happy?"
-            disabled={completedAppointmentCount < 1}
-            title={completedAppointmentCount < 1 ? 'Available after a completed appointment' : undefined}
-            onClick={() => openDraft('satisfaction', 'Satisfaction question', null)}
+            icon={<CalendarPlus size={15} />}
+            label="Book"
+            onClick={onBookAppointment}
+            testId="client-book-appointment"
           />
           <ActionButton
-            icon={<Star size={15} />}
-            label="Google review"
-            disabled={reviewDisabled || supportLoading}
-            title={reviewDisabledTitle}
-            onClick={() => openDraft('google_review', 'Google review request', null)}
+            icon={<MessageCircle size={15} />}
+            label="Text"
+            onClick={() => openDraft('text', 'Text', null)}
+          />
+          <ActionButton
+            icon={<Phone size={15} />}
+            label="Call"
+            onClick={() => onOpenNativeUrl(`tel:${normalizePhone(client.phone)}`)}
           />
         </div>
-        <ActionButton
-          icon={<CalendarPlus size={15} />}
-          label="Book for client"
-          onClick={onBookAppointment}
-          testId="client-book-appointment"
-        />
+
+        <details className="mt-2 rounded-2xl border border-stone-200 bg-white/90 p-2 text-left">
+          <summary className="min-h-11 cursor-pointer p-2 text-sm font-semibold text-stone-700">
+            More actions
+          </summary>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <ActionButton
+              icon={<RotateCcw size={15} />}
+              label="Rebooking text"
+              onClick={() => openDraft(
+                'rebook',
+                'Rebook request',
+                toSmsAppointment(lastCompletedAppointment),
+              )}
+            />
+            {(retentionStage === 'promo_6w' || retentionStage === 'promo_8w') && (
+              <ActionButton
+                icon={preparingPromotion
+                  ? <LoaderCircle size={15} className="animate-spin" />
+                  : <Gift size={15} />}
+                label={retentionStage === 'promo_6w' ? 'Send 6-week offer' : 'Send 8-week offer'}
+                disabled={preparingPromotion !== null}
+                onClick={() => void preparePromotion(retentionStage)}
+              />
+            )}
+            <ActionButton
+              icon={preparingKind === 'appointment_reminder'
+                ? <LoaderCircle size={15} className="animate-spin" />
+                : <Bell size={15} />}
+              label="Send reminder"
+              disabled={!upcomingAppointment || preparingKind !== null}
+              title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
+              onClick={() => void openAppointmentDraft('appointment_reminder', 'Appointment reminder')}
+            />
+            <ActionButton
+              icon={preparingKind === 'appointment_details'
+                ? <LoaderCircle size={15} className="animate-spin" />
+                : <ClipboardList size={15} />}
+              label="Appointment details"
+              disabled={!upcomingAppointment || preparingKind !== null}
+              title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
+              onClick={() => void openAppointmentDraft('appointment_details', 'Appointment details')}
+            />
+            <ActionButton
+              icon={<MapPin size={15} />}
+              label="Directions"
+              onClick={() => openDraft('directions', 'Directions', null)}
+            />
+            <ActionButton
+              icon={<Smile size={15} />}
+              label="Satisfaction text"
+              disabled={completedAppointmentCount < 1}
+              title={completedAppointmentCount < 1 ? 'Available after a completed appointment' : undefined}
+              onClick={() => openDraft('satisfaction', 'Satisfaction question', null)}
+            />
+            <ActionButton
+              icon={<Star size={15} />}
+              label="Google review"
+              disabled={reviewDisabled || supportLoading}
+              title={reviewDisabledTitle}
+              onClick={() => openDraft('google_review', 'Google review request', null)}
+            />
+          </div>
+        </details>
       </div>
 
       {completedAppointmentCount > 0 && (
@@ -1028,43 +1045,45 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      <details className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 text-left">
-        <summary className="cursor-pointer text-sm font-semibold text-stone-800">
-          Communication history
-          {history.length > 0 ? ` (${history.length})` : ''}
-        </summary>
-        {history.length === 0
-          ? (
-              <p className="mt-2 text-xs text-stone-500">No outreach has been recorded yet.</p>
-            )
-          : (
-              <ol className="mt-3 space-y-2" data-testid="client-communication-history">
-                {history.map(item => (
-                  <li key={item.id} className="rounded-xl bg-white px-3 py-2 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-xs font-semibold text-stone-800">
-                        {HISTORY_KIND_LABELS[item.kind] ?? item.kind}
-                      </span>
-                      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-600">
-                        {HISTORY_STATUS_LABELS[item.status] ?? item.status}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-stone-500">
-                      {new Date(item.updatedAt || item.createdAt).toLocaleString('en-CA', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                      {item.status === 'snoozed' && item.snoozedUntil
-                        ? ` · until ${new Date(item.snoozedUntil).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}`
-                        : ''}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
-      </details>
+      {showHistory && (
+        <details className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 text-left" open={profileLayout}>
+          <summary className="cursor-pointer text-sm font-semibold text-stone-800">
+            Communication history
+            {history.length > 0 ? ` (${history.length})` : ''}
+          </summary>
+          {history.length === 0
+            ? (
+                <p className="mt-2 text-xs text-stone-500">No outreach has been recorded yet.</p>
+              )
+            : (
+                <ol className="mt-3 space-y-2" data-testid="client-communication-history">
+                  {history.map(item => (
+                    <li key={item.id} className="rounded-xl bg-white px-3 py-2 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs font-semibold text-stone-800">
+                          {HISTORY_KIND_LABELS[item.kind] ?? item.kind}
+                        </span>
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-600">
+                          {HISTORY_STATUS_LABELS[item.status] ?? item.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-stone-500">
+                        {new Date(item.updatedAt || item.createdAt).toLocaleString('en-CA', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                        {item.status === 'snoozed' && item.snoozedUntil
+                          ? ` · until ${new Date(item.snoozedUntil).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}`
+                          : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+        </details>
+      )}
     </div>
   );
 }

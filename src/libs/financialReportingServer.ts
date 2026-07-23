@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import {
   type AnalyticsDateRange,
@@ -69,6 +69,11 @@ export type FinancialReportingRangeSummaryInput = FinancialReportingRange & {
 export type FinancialBalanceSummaryInput = {
   salonId: string;
   asOf?: Date;
+  /**
+   * Optional normalized/legacy phone variants for one tenant-scoped client.
+   * The salon predicate remains mandatory and authoritative.
+   */
+  clientPhoneVariants?: string[];
 };
 
 export type CurrentFinancialReportingSummariesInput = {
@@ -213,6 +218,9 @@ export async function getFinancialBalanceSummary(
   input: FinancialBalanceSummaryInput,
 ): Promise<FinancialBalanceSummary> {
   assertSalonId(input.salonId);
+  if (input.clientPhoneVariants && input.clientPhoneVariants.length === 0) {
+    throw new TypeError('clientPhoneVariants must not be empty when provided');
+  }
   const asOf = input.asOf ?? new Date();
   assertValidDate(asOf, 'asOf');
 
@@ -326,7 +334,12 @@ export async function getFinancialBalanceSummary(
         )::int`,
     })
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.salonId, input.salonId));
+    .where(and(
+      eq(appointmentSchema.salonId, input.salonId),
+      input.clientPhoneVariants
+        ? inArray(appointmentSchema.clientPhone, input.clientPhoneVariants)
+        : undefined,
+    ));
 
   const aggregate = rows[0];
   const completedOutstandingProvenance = buildReportingProvenance({

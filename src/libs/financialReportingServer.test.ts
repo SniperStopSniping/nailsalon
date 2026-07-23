@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -353,6 +354,42 @@ describe('financial balance aggregation', () => {
     // the real debt from another appointment in the salon aggregate.
     expect(summary.completedOutstandingCents).toBe(12040);
     expect(summary.upcomingBalanceCents).toBe(9000);
+  });
+
+  it('can scope completed outstanding to one client without weakening tenant scope', async () => {
+    await testDb.insert(schema.appointmentSchema).values({
+      id: 'report_same_salon_other_client',
+      salonId: SALON_ID,
+      clientPhone: '4165550711',
+      startTime: new Date('2026-07-12T16:00:00.000Z'),
+      endTime: new Date('2026-07-12T17:00:00.000Z'),
+      totalPrice: 7000,
+      finalPriceCents: 7000,
+      amountPaidCents: 0,
+      paymentStatus: 'pending',
+      status: 'completed',
+      totalDurationMinutes: 60,
+    });
+
+    try {
+      const primaryClient = await getFinancialBalanceSummary({
+        salonId: SALON_ID,
+        asOf: NOW,
+        clientPhoneVariants: ['4165550700', '+14165550700'],
+      });
+      const otherClient = await getFinancialBalanceSummary({
+        salonId: SALON_ID,
+        asOf: NOW,
+        clientPhoneVariants: ['4165550711'],
+      });
+
+      expect(primaryClient.completedOutstandingCents).toBe(12040);
+      expect(otherClient.completedOutstandingCents).toBe(7000);
+    } finally {
+      await testDb
+        .delete(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, 'report_same_salon_other_client'));
+    }
   });
 });
 
