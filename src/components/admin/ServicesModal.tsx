@@ -401,6 +401,10 @@ function AddServiceDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stagedPreviewUrlRef = useRef<string | null>(null);
   const submitInFlightRef = useRef(false);
+  const imageEditSessionServiceIdRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  const imageOperationExpectedUrlRef = useRef<string | null>(null);
   const saving = savePhase !== 'idle';
 
   const clearStagedImage = useCallback(() => {
@@ -419,6 +423,25 @@ function AddServiceDialog({
     clearStagedImage();
     setImageIntent('keep');
     setImageError(null);
+
+    if (!isOpen) {
+      imageEditSessionServiceIdRef.current = undefined;
+      imageOperationExpectedUrlRef.current = null;
+    } else {
+      const sessionServiceId = service?.id ?? null;
+
+      // Keep staged image work bound to the image observed when this editor
+      // session opened. A details PATCH may return a newer image written by
+      // another tab; that newer URL must not become this request's deletion
+      // or replacement target.
+      if (
+        imageEditSessionServiceIdRef.current === undefined
+        || imageEditSessionServiceIdRef.current !== sessionServiceId
+      ) {
+        imageEditSessionServiceIdRef.current = sessionServiceId;
+        imageOperationExpectedUrlRef.current = service?.imageUrl ?? null;
+      }
+    }
 
     if (isOpen && service) {
       setName(service.name);
@@ -821,7 +844,7 @@ function AddServiceDialog({
             imageUrl: service?.imageUrl ?? null,
           };
 
-      const expectedImageUrl = savedService.imageUrl;
+      const expectedImageUrl = imageOperationExpectedUrlRef.current;
       let finalService = savedService;
 
       try {

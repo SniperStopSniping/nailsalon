@@ -30,6 +30,8 @@ type MockRoutes = {
     serviceLibraryIntroDismissed?: boolean;
   };
   createdService?: Record<string, unknown>;
+  patchedService?: Record<string, unknown>;
+  servicesAfterRefresh?: unknown[];
   ownedTemplateKeys?: string[];
   addOns?: unknown[];
   activeTechnicianCount?: number;
@@ -43,10 +45,12 @@ type MockRoutes = {
   imageStrategy?: 'cloudinary' | 'local';
   imageResultService?: Record<string, unknown>;
   imageFailureAt?: 'presign' | 'upload' | 'finalize' | 'delete';
+  imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
+  let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith('/image/presign') && init?.method === 'POST') {
@@ -81,6 +85,12 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
       return new Response(JSON.stringify({ result: 'ok' }), { status: 200 });
     }
     if (/\/api\/salon\/services\/[^/]+\/image(?:\?|$)/.test(url)) {
+      if (init?.method === 'DELETE' && imageDeleteFailure) {
+        return new Response(
+          JSON.stringify({ error: { message: imageDeleteFailure.message } }),
+          { status: imageDeleteFailure.status },
+        );
+      }
       if (init?.method === 'DELETE' && imageFailureAt === 'delete') {
         return new Response(JSON.stringify({ error: { message: 'Image removal failed' } }), { status: 500 });
       }
@@ -149,7 +159,14 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
       const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
       const { salonSlug: _salonSlug, ...serviceFields } = submitted;
       return new Response(
-        JSON.stringify({ data: { service: { id: decodeURIComponent(url.split('/').pop()!), ...serviceFields } } }),
+        JSON.stringify({
+          data: {
+            service: patchedService ?? {
+              id: decodeURIComponent(url.split('/').pop()!),
+              ...serviceFields,
+            },
+          },
+        }),
         { status: 200 },
       );
     }
@@ -157,7 +174,16 @@ function mockRoutes({ services = [], merchandising = {}, createdService, ownedTe
       if (init?.method === 'POST') {
         return new Response(JSON.stringify({ data: { service: createdService ?? {} } }), { status: 201 });
       }
-      return new Response(JSON.stringify({ data: { services, activeTechnicianCount } }), { status: 200 });
+      serviceListCalls += 1;
+      const servicePayload
+        = servicesAfterRefresh && serviceListCalls > 1
+          ? servicesAfterRefresh
+          : services;
+
+      return new Response(
+        JSON.stringify({ data: { services: servicePayload, activeTechnicianCount } }),
+        { status: 200 },
+      );
     }
     throw new Error(`Unexpected fetch: ${url}`);
   });
@@ -1195,6 +1221,68 @@ describe('ServicesModal — service image controls', () => {
 
     expect(detailSaveIndex).toBeGreaterThanOrEqual(0);
     expect(deleteIndex).toBeGreaterThan(detailSaveIndex);
+  });
+
+  it('keeps a staged removal bound to the image observed before a concurrent replacement', async () => {
+    const concurrentlyReplacedService = {
+      ...serviceWithImage,
+      imageUrl: 'https://res.cloudinary.com/demo/image/upload/v2/latest.webp',
+    };
+
+    mockRoutes({
+      services: [serviceWithImage],
+      servicesAfterRefresh: [concurrentlyReplacedService],
+      patchedService: concurrentlyReplacedService,
+      merchandising: { lusterPromoDismissed: true },
+      imageDeleteFailure: {
+        status: 409,
+        message: 'The service image changed. Refresh and try again.',
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    fireEvent.click(await screen.findByText('Gel Manicure'));
+    fireEvent.click(await screen.findByTestId('service-detail-edit'));
+
+    // Tab A stages removal of U. The mocked details PATCH then reflects Tab
+    // B's already-committed replacement V.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Service' }));
+
+    const notice = await screen.findByTestId('service-operation-notice');
+
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(notice).toHaveTextContent(
+      'Service details were saved, but the image could not be updated. Open Edit Service to try the image again.',
+    );
+
+    const deleteCall = findCall((url, init) =>
+      url.startsWith('/api/salon/services/svc_image/image?')
+      && init?.method === 'DELETE')!;
+    const deleteUrl = new URL(String(deleteCall[0]), 'http://localhost');
+
+    expect(deleteUrl.searchParams.get('expectedImageUrl')).toBe(
+      serviceWithImage.imageUrl,
+    );
+    expect(deleteUrl.searchParams.get('expectedImageUrl')).not.toBe(
+      concurrentlyReplacedService.imageUrl,
+    );
+
+    await waitFor(() => {
+      const serviceListCalls = fetchMock.mock.calls.filter(([input, init]) =>
+        String(input).startsWith('/api/salon/services?')
+        && !(init as RequestInit | undefined)?.method);
+
+      expect(serviceListCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // The details response and subsequent list refresh both preserve V.
+    fireEvent.click(await screen.findByTestId('service-detail-edit'));
+
+    expect(screen.getByTestId('service-image-preview')).toHaveAttribute(
+      'src',
+      concurrentlyReplacedService.imageUrl,
+    );
   });
 
   it('saves an Edit Service replacement through the local development strategy after the details PATCH', async () => {
