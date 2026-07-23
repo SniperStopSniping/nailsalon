@@ -142,12 +142,23 @@ vi.mock('@/components/ui/workspace-page-header', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  searchParamGet.mockImplementation(
+    (key: string) => (key === 'salon' ? 'salon-b' : null),
+  );
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('scrollTo', vi.fn());
 });
 
 describe('AdminDashboardPage', () => {
-  it('syncs the selected salon without a hard reload and fetches analytics for the requested salon', async () => {
+  it('syncs salons without a hard reload and loads analytics only after its surface opens', async () => {
+    let requestedApp: string | null = null;
+    searchParamGet.mockImplementation((key: string) => {
+      if (key === 'salon') {
+        return 'salon-b';
+      }
+      return key === 'app' ? requestedApp : null;
+    });
+
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
@@ -207,7 +218,7 @@ describe('AdminDashboardPage', () => {
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
-    render(<AdminDashboardPage />);
+    const view = render(<AdminDashboardPage />);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
@@ -224,6 +235,21 @@ describe('AdminDashboardPage', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-b');
     });
+
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(fetchMock.mock.calls.some(([url]) =>
+      String(url).startsWith('/api/admin/analytics?'),
+    )).toBe(false);
+
+    const latestTodayProps = ownerTodayWorkspaceSpy.mock.calls.at(-1)?.[0] as
+      Record<string, unknown>;
+
+    expect(latestTodayProps).not.toHaveProperty('financials');
+    expect(latestTodayProps).not.toHaveProperty('onRefreshReporting');
+
+    requestedApp = 'analytics';
+    view.rerender(<AdminDashboardPage />);
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) =>
@@ -491,6 +517,12 @@ describe('AdminDashboardPage', () => {
 
   it('downgrades to the disabled state when analytics returns a gated 403', async () => {
     let analyticsRequests = 0;
+    searchParamGet.mockImplementation((key: string) => {
+      if (key === 'salon') {
+        return 'salon-b';
+      }
+      return key === 'app' ? 'analytics' : null;
+    });
 
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);

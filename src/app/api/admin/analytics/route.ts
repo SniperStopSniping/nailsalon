@@ -1,12 +1,23 @@
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
-import { getAnalyticsDateRange } from '@/libs/analyticsDateRange';
+import {
+  getAnalyticsDateRange,
+  getAnalyticsToDateRange,
+} from '@/libs/analyticsDateRange';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { revenueCentsSql } from '@/libs/revenueSql';
+import { serializeFinancialPeriodSummary } from '@/libs/financialReportingSerializer';
+import {
+  getCurrentFinancialReportingSummaries,
+  getFinancialReportingRangeSummary,
+} from '@/libs/financialReportingServer';
+import {
+  completedAppointmentRevenueCentsSql,
+} from '@/libs/revenueSql';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -123,48 +134,57 @@ export async function GET(request: Request): Promise<Response> {
       return moduleGuard;
     }
 
-    const salonTimeZone = resolveBookingConfigFromSettings(
+    const bookingConfig = resolveBookingConfigFromSettings(
       (salon.settings as Parameters<typeof resolveBookingConfigFromSettings>[0]) ?? null,
-    ).timezone;
-    const { start, end, previousStart, previousEnd } = getAnalyticsDateRange(period, salonTimeZone, anchor);
+    );
+    const salonTimeZone = bookingConfig.timezone;
+    const now = new Date();
+    const currentDateKey = getDateKeyInTimeZone(now, salonTimeZone);
+    const isCurrentPeriod = !anchor || anchor === currentDateKey;
+    const fullDateRange = getAnalyticsDateRange(period, salonTimeZone, anchor);
+    const reportDateRange = isCurrentPeriod
+      ? getAnalyticsToDateRange(period, salonTimeZone, now)
+      : fullDateRange;
+    const { start, end, previousStart, previousEnd } = reportDateRange;
+    const currentFinancialsPromise = getCurrentFinancialReportingSummaries({
+      salonId: salon.id,
+      timeZone: salonTimeZone,
+      now,
+    });
+    const selectedFinancialSummaryPromise
+      = isCurrentPeriod && period !== 'yearly'
+        ? currentFinancialsPromise.then((summaries) => {
+          if (period === 'daily') {
+            return summaries.today;
+          }
+          return period === 'weekly'
+            ? summaries.weekToDate
+            : summaries.monthToDate;
+        })
+        : getFinancialReportingRangeSummary({
+          salonId: salon.id,
+          start,
+          end,
+        });
+    const previousFinancialSummaryPromise
+      = getFinancialReportingRangeSummary({
+        salonId: salon.id,
+        start: previousStart,
+        end: previousEnd,
+      });
 
     const [
-      currentRevenueResult,
-      previousRevenueResult,
+      selectedFinancialSummary,
+      previousFinancialSummary,
+      currentFinancials,
       appointmentStats,
       staffPerformance,
       serviceMix,
       revenueRows,
     ] = await Promise.all([
-      db
-        .select({
-          total: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
-          tips: sql<number>`COALESCE(sum(${appointmentSchema.tipCents}), 0)::int`,
-          taxCollected: sql<number>`COALESCE(sum(${appointmentSchema.taxAmountCents}), 0)::int`,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            eq(appointmentSchema.salonId, salon.id),
-            eq(appointmentSchema.status, 'completed'),
-            gte(appointmentSchema.startTime, start),
-            lt(appointmentSchema.startTime, end),
-          ),
-        ),
-      db
-        .select({
-          total: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            eq(appointmentSchema.salonId, salon.id),
-            eq(appointmentSchema.status, 'completed'),
-            gte(appointmentSchema.startTime, previousStart),
-            lt(appointmentSchema.startTime, previousEnd),
-          ),
-        ),
+      selectedFinancialSummaryPromise,
+      previousFinancialSummaryPromise,
+      currentFinancialsPromise,
       db
         .select({
           total: sql<number>`count(*)::int`,
@@ -176,8 +196,9 @@ export async function GET(request: Request): Promise<Response> {
         .where(
           and(
             eq(appointmentSchema.salonId, salon.id),
-            gte(appointmentSchema.startTime, start),
-            lt(appointmentSchema.startTime, end),
+            isNull(appointmentSchema.deletedAt),
+            gte(appointmentSchema.startTime, fullDateRange.start),
+            lt(appointmentSchema.startTime, fullDateRange.end),
           ),
         ),
       db
@@ -186,7 +207,7 @@ export async function GET(request: Request): Promise<Response> {
           name: technicianSchema.name,
           role: technicianSchema.role,
           avatarUrl: technicianSchema.avatarUrl,
-          revenue: sql<number>`COALESCE(sum(${revenueCentsSql()}), 0)::int`,
+          revenue: sql<number>`COALESCE(sum(${completedAppointmentRevenueCentsSql()}), 0)::int`,
           appointmentCount: sql<number>`count(${appointmentSchema.id})::int`,
         })
         .from(technicianSchema)
@@ -194,7 +215,9 @@ export async function GET(request: Request): Promise<Response> {
           appointmentSchema,
           and(
             eq(appointmentSchema.technicianId, technicianSchema.id),
+            eq(appointmentSchema.salonId, salon.id),
             eq(appointmentSchema.status, 'completed'),
+            isNull(appointmentSchema.deletedAt),
             gte(appointmentSchema.startTime, start),
             lt(appointmentSchema.startTime, end),
           ),
@@ -206,7 +229,7 @@ export async function GET(request: Request): Promise<Response> {
           ),
         )
         .groupBy(technicianSchema.id)
-        .orderBy(sql`sum(${revenueCentsSql()}) DESC NULLS LAST`)
+        .orderBy(sql`sum(${completedAppointmentRevenueCentsSql()}) DESC NULLS LAST`)
         .limit(5),
       db
         .select({
@@ -221,9 +244,10 @@ export async function GET(request: Request): Promise<Response> {
         .where(
           and(
             eq(appointmentSchema.salonId, salon.id),
+            isNull(appointmentSchema.deletedAt),
             inArray(appointmentSchema.status, ['completed', 'confirmed', 'pending']),
-            gte(appointmentSchema.startTime, start),
-            lt(appointmentSchema.startTime, end),
+            gte(appointmentSchema.startTime, fullDateRange.start),
+            lt(appointmentSchema.startTime, fullDateRange.end),
           ),
         )
         .groupBy(serviceSchema.id)
@@ -232,26 +256,36 @@ export async function GET(request: Request): Promise<Response> {
       db
         .select({
           startTime: appointmentSchema.startTime,
-          totalPrice: sql<number>`${revenueCentsSql()}::int`,
+          totalPrice: sql<number>`${completedAppointmentRevenueCentsSql()}::int`,
         })
         .from(appointmentSchema)
         .where(
           and(
             eq(appointmentSchema.salonId, salon.id),
             eq(appointmentSchema.status, 'completed'),
+            isNull(appointmentSchema.deletedAt),
             gte(appointmentSchema.startTime, start),
             lt(appointmentSchema.startTime, end),
           ),
         ),
     ]);
 
-    const revenueSeries = buildRevenueSeries(revenueRows, start, end, period);
+    const revenueSeries = buildRevenueSeries(
+      revenueRows,
+      fullDateRange.start,
+      fullDateRange.end,
+      period,
+    );
 
-    const currentRevenue = currentRevenueResult[0]?.total ?? 0;
-    const previousRevenue = previousRevenueResult[0]?.total ?? 0;
+    const currentRevenue
+      = selectedFinancialSummary.completedAppointmentRevenueCents;
+    const previousRevenue
+      = previousFinancialSummary.completedAppointmentRevenueCents;
+    const currentProvenance = selectedFinancialSummary.provenance;
+    const revenueTrendAvailable = previousRevenue > 0;
     const revenueTrend = previousRevenue > 0
       ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
-      : currentRevenue > 0 ? 100 : 0;
+      : 0;
 
     // Calculate utilization (appointments as percentage of capacity)
     // Assume 8 hours per day, 1 appointment = 1 hour average
@@ -294,10 +328,13 @@ export async function GET(request: Request): Promise<Response> {
       data: {
         revenue: {
           total: currentRevenue,
-          tips: currentRevenueResult[0]?.tips ?? 0,
-          taxCollected: currentRevenueResult[0]?.taxCollected ?? 0,
+          tips: selectedFinancialSummary.tipsCents,
+          taxCollected: selectedFinancialSummary.taxCents,
+          discounts: selectedFinancialSummary.discountsCents,
+          provenance: currentProvenance,
           trend: revenueTrend,
-          completed: currentRevenueResult[0]?.count ?? 0,
+          trendAvailable: revenueTrendAvailable,
+          completed: selectedFinancialSummary.completedAppointmentCount,
           series: revenueSeries,
         },
         appointments: {
@@ -309,9 +346,57 @@ export async function GET(request: Request): Promise<Response> {
         staff: staffWithUtilization,
         services: formattedServiceMix,
         period,
+        currency: bookingConfig.currency,
+        timeZone: salonTimeZone,
+        financials: {
+          currency: bookingConfig.currency,
+          timeZone: salonTimeZone,
+          asOf: currentFinancials.generatedAt.toISOString(),
+          selectedPeriod: serializeFinancialPeriodSummary(
+            selectedFinancialSummary,
+            salonTimeZone,
+            isCurrentPeriod,
+          ),
+          previousPeriod: serializeFinancialPeriodSummary(
+            previousFinancialSummary,
+            salonTimeZone,
+            isCurrentPeriod,
+          ),
+          currentPeriods: {
+            today: serializeFinancialPeriodSummary(
+              currentFinancials.today,
+              salonTimeZone,
+              true,
+            ),
+            weekToDate: serializeFinancialPeriodSummary(
+              currentFinancials.weekToDate,
+              salonTimeZone,
+              true,
+            ),
+            monthToDate: serializeFinancialPeriodSummary(
+              currentFinancials.monthToDate,
+              salonTimeZone,
+              true,
+            ),
+          },
+          balances: {
+            completedOutstandingCents:
+              currentFinancials.balances.completedOutstandingCents,
+            upcomingBalanceCents:
+              currentFinancials.balances.upcomingBalanceCents,
+            completed:
+              currentFinancials.balances.completedOutstandingProvenance,
+            upcomingAppointmentCount:
+              currentFinancials.balances.upcomingAppointmentCount,
+            unresolvedUpcomingAppointmentCount:
+              currentFinancials.balances.unresolvedUpcomingAppointmentCount,
+            asOf: currentFinancials.balances.asOf.toISOString(),
+          },
+          depositDue: currentFinancials.balances.depositDue,
+        },
         dateRange: {
-          start: start.toISOString(),
-          end: end.toISOString(),
+          start: fullDateRange.start.toISOString(),
+          end: fullDateRange.end.toISOString(),
         },
       },
     });

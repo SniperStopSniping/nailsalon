@@ -1,4 +1,7 @@
-import { AnalyticsWidgets, type TimePeriod } from '@/components/admin/AnalyticsWidgets';
+import {
+  AnalyticsWidgets,
+  type AnalyticsWidgetsProps,
+} from '@/components/admin/AnalyticsWidgets';
 import type { AppId } from '@/components/admin/AppGrid';
 import { AppModal } from '@/components/admin/AppModal';
 import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
@@ -15,7 +18,6 @@ import { SettingsModal } from '@/components/admin/SettingsModal';
 import { StaffModal } from '@/components/admin/StaffModal';
 import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
-import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 
 type PromotionSettingsStage = Extract<
@@ -23,35 +25,10 @@ type PromotionSettingsStage = Extract<
   'promo_6w' | 'promo_8w'
 >;
 
-type AnalyticsWidgetProps = {
-  revenue: number;
-  revenueTrend: number;
-  staffData: Array<{
-    id: number;
-    name: string;
-    role: string;
-    revenue: string;
-    avatarColor: string;
-  }>;
-  utilization: Array<{
-    name: string;
-    percent: number;
-    color: string;
-  }>;
-  services: Array<{
-    label: string;
-    percent: number;
-    color: string;
-  }>;
-  timePeriod: TimePeriod;
-  onTimePeriodChange: (period: TimePeriod) => void;
-  dateRange?: AnalyticsResponse['dateRange'];
-  anchorDate: string;
-  onPrev: () => void;
-  onNext: () => void;
-  onToday: () => void;
-  onAnchorChange: (anchor: string) => void;
-};
+type AnalyticsWidgetProps = Omit<
+  AnalyticsWidgetsProps,
+  'salonSlug' | 'onOpenSmartFitSettings'
+>;
 
 type AdminModalHostProps = {
   activeModal: AppId | null;

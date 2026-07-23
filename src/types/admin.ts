@@ -5,10 +5,36 @@
  * Keeps UI and API response shapes in sync.
  */
 
+import type { ReportingProvenance } from '@/libs/financialReporting';
 import type { AppointmentStatus } from '@/models/Schema';
 
 // Re-export so UI can import from here
 export type { AppointmentStatus };
+
+export type FinancialPeriodSummary = {
+  completedAppointmentRevenueCents: number;
+  cashCollectedCents: number;
+  discountsCents: number;
+  taxCents: number;
+  tipsCents: number;
+  completedAppointmentCount: number;
+  provenance: ReportingProvenance;
+  dateRange: {
+    start: string;
+    end: string;
+    timezone: string;
+    isToDate: boolean;
+  };
+};
+
+export type FinancialBalanceSummary = {
+  completedOutstandingCents: number;
+  upcomingBalanceCents: number;
+  completed: ReportingProvenance;
+  upcomingAppointmentCount: number;
+  unresolvedUpcomingAppointmentCount: number;
+  asOf: string;
+};
 
 /**
  * Response shape for GET /api/admin/analytics
@@ -19,7 +45,11 @@ export type AnalyticsResponse = {
     total: number; // cents — final (net-of-tax) revenue; comp appointments count 0
     tips: number; // cents — total tips for completed appointments in the period
     taxCollected: number; // cents — tax collected in the period, reported separately from revenue
+    discounts?: number; // cents — completed appointment discounts, reported separately
+    provenance?: ReportingProvenance;
     trend: number; // percentage change from previous period
+    /** False when the prior period is zero, so no percentage is meaningful. */
+    trendAvailable?: boolean;
     completed: number; // count of completed appointments
     series: number[]; // revenue in cents bucketed evenly across the period
   };
@@ -48,6 +78,27 @@ export type AnalyticsResponse = {
   dateRange: {
     start: string; // ISO date string
     end: string; // ISO date string
+  };
+  /** Additive canonical reporting metadata; optional for cached/legacy clients. */
+  currency?: string;
+  timeZone?: string;
+  financials?: {
+    currency: string;
+    timeZone: string;
+    asOf: string;
+    selectedPeriod: FinancialPeriodSummary;
+    previousPeriod: FinancialPeriodSummary;
+    currentPeriods: {
+      today: FinancialPeriodSummary;
+      weekToDate: FinancialPeriodSummary;
+      monthToDate: FinancialPeriodSummary;
+    };
+    balances: FinancialBalanceSummary;
+    depositDue: {
+      supported: false;
+      amountCents: null;
+      reason: string;
+    };
   };
 };
 

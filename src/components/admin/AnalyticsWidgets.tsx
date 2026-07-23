@@ -18,6 +18,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDownRight, ArrowUpRight, Calendar, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { formatMoney } from '@/libs/formatMoney';
+
 import { NestedRings, RingLegend } from './charts/ActivityRing';
 import { ChartLabels, RevenueChart } from './charts/RevenueChart';
 import { ServiceBars } from './charts/ServiceBars';
@@ -65,15 +67,19 @@ type AppointmentGlance = {
   upcoming: number;
 };
 
-type AnalyticsWidgetsProps = {
+export type AnalyticsWidgetsProps = {
   /** Today's appointment counts — shown in the "Today" glance strip */
   appointments?: AppointmentGlance;
   /** Total revenue amount */
   revenue?: number;
   /** Total tips for the period (cents) */
   tips?: number;
+  /** Salon-configured ISO currency code */
+  currency?: string;
   /** Revenue trend percentage */
   revenueTrend?: number;
+  /** Whether the previous period supports a meaningful percentage comparison */
+  revenueTrendAvailable?: boolean;
   /** Revenue per bucket across the period (cents) — drives the sparkline */
   revenueSeries?: number[];
   /** Staff performance data */
@@ -116,7 +122,8 @@ function computeDateRangeFromAnchor(anchorYmd: string, period: TimePeriod): { st
     case 'Weekly': {
       const dayOfWeek = anchor.getDay();
       const start = new Date(anchor);
-      start.setDate(anchor.getDate() - dayOfWeek);
+      const daysSinceMonday = (dayOfWeek + 6) % 7;
+      start.setDate(anchor.getDate() - daysSinceMonday);
       const end = new Date(start);
       end.setDate(start.getDate() + 6); // End of week (inclusive)
       return { start, end };
@@ -238,17 +245,6 @@ function TimeFilter({
   );
 }
 
-/**
- * Format currency from cents
- */
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(cents / 100);
-}
-
 // Stable empty array defaults (avoid recreating on every render)
 const EMPTY_STAFF: StaffMember[] = [];
 const EMPTY_UTILIZATION: Array<{ name: string; percent: number; color: string }> = [];
@@ -259,7 +255,9 @@ export function AnalyticsWidgets({
   appointments,
   revenue = 0,
   tips = 0,
+  currency = 'CAD',
   revenueTrend = 0,
+  revenueTrendAvailable = true,
   revenueSeries = EMPTY_SERIES,
   staffData = EMPTY_STAFF,
   utilization = EMPTY_UTILIZATION,
@@ -284,12 +282,15 @@ export function AnalyticsWidgets({
   // Animated values for revenue display
   const [displayRevenue, setDisplayRevenue] = useState(revenue);
   const [displayTrend, setDisplayTrend] = useState(revenueTrend);
+  const [displayTrendAvailable, setDisplayTrendAvailable]
+    = useState(revenueTrendAvailable);
 
   // Animate revenue changes
   useEffect(() => {
     setDisplayRevenue(revenue);
     setDisplayTrend(revenueTrend);
-  }, [revenue, revenueTrend]);
+    setDisplayTrendAvailable(revenueTrendAvailable);
+  }, [revenue, revenueTrend, revenueTrendAvailable]);
 
   const handlePeriodChange = (period: TimePeriod) => {
     if (onTimePeriodChange) {
@@ -482,7 +483,7 @@ export function AnalyticsWidgets({
           <div className="flex items-start justify-between">
             <div>
               <div className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
-                Total Revenue
+                Completed appointment revenue
               </div>
               <AnimatePresence mode="wait">
                 <motion.div
@@ -493,36 +494,51 @@ export function AnalyticsWidgets({
                   transition={{ duration: 0.2 }}
                   className="mt-1 text-[34px] font-semibold tracking-tight text-[#1C1C1E]"
                 >
-                  {formatCurrency(displayRevenue)}
+                  {formatMoney(displayRevenue, currency)}
                 </motion.div>
               </AnimatePresence>
               {tips > 0 && (
                 <div className="mt-1 text-[13px] font-medium text-[#8E8E93]">
-                  {formatCurrency(tips)}
+                  {formatMoney(tips, currency)}
                   {' '}
                   in tips
                 </div>
               )}
             </div>
             <AnimatePresence mode="wait">
-              <motion.div
-                key={`${displayTrend}-${isTrendPositive}`}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={{ duration: 0.2 }}
-                className={`${isTrendPositive ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} flex items-center rounded-full px-2 py-1 text-[12px] font-bold`}
-              >
-                {isTrendPositive
-                  ? (
-                      <ArrowUpRight className="mr-1 size-3" />
-                    )
-                  : (
-                      <ArrowDownRight className="mr-1 size-3" />
-                    )}
-                {Math.abs(displayTrend)}
-                %
-              </motion.div>
+              {displayTrendAvailable
+                ? (
+                    <motion.div
+                      key={`${displayTrend}-${isTrendPositive}`}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ duration: 0.2 }}
+                      className={`${isTrendPositive ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} flex items-center rounded-full px-2 py-1 text-[12px] font-bold`}
+                    >
+                      {isTrendPositive
+                        ? (
+                            <ArrowUpRight className="mr-1 size-3" />
+                          )
+                        : (
+                            <ArrowDownRight className="mr-1 size-3" />
+                          )}
+                      {Math.abs(displayTrend)}
+                      %
+                    </motion.div>
+                  )
+                : (
+                    <motion.div
+                      key="trend-unavailable"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ duration: 0.2 }}
+                      className="rounded-full bg-stone-100 px-2 py-1 text-[12px] font-semibold text-stone-500"
+                    >
+                      No prior data
+                    </motion.div>
+                  )}
             </AnimatePresence>
           </div>
           <RevenueChart data={revenueSeries} />
