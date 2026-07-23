@@ -127,19 +127,19 @@ describe('ClientCommunicationActions', () => {
     });
   });
 
-  it('exposes all client actions and keeps Happy and Google review side by side', async () => {
+  it('keeps Book, Text, and Call primary while preserving lower-frequency actions', async () => {
     renderActions();
 
     for (const label of [
       'Call',
       'Text',
-      'Rebook',
+      'Rebooking text',
       'Send reminder',
       'Appointment details',
       'Directions',
-      'Happy?',
+      'Satisfaction text',
       'Google review',
-      'Book for client',
+      'Book',
     ]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
@@ -383,7 +383,7 @@ describe('ClientCommunicationActions', () => {
     renderActions({ completedAppointmentCount: 0 });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
-    expect(screen.getByRole('button', { name: 'Happy?' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Satisfaction text' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Google review' })).toBeDisabled();
   });
 

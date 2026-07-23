@@ -165,6 +165,8 @@ function buildDetailResponse(overrides?: Partial<{
   upcomingAppointments: Array<Record<string, unknown>>;
   pastAppointments: Array<Record<string, unknown>>;
   recentIssues: Array<Record<string, unknown>>;
+  summary: Record<string, unknown>;
+  submittedPreferences: Record<string, unknown> | null;
 }>) {
   return {
     data: {
@@ -206,6 +208,24 @@ function buildDetailResponse(overrides?: Partial<{
         totalPrice: 8200,
         technician: { id: 'tech_2', name: 'Mila', avatarUrl: null },
         services: [{ id: 'svc_pedicure', name: 'Classic Pedicure', price: 8200 }],
+        addOns: [{ id: 'addon_art', name: 'Nail art', quantity: 1, lineTotalCents: 1200 }],
+        financial: {
+          completedValueCents: 10000,
+          source: 'finalized',
+          discountCents: 0,
+          taxCents: 0,
+          tipsCents: 0,
+          paymentsReceivedCents: 4000,
+          payments: [{
+            id: 'payment_1',
+            amountCents: 4000,
+            method: 'cash',
+            recordedAt: '2026-03-10T15:00:00.000Z',
+          }],
+          paymentStatus: 'partially_paid',
+          completedOutstandingCents: 6000,
+          balanceState: 'completed_outstanding',
+        },
         notes: null,
       }],
       recentIssues: overrides?.recentIssues ?? [{
@@ -218,6 +238,38 @@ function buildDetailResponse(overrides?: Partial<{
         services: [{ id: 'svc_builder_fill', name: 'Builder Gel Fill', price: 9900 }],
         notes: 'Did not arrive',
       }],
+      summary: overrides?.summary ?? {
+        currency: 'CAD',
+        timeZone: 'America/Toronto',
+        lifetimeSpendCents: 45500,
+        spendThisMonthCents: 10000,
+        completedOutstandingCents: 6000,
+        completedVisits: 6,
+        mostBookedService: { id: 'svc_pedicure', name: 'Classic Pedicure', count: 3 },
+        rebooking: { status: 'overdue', dueAt: '2026-03-31T14:00:00.000Z' },
+        provenance: {
+          lifetimeSpend: { mode: 'mixed', unresolvedAppointmentCount: 0, isEstimated: true },
+          spendThisMonth: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+          completedOutstanding: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+        },
+      },
+      submittedPreferences: overrides?.submittedPreferences ?? {
+        favoriteTechnician: { id: 'tech_2', name: 'Mila', avatarUrl: null },
+        favoriteServices: ['svc_pedicure'],
+        nailShape: 'almond',
+        nailLength: 'short',
+        finishes: ['glossy'],
+        colorFamilies: ['nude'],
+        preferredBrands: ['Luster Gel'],
+        sensitivities: ['HEMA-free'],
+        musicPreference: 'soft',
+        conversationLevel: 'quiet',
+        beveragePreference: ['tea'],
+        techNotes: null,
+        appointmentNotes: null,
+        updatedAt: '2026-03-01T00:00:00.000Z',
+      },
+      photos: [],
     },
   };
 }
@@ -453,6 +505,7 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
     expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
     expect(screen.getByText('Completed appointments')).toBeInTheDocument();
@@ -463,6 +516,7 @@ describe('ClientsModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Clients' }));
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
     expect(await screen.findByText('Completed appointments')).toBeInTheDocument();
     expect(detailFetchCount).toBe(1);
@@ -470,7 +524,54 @@ describe('ClientsModal', () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100')).toHaveLength(1);
   });
 
-  it('saves notes and preferred artist changes, then reloads persisted values', async () => {
+  it('separates completed value, recorded payments, and completed outstanding', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    expect(await screen.findByText('Lifetime spend')).toBeInTheDocument();
+    expect(screen.getByText('Spend this month')).toBeInTheDocument();
+    expect(screen.getByText('Completed outstanding')).toBeInTheDocument();
+    expect(screen.getAllByText('$100.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+
+    expect(await screen.findByText(/Completed appointment value and recorded payments are separate/)).toBeInTheDocument();
+    expect(screen.getByText('Received')).toBeInTheDocument();
+    expect(screen.getByText('$40.00')).toBeInTheDocument();
+    expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Notes & Photos' }));
+
+    expect(screen.getByLabelText('Private notes')).toHaveValue('Prefers shorter almond shape.');
+    expect(screen.getByText('No appointment photos yet.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+    expect(screen.getByLabelText('Preferred artist')).toBeInTheDocument();
+    expect(screen.getByLabelText('Private notes')).toBeInTheDocument();
+  });
+
+  it('saves preferred artist changes, then reloads the persisted value', async () => {
     let detailFetchCount = 0;
     let currentNotes = 'Prefers shorter almond shape.';
     let currentPreferredTechnician: { id: string; name: string; avatarUrl: null } | null = {
@@ -538,11 +639,13 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preferences' }));
 
     expect(await screen.findByLabelText('Preferred artist')).toHaveValue('tech_1');
+    expect(screen.getByText('Client-submitted preferences')).toBeInTheDocument();
+    expect(screen.getByText('quiet')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Preferred artist'), { target: { value: 'tech_2' } });
-    fireEvent.change(screen.getByLabelText('Private notes'), { target: { value: 'VIP chrome client' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save details' }));
 
     await waitFor(() => {
@@ -555,12 +658,11 @@ describe('ClientsModal', () => {
 
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual(expect.objectContaining({
       salonSlug: 'isla-nail-studio',
-      notes: 'VIP chrome client',
+      notes: 'Prefers shorter almond shape.',
       preferredTechnicianId: 'tech_2',
     }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Private notes')).toHaveValue('VIP chrome client');
       expect(screen.getByLabelText('Preferred artist')).toHaveValue('tech_2');
     });
 
@@ -625,6 +727,7 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /nova guest/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
     expect(await screen.findByText('No upcoming appointments booked.')).toBeInTheDocument();
     expect(screen.getByText('No completed appointments yet.')).toBeInTheDocument();
@@ -664,6 +767,7 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
     expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
     expect(screen.queryByLabelText('Problem client flag')).not.toBeInTheDocument();
@@ -775,6 +879,7 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
       fireEvent.click(await screen.findByTestId('client-appointment-change-appt_upcoming'));
 
       expect(await screen.findByTestId('appointment-quick-edit-sheet')).toBeInTheDocument();
@@ -789,6 +894,7 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
       fireEvent.click(await screen.findByTestId('client-appointment-cancel-appt_upcoming'));
 
       expect(await screen.findByText('Cancel this appointment?')).toBeInTheDocument();
@@ -800,6 +906,7 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
       await screen.findByTestId('client-appointment-card-appt_completed');
 

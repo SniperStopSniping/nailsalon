@@ -2,13 +2,11 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertCircle,
   Calendar,
   ChevronRight,
   Mail,
   Phone,
   ShieldAlert,
-  Star,
   User,
 } from 'lucide-react';
 import {
@@ -112,7 +110,87 @@ type ClientAppointment = {
     name: string;
     price: number;
   }>;
+  addOns?: Array<{
+    id: string;
+    name: string;
+    quantity: number;
+    lineTotalCents: number;
+  }>;
+  finalItems?: Array<{
+    id: string;
+    kind: string;
+    name: string;
+    quantity: number;
+    lineTotalCents: number;
+  }>;
+  financial?: {
+    completedValueCents: number | null;
+    source: 'excluded' | 'finalized' | 'legacy' | 'unresolved';
+    discountCents: number;
+    taxCents: number;
+    tipsCents: number;
+    paymentsReceivedCents: number;
+    payments: Array<{
+      id: string;
+      amountCents: number;
+      method: string | null;
+      recordedAt: string;
+    }>;
+    paymentStatus: string | null;
+    completedOutstandingCents: number | null;
+    balanceState: string;
+  };
   notes: string | null;
+};
+
+type FinancialProvenance = {
+  mode: 'empty' | 'finalized' | 'legacy' | 'mixed';
+  unresolvedAppointmentCount: number;
+  isEstimated: boolean;
+};
+
+type ClientProfileSummary = {
+  currency: string;
+  timeZone: string;
+  lifetimeSpendCents: number;
+  spendThisMonthCents: number;
+  completedOutstandingCents: number;
+  completedVisits: number;
+  mostBookedService: {
+    id: string;
+    name: string;
+    count: number;
+  } | null;
+  rebooking: {
+    status: 'booked' | 'new_client' | 'not_set' | 'overdue' | 'due_later';
+    dueAt: string | null;
+  };
+  provenance: {
+    lifetimeSpend: FinancialProvenance;
+    spendThisMonth: FinancialProvenance;
+    completedOutstanding: FinancialProvenance;
+  };
+};
+
+type SubmittedPreferences = {
+  favoriteTechnician: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+  } | null;
+  favoriteServices: string[] | null;
+  nailShape: string | null;
+  nailLength: string | null;
+  finishes: string[] | null;
+  colorFamilies: string[] | null;
+  preferredBrands: string[] | null;
+  sensitivities: string[] | null;
+  musicPreference: string | null;
+  conversationLevel: string | null;
+  beveragePreference: string[] | null;
+  techNotes: string | null;
+  appointmentNotes: string | null;
+  updatedAt: string;
 };
 
 type ClientFlagsState = {
@@ -140,9 +218,12 @@ type ModuleAvailability = {
 
 type ClientDetailCacheEntry = {
   profile: ClientProfile | null;
+  summary: ClientProfileSummary | null;
+  submittedPreferences: SubmittedPreferences | null;
   upcomingAppointments: ClientAppointment[];
   pastAppointments: ClientAppointment[];
   recentIssues: ClientAppointment[];
+  photos: ClientPhoto[];
   flagsState: ClientFlagsState | null;
   flagsLoaded: boolean;
 };
@@ -171,6 +252,14 @@ type PromotionSettingsStage = Extract<
 >;
 
 type SortOption = 'recent' | 'visits' | 'spent' | 'name';
+type ProfileSection =
+  | 'overview'
+  | 'activity'
+  | 'appointments'
+  | 'preferences'
+  | 'payments'
+  | 'notes'
+  | 'details';
 
 const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
   { value: 'recent', label: 'Recent' },
@@ -192,9 +281,8 @@ function formatPhone(phone: string): string {
   return phone;
 }
 
-function formatCurrency(cents: number): string {
-  // Platform currency is CAD (bookingConfig default) — was a USD hardcode.
-  return formatMoney(cents);
+function formatCurrency(cents: number, currency = 'CAD'): string {
+  return formatMoney(cents, currency);
 }
 
 function formatDate(dateString: string | null, includeWeekday = false): string {
@@ -425,16 +513,87 @@ function StatCard({
   );
 }
 
+function HistoryQualityBadge({ provenance }: { provenance?: FinancialProvenance | null }) {
+  if (!provenance || (!provenance.isEstimated && provenance.unresolvedAppointmentCount === 0)) {
+    return null;
+  }
+  const incomplete = provenance.unresolvedAppointmentCount > 0;
+  return (
+    <span
+      className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
+        incomplete ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700'
+      }`}
+      title={incomplete
+        ? 'Some historical appointments could not be included because their financial details are unavailable.'
+        : 'Some historical appointments use their original booked value.'}
+    >
+      {incomplete ? 'Incomplete history' : 'Estimated history'}
+    </span>
+  );
+}
+
+function ProfileNavigation({
+  activeSection,
+  onChange,
+}: {
+  activeSection: ProfileSection;
+  onChange: (section: ProfileSection) => void;
+}) {
+  const desktopSections: Array<{ id: ProfileSection; label: string }> = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'appointments', label: 'Appointments' },
+    { id: 'preferences', label: 'Preferences' },
+    { id: 'payments', label: 'Payments' },
+    { id: 'notes', label: 'Notes & Photos' },
+  ];
+  const mobileSections: Array<{ id: ProfileSection; label: string }> = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'details', label: 'Details' },
+  ];
+  const renderButton = ({ id, label }: { id: ProfileSection; label: string }) => {
+    const active = activeSection === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        aria-current={active ? 'page' : undefined}
+        onClick={() => onChange(id)}
+        className={`min-h-11 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition ${
+          active
+            ? 'bg-[#6f1d3b] text-white shadow-sm'
+            : 'bg-white text-stone-600 hover:bg-rose-50'
+        }`}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <nav aria-label="Client profile sections" className="sticky top-[3.75rem] z-30 -mx-4 mb-4 border-y border-rose-100 bg-[#fffaf5]/95 px-4 py-2 backdrop-blur">
+      <div className="grid grid-cols-3 gap-2 lg:hidden">
+        {mobileSections.map(renderButton)}
+      </div>
+      <div className="hidden gap-2 overflow-x-auto lg:flex">
+        {desktopSections.map(renderButton)}
+      </div>
+    </nav>
+  );
+}
+
 function AppointmentCard({
   appointment,
   onManage,
   onCancel,
+  currency = 'CAD',
 }: {
   appointment: ClientAppointment;
   /** Opens the shared manage sheet. When provided the whole card is tappable. */
   onManage?: (appointmentId: string) => void;
   /** Opens the manage sheet with the cancel confirmation already up. */
   onCancel?: (appointmentId: string) => void;
+  currency?: string;
 }) {
   const interactive = Boolean(onManage);
   return (
@@ -469,13 +628,40 @@ function AppointmentCard({
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[15px] font-semibold text-[#1C1C1E]">
-            {formatCurrency(appointment.totalPrice)}
+            {formatCurrency(
+              appointment.financial?.completedValueCents ?? appointment.totalPrice,
+              currency,
+            )}
           </div>
           <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold capitalize ${getAppointmentStatusStyles(appointment.status)}`}>
             {formatAppointmentStatus(appointment.status)}
           </span>
         </div>
       </div>
+      {appointment.addOns && appointment.addOns.length > 0 && (
+        <div className="mt-2 text-[12px] text-[#6B7280]">
+          Add-ons:
+          {' '}
+          {appointment.addOns.map(addOn => (
+            `${addOn.name}${addOn.quantity > 1 ? ` ×${addOn.quantity}` : ''}`
+          )).join(', ')}
+        </div>
+      )}
+      {appointment.financial && appointment.status === 'completed' && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-stone-600">
+          <span className="rounded-full bg-stone-100 px-2 py-1">
+            {appointment.financial.paymentStatus?.replaceAll('_', ' ') ?? 'Payment not recorded'}
+          </span>
+          {appointment.financial.completedOutstandingCents != null
+          && appointment.financial.completedOutstandingCents > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
+              {formatCurrency(appointment.financial.completedOutstandingCents, currency)}
+              {' '}
+              outstanding
+            </span>
+          )}
+        </div>
+      )}
       {appointment.notes && (
         <div className="mt-2 rounded-xl bg-neutral-50 px-3 py-2 text-[12px] text-[#6B7280]">
           {appointment.notes}
@@ -521,12 +707,14 @@ function AppointmentsSection({
   emptyMessage,
   onManage,
   onCancel,
+  currency = 'CAD',
 }: {
   title: string;
   appointments: ClientAppointment[];
   emptyMessage: string;
   onManage?: (appointmentId: string) => void;
   onCancel?: (appointmentId: string) => void;
+  currency?: string;
 }) {
   return (
     <AdminDetailCard className="mb-4">
@@ -548,6 +736,7 @@ function AppointmentsSection({
                   appointment={appointment}
                   onManage={onManage}
                   onCancel={onCancel}
+                  currency={currency}
                 />
               ))}
             </div>
@@ -584,15 +773,20 @@ function ClientDetail({
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
+  const [summary, setSummary] = useState<ClientProfileSummary | null>(initialCachedDetail?.summary ?? null);
+  const [submittedPreferences, setSubmittedPreferences] = useState<SubmittedPreferences | null>(
+    initialCachedDetail?.submittedPreferences ?? null,
+  );
   const [upcomingAppointments, setUpcomingAppointments] = useState<ClientAppointment[]>(initialCachedDetail?.upcomingAppointments ?? []);
   const [pastAppointments, setPastAppointments] = useState<ClientAppointment[]>(initialCachedDetail?.pastAppointments ?? []);
   const [recentIssues, setRecentIssues] = useState<ClientAppointment[]>(initialCachedDetail?.recentIssues ?? []);
-  const [photos, setPhotos] = useState<ClientPhoto[]>([]);
+  const [photos, setPhotos] = useState<ClientPhoto[]>(initialCachedDetail?.photos ?? []);
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
+  const [activeSection, setActiveSection] = useState<ProfileSection>('overview');
 
   const [flagsState, setFlagsState] = useState<ClientFlagsState | null>(initialCachedDetail?.flagsState ?? null);
   const [flagsError, setFlagsError] = useState<string | null>(null);
@@ -626,6 +820,8 @@ function ClientDetail({
 
   const applyDetailPayload = useCallback((payload: {
     client: ClientProfile;
+    summary?: ClientProfileSummary;
+    submittedPreferences?: SubmittedPreferences | null;
     upcomingAppointments: ClientAppointment[];
     pastAppointments: ClientAppointment[];
     recentIssues?: ClientAppointment[];
@@ -636,6 +832,8 @@ function ClientDetail({
     const nextIssues = payload.recentIssues ?? [];
 
     setProfile(payload.client);
+    setSummary(payload.summary ?? null);
+    setSubmittedPreferences(payload.submittedPreferences ?? null);
     setUpcomingAppointments(nextUpcoming);
     setPastAppointments(nextPast);
     setRecentIssues(nextIssues);
@@ -652,9 +850,12 @@ function ClientDetail({
 
     onCacheUpdate(clientSummary.id, {
       profile: payload.client,
+      summary: payload.summary ?? null,
+      submittedPreferences: payload.submittedPreferences ?? null,
       upcomingAppointments: nextUpcoming,
       pastAppointments: nextPast,
       recentIssues: nextIssues,
+      photos: payload.photos ?? [],
     });
   }, [clientSummary.id, onCacheUpdate]);
 
@@ -908,82 +1109,115 @@ function ClientDetail({
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-0 top-12 z-50 overflow-y-auto rounded-t-[20px] bg-[#F2F2F7]"
+      className="fixed inset-0 top-12 z-50 overflow-y-auto overflow-x-hidden rounded-t-[20px] bg-[#fbf5ed]"
     >
       <ModalHeader
         title={detailName}
         leftAction={<BackButton onClick={onBack} label="Clients" />}
       />
 
-      <div className="p-4 pb-10">
-        <AdminDetailCard className="mb-4 rounded-[22px]">
-          <div className="flex flex-col items-center text-center">
+      <div className="mx-auto w-full max-w-6xl p-4 pb-32 lg:pb-12">
+        <AdminDetailCard className="mb-4 overflow-hidden rounded-[24px] border border-rose-100 bg-gradient-to-br from-white via-[#fffaf5] to-rose-50/70">
+          <div className="flex flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
             <div className="mb-3 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-2xl font-bold text-white shadow-lg">
               {getInitials(statsSource.fullName)}
             </div>
-            <h2 className="text-[22px] font-semibold text-[#1C1C1E]">{detailName}</h2>
-            <div className="mt-1 flex items-center gap-1 text-[15px] text-[#8E8E93]">
-              <Phone className="size-3.5" />
-              {formatPhone(statsSource.phone)}
-            </div>
-            {(profile?.email ?? clientSummary.email) && (
-              <div className="mt-0.5 flex items-center gap-1 text-[15px] text-[#8E8E93]">
-                <Mail className="size-3.5" />
-                {profile?.email ?? clientSummary.email}
+            <div className="lg:ml-5">
+              <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
+                <h2 className="text-[24px] font-semibold text-[#3f1727]">{detailName}</h2>
+                {profile?.tags?.map(tag => (
+                  <span key={tag} className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-800">
+                    {tag}
+                  </span>
+                ))}
               </div>
-            )}
-            <div className="mt-3 text-[13px] text-[#8E8E93]">
-              {profile?.createdAt
-                ? (
-                    <>
-                      Client since
-                      {' '}
-                      {formatDate(profile.createdAt)}
-                      {profile.lastVisitAt ? ` · Last visit ${formatDate(profile.lastVisitAt)}` : ''}
-                    </>
-                  )
-                : (
-                    <>
-                      {clientSummary.lastVisitAt ? `Last visit ${formatDate(clientSummary.lastVisitAt)}` : 'Loading client history...'}
-                    </>
-                  )}
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[14px] text-stone-500 lg:justify-start">
+                <span className="flex items-center gap-1">
+                  <Phone className="size-3.5" />
+                  {formatPhone(statsSource.phone)}
+                </span>
+                {(profile?.email ?? clientSummary.email) && (
+                  <span className="flex items-center gap-1">
+                    <Mail className="size-3.5" />
+                    {profile?.email ?? clientSummary.email}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 text-[13px] text-stone-500">
+                {profile?.createdAt
+                  ? `Client since ${formatDate(profile.createdAt)}${profile.lastVisitAt ? ` · Last visit ${formatDate(profile.lastVisitAt)}` : ''}`
+                  : clientSummary.lastVisitAt
+                    ? `Last visit ${formatDate(clientSummary.lastVisitAt)}`
+                    : 'Loading client history…'}
+              </div>
             </div>
-            <ClientCommunicationActions
-              salonSlug={salonSlug}
-              salonName={salonName}
-              client={{
-                id: statsSource.id,
-                fullName: statsSource.fullName,
-                phone: statsSource.phone,
-              }}
-              upcomingAppointment={upcomingAppointments[0] ?? null}
-              lastCompletedAppointment={pastAppointments[0] ?? null}
-              completedAppointmentCount={pastAppointments.length}
-              hasGoogleReview={profile?.hasGoogleReview ?? false}
-              onOpenPromotionSettings={onOpenPromotionSettings}
-              onBookAppointment={() => {
-                const previousAppointment = pastAppointments[0];
-                openBookingModal({
-                  name: statsSource.fullName ?? null,
-                  phone: statsSource.phone,
-                  email: statsSource.email ?? null,
-                  serviceId: previousAppointment?.services[0]?.id ?? null,
-                  technicianId:
-                    previousAppointment?.technician?.id
-                    ?? profile?.preferredTechnician?.id
-                    ?? null,
-                });
-              }}
-            />
           </div>
         </AdminDetailCard>
 
-        <div className="mb-4 grid grid-cols-2 gap-3">
-          <StatCard label="Total Visits" value={String(statsSource.totalVisits)} />
-          <StatCard label="Total Spent" value={formatCurrency(statsSource.totalSpent)} accent="text-[#34C759]" />
-          <StatCard label="Rewards" value={statsSource.loyaltyPoints.toLocaleString()} accent="text-[#FF9500]" icon={<Star className="size-3" />} />
-          <StatCard label="No-Shows" value={String(statsSource.noShowCount)} accent={statsSource.noShowCount > 0 ? 'text-[#FF3B30]' : undefined} icon={<AlertCircle className="size-3" />} />
-        </div>
+        <ProfileNavigation activeSection={activeSection} onChange={setActiveSection} />
+
+        <ClientCommunicationActions
+          salonSlug={salonSlug}
+          salonName={salonName}
+          client={{
+            id: statsSource.id,
+            fullName: statsSource.fullName,
+            phone: statsSource.phone,
+          }}
+          upcomingAppointment={upcomingAppointments[0] ?? null}
+          lastCompletedAppointment={pastAppointments[0] ?? null}
+          completedAppointmentCount={pastAppointments.length}
+          hasGoogleReview={profile?.hasGoogleReview ?? false}
+          onOpenPromotionSettings={onOpenPromotionSettings}
+          profileLayout
+          showHistory={activeSection === 'activity'}
+          onBookAppointment={() => {
+            const previousAppointment = pastAppointments[0];
+            openBookingModal({
+              name: statsSource.fullName ?? null,
+              phone: statsSource.phone,
+              email: statsSource.email ?? null,
+              serviceId: previousAppointment?.services[0]?.id ?? null,
+              technicianId:
+                previousAppointment?.technician?.id
+                ?? profile?.preferredTechnician?.id
+                ?? null,
+            });
+          }}
+        />
+
+        {activeSection === 'overview' && (
+          <div className="my-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard label="Completed visits" value={String(summary?.completedVisits ?? statsSource.totalVisits)} />
+            <div>
+              <StatCard
+                label="Lifetime spend"
+                value={formatCurrency(
+                  summary?.lifetimeSpendCents ?? statsSource.totalSpent,
+                  summary?.currency,
+                )}
+                accent="text-emerald-700"
+              />
+              <HistoryQualityBadge provenance={summary?.provenance.lifetimeSpend} />
+            </div>
+            <div>
+              <StatCard
+                label="Spend this month"
+                value={summary
+                  ? formatCurrency(summary.spendThisMonthCents, summary.currency)
+                  : 'Unavailable'}
+              />
+              <HistoryQualityBadge provenance={summary?.provenance.spendThisMonth} />
+            </div>
+            <StatCard
+              label="Completed outstanding"
+              value={summary
+                ? formatCurrency(summary.completedOutstandingCents, summary.currency)
+                : 'Unavailable'}
+              accent={summary?.completedOutstandingCents ? 'text-amber-700' : undefined}
+            />
+          </div>
+        )}
 
         {detailLoading && !profile
           ? (
@@ -1010,154 +1244,271 @@ function ClientDetail({
               )
             : (
                 <>
-                  <AdminDetailCard className="mb-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Client details</div>
-                        <div className="mt-1 text-[15px] font-semibold text-[#1C1C1E]">
-                          Avg spend
-                          {' '}
-                          {profile ? formatCurrency(profile.averageSpend) : '...'}
+                  {(activeSection === 'preferences' || activeSection === 'details') && (
+                    <>
+                      <AdminDetailCard className="mb-4">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Client details</div>
+                            <div className="mt-1 text-[15px] font-semibold text-[#1C1C1E]">
+                              Avg spend
+                              {' '}
+                              {profile ? formatCurrency(profile.averageSpend) : '...'}
+                            </div>
+                          </div>
+                          <div className="rounded-full bg-[#F2F2F7] px-3 py-1 text-[12px] font-medium text-[#6B7280]">
+                            {techniciansLoading ? 'Loading artists...' : techniciansError ?? `${technicians.length} artists`}
+                          </div>
                         </div>
-                      </div>
-                      <div className="rounded-full bg-[#F2F2F7] px-3 py-1 text-[12px] font-medium text-[#6B7280]">
-                        {techniciansLoading ? 'Loading artists...' : techniciansError ?? `${technicians.length} artists`}
-                      </div>
-                    </div>
 
-                    <label className="mb-3 block">
-                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred artist</span>
-                      <select
-                        aria-label="Preferred artist"
-                        value={preferredTechnicianIdDraft}
-                        onChange={event => setPreferredTechnicianIdDraft(event.target.value)}
-                        className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
-                        disabled={techniciansLoading}
-                      >
-                        <option value="">No preference</option>
-                        {technicians.map(technician => (
-                          <option key={technician.id} value={technician.id}>
-                            {technician.name}
-                          </option>
-                        ))}
-                      </select>
-                      {techniciansError && (
-                        <div className="mt-2 text-[13px] text-[#FF3B30]">
-                          {techniciansError}
-                          {' '}
-                          <button type="button" className="font-semibold text-[#007AFF]" onClick={() => void onRefreshTechnicians()}>
-                            Retry
-                          </button>
+                        <label className="mb-3 block">
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred artist</span>
+                          <select
+                            aria-label="Preferred artist"
+                            value={preferredTechnicianIdDraft}
+                            onChange={event => setPreferredTechnicianIdDraft(event.target.value)}
+                            className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                            disabled={techniciansLoading}
+                          >
+                            <option value="">No preference</option>
+                            {technicians.map(technician => (
+                              <option key={technician.id} value={technician.id}>
+                                {technician.name}
+                              </option>
+                            ))}
+                          </select>
+                          {techniciansError && (
+                            <div className="mt-2 text-[13px] text-[#FF3B30]">
+                              {techniciansError}
+                              {' '}
+                              <button type="button" className="font-semibold text-[#007AFF]" onClick={() => void onRefreshTechnicians()}>
+                                Retry
+                              </button>
+                            </div>
+                          )}
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-1.5 block text-[12px] font-semibold uppercase text-amber-700">Sensitivities & allergies</span>
+                          <textarea
+                            aria-label="Sensitivities and allergies"
+                            value={sensitivitiesDraft}
+                            onChange={event => setSensitivitiesDraft(event.target.value)}
+                            rows={3}
+                            placeholder="Allergies, product reactions, damaged nails, removal care..."
+                            className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                          />
+                          <span className="mt-1 block text-[11px] text-[#8E8E93]">Shown to the tech on today’s schedule before every appointment.</span>
+                        </label>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <label className="block">
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred shape</span>
+                            <input value={shapeDraft} onChange={event => setShapeDraft(event.target.value)} placeholder="Almond, square..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred length</span>
+                            <input value={lengthDraft} onChange={event => setLengthDraft(event.target.value)} placeholder="Short, medium..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          </label>
                         </div>
-                      )}
-                    </label>
 
-                    <label className="block">
-                      <span className="mb-1.5 block text-[12px] font-semibold uppercase text-amber-700">Sensitivities & allergies</span>
-                      <textarea
-                        aria-label="Sensitivities and allergies"
-                        value={sensitivitiesDraft}
-                        onChange={event => setSensitivitiesDraft(event.target.value)}
-                        rows={3}
-                        placeholder="Allergies, product reactions, damaged nails, removal care..."
-                        className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
-                      />
-                      <span className="mt-1 block text-[11px] text-[#8E8E93]">Shown to the tech on today’s schedule before every appointment.</span>
-                    </label>
+                        <label className="mt-3 block">
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Favourite colours & styles</span>
+                          <input value={colorsDraft} onChange={event => setColorsDraft(event.target.value)} placeholder="Nudes, French, chrome..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                        </label>
 
-                    <label className="mt-3 block">
-                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Private notes</span>
-                      <textarea
-                        aria-label="Private notes"
-                        value={notesDraft}
-                        onChange={event => setNotesDraft(event.target.value)}
-                        rows={4}
-                        placeholder="Add private client notes..."
-                        className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
-                      />
-                    </label>
+                        <label className="mt-3 block">
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Products used</span>
+                          <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                        </label>
 
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred shape</span>
-                        <input value={shapeDraft} onChange={event => setShapeDraft(event.target.value)} placeholder="Almond, square..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred length</span>
-                        <input value={lengthDraft} onChange={event => setLengthDraft(event.target.value)} placeholder="Short, medium..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                      </label>
-                    </div>
-
-                    <label className="mt-3 block">
-                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Favourite colours & styles</span>
-                      <input value={colorsDraft} onChange={event => setColorsDraft(event.target.value)} placeholder="Nudes, French, chrome..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                    </label>
-
-                    <label className="mt-3 block">
-                      <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Products used</span>
-                      <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                    </label>
-
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Tags</span>
-                        <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} placeholder="VIP, bridal" className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Rebook every</span>
-                        <div className="flex items-center gap-2">
-                          <input type="number" min={1} max={365} value={rebookDaysDraft} onChange={event => setRebookDaysDraft(event.target.value)} placeholder="21" className="min-w-0 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                          <span className="text-sm text-[#8E8E93]">days</span>
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <label className="block">
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Tags</span>
+                            <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} placeholder="VIP, bridal" className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Rebook every</span>
+                            <div className="flex items-center gap-2">
+                              <input type="number" min={1} max={365} value={rebookDaysDraft} onChange={event => setRebookDaysDraft(event.target.value)} placeholder="21" className="min-w-0 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                              <span className="text-sm text-[#8E8E93]">days</span>
+                            </div>
+                          </label>
                         </div>
-                      </label>
+
+                        {profile?.nextRebookDueAt && (
+                          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                            Rebooking due
+                            {' '}
+                            {formatDate(profile.nextRebookDueAt)}
+                          </p>
+                        )}
+
+                        {profileSaveError && (
+                          <div className="mt-3 text-[13px] text-[#FF3B30]">{profileSaveError}</div>
+                        )}
+
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="brandSoft"
+                            size="pillSm"
+                            disabled={!profileDirty || profileSaving}
+                            onClick={() => {
+                              setNotesDraft(profile?.notes ?? '');
+                              setPreferredTechnicianIdDraft(profile?.preferredTechnician?.id ?? '');
+                              setSensitivitiesDraft(profile?.sensitivities ?? '');
+                              setShapeDraft(profile?.nailPreferences?.shape ?? '');
+                              setLengthDraft(profile?.nailPreferences?.length ?? '');
+                              setColorsDraft(profile?.nailPreferences?.favoriteColors ?? '');
+                              setProductsDraft(profile?.nailPreferences?.productsUsed ?? '');
+                              setTagsDraft(profile?.tags?.join(', ') ?? '');
+                              setRebookDaysDraft(profile?.rebookIntervalDays?.toString() ?? '');
+                              setProfileSaveError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="brand"
+                            size="pillSm"
+                            disabled={!profileDirty || profileSaving}
+                            onClick={saveProfile}
+                          >
+                            {profileSaving ? 'Saving...' : 'Save details'}
+                          </Button>
+                        </div>
+                      </AdminDetailCard>
+
+                      <AdminDetailCard className="mb-4">
+                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">
+                          Client-submitted preferences
+                        </div>
+                        <p className="mt-1 text-sm text-stone-500">
+                          Read-only preferences shared by the client. Salon-managed details above remain separate.
+                        </p>
+                        {submittedPreferences
+                          ? (
+                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                {[
+                                  ['Favourite technician', submittedPreferences.favoriteTechnician?.name],
+                                  ['Favourite services', submittedPreferences.favoriteServices?.join(', ')],
+                                  ['Nail shape', submittedPreferences.nailShape],
+                                  ['Nail length', submittedPreferences.nailLength],
+                                  ['Finishes', submittedPreferences.finishes?.join(', ')],
+                                  ['Colour families', submittedPreferences.colorFamilies?.join(', ')],
+                                  ['Preferred brands', submittedPreferences.preferredBrands?.join(', ')],
+                                  ['Sensitivities', submittedPreferences.sensitivities?.join(', ')],
+                                  ['Conversation', submittedPreferences.conversationLevel],
+                                  ['Music', submittedPreferences.musicPreference],
+                                  ['Beverages', submittedPreferences.beveragePreference?.join(', ')],
+                                ].filter((entry): entry is [string, string] => Boolean(entry[1])).map(([label, value]) => (
+                                  <div key={label} className="rounded-2xl bg-stone-50 p-3">
+                                    <div className="text-[11px] font-semibold uppercase text-stone-400">{label}</div>
+                                    <div className="mt-1 text-sm font-medium text-stone-800">{value}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          : (
+                              <div className="mt-4 rounded-2xl border border-dashed border-stone-200 px-4 py-5 text-sm text-stone-500">
+                                No client-submitted preferences yet.
+                              </div>
+                            )}
+                      </AdminDetailCard>
+                    </>
+                  )}
+
+                  {activeSection === 'overview' && (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <AdminDetailCard className="mb-4">
+                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Appointments & rebooking</div>
+                        <div className="mt-4 space-y-3">
+                          <div className="rounded-2xl bg-rose-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase text-rose-700">Next appointment</div>
+                            <div className="mt-1 text-sm font-semibold text-stone-900">
+                              {upcomingAppointments[0]
+                                ? formatDateTimeRange(upcomingAppointments[0].startTime, upcomingAppointments[0].endTime)
+                                : 'No future appointment booked'}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-stone-400">Last appointment</div>
+                              <div className="mt-1 text-sm font-medium text-stone-800">
+                                {pastAppointments[0] ? formatDate(pastAppointments[0].startTime) : 'No completed visit'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-stone-400">Rebooking</div>
+                              <div className="mt-1 text-sm font-medium capitalize text-stone-800">
+                                {summary?.rebooking.status.replaceAll('_', ' ') ?? 'Unavailable'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-stone-400">Preferred artist</div>
+                              <div className="mt-1 text-sm font-medium text-stone-800">
+                                {profile?.preferredTechnician?.name ?? 'No preference'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-stone-400">Most-booked service</div>
+                              <div className="mt-1 text-sm font-medium text-stone-800">
+                                {summary?.mostBookedService?.name ?? 'Not enough history'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </AdminDetailCard>
+
+                      <AdminDetailCard className="mb-4">
+                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Client care</div>
+                        <div className="mt-4 space-y-3">
+                          {(sensitivitiesDraft || submittedPreferences?.sensitivities?.length) && (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                              <div className="text-xs font-semibold uppercase text-amber-800">Allergies & sensitivities</div>
+                              <p className="mt-1 text-sm text-amber-950">
+                                {[sensitivitiesDraft, submittedPreferences?.sensitivities?.join(', ')]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            </div>
+                          )}
+                          {flagsState?.isBlocked && (
+                            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+                              <div className="text-xs font-semibold uppercase text-red-800">Online booking blocked</div>
+                              {flagsState.blockedReason && <p className="mt-1 text-sm text-red-950">{flagsState.blockedReason}</p>}
+                            </div>
+                          )}
+                          {flagsState?.adminFlags?.isProblemClient && (
+                            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+                              <div className="text-xs font-semibold uppercase text-orange-800">Important internal flag</div>
+                              {flagsState.adminFlags.flagReason && <p className="mt-1 text-sm text-orange-950">{flagsState.adminFlags.flagReason}</p>}
+                            </div>
+                          )}
+                          {notesDraft && (
+                            <div className="rounded-2xl bg-stone-50 px-4 py-3">
+                              <div className="text-xs font-semibold uppercase text-stone-500">Important note</div>
+                              <p className="mt-1 line-clamp-3 text-sm text-stone-800">{notesDraft}</p>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-2xl bg-amber-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-amber-700">Rewards</div>
+                              <div className="mt-1 text-lg font-bold text-amber-900">{statsSource.loyaltyPoints.toLocaleString()}</div>
+                            </div>
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <div className="text-[11px] font-semibold uppercase text-stone-500">No-shows</div>
+                              <div className="mt-1 text-lg font-bold text-stone-800">{flagsState?.noShowCount ?? statsSource.noShowCount}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </AdminDetailCard>
                     </div>
+                  )}
 
-                    {profile?.nextRebookDueAt && (
-                      <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                        Rebooking due
-                        {' '}
-                        {formatDate(profile.nextRebookDueAt)}
-                      </p>
-                    )}
-
-                    {profileSaveError && (
-                      <div className="mt-3 text-[13px] text-[#FF3B30]">{profileSaveError}</div>
-                    )}
-
-                    <div className="mt-4 flex flex-wrap justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="brandSoft"
-                        size="pillSm"
-                        disabled={!profileDirty || profileSaving}
-                        onClick={() => {
-                          setNotesDraft(profile?.notes ?? '');
-                          setPreferredTechnicianIdDraft(profile?.preferredTechnician?.id ?? '');
-                          setSensitivitiesDraft(profile?.sensitivities ?? '');
-                          setShapeDraft(profile?.nailPreferences?.shape ?? '');
-                          setLengthDraft(profile?.nailPreferences?.length ?? '');
-                          setColorsDraft(profile?.nailPreferences?.favoriteColors ?? '');
-                          setProductsDraft(profile?.nailPreferences?.productsUsed ?? '');
-                          setTagsDraft(profile?.tags?.join(', ') ?? '');
-                          setRebookDaysDraft(profile?.rebookIntervalDays?.toString() ?? '');
-                          setProfileSaveError(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="brand"
-                        size="pillSm"
-                        disabled={!profileDirty || profileSaving}
-                        onClick={saveProfile}
-                      >
-                        {profileSaving ? 'Saving...' : 'Save details'}
-                      </Button>
-                    </div>
-                  </AdminDetailCard>
-
-                  {canManageFlags && (
+                  {activeSection === 'overview' && canManageFlags && (
                     <AdminDetailCard className="mb-4">
                       <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[#8E8E93]">
                         <ShieldAlert className="size-3.5" />
@@ -1273,42 +1624,151 @@ function ClientDetail({
                     </AdminDetailCard>
                   )}
 
-                  {photos.length > 0 && (
+                  {(activeSection === 'notes' || activeSection === 'details') && (
                     <AdminDetailCard className="mb-4">
-                      <div className="mb-3 text-[12px] font-medium uppercase text-[#8E8E93]">Nail history photos</div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {photos.map(photo => (
-                          <a key={photo.id} href={photo.imageUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl bg-stone-100">
-                            {/* eslint-disable-next-line @next/next/no-img-element -- provider URLs are tenant uploads */}
-                            <img src={photo.thumbnailUrl || photo.imageUrl} alt={photo.caption || `${photo.photoType} appointment photo`} className="aspect-square w-full object-cover" />
-                          </a>
-                        ))}
+                      <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Internal notes</div>
+                      <textarea
+                        aria-label="Private notes"
+                        value={notesDraft}
+                        onChange={event => setNotesDraft(event.target.value)}
+                        rows={5}
+                        placeholder="Add private client notes..."
+                        className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-300"
+                      />
+                      <p className="mt-1 text-xs text-stone-500">
+                        This is the current salon note. Historical authorship and revisions are not recorded.
+                      </p>
+                      {profileSaveError && <p className="mt-2 text-sm text-red-600">{profileSaveError}</p>}
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="brand"
+                          size="pillSm"
+                          disabled={!profileDirty || profileSaving}
+                          onClick={saveProfile}
+                        >
+                          {profileSaving ? 'Saving…' : 'Save note'}
+                        </Button>
                       </div>
+
+                      <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[#8E8E93]">Nail history photos</div>
+                      {photos.length > 0
+                        ? (
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                              {photos.map(photo => (
+                                <a key={photo.id} href={photo.imageUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl bg-stone-100">
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- provider URLs are tenant uploads */}
+                                  <img src={photo.thumbnailUrl || photo.imageUrl} alt={photo.caption || `${photo.photoType} appointment photo`} className="aspect-square w-full object-cover transition group-hover:scale-[1.02]" />
+                                  <div className="px-3 py-2 text-xs text-stone-600">
+                                    {photo.caption || photo.photoType.replaceAll('_', ' ')}
+                                    {' · '}
+                                    {formatDate(photo.createdAt)}
+                                  </div>
+                                </a>
+                              ))}
+                            </div>
+                          )
+                        : (
+                            <div className="rounded-2xl border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
+                              No appointment photos yet.
+                            </div>
+                          )}
                     </AdminDetailCard>
                   )}
 
-                  <AppointmentsSection
-                    title="Upcoming appointments"
-                    appointments={upcomingAppointments}
-                    emptyMessage="No upcoming appointments booked."
-                    onManage={handleManageAppointment}
-                    onCancel={handleCancelAppointmentRequest}
-                  />
+                  {(activeSection === 'payments' || activeSection === 'activity') && (
+                    <AdminDetailCard className="mb-4">
+                      <div className="mb-1 text-[12px] font-medium uppercase text-[#8E8E93]">Payments</div>
+                      <p className="text-sm text-stone-500">
+                        Completed appointment value and recorded payments are separate. Future balances are not completed outstanding.
+                      </p>
+                      {pastAppointments.length === 0
+                        ? (
+                            <div className="mt-4 rounded-2xl border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
+                              No completed payment activity yet.
+                            </div>
+                          )
+                        : (
+                            <div className="mt-4 space-y-3">
+                              {pastAppointments.map((appointment) => {
+                                const financial = appointment.financial;
+                                return (
+                                  <button
+                                    key={appointment.id}
+                                    type="button"
+                                    onClick={() => handleManageAppointment(appointment.id)}
+                                    className="w-full rounded-2xl border border-stone-100 bg-stone-50 p-4 text-left transition hover:border-rose-200"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <div className="font-semibold text-stone-900">
+                                          {appointment.services.map(service => service.name).join(' · ') || 'Appointment'}
+                                        </div>
+                                        <div className="mt-1 text-xs text-stone-500">{formatDate(appointment.startTime)}</div>
+                                      </div>
+                                      <span className="text-sm font-semibold text-stone-900">
+                                        {financial?.completedValueCents != null
+                                          ? formatCurrency(financial.completedValueCents, summary?.currency)
+                                          : 'Unavailable'}
+                                      </span>
+                                    </div>
+                                    {financial && (
+                                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                        <span>
+                                          Received
+                                          <strong>{formatCurrency(financial.paymentsReceivedCents, summary?.currency)}</strong>
+                                        </span>
+                                        <span>
+                                          Tax
+                                          <strong>{formatCurrency(financial.taxCents, summary?.currency)}</strong>
+                                        </span>
+                                        <span>
+                                          Tips
+                                          <strong>{formatCurrency(financial.tipsCents, summary?.currency)}</strong>
+                                        </span>
+                                        <span>
+                                          Outstanding
+                                          <strong>{financial.completedOutstandingCents == null ? 'Unavailable' : formatCurrency(financial.completedOutstandingCents, summary?.currency)}</strong>
+                                        </span>
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                    </AdminDetailCard>
+                  )}
 
-                  <AppointmentsSection
-                    title="Completed appointments"
-                    appointments={pastAppointments}
-                    emptyMessage="No completed appointments yet."
-                    onManage={handleManageAppointment}
-                  />
+                  {(activeSection === 'appointments' || activeSection === 'activity') && (
+                    <>
+                      <AppointmentsSection
+                        title="Upcoming appointments"
+                        appointments={upcomingAppointments}
+                        emptyMessage="No upcoming appointments booked."
+                        onManage={handleManageAppointment}
+                        onCancel={handleCancelAppointmentRequest}
+                        currency={summary?.currency}
+                      />
 
-                  {recentIssues.length > 0 && (
-                    <AppointmentsSection
-                      title="Recent issues"
-                      appointments={recentIssues}
-                      emptyMessage=""
-                      onManage={handleManageAppointment}
-                    />
+                      <AppointmentsSection
+                        title="Completed appointments"
+                        appointments={pastAppointments}
+                        emptyMessage="No completed appointments yet."
+                        onManage={handleManageAppointment}
+                        currency={summary?.currency}
+                      />
+
+                      {recentIssues.length > 0 && (
+                        <AppointmentsSection
+                          title="Recent issues"
+                          appointments={recentIssues}
+                          emptyMessage=""
+                          onManage={handleManageAppointment}
+                          currency={summary?.currency}
+                        />
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -1514,9 +1974,12 @@ export function ClientsModal({
   const updateClientDetailCache = useCallback((clientId: string, updates: Partial<ClientDetailCacheEntry>) => {
     const existing = clientDetailCacheRef.current[clientId] ?? {
       profile: null,
+      summary: null,
+      submittedPreferences: null,
       upcomingAppointments: [],
       pastAppointments: [],
       recentIssues: [],
+      photos: [],
       flagsState: null,
       flagsLoaded: false,
     };
@@ -1559,9 +2022,12 @@ export function ClientsModal({
         const client = payload.data.client as ClientProfile;
         clientDetailCacheRef.current[client.id] = {
           profile: client,
+          summary: payload.data.summary ?? null,
+          submittedPreferences: payload.data.submittedPreferences ?? null,
           upcomingAppointments: payload.data.upcomingAppointments ?? [],
           pastAppointments: payload.data.pastAppointments ?? [],
           recentIssues: payload.data.recentIssues ?? [],
+          photos: payload.data.photos ?? [],
           flagsState: null,
           flagsLoaded: false,
         };
