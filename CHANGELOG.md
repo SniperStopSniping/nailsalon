@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.8...v1.30.0) (2026-07-23)
+
+
+### Features
+
+* **admin:** add core owner financial summary ([fabc660](https://github.com/SniperStopSniping/nailsalon/commit/fabc6600c705508f156ae5cd50834c140ad4fade))
+
 ## [1.29.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.7...v1.29.8) (2026-07-23)
 
 
