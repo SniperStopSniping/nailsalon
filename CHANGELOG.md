@@ -1,3 +1,11 @@
+# [1.31.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.30.0...v1.31.0) (2026-07-23)
+
+
+### Features
+
+* add client financial workspace data ([894c1d2](https://github.com/SniperStopSniping/nailsalon/commit/894c1d223b75f36e18f2d8031c9c58144a13e8a8))
+* redesign responsive client workspace ([a7a4936](https://github.com/SniperStopSniping/nailsalon/commit/a7a4936a1a87faf4f5cb46822b6c5f2a2868859f))
+
 # [1.30.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.29.8...v1.30.0) (2026-07-23)
 
 
