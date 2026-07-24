@@ -169,31 +169,47 @@ export async function openAdminBookings(page: Page) {
   await expect(page.getByRole('button', { name: /next week/i })).toBeVisible();
 }
 
+async function getVisibleCalendarRange(page: Page) {
+  const dayIds = await page
+    .locator('[data-testid^="calendar-day-"]')
+    .evaluateAll(elements => elements
+      .map(element => element.getAttribute('data-testid')?.replace('calendar-day-', '') ?? null)
+      .filter((dateKey): dateKey is string => (
+        typeof dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateKey)
+      ))
+      .sort());
+
+  const firstDate = dayIds[0] ?? null;
+  const lastDate = dayIds[dayIds.length - 1] ?? null;
+
+  if (!firstDate || !lastDate) {
+    throw new Error('Calendar did not render any dated day controls.');
+  }
+
+  return { firstDate, lastDate };
+}
+
 async function getSelectedCalendarDay(page: Page) {
   const selected = page.locator('[data-testid^="calendar-day-"][data-selected="true"]').first();
-
-  await expect(selected).toBeVisible();
-
+  if (!await selected.isVisible().catch(() => false)) {
+    return null;
+  }
   const testId = await selected.getAttribute('data-testid');
   return testId?.replace('calendar-day-', '') ?? null;
 }
 
 export async function ensureCalendarDayVisible(page: Page, dateString: string) {
-  const targetDate = new Date(`${dateString}T00:00:00`);
-
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const dayButton = page.getByTestId(`calendar-day-${dateString}`);
     if (await dayButton.isVisible().catch(() => false)) {
       return dayButton;
     }
 
-    const selectedDateKey = await getSelectedCalendarDay(page);
-    if (!selectedDateKey) {
-      break;
+    const { firstDate, lastDate } = await getVisibleCalendarRange(page);
+    const goForward = dateString > lastDate;
+    if (!goForward && dateString >= firstDate) {
+      throw new Error(`Calendar range ${firstDate} through ${lastDate} did not contain ${dateString}.`);
     }
-
-    const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
-    const goForward = targetDate.getTime() >= selectedDate.getTime();
 
     await page.getByRole('button', { name: goForward ? /next week/i : /previous week/i }).click();
   }

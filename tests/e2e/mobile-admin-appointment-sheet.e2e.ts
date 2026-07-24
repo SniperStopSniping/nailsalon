@@ -3,6 +3,7 @@ import { devices, expect, test } from '@playwright/test';
 import {
   cancelAppointmentAsAdmin,
   createImpersonatedAdminRequestContext,
+  ensureCalendarDayVisible,
   getStaffTechnicianProfile,
   openAdminAppointmentSheet,
   openAdminBookings,
@@ -18,6 +19,42 @@ async function cancelCreatedAppointment(appointmentId: string | null) {
     await cancelAppointmentAsAdmin(appointmentId);
   }
 }
+
+test('iPhone Safari navigates an unselected week to an explicit future date @mobile-safari', async ({ page }) => {
+  await page.setContent(`
+    <button type="button" aria-label="Next week">Next week</button>
+    <button type="button" aria-label="Previous week">Previous week</button>
+    <output data-testid="calendar-next-count">0</output>
+    <div data-testid="calendar-days"></div>
+  `);
+
+  await page.evaluate(() => {
+    const days = document.querySelector('[data-testid="calendar-days"]');
+    const next = document.querySelector('[aria-label="Next week"]');
+    const count = document.querySelector('[data-testid="calendar-next-count"]');
+    const render = (startDay: number) => {
+      if (!days) {
+        return;
+      }
+      days.innerHTML = Array.from({ length: 7 }, (_, offset) => {
+        const day = String(startDay + offset).padStart(2, '0');
+        return `<button type="button" data-testid="calendar-day-2026-08-${day}" data-selected="false">${day}</button>`;
+      }).join('');
+    };
+    render(2);
+    next?.addEventListener('click', () => {
+      render(9);
+      if (count) {
+        count.textContent = '1';
+      }
+    });
+  });
+
+  await ensureCalendarDayVisible(page, '2026-08-10');
+
+  await expect(page.getByTestId('calendar-day-2026-08-10')).toBeVisible();
+  await expect(page.getByTestId('calendar-next-count')).toHaveText('1');
+});
 
 test('iPhone Safari keeps upcoming appointment actions and edit controls reachable @mobile-safari', async ({
   browser,
