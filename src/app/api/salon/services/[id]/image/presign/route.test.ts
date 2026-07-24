@@ -7,7 +7,7 @@ const {
   selectLimit,
   generateServiceImagePublicId,
   createServiceImageUploadSignature,
-  createServiceImageFinalizeToken,
+  checkServiceImagePresignRateLimit,
 } = vi.hoisted(() => {
   let rows: unknown[] = [];
   const selectLimit = vi.fn(async () => rows);
@@ -21,12 +21,15 @@ const {
     selectLimit,
     generateServiceImagePublicId: vi.fn(),
     createServiceImageUploadSignature: vi.fn(),
-    createServiceImageFinalizeToken: vi.fn(),
+    checkServiceImagePresignRateLimit: vi.fn(),
   };
 });
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon }));
 vi.mock('@/libs/Cloudinary', () => ({ isCloudinaryConfigured }));
+vi.mock('@/libs/serviceImagePresignRateLimit.server', () => ({
+  checkServiceImagePresignRateLimit,
+}));
 vi.mock('@/libs/DB', () => ({
   db: {
     select: vi.fn(() => ({
@@ -50,7 +53,6 @@ vi.mock('@/libs/serviceImageStorage.server', () => ({
     contentType === 'image/jpeg' ? 'jpg' : contentType.split('/')[1],
   generateServiceImagePublicId,
   createServiceImageUploadSignature,
-  createServiceImageFinalizeToken,
 }));
 
 /* eslint-disable import/first */
@@ -83,6 +85,10 @@ describe('POST /api/salon/services/[id]/image/presign', () => {
       salon: { id: 'salon_1', slug: 'isla-nail-studio' },
     });
     isCloudinaryConfigured.mockReturnValue(true);
+    checkServiceImagePresignRateLimit.mockResolvedValue({
+      allowed: true,
+      remaining: 19,
+    });
     generateServiceImagePublicId.mockReturnValue(
       'salons/salon_1/services/service_svc_1_token_jpg',
     );
@@ -95,8 +101,11 @@ describe('POST /api/salon/services/[id]/image/presign', () => {
       uploadPreset: 'luster_service_images_v1',
       publicId: 'salons/salon_1/services/service_svc_1_token_jpg',
       overwrite: false,
+      type: 'upload',
+      tags: 'luster_service_image_pending_v1',
+      context: 'signed-pending-context',
+      finalizeToken: 'a'.repeat(64),
     });
-    createServiceImageFinalizeToken.mockReturnValue('a'.repeat(64));
   });
 
   it('returns signed direct-upload parameters with an app-generated public id', async () => {
@@ -119,14 +128,16 @@ describe('POST /api/salon/services/[id]/image/presign', () => {
       uploadPreset: 'luster_service_images_v1',
       publicId: 'salons/salon_1/services/service_svc_1_token_jpg',
       overwrite: false,
+      type: 'upload',
+      tags: 'luster_service_image_pending_v1',
+      context: 'signed-pending-context',
       finalizeToken: 'a'.repeat(64),
     });
-    expect(createServiceImageFinalizeToken).toHaveBeenCalledWith({
+    expect(createServiceImageUploadSignature).toHaveBeenCalledWith({
       publicId: 'salons/salon_1/services/service_svc_1_token_jpg',
       salonId: 'salon_1',
       serviceId: 'svc_1',
       expectedImageUrl: null,
-      timestamp: 123456,
     });
     expect(JSON.stringify(body)).not.toContain('api-secret');
   });
@@ -168,6 +179,37 @@ describe('POST /api/salon/services/[id]/image/presign', () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('SERVICE_IMAGE_STALE');
+    expect(generateServiceImagePublicId).not.toHaveBeenCalled();
+    expect(checkServiceImagePresignRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('rate limits an authenticated salon before issuing upload parameters', async () => {
+    checkServiceImagePresignRateLimit.mockResolvedValue({
+      allowed: false,
+      reason: 'rate_limited',
+      retryAfterSeconds: 73,
+    });
+
+    const response = await POST(request(validBody), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('73');
+    expect(body.error.code).toBe('RATE_LIMIT_EXCEEDED');
+    expect(generateServiceImagePublicId).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the hosted rate-limit store is unavailable', async () => {
+    checkServiceImagePresignRateLimit.mockResolvedValue({
+      allowed: false,
+      reason: 'unavailable',
+    });
+
+    const response = await POST(request(validBody), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('IMAGE_UPLOAD_RATE_LIMIT_UNAVAILABLE');
     expect(generateServiceImagePublicId).not.toHaveBeenCalled();
   });
 

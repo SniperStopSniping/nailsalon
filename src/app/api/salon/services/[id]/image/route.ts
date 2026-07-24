@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -6,12 +6,14 @@ import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
 import {
   assertManagedServiceImagePublicId,
-  deleteCloudinaryServiceImageByPublicId,
   deleteManagedServiceImage,
+  deletePendingServiceImageAssetById,
   managedCloudinaryPublicIdFromUrl,
+  markCloudinaryServiceImageActive,
   saveLocalServiceImage,
   SERVICE_IMAGE_ALLOWED_CONTENT_TYPES,
   SERVICE_IMAGE_MAX_BYTES,
+  serviceImageUrlReferencesManagedPublicId,
   ServiceImageValidationError,
   verifyCloudinaryServiceImage,
   verifyServiceImageFinalizeToken,
@@ -24,6 +26,7 @@ export const runtime = 'nodejs';
 
 const cloudinaryFinalizeSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
+  assetId: z.string().regex(/^[\w-]{8,128}$/),
   publicId: z.string().min(1).max(512),
   expectedImageUrl: z.string().max(2048).nullable(),
   timestamp: z.number().int().positive(),
@@ -118,6 +121,43 @@ async function bestEffortDeleteManagedImage({
     return;
   }
 
+  const cloudinaryPublicId = managedCloudinaryPublicIdFromUrl({
+    imageUrl,
+    salonId,
+    serviceId,
+  });
+  if (cloudinaryPublicId) {
+    try {
+      const references = await db
+        .select({
+          id: serviceSchema.id,
+          imageUrl: serviceSchema.imageUrl,
+        })
+        .from(serviceSchema)
+        .where(
+          sql<boolean>`strpos(${serviceSchema.imageUrl}, ${`/${cloudinaryPublicId}`}) > 0`,
+        );
+      const isShared = references.some(reference =>
+        reference.id !== serviceId
+        && reference.imageUrl
+        && serviceImageUrlReferencesManagedPublicId({
+          imageUrl: reference.imageUrl,
+          publicId: cloudinaryPublicId,
+        }));
+      if (isShared) {
+        return;
+      }
+    } catch (referenceError) {
+      // Deletion is optional cleanup. If the authoritative database cannot
+      // prove this asset is unreferenced, preserve it.
+      console.error(
+        'Could not verify whether the previous service image is shared; preserving it:',
+        referenceError,
+      );
+      return;
+    }
+  }
+
   try {
     await deleteManagedServiceImage({ imageUrl, salonId, serviceId });
   } catch (cleanupError) {
@@ -125,11 +165,38 @@ async function bestEffortDeleteManagedImage({
   }
 }
 
-async function bestEffortDeleteNewCloudinaryImage({
+async function bestEffortMarkCloudinaryImageActive({
   publicId,
   salonId,
   serviceId,
 }: {
+  publicId: string;
+  salonId: string;
+  serviceId: string;
+}) {
+  try {
+    await markCloudinaryServiceImageActive({
+      publicId,
+      salonId,
+      serviceId,
+    });
+  } catch (metadataError) {
+    // The database URL is the source of truth. A referenced asset is protected
+    // by the pending cleanup worker, which can repair this marker later.
+    console.error(
+      'Service image was saved, but its pending marker could not be cleared:',
+      metadataError,
+    );
+  }
+}
+
+async function bestEffortDeleteNewCloudinaryImage({
+  assetId,
+  publicId,
+  salonId,
+  serviceId,
+}: {
+  assetId: string;
   publicId: string;
   salonId: string;
   serviceId: string;
@@ -155,7 +222,8 @@ async function bestEffortDeleteNewCloudinaryImage({
   }
 
   try {
-    await deleteCloudinaryServiceImageByPublicId({
+    await deletePendingServiceImageAssetById({
+      assetId,
       publicId,
       salonId,
       serviceId,
@@ -183,6 +251,7 @@ async function finalizeCloudinaryImage(
 
   const {
     salonSlug,
+    assetId,
     publicId,
     expectedImageUrl,
     timestamp,
@@ -251,23 +320,33 @@ async function finalizeCloudinaryImage(
       serviceId: service.id,
     }) === publicId
   ) {
+    await bestEffortMarkCloudinaryImageActive({
+      publicId,
+      salonId: salon.id,
+      serviceId: service.id,
+    });
     return Response.json({ data: { service: buildServicePayload(service) } });
   }
 
   let verifiedImage: Awaited<ReturnType<typeof verifyCloudinaryServiceImage>>;
   try {
     verifiedImage = await verifyCloudinaryServiceImage({
+      assetId,
       publicId,
       salonId: salon.id,
       serviceId: service.id,
+      finalizeToken,
     });
   } catch (verifyError) {
     if (verifyError instanceof ServiceImageValidationError) {
-      await bestEffortDeleteNewCloudinaryImage({
-        publicId,
-        salonId: salon.id,
-        serviceId: service.id,
-      });
+      if (verifyError.managedAssetId === assetId) {
+        await bestEffortDeleteNewCloudinaryImage({
+          assetId,
+          publicId,
+          salonId: salon.id,
+          serviceId: service.id,
+        });
+      }
       return errorJson(400, verifyError.code, verifyError.message);
     }
 
@@ -292,11 +371,17 @@ async function finalizeCloudinaryImage(
 
     if (!updated) {
       const activeService = await bestEffortDeleteNewCloudinaryImage({
+        assetId,
         publicId,
         salonId: salon.id,
         serviceId: service.id,
       });
       if (activeService) {
+        await bestEffortMarkCloudinaryImageActive({
+          publicId,
+          salonId: salon.id,
+          serviceId: service.id,
+        });
         return Response.json({
           data: { service: buildServicePayload(activeService) },
         });
@@ -308,6 +393,11 @@ async function finalizeCloudinaryImage(
       );
     }
 
+    await bestEffortMarkCloudinaryImageActive({
+      publicId,
+      salonId: salon.id,
+      serviceId: service.id,
+    });
     await bestEffortDeleteManagedImage({
       imageUrl: previousImageUrl,
       salonId: salon.id,
@@ -335,6 +425,11 @@ async function finalizeCloudinaryImage(
     }
 
     if (currentService?.imageUrl === verifiedImage.imageUrl) {
+      await bestEffortMarkCloudinaryImageActive({
+        publicId,
+        salonId: salon.id,
+        serviceId: service.id,
+      });
       await bestEffortDeleteManagedImage({
         imageUrl: previousImageUrl,
         salonId: salon.id,

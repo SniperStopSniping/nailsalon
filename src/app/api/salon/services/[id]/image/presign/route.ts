@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
+import { checkServiceImagePresignRateLimit } from '@/libs/serviceImagePresignRateLimit.server';
 import {
-  createServiceImageFinalizeToken,
   createServiceImageUploadSignature,
   generateServiceImagePublicId,
   SERVICE_IMAGE_ALLOWED_CONTENT_TYPES,
@@ -77,6 +77,32 @@ export async function POST(
     );
   }
 
+  const rateLimit = await checkServiceImagePresignRateLimit(salon.id);
+  if (!rateLimit.allowed) {
+    if (rateLimit.reason === 'rate_limited') {
+      return Response.json(
+        {
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many image upload requests. Please try again later.',
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfterSeconds),
+          },
+        },
+      );
+    }
+
+    return errorJson(
+      503,
+      'IMAGE_UPLOAD_RATE_LIMIT_UNAVAILABLE',
+      'Image uploads are temporarily unavailable.',
+    );
+  }
+
   if (!isCloudinaryConfigured()) {
     if (process.env.NODE_ENV === 'production') {
       return errorJson(
@@ -99,13 +125,11 @@ export async function POST(
     serviceId: service.id,
     format,
   });
-  const signedUpload = createServiceImageUploadSignature(publicId);
-  const finalizeToken = createServiceImageFinalizeToken({
+  const signedUpload = createServiceImageUploadSignature({
     publicId,
     salonId: salon.id,
     serviceId: service.id,
     expectedImageUrl,
-    timestamp: signedUpload.timestamp,
   });
 
   return Response.json({
@@ -119,7 +143,10 @@ export async function POST(
       uploadPreset: signedUpload.uploadPreset,
       publicId: signedUpload.publicId,
       overwrite: signedUpload.overwrite,
-      finalizeToken,
+      type: signedUpload.type,
+      tags: signedUpload.tags,
+      context: signedUpload.context,
+      finalizeToken: signedUpload.finalizeToken,
     },
   });
 }

@@ -7,6 +7,10 @@
     {
       "path": "/api/integrations/outbox/process",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/service-images/pending/cleanup",
+      "schedule": "23 * * * *"
     }
   ]
 }

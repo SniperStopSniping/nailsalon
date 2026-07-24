@@ -68,6 +68,9 @@ function mockRoutes({ services = [], merchandising = {}, createdService, patched
             uploadPreset: 'luster_service_images_v1',
             publicId: 'salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp',
             overwrite: false,
+            type: 'upload',
+            tags: 'luster_service_image_pending_v1',
+            context: 'signed-pending-context',
             finalizeToken: 'a'.repeat(64),
             cloudName: 'demo',
           },
@@ -79,7 +82,10 @@ function mockRoutes({ services = [], merchandising = {}, createdService, patched
       if (imageFailureAt === 'upload') {
         return new Response(JSON.stringify({ error: { message: 'Cloud upload failed' } }), { status: 500 });
       }
-      return new Response(JSON.stringify({ delete_token: 'upload-delete-token' }), { status: 200 });
+      return new Response(JSON.stringify({
+        asset_id: 'asset_AbCdEfGhIjKlMnOp',
+        delete_token: 'upload-delete-token',
+      }), { status: 200 });
     }
     if (url === 'https://api.cloudinary.com/v1_1/demo/delete_by_token' && init?.method === 'POST') {
       return new Response(JSON.stringify({ result: 'ok' }), { status: 200 });
@@ -1496,13 +1502,19 @@ describe('ServicesModal — service image controls', () => {
     expect(uploadBody.get('upload_preset')).toBe('luster_service_images_v1');
     expect(uploadBody.get('public_id')).toBe('salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp');
     expect(uploadBody.get('overwrite')).toBe('false');
+    expect(uploadBody.get('type')).toBe('upload');
+    expect(uploadBody.get('tags')).toBe('luster_service_image_pending_v1');
+    expect(uploadBody.get('context')).toBe('signed-pending-context');
     expect(Array.from(uploadBody.keys()).sort()).toEqual([
       'api_key',
+      'context',
       'file',
       'overwrite',
       'public_id',
       'signature',
+      'tags',
       'timestamp',
+      'type',
       'upload_preset',
     ]);
 
@@ -1513,6 +1525,7 @@ describe('ServicesModal — service image controls', () => {
 
     expect(JSON.parse(String((finalizeCall[1] as RequestInit).body))).toEqual({
       salonSlug: 'isla-nail-studio',
+      assetId: 'asset_AbCdEfGhIjKlMnOp',
       publicId: 'salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp',
       expectedImageUrl: null,
       timestamp: 123456,

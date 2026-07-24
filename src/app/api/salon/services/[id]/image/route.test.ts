@@ -3,21 +3,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   requireAdminSalon,
   isCloudinaryConfigured,
+  selectReferences,
   selectRows,
+  setReferenceRows,
   setSelectedRows,
   setUpdatedRows,
   updateSet,
   assertManagedServiceImagePublicId,
   verifyCloudinaryServiceImage,
   saveLocalServiceImage,
-  deleteCloudinaryServiceImageByPublicId,
+  deletePendingServiceImageAssetById,
   deleteManagedServiceImage,
   managedCloudinaryPublicIdFromUrl,
+  markCloudinaryServiceImageActive,
+  serviceImageUrlReferencesManagedPublicId,
   verifyServiceImageFinalizeToken,
 } = vi.hoisted(() => {
   let selected: unknown[] = [];
+  let references: unknown[] = [];
   let updated: unknown[] = [];
   const selectRows = vi.fn(async () => selected);
+  const selectReferences = vi.fn(async () => references);
   const updateRows = vi.fn(async () => updated);
   const updateSet = vi.fn(() => ({
     where: vi.fn(() => ({
@@ -28,7 +34,11 @@ const {
   return {
     requireAdminSalon: vi.fn(),
     isCloudinaryConfigured: vi.fn(),
+    selectReferences,
     selectRows,
+    setReferenceRows: (rows: unknown[]) => {
+      references = rows;
+    },
     setSelectedRows: (rows: unknown[]) => {
       selected = rows;
     },
@@ -39,9 +49,11 @@ const {
     assertManagedServiceImagePublicId: vi.fn(),
     verifyCloudinaryServiceImage: vi.fn(),
     saveLocalServiceImage: vi.fn(),
-    deleteCloudinaryServiceImageByPublicId: vi.fn(),
+    deletePendingServiceImageAssetById: vi.fn(),
     deleteManagedServiceImage: vi.fn(),
     managedCloudinaryPublicIdFromUrl: vi.fn(),
+    markCloudinaryServiceImageActive: vi.fn(),
+    serviceImageUrlReferencesManagedPublicId: vi.fn(),
     verifyServiceImageFinalizeToken: vi.fn(),
   };
 });
@@ -50,11 +62,13 @@ vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon }));
 vi.mock('@/libs/Cloudinary', () => ({ isCloudinaryConfigured }));
 vi.mock('@/libs/DB', () => ({
   db: {
-    select: vi.fn(() => ({
+    select: vi.fn((fields?: unknown) => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: selectRows,
-        })),
+        where: vi.fn(() => fields
+          ? selectReferences()
+          : {
+              limit: selectRows,
+            }),
       })),
     })),
     update: vi.fn(() => ({
@@ -65,10 +79,12 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/serviceImageStorage.server', () => {
   class ServiceImageValidationError extends Error {
     code: string;
+    managedAssetId?: string;
 
-    constructor(code: string, message: string) {
+    constructor(code: string, message: string, managedAssetId?: string) {
       super(message);
       this.code = code;
+      this.managedAssetId = managedAssetId;
     }
   }
 
@@ -83,9 +99,11 @@ vi.mock('@/libs/serviceImageStorage.server', () => {
     assertManagedServiceImagePublicId,
     verifyCloudinaryServiceImage,
     saveLocalServiceImage,
-    deleteCloudinaryServiceImageByPublicId,
+    deletePendingServiceImageAssetById,
     deleteManagedServiceImage,
     managedCloudinaryPublicIdFromUrl,
+    markCloudinaryServiceImageActive,
+    serviceImageUrlReferencesManagedPublicId,
     verifyServiceImageFinalizeToken,
   };
 });
@@ -99,6 +117,7 @@ const oldUrl
 const newUrl
   = 'https://res.cloudinary.com/demo/image/upload/v2/salons/salon_1/services/service_svc_1_new_jpg.jpg';
 const publicId = 'salons/salon_1/services/service_svc_1_new_jpg';
+const assetId = 'asset_AbCdEfGhIjKlMnOp';
 
 function service(imageUrl: string | null = oldUrl) {
   return {
@@ -132,6 +151,7 @@ function cloudRequest(overrides: Record<string, unknown> = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       salonSlug: 'isla-nail-studio',
+      assetId,
       publicId,
       expectedImageUrl: oldUrl,
       timestamp: 123456,
@@ -165,13 +185,16 @@ describe('/api/salon/services/[id]/image', () => {
     saveLocalServiceImage.mockResolvedValue({
       imageUrl: '/uploads/services/salon_1/service_svc_1_AbCdEfGhIjKlMnOp.webp',
     });
-    deleteCloudinaryServiceImageByPublicId.mockResolvedValue(true);
+    deletePendingServiceImageAssetById.mockResolvedValue(true);
     deleteManagedServiceImage.mockResolvedValue(true);
     managedCloudinaryPublicIdFromUrl.mockImplementation(
       ({ imageUrl }: { imageUrl: string }) =>
         imageUrl === newUrl ? publicId : null,
     );
+    serviceImageUrlReferencesManagedPublicId.mockReturnValue(false);
+    setReferenceRows([]);
     verifyServiceImageFinalizeToken.mockReturnValue(true);
+    markCloudinaryServiceImageActive.mockResolvedValue(true);
   });
 
   it('finalizes a verified Cloudinary upload and cleans the previous managed image', async () => {
@@ -185,6 +208,13 @@ describe('/api/salon/services/[id]/image', () => {
       serviceId: 'svc_1',
     });
     expect(verifyCloudinaryServiceImage).toHaveBeenCalledWith({
+      assetId,
+      publicId,
+      salonId: 'salon_1',
+      serviceId: 'svc_1',
+      finalizeToken: 'a'.repeat(64),
+    });
+    expect(markCloudinaryServiceImageActive).toHaveBeenCalledWith({
       publicId,
       salonId: 'salon_1',
       serviceId: 'svc_1',
@@ -244,7 +274,7 @@ describe('/api/salon/services/[id]/image', () => {
     expect(body.data.service.imageUrl).toBe(newUrl);
     expect(verifyCloudinaryServiceImage).not.toHaveBeenCalled();
     expect(updateSet).not.toHaveBeenCalled();
-    expect(deleteCloudinaryServiceImageByPublicId).not.toHaveBeenCalled();
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
     expect(deleteManagedServiceImage).not.toHaveBeenCalled();
   });
 
@@ -263,7 +293,11 @@ describe('/api/salon/services/[id]/image', () => {
   it('removes a failed validation upload while preserving the old database image', async () => {
     const { ServiceImageValidationError } = await import('@/libs/serviceImageStorage.server');
     verifyCloudinaryServiceImage.mockRejectedValue(
-      new ServiceImageValidationError('INVALID_IMAGE_CONTENT', 'Invalid image bytes'),
+      new ServiceImageValidationError(
+        'INVALID_IMAGE_CONTENT',
+        'Invalid image bytes',
+        assetId,
+      ),
     );
 
     const response = await POST(cloudRequest(), context);
@@ -271,11 +305,52 @@ describe('/api/salon/services/[id]/image', () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe('INVALID_IMAGE_CONTENT');
-    expect(deleteCloudinaryServiceImageByPublicId).toHaveBeenCalledWith({
+    expect(deletePendingServiceImageAssetById).toHaveBeenCalledWith({
+      assetId,
       publicId,
       salonId: 'salon_1',
       serviceId: 'svc_1',
     });
+    expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('immediately deletes an authoritatively oversized upload by immutable asset id', async () => {
+    const { ServiceImageValidationError } = await import('@/libs/serviceImageStorage.server');
+    verifyCloudinaryServiceImage.mockRejectedValue(
+      new ServiceImageValidationError(
+        'FILE_TOO_LARGE',
+        'Image must be 5 MB or smaller',
+        assetId,
+      ),
+    );
+
+    const response = await POST(cloudRequest(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('FILE_TOO_LARGE');
+    expect(deletePendingServiceImageAssetById).toHaveBeenCalledWith({
+      assetId,
+      publicId,
+      salonId: 'salon_1',
+      serviceId: 'svc_1',
+    });
+    expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('never deletes an asset id whose pending binding could not be verified', async () => {
+    const { ServiceImageValidationError } = await import('@/libs/serviceImageStorage.server');
+    verifyCloudinaryServiceImage.mockRejectedValue(
+      new ServiceImageValidationError(
+        'UNMANAGED_IMAGE',
+        'Upload binding mismatch',
+      ),
+    );
+
+    const response = await POST(cloudRequest(), context);
+
+    expect(response.status).toBe(400);
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
     expect(updateSet).not.toHaveBeenCalled();
   });
 
@@ -289,7 +364,7 @@ describe('/api/salon/services/[id]/image', () => {
 
     expect(response.status).toBe(502);
     expect(body.error.code).toBe('IMAGE_VERIFICATION_FAILED');
-    expect(deleteCloudinaryServiceImageByPublicId).not.toHaveBeenCalled();
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
     expect(updateSet).not.toHaveBeenCalled();
   });
 
@@ -299,7 +374,8 @@ describe('/api/salon/services/[id]/image', () => {
     const response = await POST(cloudRequest(), context);
 
     expect(response.status).toBe(409);
-    expect(deleteCloudinaryServiceImageByPublicId).toHaveBeenCalledWith({
+    expect(deletePendingServiceImageAssetById).toHaveBeenCalledWith({
+      assetId,
       publicId,
       salonId: 'salon_1',
       serviceId: 'svc_1',
@@ -318,7 +394,7 @@ describe('/api/salon/services/[id]/image', () => {
     const response = await POST(cloudRequest(), context);
 
     expect(response.status).toBe(200);
-    expect(deleteCloudinaryServiceImageByPublicId).not.toHaveBeenCalled();
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
   });
 
   it('preserves the upload when a database error makes the update outcome ambiguous', async () => {
@@ -331,7 +407,7 @@ describe('/api/salon/services/[id]/image', () => {
 
     expect(response.status).toBe(500);
     expect(body.error.code).toBe('IMAGE_SAVE_FAILED');
-    expect(deleteCloudinaryServiceImageByPublicId).not.toHaveBeenCalled();
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
     expect(deleteManagedServiceImage).not.toHaveBeenCalledWith(
       expect.objectContaining({ imageUrl: oldUrl }),
     );
@@ -350,7 +426,7 @@ describe('/api/salon/services/[id]/image', () => {
 
     expect(response.status).toBe(200);
     expect(body.data.service.imageUrl).toBe(newUrl);
-    expect(deleteCloudinaryServiceImageByPublicId).not.toHaveBeenCalled();
+    expect(deletePendingServiceImageAssetById).not.toHaveBeenCalled();
     expect(deleteManagedServiceImage).toHaveBeenCalledWith({
       imageUrl: oldUrl,
       salonId: 'salon_1',
@@ -368,6 +444,75 @@ describe('/api/salon/services/[id]/image', () => {
     expect(response.status).toBe(200);
     expect(body.data.service.imageUrl).toBe(newUrl);
     expect(consoleError).toHaveBeenCalled();
+
+    consoleError.mockRestore();
+  });
+
+  it('preserves a previous managed image that is still referenced by another salon service', async () => {
+    const oldPublicId
+      = 'salons/salon_1/services/service_svc_1_AbCdEfGhIjKlMnOp_jpg';
+    managedCloudinaryPublicIdFromUrl.mockImplementation(
+      ({ imageUrl }: { imageUrl: string }) =>
+        imageUrl === oldUrl ? oldPublicId : imageUrl === newUrl ? publicId : null,
+    );
+    serviceImageUrlReferencesManagedPublicId.mockReturnValue(true);
+    setReferenceRows([{
+      id: 'svc_other',
+      imageUrl:
+        `https://res.cloudinary.com/demo/image/upload/c_fill,w_600/v9/${oldPublicId}.jpg`,
+    }]);
+
+    const response = await POST(cloudRequest(), context);
+
+    expect(response.status).toBe(200);
+    expect(serviceImageUrlReferencesManagedPublicId).toHaveBeenCalledWith({
+      imageUrl: expect.stringContaining('/c_fill,w_600/'),
+      publicId: oldPublicId,
+    });
+    expect(deleteManagedServiceImage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrl: oldUrl }),
+    );
+  });
+
+  it('fails closed and preserves an old managed image when shared-reference lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const oldPublicId
+      = 'salons/salon_1/services/service_svc_1_AbCdEfGhIjKlMnOp_jpg';
+    managedCloudinaryPublicIdFromUrl.mockImplementation(
+      ({ imageUrl }: { imageUrl: string }) =>
+        imageUrl === oldUrl ? oldPublicId : imageUrl === newUrl ? publicId : null,
+    );
+    selectReferences.mockRejectedValueOnce(new Error('database unavailable'));
+
+    const response = await POST(cloudRequest(), context);
+
+    expect(response.status).toBe(200);
+    expect(deleteManagedServiceImage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrl: oldUrl }),
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('previous service image is shared'),
+      expect.any(Error),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it('keeps a successfully saved image when clearing its pending tag fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    markCloudinaryServiceImageActive.mockRejectedValue(
+      new Error('metadata update failed'),
+    );
+
+    const response = await POST(cloudRequest(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.service.imageUrl).toBe(newUrl);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('pending marker could not be cleared'),
+      expect.any(Error),
+    );
 
     consoleError.mockRestore();
   });

@@ -100,6 +100,9 @@ type ServiceImagePresignData = {
   uploadPreset?: string;
   publicId?: string;
   overwrite?: boolean;
+  type?: 'upload';
+  tags?: string;
+  context?: string;
   finalizeToken?: string;
   cloudName?: string;
 };
@@ -639,6 +642,9 @@ function AddServiceDialog({
       uploadPreset,
       publicId,
       overwrite,
+      type: deliveryType,
+      tags,
+      context,
       finalizeToken,
     } = presign;
 
@@ -650,6 +656,9 @@ function AddServiceDialog({
       || !uploadPreset
       || !publicId
       || overwrite == null
+      || deliveryType !== 'upload'
+      || !tags
+      || !context
       || !finalizeToken
     ) {
       throw new Error('Cloud image upload parameters were incomplete');
@@ -665,6 +674,9 @@ function AddServiceDialog({
     cloudinaryForm.append('upload_preset', uploadPreset);
     cloudinaryForm.append('public_id', publicId);
     cloudinaryForm.append('overwrite', String(overwrite));
+    cloudinaryForm.append('type', deliveryType);
+    cloudinaryForm.append('tags', tags);
+    cloudinaryForm.append('context', context);
 
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
@@ -677,6 +689,13 @@ function AddServiceDialog({
         uploadResult?.error?.message ?? 'Failed to upload the service image',
       );
     }
+    const assetId = uploadResult?.asset_id;
+    if (
+      typeof assetId !== 'string'
+      || !/^[\w-]{8,128}$/.test(assetId)
+    ) {
+      throw new Error('Cloud image upload metadata was incomplete');
+    }
 
     setSavePhase('finalizing-image');
     const imageResponse = await fetch(imageUrl, {
@@ -684,6 +703,7 @@ function AddServiceDialog({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         salonSlug,
+        assetId,
         publicId,
         expectedImageUrl,
         timestamp,
