@@ -1,3 +1,16 @@
+# [1.32.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.31.0...v1.32.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **services:** preserve image concurrency guard ([0a3bd86](https://github.com/SniperStopSniping/nailsalon/commit/0a3bd868b69df163a48da20ccfbb2cc340d8d1ae))
+
+
+### Features
+
+* **services:** add custom service image controls ([d82ac7e](https://github.com/SniperStopSniping/nailsalon/commit/d82ac7e01c138889906cf7af3f1b04198f0d58c2))
+* **services:** clean up pending image uploads ([8b4a073](https://github.com/SniperStopSniping/nailsalon/commit/8b4a073d466858522ecd6545d9dc834aa0fb3272))
+
 # [1.31.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.30.0...v1.31.0) (2026-07-23)
 
 
