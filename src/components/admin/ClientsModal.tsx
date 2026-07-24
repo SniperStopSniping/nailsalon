@@ -21,7 +21,7 @@ import {
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
-import { ClientHubPanel } from '@/components/admin/ClientHubPanel';
+import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -30,6 +30,11 @@ import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
+import {
+  CLIENT_INSIGHT_SEGMENT_LABELS,
+  type ClientInsightAttentionItem,
+  type ClientInsightSegmentId,
+} from '@/types/clientInsights';
 import type { RetentionStage } from '@/types/retention';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -252,6 +257,16 @@ type PromotionSettingsStage = Extract<
 >;
 
 type SortOption = 'recent' | 'visits' | 'spent' | 'name';
+type DirectoryStateSnapshot = {
+  clients: ClientSummary[];
+  searchQuery: string;
+  debouncedSearchQuery: string;
+  sortBy: SortOption;
+  page: number;
+  hasMore: boolean;
+  totalClients: number;
+  scrollTop: number;
+};
 type ProfileSection =
   | 'overview'
   | 'activity'
@@ -1855,12 +1870,16 @@ export function ClientsModal({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchRevision, setSearchRevision] = useState(0);
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(null);
   const [showHub, setShowHub] = useState(false);
+  const [activeSegment, setActiveSegment] = useState<ClientInsightSegmentId | null>(null);
+  const [insightsBookingClient, setInsightsBookingClient] = useState<ClientInsightAttentionItem | null>(null);
+  const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
@@ -1876,11 +1895,48 @@ export function ClientsModal({
   const clientDetailCacheRef = useRef<Record<string, ClientDetailCacheEntry>>({});
   const lastFetchedPageRef = useRef(1);
   const initialClientRequestRef = useRef<string | null>(null);
+  const directoryScrollRef = useRef<HTMLDivElement | null>(null);
+  const directoryReturnScrollRef = useRef(0);
+  const savedDirectoryStateRef = useRef<DirectoryStateSnapshot | null>(null);
+  const skipNextDirectoryFetchRef = useRef(false);
+  const directoryRequestGenerationRef = useRef(0);
+  const directoryAbortControllerRef = useRef<AbortController | null>(null);
+  const pendingSearchRevisionRef = useRef(0);
+  const directoryQuerySignature = JSON.stringify({
+    salonSlug,
+    activeSegment,
+    search: debouncedSearchQuery,
+    searchRevision,
+    sortBy,
+    sortOrder: sortBy === 'name' ? 'asc' : 'desc',
+  });
+  const directoryQuerySignatureRef = useRef(directoryQuerySignature);
+  directoryQuerySignatureRef.current = directoryQuerySignature;
+
+  const invalidateDirectoryRequests = useCallback((settleLoading = false) => {
+    directoryRequestGenerationRef.current += 1;
+    directoryAbortControllerRef.current?.abort();
+    directoryAbortControllerRef.current = null;
+    if (settleLoading) {
+      setLoading(false);
+    }
+  }, []);
 
   const fetchClients = useCallback(async (targetPage: number, resetPage = false) => {
     if (!salonSlug) {
       return;
     }
+
+    directoryAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    directoryAbortControllerRef.current = controller;
+    const requestGeneration = directoryRequestGenerationRef.current + 1;
+    directoryRequestGenerationRef.current = requestGeneration;
+    const requestSignature = directoryQuerySignature;
+    const isCurrentRequest = () =>
+      requestGeneration === directoryRequestGenerationRef.current
+      && requestSignature === directoryQuerySignatureRef.current
+      && !controller.signal.aborted;
 
     try {
       setLoading(true);
@@ -1896,13 +1952,21 @@ export function ClientsModal({
       if (debouncedSearchQuery) {
         params.set('search', debouncedSearchQuery);
       }
+      if (activeSegment) {
+        params.set('segment', activeSegment);
+      }
 
-      const response = await fetch(`/api/admin/clients?${params}`);
+      const response = await fetch(`/api/admin/clients?${params}`, {
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch clients');
       }
 
       const result = await response.json();
+      if (!isCurrentRequest()) {
+        return;
+      }
       const fetchedClients = result.data?.clients ?? [];
       const pagination = result.data?.pagination ?? {};
 
@@ -1915,12 +1979,27 @@ export function ClientsModal({
       setTotalClients(pagination.total ?? fetchedClients.length);
       setHasMore(targetPage < (pagination.totalPages ?? 1));
     } catch (fetchError) {
+      if (
+        !isCurrentRequest()
+        || (fetchError instanceof DOMException && fetchError.name === 'AbortError')
+      ) {
+        return;
+      }
       console.error('Failed to fetch clients:', fetchError);
       setError('Failed to load clients');
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        setLoading(false);
+        directoryAbortControllerRef.current = null;
+      }
     }
-  }, [debouncedSearchQuery, salonSlug, sortBy]);
+  }, [
+    activeSegment,
+    debouncedSearchQuery,
+    directoryQuerySignature,
+    salonSlug,
+    sortBy,
+  ]);
 
   const fetchModuleAvailability = useCallback(async () => {
     if (!salonSlug) {
@@ -2057,10 +2136,16 @@ export function ClientsModal({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
+      setSearchRevision(pendingSearchRevisionRef.current);
     }, 300);
 
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => () => {
+    directoryRequestGenerationRef.current += 1;
+    directoryAbortControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     fetchModuleAvailability();
@@ -2079,10 +2164,14 @@ export function ClientsModal({
     if (!salonSlug) {
       return;
     }
+    if (skipNextDirectoryFetchRef.current) {
+      skipNextDirectoryFetchRef.current = false;
+      return;
+    }
     lastFetchedPageRef.current = 1;
     setPage(1);
     fetchClients(1, true);
-  }, [debouncedSearchQuery, fetchClients, salonSlug, sortBy]);
+  }, [activeSegment, debouncedSearchQuery, fetchClients, salonSlug, sortBy]);
 
   const groupedClients = useMemo(() => (
     sortBy === 'name' ? groupClientsByLetter(clients) : null
@@ -2095,27 +2184,144 @@ export function ClientsModal({
     setPage(prev => prev + 1);
   };
 
+  const openSegment = useCallback((segment: ClientInsightSegmentId) => {
+    if (segment === activeSegment) {
+      setShowHub(false);
+      return;
+    }
+    invalidateDirectoryRequests(true);
+    setError(null);
+    if (!activeSegment && !savedDirectoryStateRef.current) {
+      savedDirectoryStateRef.current = {
+        clients,
+        searchQuery,
+        debouncedSearchQuery,
+        sortBy,
+        page,
+        hasMore,
+        totalClients,
+        scrollTop: directoryScrollRef.current?.scrollTop ?? 0,
+      };
+    }
+    setActiveSegment(segment);
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setClients([]);
+    setPage(1);
+    setHasMore(false);
+    setTotalClients(0);
+    lastFetchedPageRef.current = 1;
+    setShowHub(false);
+  }, [
+    activeSegment,
+    clients,
+    debouncedSearchQuery,
+    hasMore,
+    page,
+    searchQuery,
+    sortBy,
+    totalClients,
+    invalidateDirectoryRequests,
+  ]);
+
+  const clearSegment = useCallback(() => {
+    invalidateDirectoryRequests(true);
+    setError(null);
+    const saved = savedDirectoryStateRef.current;
+    if (!saved) {
+      setActiveSegment(null);
+      return;
+    }
+    skipNextDirectoryFetchRef.current = true;
+    setActiveSegment(null);
+    setClients(saved.clients);
+    setSearchQuery(saved.searchQuery);
+    setDebouncedSearchQuery(saved.debouncedSearchQuery);
+    setSortBy(saved.sortBy);
+    setPage(saved.page);
+    setHasMore(saved.hasMore);
+    setTotalClients(saved.totalClients);
+    lastFetchedPageRef.current = saved.page;
+    savedDirectoryStateRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (directoryScrollRef.current) {
+        directoryScrollRef.current.scrollTop = saved.scrollTop;
+      }
+    });
+  }, [invalidateDirectoryRequests]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    invalidateDirectoryRequests(true);
+    setError(null);
+    pendingSearchRevisionRef.current += 1;
+    setSearchQuery(value);
+  }, [invalidateDirectoryRequests]);
+
+  const handleSortChange = useCallback((value: SortOption) => {
+    if (value === sortBy) {
+      return;
+    }
+    invalidateDirectoryRequests(true);
+    setError(null);
+    setSortBy(value);
+  }, [invalidateDirectoryRequests, sortBy]);
+
+  const restoreDirectoryScroll = useCallback(() => {
+    const scrollTop = directoryReturnScrollRef.current;
+    window.requestAnimationFrame(() => {
+      if (directoryScrollRef.current) {
+        directoryScrollRef.current.scrollTop = scrollTop;
+      }
+    });
+  }, []);
+
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title={showHub ? 'Client Hub' : 'Clients'}
-          subtitle={showHub ? 'Deeper information and reporting' : `${totalClients} total`}
+          title={showHub ? 'Client Insights' : 'Clients'}
+          subtitle={showHub ? 'Client health and follow-up' : `${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
         <div className="space-y-3 px-4 pb-3">
-          {/* Clients stays fast for daily work; Client Hub holds the deeper
-              reporting. Compact two-way toggle keeps mobile navigation tight. */}
-          <div className="bg-[#767680]/12 flex rounded-[10px] p-0.5" role="tablist" aria-label="Clients or Client Hub">
-            {([['clients', 'Clients'], ['hub', 'Client Hub']] as const).map(([id, label]) => (
+          <div className="flex rounded-[10px] bg-[#7676801f] p-0.5" role="tablist" aria-label="Clients or Client Insights">
+            {([['clients', 'Clients'], ['insights', 'Client Insights']] as const).map(([id, label]) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
-                aria-selected={showHub === (id === 'hub')}
-                data-testid={`clients-mode-${id}`}
-                onClick={() => setShowHub(id === 'hub')}
-                className={`min-h-9 flex-1 rounded-[8px] text-[14px] font-semibold ${showHub === (id === 'hub') ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#636366]'}`}
+                aria-selected={showHub === (id === 'insights')}
+                data-testid={id === 'insights' ? 'clients-mode-hub' : 'clients-mode-clients'}
+                data-mode={id}
+                onClick={() => {
+                  if (id === 'insights' && !showHub) {
+                    directoryReturnScrollRef.current
+                      = directoryScrollRef.current?.scrollTop ?? 0;
+                    if (!activeSegment) {
+                      savedDirectoryStateRef.current = {
+                        clients,
+                        searchQuery,
+                        debouncedSearchQuery,
+                        sortBy,
+                        page,
+                        hasMore,
+                        totalClients,
+                        scrollTop: directoryReturnScrollRef.current,
+                      };
+                    }
+                  }
+                  if (id === 'clients' && showHub) {
+                    restoreDirectoryScroll();
+                    if (!activeSegment) {
+                      // The directory never changed while Insights was visible.
+                      // Clear the snapshot so the next Insights visit captures
+                      // the latest search, sort, pagination, and scroll state.
+                      savedDirectoryStateRef.current = null;
+                    }
+                  }
+                  setShowHub(id === 'insights');
+                }}
+                className={`min-h-9 flex-1 rounded-[8px] text-[14px] font-semibold ${showHub === (id === 'insights') ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#636366]'}`}
               >
                 {label}
               </button>
@@ -2125,11 +2331,28 @@ export function ClientsModal({
             <>
               <AdminSearchField
                 value={searchQuery}
-                onChange={setSearchQuery}
+                onChange={handleSearchChange}
                 placeholder="Search clients"
                 inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
               />
-              <SortPills sortBy={sortBy} onChange={setSortBy} />
+              <SortPills sortBy={sortBy} onChange={handleSortChange} />
+              {activeSegment && (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2"
+                  data-testid="clients-active-segment"
+                >
+                  <span className="min-w-0 truncate text-sm font-semibold text-rose-900">
+                    {CLIENT_INSIGHT_SEGMENT_LABELS[activeSegment]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSegment}
+                    className="min-h-9 shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-rose-800 shadow-sm"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -2138,10 +2361,17 @@ export function ClientsModal({
       {showHub
         ? (
             <div className="flex-1 overflow-y-auto pt-2">
-              <ClientHubPanel
+              <ClientInsightsPanel
+                refreshKey={insightsRefreshKey}
+                onOpenSegment={openSegment}
+                onBookClient={setInsightsBookingClient}
                 onOpenClient={(clientId) => {
                   const listed = clients.find(client => client.id === clientId);
                   setShowHub(false);
+                  restoreDirectoryScroll();
+                  if (!activeSegment) {
+                    savedDirectoryStateRef.current = null;
+                  }
                   if (listed) {
                     setSelectedClient(listed);
                   } else {
@@ -2152,7 +2382,11 @@ export function ClientsModal({
             </div>
           )
         : (
-            <div className="flex-1 overflow-y-auto pb-10">
+            <div
+              ref={directoryScrollRef}
+              className="flex-1 overflow-y-auto pb-10"
+              data-testid="clients-directory-scroll"
+            >
               {initialClientError && (
                 <AsyncStatePanel
                   tone="error"
@@ -2200,9 +2434,25 @@ export function ClientsModal({
                       />
                     )
                   : clients.length === 0
-                    ? (
-                        <EmptyState searchQuery={searchQuery} />
-                      )
+                    ? activeSegment
+                      ? (
+                          <div className="mx-4 my-8 rounded-3xl border border-dashed border-rose-200 bg-[#fffaf5] px-5 py-10 text-center">
+                            <p className="font-semibold text-stone-900">
+                              No clients match
+                              {' '}
+                              {CLIENT_INSIGHT_SEGMENT_LABELS[activeSegment].toLowerCase()}
+                            </p>
+                            <p className="mt-1 text-sm text-stone-500">
+                              Clear the filter to return to the full directory.
+                            </p>
+                            <Button type="button" variant="brandSoft" size="pillSm" className="mt-4" onClick={clearSegment}>
+                              Clear filter
+                            </Button>
+                          </div>
+                        )
+                      : (
+                          <EmptyState searchQuery={searchQuery} />
+                        )
                     : (
                         <>
                           {groupedClients
@@ -2275,6 +2525,23 @@ export function ClientsModal({
           />
         )}
       </AnimatePresence>
+
+      <NewAppointmentModal
+        isOpen={Boolean(insightsBookingClient)}
+        onClose={() => setInsightsBookingClient(null)}
+        onSuccess={() => {
+          setInsightsBookingClient(null);
+          setInsightsRefreshKey(current => current + 1);
+          void fetchClients(1, true);
+        }}
+        clientPrefill={insightsBookingClient
+          ? {
+              name: insightsBookingClient.clientName,
+              phone: insightsBookingClient.phone,
+              email: insightsBookingClient.email,
+            }
+          : null}
+      />
     </div>
   );
 }

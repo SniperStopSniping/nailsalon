@@ -1,8 +1,13 @@
 # Client CRM and Insights Redesign — Phase 0 Plan
 
-**Status:** Phase 0–2 implemented; entitlement checkpoint verified; responsive client workspace pulled forward as the next checkpoint; Client Insights not started
+**Status:** Phase 0–2 and the Responsive Client Workspace are released; Client Insights is the active checkpoint
 **Scope:** Owner Client CRM, Client Insights, and owner revenue summary correctness
 **Phase 0 rule:** This document changes no production behavior, schema, or data.
+
+**Released checkpoints:** Responsive Client Workspace shipped in PR #51,
+release v1.31.0, production commit `31e8df46`. Custom service-image controls
+shipped separately in PR #52, release v1.32.0, production commit `483ba96`;
+service-image storage and UI are not part of Client Insights.
 
 ## 1. Outcome and fixed decisions
 
@@ -21,7 +26,7 @@ The existing Clients app remains the single owner destination. Its top-level swi
 | Capability | Current status and source | Decision |
 |---|---|---|
 | Client list | Shipped in `src/components/admin/ClientsModal.tsx`; paginated search and Recent/Visits/Spent/A–Z sorting use `GET /api/admin/clients`. | Keep fast and operational. |
-| Owner client profile | Shipped in `ClientsModal.tsx` and `GET/PATCH /api/admin/clients/[id]`; includes contact data, stats, preferences, notes, flags, photos, and limited appointment history. | Extract into a responsive six-section workspace. |
+| Owner client profile | Responsive workspace shipped in PR #51 with six desktop sections and three mobile sections while preserving contact, appointment, payment, preference, note, flag, reward, review, and photo behavior. | Keep unchanged during Client Insights. |
 | Client Hub | Shipped as Overview/Follow-ups/Segments/Reports in `ClientHubPanel.tsx`; mounted inside Clients. | Rename to Client Insights, remove Reports/revenue, and make health/segments actionable. |
 | Follow-ups | Client Hub fetches `/api/admin/marketing`; Marketing and Today use `buildRetentionQueue`. | One server snapshot/rule path; do not independently recompute counts. |
 | Segments | Counts only; current rules live inline in `api/admin/client-hub/route.ts`. | Move to one typed rules module used by both counts and filtered client lists. |
@@ -41,10 +46,10 @@ Current test coverage includes `ClientsModal.test.tsx`, `api/admin/client-hub/ro
 |---|---|---|---|---|
 | Reporting foundation | No Phase 1 UI | Shared salon-timezone range, revenue, comparison, and provenance helpers; additive `financials.currentPeriods` projection on existing `GET /api/admin/analytics` | `appointment`, `appointment_payment`, salon booking settings | Pure range/provenance tests and PGlite integration matrix |
 | Owner revenue cards | `OwnerTodayWorkspace.tsx`, with independent loading/error/refresh state | Private, dynamic `GET /api/admin/financial-summary`, authorized by `requireAdminSalon` and deliberately independent of the Analytics entitlement | Completed appointments and non-void payments | Core API auth/tenancy/cache tests; component loading/error/empty/provenance tests; proof that Today does not request advanced Analytics |
-| Client Insights overview | Refactored `ClientHubPanel` or extracted `client-insights/` components | Existing `/api/admin/client-hub` may remain as an internal compatibility route, but delegates to a shared Client Insights service | `salon_client`, appointments, services, communications, consent | PGlite count semantics; component states and navigation |
-| Segment drill-down | Segment cards open the Clients list with the filter visible and removable | Extend `GET /api/admin/clients` with a validated segment ID; count and list call the same rules module | Same snapshot as Insights counts | Count/list identity, pagination, search-within-segment, tenancy |
+| Client Insights overview | Refactored `ClientHubPanel` or extracted `client-insights/` components | Canonical private `/api/admin/client-insights`; deprecated `/api/admin/client-hub` remains a separate adapter preserving the `f45e745` `overview`/`segments`/`reports` response contract | `salon_client`, appointments, services, communications, consent | Frozen legacy contract plus PGlite count semantics; component states and navigation |
+| Segment drill-down | Segment cards open the Clients list with the filter visible and removable | `GET /api/admin/clients` accepts a validated segment ID; count and list consume the same tenant-scoped SQL classification projection | Same classified client projection as Insights counts | Count/list identity for every segment, pagination, search-within-segment, tenancy |
 | Follow-ups | Actionable due cards in Client Insights; Marketing remains the full campaign workspace | Shared retention snapshot feeds Client Insights, Marketing, and Today | `salon_client`, active appointments, `client_communication`, retention settings, consent | Suppression, snooze, blocked/future-booking exclusions, cross-surface equality |
-| Responsive profile | Six desktop sections; three mobile tabs | Keep `GET/PATCH /api/admin/clients/[id]`; split heavy activity into a cursor endpoint | `salon_client`, appointments/services, photos, flags | Existing profile regression tests plus responsive browser coverage |
+| Responsive profile | Six desktop sections; three mobile tabs, released in PR #51 | Keep `GET/PATCH /api/admin/clients/[id]`; split heavy activity into a cursor endpoint only in the later timeline phase | `salon_client`, appointments/services, photos, flags | Existing profile regression tests plus responsive browser coverage |
 | Activity timeline v1 | Timeline section/mobile Activity tab | Add `GET /api/admin/clients/[id]/activity?cursor=&limit=` | Appointment lifecycle, audit log, payments, communications, photos, reviews | Source mapping/order/cursor, tenancy, redaction/sanitization, empty/error UI |
 | Book again | Profile header/Overview action | Reuse existing booking modal and appointment actions | Latest eligible completed appointment snapshots | Prefill contract: client + base service + technician only |
 | Rewards summary | Profile Overview card with link | Reuse existing rewards/reviews APIs or add a narrow read projection | `reward`, `review`, `salon_client.loyaltyPoints` | Honest counts/status and navigation; no duplicated mutation tests |
@@ -189,22 +194,28 @@ Create one typed segment registry/service. It supplies both aggregate counts and
 
 | Segment | Canonical persisted-data rule |
 |---|---|
-| New this month | `salon_client.createdAt` within salon-local month-to-date bounds |
-| Returning | `totalVisits >= 2` |
-| Due to return | `buildRetentionQueue` stage `rebook`, including real communication suppression |
-| Overdue | `buildRetentionQueue` stage `promo_6w` or `promo_8w` |
-| No future appointment | No non-deleted future pending/confirmed appointment and no current in-progress appointment |
-| Not seen in 60 days | Non-null `lastVisitAt` at least 60 elapsed days ago |
-| Not seen in 90 days | Non-null `lastVisitAt` at least 90 elapsed days ago |
-| Cancelled in last 30 days | Distinct client with a non-deleted cancelled appointment updated in the rolling 30-day window; `updatedAt` is used because no cancellation-event column exists |
-| Previous no-shows | `noShowCount > 0` |
-| Service affinity | Distinct client with a non-deleted completed appointment whose persisted category snapshot matches Builder gel, Manicure/Hands, Pedicure/Feet, or Extensions |
-| Transactional text consent | Latest consent row for salon + recipient + SMS + `appointment_transactional` is granted |
+| Active | Completed visit within the last 90 salon-local calendar days, or a future pending/confirmed appointment |
+| New this month | First completed appointment occurred in the current salon-local month |
+| Rebooked | Future pending/confirmed appointment exists |
+| Due soon | Expected return date is 1–7 local calendar days ahead, with no future appointment |
+| Due now | Expected return date is today through 7 local calendar days overdue, with no future appointment |
+| Due to return | Union of Due soon and Due now |
+| Overdue | Expected return date is at least 8 local calendar days overdue, with no future appointment |
+| Needs rebooking | Union of Due soon, Due now, and Overdue |
+| No future appointment | At least one completed visit and no future pending/confirmed appointment |
+| First-time client did not return | Exactly one completed visit at least 28 local calendar days ago and no future appointment |
+| Recent cancellation | Cancelled within 14 local calendar days, with no later completed visit or future pending/confirmed appointment; `updatedAt` remains the documented cancellation proxy |
+| Not seen in 30/60 days | Corresponding minimum local-calendar age since the latest completed visit and no future appointment |
+| Inactive 90+ | At least 90 local calendar days since the latest completed visit and no future appointment |
+| Completed outstanding | Established completed balance calculation using positive non-voided payments, independently clamped per appointment |
 
 Rules:
 
 - Count distinct `salonClientId`; use normalized-phone fallback only for legacy appointments without stable identity and test deduplication.
-- Due/overdue and other outreach-oriented cohorts exclude blocked clients and anyone with an active future/in-progress appointment.
+- Active and New-this-month remain client-health counts. Proactive cohorts
+  exclude blocked clients and anyone with an active future/in-progress
+  appointment. Due/overdue also reuse Marketing's sent, snoozed, dismissed,
+  converted, and visit-cycle suppression.
 - Segments may overlap; the UI does not imply a partition.
 - Birthday, acquisition source, and marketing-consent cohorts remain absent because their required persisted fields do not exist.
 - Remove hard caps as semantic count limits. Pagination belongs to list output; query performance is measured separately.
@@ -255,7 +266,8 @@ Reuse or centralize:
 - `revenueSql.ts` intent, extended with eligibility and provenance.
 - `analyticsDateRange.ts`, `getDateKeyInTimeZone`, and `getZonedDayBounds`, generalized to the Monday-start/equal-elapsed contract.
 - `formatMoney` with API-provided salon currency; remove new hard-coded USD/CAD formatting.
-- `buildRetentionQueue` and Marketing’s complete communication snapshot.
+- Marketing’s retention stage resolver, visit-cycle suppression helper, and
+  complete communication snapshot.
 - Existing `GET/PATCH /api/admin/clients/[id]`, `useAppointmentActions`, `AppointmentQuickEditSheet`, `CheckoutSheet`, and `NewAppointmentModal`.
 - Appointment/service snapshot fields, immutable appointment audit rows, payment rows, communication ledger, photos, and reviews.
 - Existing Reviews, Rewards, Marketing, and Analytics destinations via deep links rather than cloned management UI.
@@ -312,25 +324,64 @@ Do not silently merge the two preference models. Initially:
 - Authenticated browser smoke at mobile and desktop widths.
 - No migration or production-data mutation.
 
-### Phase 3 — Client Insights
+### Phase 3 — Client Insights (active)
 
-> Sequencing note: the responsive client workspace checkpoint documented in
-> `docs/client-profile-responsive-workspace-phase.md` is being delivered before
-> this phase. Client Insights remains deferred and unchanged.
+> Sequencing note: the Responsive Client Workspace was intentionally delivered
+> first and released through PR #51/v1.31.0. Client Insights now proceeds from
+> the v1.32.0 production base without modifying that workspace.
 
 - Change copy to Clients | Client Insights.
 - Replace passive Hub Overview/Reports with client-health Overview, actionable Follow-ups, and clickable Segments.
 - Implement the shared Client Insights segment registry/snapshot and make Marketing/Insights counts use real communication suppression.
-- Remove the Hub’s silent 5,000/10,000 semantic count caps while retaining paginated list output.
-- Extend the Clients API with validated segment filtering.
+- Classify one row per client through a reusable tenant-scoped SQL CTE. KPI
+  counts, attention counts, filtered totals, and paginated segment rows consume
+  the same boolean projection; do not materialize all history or pass client-ID
+  arrays back into the directory query.
+- Resolve legacy appointment ownership by phone only when the stable client ID
+  is null and the normalized phone is valid and unique inside the salon. A
+  stale non-null ID never falls back to phone. Marketing retention and reminder
+  queues use the same deterministic ownership rule instead of phone sets or
+  last-entry-wins maps.
+- Preserve `/api/admin/client-hub` as a deprecated compatibility adapter for
+  the frozen `f45e745` response. The current UI uses only
+  `/api/admin/client-insights`.
+- Remove the Hub’s silent 5,000/10,000 semantic count caps while retaining
+  database-side pagination.
+- Extend the Clients API with validated segment filtering and abort/generation
+  protection so obsolete segment, search, sort, and load-more responses cannot
+  replace current directory state.
 - Lazy-load non-overview data and preserve navigation state.
 
-### Phase 4 — Responsive client workspace
+#### Phase 3 review-hardening checkpoint
 
-- Extract the current monolithic client detail.
-- Deliver the six desktop sections and three mobile tabs.
-- Add honest rewards summary/link and constrained Book again.
-- Preserve all existing appointment, checkout, flag, note, and photo workflows.
+- The canonical summary is one post-authorization database round trip. A
+  segmented directory request is also one round trip and returns its filtered
+  total plus one bounded page with technician hydration. There is no
+  client-ID `IN (...)` handoff and no per-client query.
+- A local PGlite benchmark with 2,500 clients, 8,334 appointments, 500 payment
+  records, and 300 communication records measured a warmed summary query at
+  145.1 ms and a warmed 50-row second directory page at 133.0 ms. `EXPLAIN
+  (ANALYZE, BUFFERS)` showed one-row-per-client hash/merge aggregation and used
+  the existing salon-client, appointment-salon, payment salon/recorded, and
+  communication indexes. It returned 1,666 matching rows before database-side
+  sorting/pagination. No N+1 loop or growing query parameter/ID list remained.
+- That development plan did not justify a schema migration or new index. The
+  query remains a candidate for production telemetry as salon sizes grow; any
+  future index must be measured and delivered separately.
+- Directory requests carry abort, generation, and semantic-signature guards.
+  Obsolete successes, failures, and load-more pages cannot replace a newer
+  segment/search/sort or a restored unfiltered directory.
+- Communication outcomes suppress only current-cycle outreach reasons in the
+  bounded follow-up queue. A separately actionable completed balance or recent
+  cancellation can remain, but it is labelled only with that independent
+  reason; dismissed, snoozed, sent, and converted lifecycle reasons cannot leak
+  back through generic inactivity groups.
+
+### Phase 4 — Responsive client workspace (released)
+
+- Released through PR #51 with six desktop sections, three mobile sections,
+  honest financial labels, and preserved booking, communication, appointment,
+  checkout, flag, note, preference, reward, review, and photo workflows.
 
 ### Phase 5 — Activity and financial detail
 

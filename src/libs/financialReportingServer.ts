@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
 
 import {
   type AnalyticsDateRange,
@@ -76,6 +76,12 @@ export type FinancialBalanceSummaryInput = {
   clientPhoneVariants?: string[];
 };
 
+export type CompletedOutstandingRow = {
+  salonClientId: string | null;
+  clientPhone: string;
+  completedOutstandingCents: number;
+};
+
 export type CurrentFinancialReportingSummariesInput = {
   salonId: string;
   timeZone: string | null | undefined;
@@ -105,6 +111,153 @@ function assertRange(start: Date, end: Date): void {
 function numberValue(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isSafeInteger(parsed) ? parsed : 0;
+}
+
+export type FinancialBalanceSqlColumns = {
+  status: SQL;
+  deletedAt: SQL;
+  paymentStatus: SQL;
+  startTime: SQL;
+  finalPriceCents: SQL;
+  totalPrice: SQL;
+  taxAmountCents: SQL;
+  tipCents: SQL;
+  amountPaidCents: SQL;
+  paymentsCents: SQL<number>;
+  hasPaymentHistory: SQL;
+};
+
+/**
+ * Canonical balance predicates and per-appointment expressions.
+ *
+ * Most reporting callers use the appointment table directly. Set-based
+ * projections (Client Insights) can supply already-aggregated payment columns
+ * so the exact same eligibility and clamping rules are reused without a
+ * correlated payment lookup for every appointment.
+ */
+export function buildFinancialBalanceSql(
+  asOf: Date,
+  suppliedColumns?: FinancialBalanceSqlColumns,
+) {
+  const defaultPaymentsCents = sql<number>`COALESCE((
+    SELECT SUM(${appointmentPaymentSchema.amountCents})
+    FROM ${appointmentPaymentSchema}
+    WHERE ${appointmentPaymentSchema.salonId} = ${appointmentSchema.salonId}
+      AND ${appointmentPaymentSchema.appointmentId} = ${appointmentSchema.id}
+      AND ${appointmentPaymentSchema.voidedAt} IS NULL
+      AND ${appointmentPaymentSchema.recordedAt} <= ${asOf}
+      AND ${appointmentPaymentSchema.amountCents} > 0
+  ), 0)`;
+  const defaultHasPaymentHistory = sql`EXISTS (
+    SELECT 1
+    FROM ${appointmentPaymentSchema}
+    WHERE ${appointmentPaymentSchema.salonId} = ${appointmentSchema.salonId}
+      AND ${appointmentPaymentSchema.appointmentId} = ${appointmentSchema.id}
+      AND ${appointmentPaymentSchema.recordedAt} <= ${asOf}
+  )`;
+  const columns = suppliedColumns ?? {
+    status: sql`${appointmentSchema.status}`,
+    deletedAt: sql`${appointmentSchema.deletedAt}`,
+    paymentStatus: sql`${appointmentSchema.paymentStatus}`,
+    startTime: sql`${appointmentSchema.startTime}`,
+    finalPriceCents: sql`${appointmentSchema.finalPriceCents}`,
+    totalPrice: sql`${appointmentSchema.totalPrice}`,
+    taxAmountCents: sql`${appointmentSchema.taxAmountCents}`,
+    tipCents: sql`${appointmentSchema.tipCents}`,
+    amountPaidCents: sql`${appointmentSchema.amountPaidCents}`,
+    paymentsCents: defaultPaymentsCents,
+    hasPaymentHistory: defaultHasPaymentHistory,
+  };
+  const {
+    status,
+    deletedAt,
+    paymentStatus,
+    startTime,
+    finalPriceCents,
+    totalPrice,
+    taxAmountCents,
+    tipCents,
+    amountPaidCents,
+    paymentsCents,
+    hasPaymentHistory,
+  } = columns;
+  const paymentTrackingKnown
+    = sql`(COALESCE(${amountPaidCents} = 0, false) OR ${hasPaymentHistory})`;
+  const legacyStatusSettled
+    = sql`(NOT ${paymentTrackingKnown} AND ${paymentStatus} = 'paid')`;
+
+  const completedEligible = sql`${status} = 'completed'
+    AND ${deletedAt} IS NULL
+    AND ${paymentStatus} IS DISTINCT FROM 'comp'
+    AND ${startTime} <= ${asOf}`;
+  const validSnapshots = sql`COALESCE(${taxAmountCents}, 0) >= 0
+    AND COALESCE(${tipCents}, 0) >= 0`;
+  const finalizedFinancials = sql`${finalPriceCents} IS NOT NULL
+    AND ${finalPriceCents} >= 0
+    AND ${validSnapshots}`;
+  const legacyFinancials = sql`${finalPriceCents} IS NULL
+    AND ${totalPrice} >= 0
+    AND ${validSnapshots}`;
+  const balancePaymentKnown = sql`(${paymentTrackingKnown} OR ${legacyStatusSettled})`;
+  const finalizedResolved
+    = sql`${completedEligible} AND ${finalizedFinancials} AND ${balancePaymentKnown}`;
+  const legacyResolved
+    = sql`${completedEligible} AND ${legacyFinancials} AND ${balancePaymentKnown}`;
+  const completedUnresolved
+    = sql`${completedEligible} AND NOT (
+      (${finalizedFinancials} OR ${legacyFinancials}) AND ${balancePaymentKnown}
+    )`;
+
+  const finalizedDueCents = sql<number>`GREATEST(
+    ${finalPriceCents}
+      + COALESCE(${taxAmountCents}, 0)
+      + COALESCE(${tipCents}, 0)
+      - CASE WHEN ${legacyStatusSettled}
+        THEN ${finalPriceCents}
+          + COALESCE(${taxAmountCents}, 0)
+          + COALESCE(${tipCents}, 0)
+        ELSE ${paymentsCents}
+      END,
+    0
+  )`;
+  const legacyDueCents = sql<number>`GREATEST(
+    ${totalPrice}
+      + COALESCE(${taxAmountCents}, 0)
+      + COALESCE(${tipCents}, 0)
+      - CASE WHEN ${legacyStatusSettled}
+        THEN ${totalPrice}
+          + COALESCE(${taxAmountCents}, 0)
+          + COALESCE(${tipCents}, 0)
+        ELSE ${paymentsCents}
+      END,
+    0
+  )`;
+
+  const upcomingEligible = sql`${status} IN ('pending', 'confirmed')
+    AND ${deletedAt} IS NULL
+    AND ${paymentStatus} IS DISTINCT FROM 'comp'
+    AND ${startTime} >= ${asOf}`;
+  const upcomingResolved
+    = sql`${upcomingEligible} AND ${totalPrice} >= 0`;
+  const upcomingDueCents = sql<number>`GREATEST(
+    ${totalPrice} - ${paymentsCents},
+    0
+  )`;
+
+  return {
+    completedEligible,
+    completedUnresolved,
+    finalizedDueCents,
+    finalizedFinancials,
+    finalizedResolved,
+    legacyDueCents,
+    legacyFinancials,
+    legacyResolved,
+    legacyStatusSettled,
+    upcomingDueCents,
+    upcomingEligible,
+    upcomingResolved,
+  };
 }
 
 /**
@@ -224,84 +377,20 @@ export async function getFinancialBalanceSummary(
   const asOf = input.asOf ?? new Date();
   assertValidDate(asOf, 'asOf');
 
-  const paymentsCents = sql<number>`COALESCE((
-    SELECT SUM(${appointmentPaymentSchema.amountCents})
-    FROM ${appointmentPaymentSchema}
-    WHERE ${appointmentPaymentSchema.salonId} = ${appointmentSchema.salonId}
-      AND ${appointmentPaymentSchema.appointmentId} = ${appointmentSchema.id}
-      AND ${appointmentPaymentSchema.voidedAt} IS NULL
-      AND ${appointmentPaymentSchema.recordedAt} <= ${asOf}
-      AND ${appointmentPaymentSchema.amountCents} > 0
-  ), 0)`;
-  const hasPaymentHistory = sql`EXISTS (
-    SELECT 1
-    FROM ${appointmentPaymentSchema}
-    WHERE ${appointmentPaymentSchema.salonId} = ${appointmentSchema.salonId}
-      AND ${appointmentPaymentSchema.appointmentId} = ${appointmentSchema.id}
-      AND ${appointmentPaymentSchema.recordedAt} <= ${asOf}
-  )`;
-  const paymentTrackingKnown
-    = sql`(COALESCE(${appointmentSchema.amountPaidCents} = 0, false) OR ${hasPaymentHistory})`;
-  const legacyStatusSettled
-    = sql`(NOT ${paymentTrackingKnown} AND ${appointmentSchema.paymentStatus} = 'paid')`;
-
-  const completedEligible = sql`${appointmentSchema.status} = 'completed'
-    AND ${appointmentSchema.deletedAt} IS NULL
-    AND ${appointmentSchema.paymentStatus} IS DISTINCT FROM 'comp'
-    AND ${appointmentSchema.startTime} <= ${asOf}`;
-  const validSnapshots = sql`COALESCE(${appointmentSchema.taxAmountCents}, 0) >= 0
-    AND COALESCE(${appointmentSchema.tipCents}, 0) >= 0`;
-  const finalizedFinancials = sql`${appointmentSchema.finalPriceCents} IS NOT NULL
-    AND ${appointmentSchema.finalPriceCents} >= 0
-    AND ${validSnapshots}`;
-  const legacyFinancials = sql`${appointmentSchema.finalPriceCents} IS NULL
-    AND ${appointmentSchema.totalPrice} >= 0
-    AND ${validSnapshots}`;
-  const balancePaymentKnown = sql`(${paymentTrackingKnown} OR ${legacyStatusSettled})`;
-  const finalizedResolved
-    = sql`${completedEligible} AND ${finalizedFinancials} AND ${balancePaymentKnown}`;
-  const legacyResolved
-    = sql`${completedEligible} AND ${legacyFinancials} AND ${balancePaymentKnown}`;
-  const completedUnresolved
-    = sql`${completedEligible} AND NOT (
-      (${finalizedFinancials} OR ${legacyFinancials}) AND ${balancePaymentKnown}
-    )`;
-
-  const finalizedDueCents = sql<number>`GREATEST(
-    ${appointmentSchema.finalPriceCents}
-      + COALESCE(${appointmentSchema.taxAmountCents}, 0)
-      + COALESCE(${appointmentSchema.tipCents}, 0)
-      - CASE WHEN ${legacyStatusSettled}
-        THEN ${appointmentSchema.finalPriceCents}
-          + COALESCE(${appointmentSchema.taxAmountCents}, 0)
-          + COALESCE(${appointmentSchema.tipCents}, 0)
-        ELSE ${paymentsCents}
-      END,
-    0
-  )`;
-  const legacyDueCents = sql<number>`GREATEST(
-    ${appointmentSchema.totalPrice}
-      + COALESCE(${appointmentSchema.taxAmountCents}, 0)
-      + COALESCE(${appointmentSchema.tipCents}, 0)
-      - CASE WHEN ${legacyStatusSettled}
-        THEN ${appointmentSchema.totalPrice}
-          + COALESCE(${appointmentSchema.taxAmountCents}, 0)
-          + COALESCE(${appointmentSchema.tipCents}, 0)
-        ELSE ${paymentsCents}
-      END,
-    0
-  )`;
-
-  const upcomingEligible = sql`${appointmentSchema.status} IN ('pending', 'confirmed')
-    AND ${appointmentSchema.deletedAt} IS NULL
-    AND ${appointmentSchema.paymentStatus} IS DISTINCT FROM 'comp'
-    AND ${appointmentSchema.startTime} >= ${asOf}`;
-  const upcomingResolved
-    = sql`${upcomingEligible} AND ${appointmentSchema.totalPrice} >= 0`;
-  const upcomingDueCents = sql<number>`GREATEST(
-    ${appointmentSchema.totalPrice} - ${paymentsCents},
-    0
-  )`;
+  const {
+    completedEligible,
+    completedUnresolved,
+    finalizedDueCents,
+    finalizedFinancials,
+    finalizedResolved,
+    legacyDueCents,
+    legacyFinancials,
+    legacyResolved,
+    legacyStatusSettled,
+    upcomingDueCents,
+    upcomingEligible,
+    upcomingResolved,
+  } = buildFinancialBalanceSql(asOf);
 
   const rows = await db
     .select({
@@ -364,6 +453,50 @@ export async function getFinancialBalanceSummary(
     depositDue: UNSUPPORTED_DEPOSIT_DUE,
     asOf,
   };
+}
+
+/**
+ * Return resolved completed balances per appointment for client segmentation.
+ * This is the same eligibility and payment-ledger calculation used by
+ * getFinancialBalanceSummary, exposed as one tenant-scoped set query so Client
+ * Insights never performs a balance lookup per client.
+ */
+export async function getCompletedOutstandingRows(input: {
+  salonId: string;
+  asOf?: Date;
+}): Promise<CompletedOutstandingRow[]> {
+  assertSalonId(input.salonId);
+  const asOf = input.asOf ?? new Date();
+  assertValidDate(asOf, 'asOf');
+  const {
+    completedEligible,
+    finalizedDueCents,
+    finalizedResolved,
+    legacyDueCents,
+    legacyResolved,
+  } = buildFinancialBalanceSql(asOf);
+
+  const rows = await db
+    .select({
+      salonClientId: appointmentSchema.salonClientId,
+      clientPhone: appointmentSchema.clientPhone,
+      completedOutstandingCents: sql<number>`CASE
+        WHEN ${finalizedResolved} THEN ${finalizedDueCents}
+        WHEN ${legacyResolved} THEN ${legacyDueCents}
+        ELSE 0
+      END`,
+    })
+    .from(appointmentSchema)
+    .where(and(
+      eq(appointmentSchema.salonId, input.salonId),
+      completedEligible,
+    ));
+
+  return rows.map(row => ({
+    salonClientId: row.salonClientId,
+    clientPhone: row.clientPhone,
+    completedOutstandingCents: numberValue(row.completedOutstandingCents),
+  }));
 }
 
 export function getCurrentFinancialReportingRanges(

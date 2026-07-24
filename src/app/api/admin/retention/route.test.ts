@@ -274,4 +274,41 @@ describe('/api/admin/retention', () => {
     expect(response.status).toBe(200);
     expect(updateSets).toContainEqual({ lastContactAt: NOW, updatedAt: NOW });
   });
+
+  it('records manual completion after an expired snooze without rewriting that history', async () => {
+    selectQueue.push(
+      [{ id: 'client_1', phone: '4165551212', lastVisitAt: new Date('2026-06-26T16:00:00.000Z') }],
+      [{
+        id: 'snoozed_1',
+        salonId: 'salon_1',
+        salonClientId: 'client_1',
+        appointmentId: null,
+        kind: 'rebook',
+        status: 'snoozed',
+        snoozedUntil: new Date('2026-07-16T16:00:00.000Z'),
+        messageSnapshot: 'Original draft',
+        createdAt: new Date('2026-07-10T16:00:00.000Z'),
+      }],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'client_1',
+        kind: 'rebook',
+        status: 'converted',
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(insertedValues[0]).toMatchObject({
+      salonId: 'salon_1',
+      salonClientId: 'client_1',
+      kind: 'rebook',
+      status: 'converted',
+    });
+    expect(insertedValues[0]?.messageSnapshot).toBeNull();
+  });
 });

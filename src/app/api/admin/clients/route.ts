@@ -1,13 +1,21 @@
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { getClientInsightsDirectoryPage } from '@/libs/clientInsights.server';
 import {
   getSalonClients,
   type ListSalonClientsOptions,
 } from '@/libs/queries';
+import { CLIENT_INSIGHT_SEGMENT_IDS } from '@/types/clientInsights';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
+
+const PRIVATE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0',
+};
 
 // =============================================================================
 // REQUEST VALIDATION
@@ -20,6 +28,7 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   page: z.coerce.number().min(1).optional().default(1),
   limit: z.coerce.number().min(1).max(100).optional().default(50),
+  segment: z.enum(CLIENT_INSIGHT_SEGMENT_IDS).optional(),
 });
 
 // =============================================================================
@@ -54,29 +63,45 @@ export async function GET(request: Request): Promise<Response> {
             details: validated.error.flatten(),
           },
         } satisfies ErrorResponse,
-        { status: 400 },
+        { status: 400, headers: PRIVATE_HEADERS },
       );
     }
 
-    const { salonSlug, search, sortBy, sortOrder, page, limit } = validated.data;
+    const { salonSlug, search, sortBy, sortOrder, page, limit, segment } = validated.data;
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
     if (error || !salon) {
+      error!.headers.set('Cache-Control', PRIVATE_HEADERS['Cache-Control']);
       return error!;
     }
 
-    // Build options for query
-    const options: ListSalonClientsOptions = {
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
+    const insightsPage = segment
+      ? await getClientInsightsDirectoryPage({
+        salonId: salon.id,
+        timeZone: bookingConfig.timezone,
+        segment,
+        search,
+        sortBy,
+        sortOrder,
+        page,
+        limit,
+      })
+      : null;
+
+    const unfilteredOptions: ListSalonClientsOptions = {
       search,
       sortBy,
       sortOrder,
       page,
       limit,
     };
-
-    // Get clients with stats
-    const { clients, total } = await getSalonClients(salon.id, options);
+    const directory = insightsPage
+      ?? await getSalonClients(salon.id, unfilteredOptions);
+    const { clients, total } = directory;
 
     // Format response
     const formattedClients = clients.map(client => ({
@@ -103,8 +128,13 @@ export async function GET(request: Request): Promise<Response> {
           total,
           totalPages: Math.ceil(total / limit),
         },
+        filter: {
+          segment: segment ?? null,
+          rulesVersion: insightsPage?.rulesVersion ?? null,
+          generatedAt: insightsPage?.generatedAt.toISOString() ?? null,
+        },
       },
-    });
+    }, { headers: PRIVATE_HEADERS });
   } catch (error) {
     console.error('Error fetching clients:', error);
     return Response.json(
@@ -114,7 +144,7 @@ export async function GET(request: Request): Promise<Response> {
           message: 'Failed to fetch clients',
         },
       } satisfies ErrorResponse,
-      { status: 500 },
+      { status: 500, headers: PRIVATE_HEADERS },
     );
   }
 }
