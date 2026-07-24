@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -353,6 +353,65 @@ function buildInsightsResponse() {
       attention: { total: 0, items: [] },
     },
   };
+}
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<Response>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function listResponse(
+  clients: ListClient[],
+  pagination?: Parameters<typeof buildListResponse>[1],
+): Response {
+  return new Response(JSON.stringify(buildListResponse(clients, pagination)), {
+    status: 200,
+  });
+}
+
+function mockDirectoryRaceRoutes(
+  clientsRoute: (
+    url: URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>,
+) {
+  fetchMock.mockImplementation((
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (url.pathname === '/api/admin/settings/modules') {
+      return Promise.resolve(new Response(JSON.stringify({
+        data: {
+          moduleReasons: {
+            clientFlags: 'MODULE_DISABLED',
+            clientBlocking: 'MODULE_DISABLED',
+          },
+        },
+      }), { status: 200 }));
+    }
+    if (url.pathname === '/api/admin/technicians') {
+      return Promise.resolve(
+        new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 }),
+      );
+    }
+    if (url.pathname === '/api/admin/client-insights') {
+      return Promise.resolve(
+        new Response(JSON.stringify(buildInsightsResponse()), { status: 200 }),
+      );
+    }
+    if (url.pathname === '/api/admin/clients') {
+      return clientsRoute(url, init);
+    }
+    return Promise.reject(
+      new Error(`Unhandled fetch: ${url.pathname}${url.search}`),
+    );
+  });
 }
 
 describe('ClientsModal', () => {
@@ -956,6 +1015,271 @@ describe('ClientsModal', () => {
 
     expect(await screen.findByPlaceholderText('Search clients')).toHaveValue('Ava');
     expect(screen.getByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+  });
+
+  describe('directory stale-request protection', () => {
+    it('does not let a cleared segment response replace the restored directory', async () => {
+      const overdue = deferredResponse();
+      mockDirectoryRaceRoutes((url) => {
+        if (url.searchParams.get('segment') === 'overdue') {
+          return overdue.promise;
+        }
+        return listResponse([buildListClient()]);
+      });
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
+
+      expect(await screen.findByTestId('clients-active-segment')).toBeInTheDocument();
+
+      const filteredCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes('segment=overdue'));
+      const filteredSignal = filteredCall?.[1]?.signal;
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+      expect(filteredSignal?.aborted).toBe(true);
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      await act(async () => {
+        overdue.resolve(listResponse([
+          buildListClient({
+            id: 'late-overdue',
+            fullName: 'Late Overdue Result',
+          }),
+        ]));
+        await overdue.promise;
+      });
+
+      expect(screen.queryByRole('button', { name: /Late Overdue Result/ }))
+        .not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Ava Thompson/ }))
+        .toBeInTheDocument();
+      expect(screen.queryByText('Unable to load clients')).not.toBeInTheDocument();
+    });
+
+    it('keeps Segment B when Segment A resolves last', async () => {
+      const active = deferredResponse();
+      const overdue = deferredResponse();
+      mockDirectoryRaceRoutes((url) => {
+        if (url.searchParams.get('segment') === 'active') {
+          return active.promise;
+        }
+        if (url.searchParams.get('segment') === 'overdue') {
+          return overdue.promise;
+        }
+        return listResponse([buildListClient()]);
+      });
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(await screen.findByTestId('client-insights-kpi-active'));
+
+      expect(await screen.findByTestId('clients-active-segment')).toHaveTextContent(
+        'Active clients',
+      );
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
+
+      expect(await screen.findByTestId('clients-active-segment')).toHaveTextContent(
+        'Overdue',
+      );
+
+      await act(async () => {
+        overdue.resolve(listResponse([
+          buildListClient({
+            id: 'segment-b',
+            fullName: 'Segment B Client',
+          }),
+        ]));
+        await overdue.promise;
+      });
+
+      expect(await screen.findByRole('button', { name: /Segment B Client/ }))
+        .toBeInTheDocument();
+
+      await act(async () => {
+        active.resolve(listResponse([
+          buildListClient({
+            id: 'segment-a',
+            fullName: 'Segment A Client',
+          }),
+        ]));
+        await active.promise;
+      });
+
+      expect(screen.queryByRole('button', { name: /Segment A Client/ }))
+        .not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Segment B Client/ }))
+        .toBeInTheDocument();
+    });
+
+    it('ignores an older search response when the search changes', async () => {
+      const firstSearch = deferredResponse();
+      const secondSearch = deferredResponse();
+      mockDirectoryRaceRoutes((url) => {
+        if (url.searchParams.get('search') === 'old') {
+          return firstSearch.promise;
+        }
+        if (url.searchParams.get('search') === 'new') {
+          return secondSearch.promise;
+        }
+        return listResponse([buildListClient()]);
+      });
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      const search = screen.getByPlaceholderText('Search clients');
+      fireEvent.change(search, { target: { value: 'old' } });
+      await waitFor(() => expect(
+        getClientListCalls().some(([input]) => String(input).includes('search=old')),
+      ).toBe(true));
+
+      fireEvent.change(search, { target: { value: 'new' } });
+      await waitFor(() => expect(
+        getClientListCalls().some(([input]) => String(input).includes('search=new')),
+      ).toBe(true));
+
+      await act(async () => {
+        secondSearch.resolve(listResponse([
+          buildListClient({
+            id: 'new-search',
+            fullName: 'New Search Result',
+          }),
+        ]));
+        await secondSearch.promise;
+      });
+
+      expect(await screen.findByRole('button', { name: /New Search Result/ }))
+        .toBeInTheDocument();
+
+      await act(async () => {
+        firstSearch.resolve(listResponse([
+          buildListClient({
+            id: 'old-search',
+            fullName: 'Old Search Result',
+          }),
+        ]));
+        await firstSearch.promise;
+      });
+
+      expect(screen.queryByRole('button', { name: /Old Search Result/ }))
+        .not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /New Search Result/ }))
+        .toBeInTheDocument();
+    });
+
+    it('does not append a late Load More page after clearing its segment', async () => {
+      const pageTwo = deferredResponse();
+      mockDirectoryRaceRoutes((url) => {
+        if (
+          url.searchParams.get('segment') === 'overdue'
+          && url.searchParams.get('page') === '2'
+        ) {
+          return pageTwo.promise;
+        }
+        if (url.searchParams.get('segment') === 'overdue') {
+          return listResponse([
+            buildListClient({
+              id: 'overdue-page-one',
+              fullName: 'Overdue Page One',
+            }),
+          ], {
+            total: 2,
+            page: 1,
+            totalPages: 2,
+          });
+        }
+        return listResponse([buildListClient()]);
+      });
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
+
+      expect(await screen.findByRole('button', { name: /Overdue Page One/ }))
+        .toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load More Clients' }));
+      await waitFor(() => expect(
+        getClientListCalls().some(([input]) =>
+          String(input).includes('segment=overdue')
+          && String(input).includes('page=2')),
+      ).toBe(true));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ }))
+        .toBeInTheDocument();
+
+      await act(async () => {
+        pageTwo.resolve(listResponse([
+          buildListClient({
+            id: 'late-page-two',
+            fullName: 'Late Page Two',
+          }),
+        ], {
+          total: 2,
+          page: 2,
+          totalPages: 2,
+        }));
+        await pageTwo.promise;
+      });
+
+      expect(screen.queryByRole('button', { name: /Late Page Two/ }))
+        .not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Ava Thompson/ }))
+        .toBeInTheDocument();
+    });
+
+    it('does not surface an obsolete request failure', async () => {
+      const obsolete = deferredResponse();
+      mockDirectoryRaceRoutes((url) => {
+        if (url.searchParams.get('segment') === 'overdue') {
+          return obsolete.promise;
+        }
+        return listResponse([buildListClient()]);
+      });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
+
+      expect(await screen.findByTestId('clients-active-segment')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+      await act(async () => {
+        obsolete.reject(new Error('obsolete failure'));
+        await obsolete.promise.catch(() => {});
+      });
+
+      expect(screen.queryByText('Unable to load clients')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Ava Thompson/ }))
+        .toBeInTheDocument();
+      expect(consoleError).not.toHaveBeenCalledWith(
+        'Failed to fetch clients:',
+        expect.anything(),
+      );
+
+      consoleError.mockRestore();
+    });
   });
 
   describe('appointment management from the client profile', () => {

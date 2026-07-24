@@ -933,12 +933,6 @@ export type ListSalonClientsOptions = {
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
-  /**
-   * Optional server-derived Client Insights membership. The public API accepts
-   * a validated segment ID and resolves it through the shared snapshot before
-   * reaching this query.
-   */
-  clientIds?: string[];
 };
 
 /**
@@ -968,19 +962,10 @@ export async function getSalonClients(
     sortOrder = 'desc',
     page = 1,
     limit = 50,
-    clientIds,
   } = options;
 
   // Build where conditions
   const conditions = [eq(salonClientSchema.salonId, salonId)];
-
-  if (clientIds) {
-    conditions.push(
-      clientIds.length > 0
-        ? inArray(salonClientSchema.id, clientIds)
-        : sql`1=0`,
-    );
-  }
 
   // Add search filter
   if (search) {

@@ -12,6 +12,13 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 }) => {
   test.slow();
 
+  const applicationConsoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      applicationConsoleErrors.push(message.text());
+    }
+  });
+
   const start = await page.request.get(
     `/api/super-admin/organizations?page=1&pageSize=20&q=${encodeURIComponent(e2eConfig.salonSlug)}`,
   );
@@ -75,6 +82,30 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
       page.getByText('Clients', { exact: true }).first(),
     ).toBeVisible();
 
+    await page.getByRole('tab', { name: 'Client Insights' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Client health' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => ({
+      innerWidth: window.innerWidth,
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }))).toEqual({
+      innerWidth: 390,
+      clientWidth: 390,
+      scrollWidth: 390,
+    });
+
+    await page.getByTestId('client-insights-kpi-active').click();
+
+    await expect(page.getByTestId('clients-active-segment')).toContainText(
+      'Active clients',
+    );
+
+    await page.getByRole('button', { name: 'Clear' }).click();
+
+    await expect(page.getByTestId('clients-active-segment')).toHaveCount(0);
+
     await page.getByRole('button', { name: 'Back' }).first().click();
 
     await expect
@@ -117,6 +148,7 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
     // exit animation, so assert it left the viewport rather than the DOM.
     await expect(page.getByTestId('integration-row-google')).not.toBeInViewport();
     await expect(page.getByTestId('owner-more-workspace')).toBeVisible();
+    expect(applicationConsoleErrors).toEqual([]);
   } finally {
     await page.request.delete('/api/super-admin/impersonate');
   }

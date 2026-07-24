@@ -16,6 +16,13 @@ const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
 export const DEFAULT_SNOOZE_DAYS = RETENTION_SNOOZE_DAYS;
+export const RETENTION_PROMO_6W_DAYS = 42;
+export const RETENTION_PROMO_8W_DAYS = 56;
+export const RETENTION_TERMINAL_SUPPRESSION_STATUSES = [
+  'marked_sent',
+  'dismissed',
+  'converted',
+] as const;
 
 export const DEFAULT_SIX_WEEK_PROMOTION: RetentionPromotionSettings = {
   enabled: false,
@@ -295,7 +302,14 @@ function getLatestCommunication(
     if (!predicate(communication)) {
       continue;
     }
-    if (!latest || communication.createdAt > latest.createdAt) {
+    if (
+      !latest
+      || communication.createdAt > latest.createdAt
+      || (
+        communication.createdAt.getTime() === latest.createdAt.getTime()
+        && communication.id.localeCompare(latest.id) > 0
+      )
+    ) {
       latest = communication;
     }
   }
@@ -314,9 +328,9 @@ function isSuppressedByCommunication(
     return Boolean(communication.snoozedUntil && communication.snoozedUntil > now);
   }
 
-  return communication.status === 'marked_sent'
-    || communication.status === 'dismissed'
-    || communication.status === 'converted';
+  return RETENTION_TERMINAL_SUPPRESSION_STATUSES.includes(
+    communication.status as typeof RETENTION_TERMINAL_SUPPRESSION_STATUSES[number],
+  );
 }
 
 /**
@@ -352,6 +366,49 @@ export function normalizeRetentionPhone(value: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+function normalizeRetentionIdentityPhone(value: string): string | null {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return digits;
+  }
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits.slice(1);
+  }
+  return null;
+}
+
+/**
+ * Resolve appointment ownership inside an already tenant-scoped client set.
+ *
+ * Stable IDs are authoritative, including when they are stale. Phone fallback
+ * is reserved for null-ID legacy records and is accepted only when the
+ * well-formed normalized phone identifies exactly one client.
+ */
+function createRetentionClientResolver(clients: RetentionClientSnapshot[]) {
+  const clientsById = new Map(clients.map(client => [client.id, client]));
+  const clientsByUniquePhone = new Map<string, RetentionClientSnapshot | null>();
+
+  for (const client of clients) {
+    const phone = normalizeRetentionIdentityPhone(client.phone);
+    if (!phone) {
+      continue;
+    }
+    clientsByUniquePhone.set(
+      phone,
+      clientsByUniquePhone.has(phone) ? null : client,
+    );
+  }
+
+  return (appointment: RetentionAppointmentSnapshot) => {
+    if (appointment.salonClientId !== null) {
+      return clientsById.get(appointment.salonClientId) ?? null;
+    }
+
+    const phone = normalizeRetentionIdentityPhone(appointment.clientPhone);
+    return phone ? clientsByUniquePhone.get(phone) ?? null : null;
+  };
+}
+
 /**
  * Communication history keeps useful copy but never persists bearer tokens
  * embedded in promotion or appointment-management links.
@@ -380,17 +437,21 @@ export function resolveRetentionStage(args: {
     return null;
   }
 
-  if (elapsedMs >= 56 * DAY_MS) {
+  if (elapsedMs >= RETENTION_PROMO_8W_DAYS * DAY_MS) {
     return {
       stage: 'promo_8w',
-      dueAt: new Date(args.lastVisitAt.getTime() + 56 * DAY_MS),
+      dueAt: new Date(
+        args.lastVisitAt.getTime() + RETENTION_PROMO_8W_DAYS * DAY_MS,
+      ),
       rebookIntervalDays,
     };
   }
-  if (elapsedMs >= 42 * DAY_MS) {
+  if (elapsedMs >= RETENTION_PROMO_6W_DAYS * DAY_MS) {
     return {
       stage: 'promo_6w',
-      dueAt: new Date(args.lastVisitAt.getTime() + 42 * DAY_MS),
+      dueAt: new Date(
+        args.lastVisitAt.getTime() + RETENTION_PROMO_6W_DAYS * DAY_MS,
+      ),
       rebookIntervalDays,
     };
   }
@@ -416,18 +477,19 @@ export function buildRetentionQueue(args: {
   // now (or whose appointment was started early) must never see a rebook or
   // win-back alert.
   const upcomingStatuses = ['pending', 'confirmed', 'in_progress'];
-  const clientsWithFutureAppointment = new Set(
-    args.futureAppointments
-      .filter(appointment => (appointment.startTime > now || appointment.status === 'in_progress') && upcomingStatuses.includes(appointment.status))
-      .map(appointment => appointment.salonClientId)
-      .filter((clientId): clientId is string => Boolean(clientId)),
-  );
-  const phonesWithFutureAppointment = new Set(
-    args.futureAppointments
-      .filter(appointment => (appointment.startTime > now || appointment.status === 'in_progress') && upcomingStatuses.includes(appointment.status))
-      .map(appointment => normalizeRetentionPhone(appointment.clientPhone))
-      .filter(Boolean),
-  );
+  const resolveClient = createRetentionClientResolver(args.clients);
+  const clientsWithFutureAppointment = new Set<string>();
+  for (const appointment of args.futureAppointments) {
+    if (
+      (appointment.startTime > now || appointment.status === 'in_progress')
+      && upcomingStatuses.includes(appointment.status)
+    ) {
+      const client = resolveClient(appointment);
+      if (client) {
+        clientsWithFutureAppointment.add(client.id);
+      }
+    }
+  }
 
   return args.clients.flatMap((client): RetentionQueueItem[] => {
     const lastVisitAt = client.lastVisitAt;
@@ -435,7 +497,6 @@ export function buildRetentionQueue(args: {
       client.isBlocked
       || !lastVisitAt
       || clientsWithFutureAppointment.has(client.id)
-      || phonesWithFutureAppointment.has(normalizeRetentionPhone(client.phone))
     ) {
       return [];
     }
@@ -481,10 +542,7 @@ export function buildAppointmentReminderQueue(args: {
 }): AppointmentReminderQueueItem[] {
   const now = args.now ?? new Date();
   const reminderLeadHours = args.reminderLeadHours ?? 24;
-  const clients = new Map(args.clients.map(client => [client.id, client]));
-  const clientsByPhone = new Map(
-    args.clients.map(client => [normalizeRetentionPhone(client.phone), client]),
-  );
+  const resolveClient = createRetentionClientResolver(args.clients);
 
   return args.appointments.flatMap((appointment): AppointmentReminderQueueItem[] => {
     if (
@@ -495,10 +553,7 @@ export function buildAppointmentReminderQueue(args: {
       return [];
     }
 
-    const client = (appointment.salonClientId
-      ? clients.get(appointment.salonClientId)
-      : undefined)
-      ?? clientsByPhone.get(normalizeRetentionPhone(appointment.clientPhone));
+    const client = resolveClient(appointment);
     if (!client || client.isBlocked) {
       return [];
     }

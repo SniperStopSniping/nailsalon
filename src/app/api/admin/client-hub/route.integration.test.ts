@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import * as schema from '@/models/Schema';
 
@@ -60,6 +61,106 @@ vi.mock('@/libs/adminAuth', () => ({
 
 const SALON_ID = 'salon_insights';
 const NOW = new Date('2026-07-15T16:00:00.000Z');
+
+const legacyTopServiceSchema = z.object({
+  name: z.string().nullable(),
+  count: z.number(),
+});
+
+/** Frozen runtime contract from main at f45e745. */
+const legacyClientHubContract = z.object({
+  data: z.object({
+    overview: z.object({
+      totalClients: z.number(),
+      newClientsThisMonth: z.number(),
+      returningClients: z.number(),
+      dueToReturn: z.number(),
+      overdue: z.number(),
+      noFutureAppointment: z.number(),
+      completedAppointments: z.number(),
+      cancellationRate: z.number().nullable(),
+      noShowRate: z.number().nullable(),
+      rebookingRate: z.number().nullable(),
+      topServices: z.array(legacyTopServiceSchema),
+      serviceRevenueCents: z.number(),
+      outstandingCents: z.number(),
+    }),
+    segments: z.array(z.object({
+      id: z.string(),
+      label: z.string(),
+      count: z.number(),
+    })),
+    reports: z.object({
+      finishedAppointments: z.number(),
+      completed: z.number(),
+      cancelled: z.number(),
+      noShows: z.number(),
+      cancellationRate: z.number().nullable(),
+      noShowRate: z.number().nullable(),
+      rebookingRate: z.number().nullable(),
+      serviceRevenueCents: z.number(),
+      discountCents: z.number(),
+      taxCollectedCents: z.number(),
+      tipsCents: z.number(),
+      amountPaidCents: z.number(),
+      outstandingCents: z.number(),
+      promotionsMinted: z.number(),
+      promotionsRedeemed: z.number(),
+      topServices: z.array(legacyTopServiceSchema),
+    }),
+  }),
+});
+
+const clientInsightsContract = z.object({
+  data: z.object({
+    generatedAt: z.string(),
+    timeZone: z.string(),
+    rulesVersion: z.string(),
+    kpis: z.object({
+      active: z.number(),
+      new_this_month: z.number(),
+      due_to_return: z.number(),
+      overdue: z.number(),
+    }),
+    segments: z.array(z.object({
+      id: z.string(),
+      label: z.string(),
+      count: z.number(),
+    })),
+    attention: z.object({
+      total: z.number(),
+      items: z.array(z.object({
+        clientId: z.string(),
+        clientName: z.string().nullable(),
+        phone: z.string(),
+        email: z.string().nullable(),
+        primaryReason: z.string(),
+        reasons: z.array(z.string()),
+        lastVisitAt: z.string().nullable(),
+        expectedReturnAt: z.string().nullable(),
+        completedOutstandingCents: z.number(),
+        outreachStage: z.string().nullable(),
+      })),
+    }),
+  }),
+});
+
+const LEGACY_SEGMENT_IDS = [
+  'new_this_month',
+  'returning',
+  'due_to_return',
+  'overdue',
+  'no_future_appointment',
+  'not_seen_60d',
+  'not_seen_90d',
+  'recently_cancelled',
+  'previous_no_shows',
+  'builder_gel',
+  'manicure',
+  'pedicure',
+  'extensions',
+  'sms_consent',
+];
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -213,6 +314,15 @@ async function insights(route = GET_INSIGHTS) {
   return { response, body: await response.json() };
 }
 
+async function legacyHub(salonSlug = 'insights-salon') {
+  const response = await GET_ALIAS(
+    new Request(
+      `http://localhost/api/admin/client-hub?salonSlug=${encodeURIComponent(salonSlug)}`,
+    ),
+  );
+  return { response, body: await response.json() };
+}
+
 describe('GET /api/admin/client-insights', () => {
   it('returns salon-local client health without legacy Hub financial reports', async () => {
     const { response, body } = await insights();
@@ -233,12 +343,55 @@ describe('GET /api/admin/client-insights', () => {
     expect(body.data.reports).toBeUndefined();
   });
 
-  it('keeps the old Client Hub route as an exact compatibility alias', async () => {
+  it('keeps Client Hub as a deprecated f45e745 contract adapter', async () => {
     const canonical = await insights(GET_INSIGHTS);
-    const alias = await insights(GET_ALIAS);
+    const legacy = await legacyHub();
+    const parsed = legacyClientHubContract.parse(legacy.body);
+    const parsedCanonical = clientInsightsContract.parse(canonical.body);
 
-    expect(alias.response.status).toBe(200);
-    expect(alias.body).toEqual(canonical.body);
+    expect(legacy.response.status).toBe(200);
+    expect(legacy.response.headers.get('cache-control')).toContain('private');
+    expect(legacy.response.headers.get('cache-control')).toContain('no-store');
+    expect(parsed.data.segments.map(segment => segment.id)).toEqual(
+      LEGACY_SEGMENT_IDS,
+    );
+    expect(parsed.data.overview.serviceRevenueCents).toBe(66000);
+    expect(parsed.data.overview.outstandingCents).toBe(7800);
+    expect(parsed.data.reports).toMatchObject({
+      completed: 8,
+      cancelled: 1,
+      noShows: 0,
+      serviceRevenueCents: 66000,
+      taxCollectedCents: 1300,
+      tipsCents: 500,
+      amountPaidCents: 4000,
+      outstandingCents: 7800,
+    });
+
+    expect(parsedCanonical.data.kpis).toBeDefined();
+    expect(parsedCanonical.data.attention).toBeDefined();
+    expect(canonical.body.data).not.toHaveProperty('overview');
+    expect(canonical.body.data).not.toHaveProperty('reports');
+  });
+
+  it('keeps legacy validation and authorization responses private', async () => {
+    const invalidResponse = await GET_ALIAS(
+      new Request('http://localhost/api/admin/client-hub'),
+    );
+    const invalidBody = await invalidResponse.json();
+    const denied = await legacyHub('other-salon');
+
+    expect(invalidResponse.status).toBe(400);
+    expect(invalidBody).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid client hub query.',
+      },
+    });
+    expect(invalidResponse.headers.get('cache-control')).toContain('no-store');
+    expect(denied.response.status).toBe(404);
+    expect(denied.response.headers.get('cache-control')).toContain('no-store');
+    expect(JSON.stringify(denied.body)).not.toContain('client_');
   });
 
   it('uses the same definition for counts and paginated directory results', async () => {

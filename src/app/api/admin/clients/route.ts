@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
-import { getClientInsightsSnapshot } from '@/libs/clientInsights.server';
+import { getClientInsightsDirectoryPage } from '@/libs/clientInsights.server';
 import {
   getSalonClients,
   type ListSalonClientsOptions,
@@ -79,25 +79,29 @@ export async function GET(request: Request): Promise<Response> {
     const bookingConfig = resolveBookingConfigFromSettings(
       salon.settings as SalonSettings | null | undefined,
     );
-    const insights = segment
-      ? await getClientInsightsSnapshot({
+    const insightsPage = segment
+      ? await getClientInsightsDirectoryPage({
         salonId: salon.id,
         timeZone: bookingConfig.timezone,
+        segment,
+        search,
+        sortBy,
+        sortOrder,
+        page,
+        limit,
       })
       : null;
 
-    // Build options for query
-    const options: ListSalonClientsOptions = {
+    const unfilteredOptions: ListSalonClientsOptions = {
       search,
       sortBy,
       sortOrder,
       page,
       limit,
-      clientIds: segment ? insights!.clientIdsBySegment[segment] : undefined,
     };
-
-    // Get clients with stats
-    const { clients, total } = await getSalonClients(salon.id, options);
+    const directory = insightsPage
+      ?? await getSalonClients(salon.id, unfilteredOptions);
+    const { clients, total } = directory;
 
     // Format response
     const formattedClients = clients.map(client => ({
@@ -126,8 +130,8 @@ export async function GET(request: Request): Promise<Response> {
         },
         filter: {
           segment: segment ?? null,
-          rulesVersion: insights?.data.rulesVersion ?? null,
-          generatedAt: insights?.data.generatedAt ?? null,
+          rulesVersion: insightsPage?.rulesVersion ?? null,
+          generatedAt: insightsPage?.generatedAt.toISOString() ?? null,
         },
       },
     }, { headers: PRIVATE_HEADERS });

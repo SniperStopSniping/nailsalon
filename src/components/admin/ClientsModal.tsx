@@ -1870,6 +1870,7 @@ export function ClientsModal({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchRevision, setSearchRevision] = useState(0);
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -1898,11 +1899,44 @@ export function ClientsModal({
   const directoryReturnScrollRef = useRef(0);
   const savedDirectoryStateRef = useRef<DirectoryStateSnapshot | null>(null);
   const skipNextDirectoryFetchRef = useRef(false);
+  const directoryRequestGenerationRef = useRef(0);
+  const directoryAbortControllerRef = useRef<AbortController | null>(null);
+  const pendingSearchRevisionRef = useRef(0);
+  const directoryQuerySignature = JSON.stringify({
+    salonSlug,
+    activeSegment,
+    search: debouncedSearchQuery,
+    searchRevision,
+    sortBy,
+    sortOrder: sortBy === 'name' ? 'asc' : 'desc',
+  });
+  const directoryQuerySignatureRef = useRef(directoryQuerySignature);
+  directoryQuerySignatureRef.current = directoryQuerySignature;
+
+  const invalidateDirectoryRequests = useCallback((settleLoading = false) => {
+    directoryRequestGenerationRef.current += 1;
+    directoryAbortControllerRef.current?.abort();
+    directoryAbortControllerRef.current = null;
+    if (settleLoading) {
+      setLoading(false);
+    }
+  }, []);
 
   const fetchClients = useCallback(async (targetPage: number, resetPage = false) => {
     if (!salonSlug) {
       return;
     }
+
+    directoryAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    directoryAbortControllerRef.current = controller;
+    const requestGeneration = directoryRequestGenerationRef.current + 1;
+    directoryRequestGenerationRef.current = requestGeneration;
+    const requestSignature = directoryQuerySignature;
+    const isCurrentRequest = () =>
+      requestGeneration === directoryRequestGenerationRef.current
+      && requestSignature === directoryQuerySignatureRef.current
+      && !controller.signal.aborted;
 
     try {
       setLoading(true);
@@ -1922,12 +1956,17 @@ export function ClientsModal({
         params.set('segment', activeSegment);
       }
 
-      const response = await fetch(`/api/admin/clients?${params}`);
+      const response = await fetch(`/api/admin/clients?${params}`, {
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch clients');
       }
 
       const result = await response.json();
+      if (!isCurrentRequest()) {
+        return;
+      }
       const fetchedClients = result.data?.clients ?? [];
       const pagination = result.data?.pagination ?? {};
 
@@ -1940,12 +1979,27 @@ export function ClientsModal({
       setTotalClients(pagination.total ?? fetchedClients.length);
       setHasMore(targetPage < (pagination.totalPages ?? 1));
     } catch (fetchError) {
+      if (
+        !isCurrentRequest()
+        || (fetchError instanceof DOMException && fetchError.name === 'AbortError')
+      ) {
+        return;
+      }
       console.error('Failed to fetch clients:', fetchError);
       setError('Failed to load clients');
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        setLoading(false);
+        directoryAbortControllerRef.current = null;
+      }
     }
-  }, [activeSegment, debouncedSearchQuery, salonSlug, sortBy]);
+  }, [
+    activeSegment,
+    debouncedSearchQuery,
+    directoryQuerySignature,
+    salonSlug,
+    sortBy,
+  ]);
 
   const fetchModuleAvailability = useCallback(async () => {
     if (!salonSlug) {
@@ -2082,10 +2136,16 @@ export function ClientsModal({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
+      setSearchRevision(pendingSearchRevisionRef.current);
     }, 300);
 
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => () => {
+    directoryRequestGenerationRef.current += 1;
+    directoryAbortControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     fetchModuleAvailability();
@@ -2125,6 +2185,12 @@ export function ClientsModal({
   };
 
   const openSegment = useCallback((segment: ClientInsightSegmentId) => {
+    if (segment === activeSegment) {
+      setShowHub(false);
+      return;
+    }
+    invalidateDirectoryRequests(true);
+    setError(null);
     if (!activeSegment && !savedDirectoryStateRef.current) {
       savedDirectoryStateRef.current = {
         clients,
@@ -2155,9 +2221,12 @@ export function ClientsModal({
     searchQuery,
     sortBy,
     totalClients,
+    invalidateDirectoryRequests,
   ]);
 
   const clearSegment = useCallback(() => {
+    invalidateDirectoryRequests(true);
+    setError(null);
     const saved = savedDirectoryStateRef.current;
     if (!saved) {
       setActiveSegment(null);
@@ -2179,7 +2248,23 @@ export function ClientsModal({
         directoryScrollRef.current.scrollTop = saved.scrollTop;
       }
     });
-  }, []);
+  }, [invalidateDirectoryRequests]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    invalidateDirectoryRequests(true);
+    setError(null);
+    pendingSearchRevisionRef.current += 1;
+    setSearchQuery(value);
+  }, [invalidateDirectoryRequests]);
+
+  const handleSortChange = useCallback((value: SortOption) => {
+    if (value === sortBy) {
+      return;
+    }
+    invalidateDirectoryRequests(true);
+    setError(null);
+    setSortBy(value);
+  }, [invalidateDirectoryRequests, sortBy]);
 
   const restoreDirectoryScroll = useCallback(() => {
     const scrollTop = directoryReturnScrollRef.current;
@@ -2246,11 +2331,11 @@ export function ClientsModal({
             <>
               <AdminSearchField
                 value={searchQuery}
-                onChange={setSearchQuery}
+                onChange={handleSearchChange}
                 placeholder="Search clients"
                 inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
               />
-              <SortPills sortBy={sortBy} onChange={setSortBy} />
+              <SortPills sortBy={sortBy} onChange={handleSortChange} />
               {activeSegment && (
                 <div
                   className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2"
