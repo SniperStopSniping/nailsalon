@@ -1,116 +1,171 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import {
+  CalendarPlus,
+  ChevronRight,
+  Clock3,
+  MessageCircle,
+  RotateCcw,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { formatMoney } from '@/libs/formatMoney';
+import { DialogShell } from '@/components/ui/dialog-shell';
+import {
+  buildClientSmsMessage,
+  buildNativeSmsUrl,
+  detectNativeSmsPlatform,
+} from '@/libs/clientSmsComposer';
+import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { useSalon } from '@/providers/SalonProvider';
+import {
+  CLIENT_INSIGHT_SEGMENT_LABELS,
+  type ClientInsightAttentionItem,
+  type ClientInsightKpiId,
+  type ClientInsightsData,
+  type ClientInsightSegmentId,
+} from '@/types/clientInsights';
+import type {
+  ClientCommunicationKind,
+  ClientCommunicationStatus,
+} from '@/types/retention';
 
-// =============================================================================
-// Client Hub — deeper information and reporting inside the Clients app.
-// Overview / Follow-ups / Segments / Reports, all computed server-side from
-// persisted data (finalized checkout values; tax never counted as revenue).
-// Follow-ups render the SAME /api/admin/marketing groups as Marketing — one
-// definition of "due". Missing data reads "Not enough data yet", never a fake
-// trend. Admin-only by the underlying routes.
-// =============================================================================
-
-type HubTab = 'overview' | 'followups' | 'segments' | 'reports';
-
-type HubData = {
-  overview: {
-    totalClients: number;
-    newClientsThisMonth: number;
-    returningClients: number;
-    dueToReturn: number;
-    overdue: number;
-    noFutureAppointment: number;
-    completedAppointments: number;
-    cancellationRate: number | null;
-    noShowRate: number | null;
-    rebookingRate: number | null;
-    topServices: Array<{ name: string | null; count: number }>;
-    serviceRevenueCents: number;
-    outstandingCents: number;
-  };
-  segments: Array<{ id: string; label: string; count: number }>;
-  reports: {
-    finishedAppointments: number;
-    completed: number;
-    cancelled: number;
-    noShows: number;
-    cancellationRate: number | null;
-    noShowRate: number | null;
-    rebookingRate: number | null;
-    serviceRevenueCents: number;
-    discountCents: number;
-    taxCollectedCents: number;
-    tipsCents: number;
-    amountPaidCents: number;
-    outstandingCents: number;
-    promotionsMinted: number;
-    promotionsRedeemed: number;
-    topServices: Array<{ name: string | null; count: number }>;
-  };
-};
-
-type FollowupGroups = {
-  groups: Array<{
-    id: string;
-    title: string;
-    items: Array<{
-      clientId: string;
-      clientName: string | null;
-      stage: string;
-      dueAt: string;
-      lastServiceName: string | null;
-      smsConsent: boolean;
-    }>;
-  }>;
-};
-
-const TABS: Array<{ id: HubTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'followups', label: 'Follow-ups' },
-  { id: 'segments', label: 'Segments' },
-  { id: 'reports', label: 'Reports' },
+const KPI_CONFIG: Array<{
+  id: ClientInsightKpiId;
+  label: string;
+  description: string;
+  icon: typeof Users;
+  accent: string;
+}> = [
+  {
+    id: 'active',
+    label: 'Active clients',
+    description: 'Visited in 90 days or booked ahead',
+    icon: Users,
+    accent: 'bg-emerald-50 text-emerald-800',
+  },
+  {
+    id: 'new_this_month',
+    label: 'New this month',
+    description: 'First completed visit this month',
+    icon: UserPlus,
+    accent: 'bg-rose-50 text-rose-800',
+  },
+  {
+    id: 'due_to_return',
+    label: 'Due to return',
+    description: 'Due soon or due now',
+    icon: RotateCcw,
+    accent: 'bg-amber-50 text-amber-800',
+  },
+  {
+    id: 'overdue',
+    label: 'Overdue',
+    description: 'More than 7 days past due',
+    icon: Clock3,
+    accent: 'bg-red-50 text-red-800',
+  },
 ];
 
-const NOT_ENOUGH = 'Not enough data yet';
+const ATTENTION_SEGMENTS: ClientInsightSegmentId[] = [
+  'needs_rebooking',
+  'no_future_appointment',
+  'first_time_no_return',
+  'recent_cancellation',
+  'not_seen_30',
+  'not_seen_60',
+  'inactive_90',
+  'completed_outstanding',
+];
 
-function pct(value: number | null): string {
-  return value === null ? NOT_ENOUGH : `${value}%`;
+type DraftState = {
+  item: ClientInsightAttentionItem;
+  kind: ClientCommunicationKind;
+  body: string;
+};
+
+function formatDate(value: string | null, timeZone: string): string {
+  if (!value) {
+    return 'No completed visit';
+  }
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(value));
 }
 
-export function ClientHubPanel({ onOpenClient }: {
-  onOpenClient?: (clientId: string) => void;
+function reasonDescription(item: ClientInsightAttentionItem): string {
+  if (item.primaryReason === 'completed_outstanding') {
+    return 'Completed balance to review';
+  }
+  return CLIENT_INSIGHT_SEGMENT_LABELS[item.primaryReason];
+}
+
+function openClientInsightsNativeUrl(href: string): void {
+  window.location.assign(href);
+}
+
+function Skeleton() {
+  return (
+    <div className="space-y-5" aria-label="Loading Client Insights" role="status">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map(index => (
+          <div key={index} className="h-32 animate-pulse rounded-3xl bg-white/80" />
+        ))}
+      </div>
+      <div className="h-56 animate-pulse rounded-3xl bg-white/80" />
+      <span className="sr-only">Loading Client Insights…</span>
+    </div>
+  );
+}
+
+export function ClientInsightsPanel({
+  onOpenClient,
+  onOpenSegment,
+  onBookClient,
+  refreshKey = 0,
+  onOpenNativeUrl = openClientInsightsNativeUrl,
+}: {
+  onOpenClient: (clientId: string) => void;
+  onOpenSegment: (segment: ClientInsightSegmentId) => void;
+  onBookClient: (client: ClientInsightAttentionItem) => void;
+  refreshKey?: number;
+  onOpenNativeUrl?: (href: string) => void;
 }) {
-  const { salonSlug } = useSalon();
-  const [tab, setTab] = useState<HubTab>('overview');
-  const [hub, setHub] = useState<HubData | null>(null);
-  const [followups, setFollowups] = useState<FollowupGroups | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { salonSlug, salonName } = useSalon();
+  const [data, setData] = useState<ClientInsightsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<DraftState | null>(null);
+  const [pendingOutcome, setPendingOutcome] = useState<DraftState | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!salonSlug) {
       return;
     }
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      const [hubRes, marketingRes] = await Promise.all([
-        fetch(`/api/admin/client-hub?salonSlug=${encodeURIComponent(salonSlug)}`),
-        fetch(`/api/admin/marketing?salonSlug=${encodeURIComponent(salonSlug)}`),
-      ]);
-      const hubPayload = await hubRes.json().catch(() => null);
-      if (!hubRes.ok || !hubPayload?.data) {
-        throw new Error(hubPayload?.error?.message ?? 'Could not load the Client Hub.');
+      const response = await fetch(
+        `/api/admin/client-insights?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data) {
+        throw new Error(payload?.error?.message ?? 'Could not load Client Insights.');
       }
-      setHub(hubPayload.data);
-      const marketingPayload = await marketingRes.json().catch(() => null);
-      setFollowups(marketingPayload?.data?.followups ?? null);
+      setData(payload.data);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load the Client Hub.');
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Could not load Client Insights.',
+      );
     } finally {
       setLoading(false);
     }
@@ -118,138 +173,441 @@ export function ClientHubPanel({ onOpenClient }: {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
-  const card = 'rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]';
-
-  const metric = (label: string, value: string | number) => (
-    <div key={label} className="flex items-center justify-between py-1 text-[13px]">
-      <span className="text-[#636366]">{label}</span>
-      <span className="font-semibold text-[#1C1C1E]">{value}</span>
-    </div>
+  const segmentCounts = useMemo(
+    () => new Map(data?.segments.map(segment => [segment.id, segment.count]) ?? []),
+    [data?.segments],
   );
 
+  const recordOutreach = useCallback(async (
+    state: DraftState,
+    status: ClientCommunicationStatus,
+  ) => {
+    const response = await fetch('/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: status === 'prepared',
+      body: JSON.stringify({
+        salonSlug,
+        clientId: state.item.clientId,
+        kind: state.kind,
+        status,
+        ...(state.body ? { messageSnapshot: state.body } : {}),
+        ...(status === 'snoozed' ? { snoozeDays: 7 } : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(payload?.error?.message ?? 'Could not update this follow-up.');
+    }
+    notifyRetentionDataChanged();
+  }, [salonSlug]);
+
+  const prepareText = useCallback((item: ClientInsightAttentionItem) => {
+    const isRebooking = item.reasons.some(reason =>
+      ['due_soon', 'due_now', 'overdue'].includes(reason));
+    const kind: ClientCommunicationKind = isRebooking
+      ? item.outreachStage ?? 'rebook'
+      : 'generic_text';
+    const body = buildClientSmsMessage(isRebooking ? 'rebook' : 'text', {
+      client: { name: item.clientName, phone: item.phone },
+      salon: { name: salonName },
+    });
+    if (!body) {
+      setActionError('This client needs a valid mobile number before a text can be prepared.');
+      return;
+    }
+    setActionError(null);
+    setDraft({ item, kind, body });
+  }, [salonName]);
+
+  const openDraft = useCallback(async () => {
+    if (!draft || actionBusy) {
+      return;
+    }
+    const href = buildNativeSmsUrl({
+      phone: draft.item.phone,
+      body: draft.body,
+      platform: detectNativeSmsPlatform(window.navigator.userAgent),
+    });
+    if (!href) {
+      setActionError('This client needs a valid mobile number before a text can be prepared.');
+      return;
+    }
+    setActionBusy(`text-${draft.item.clientId}`);
+    try {
+      await recordOutreach(draft, 'prepared');
+      setPendingOutcome(draft);
+      setDraft(null);
+      onOpenNativeUrl(href);
+    } catch (recordError) {
+      setActionError(
+        recordError instanceof Error
+          ? recordError.message
+          : 'Could not prepare this text.',
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [actionBusy, draft, onOpenNativeUrl, recordOutreach]);
+
+  const finishOutcome = useCallback(async (
+    status: Extract<ClientCommunicationStatus, 'marked_sent' | 'not_sent'>,
+  ) => {
+    if (!pendingOutcome || actionBusy) {
+      return;
+    }
+    setActionBusy(`outcome-${pendingOutcome.item.clientId}`);
+    try {
+      await recordOutreach(pendingOutcome, status);
+      setPendingOutcome(null);
+      if (status === 'marked_sent') {
+        await load();
+      }
+    } catch (recordError) {
+      setActionError(
+        recordError instanceof Error
+          ? recordError.message
+          : 'Could not record the text outcome.',
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [actionBusy, load, pendingOutcome, recordOutreach]);
+
+  const resolveRetention = useCallback(async (
+    item: ClientInsightAttentionItem,
+    status: Extract<ClientCommunicationStatus, 'snoozed' | 'dismissed' | 'converted'>,
+  ) => {
+    if (!item.outreachStage || actionBusy) {
+      return;
+    }
+    const state: DraftState = {
+      item,
+      kind: item.outreachStage,
+      body: '',
+    };
+    setActionBusy(`${status}-${item.clientId}`);
+    setActionError(null);
+    try {
+      await recordOutreach(state, status);
+      await load();
+    } catch (recordError) {
+      setActionError(
+        recordError instanceof Error
+          ? recordError.message
+          : 'Could not update this follow-up.',
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [actionBusy, load, recordOutreach]);
+
   return (
-    <div className="space-y-3 px-4 pb-10" data-testid="client-hub">
-      <div className="flex gap-1.5 overflow-x-auto pb-1" data-testid="client-hub-tabs">
-        {TABS.map(entry => (
+    <div
+      className="mx-auto w-full max-w-6xl space-y-6 px-4 pb-12"
+      data-testid="client-hub"
+      data-surface="client-insights"
+    >
+      {loading && !data && <Skeleton />}
+
+      {!loading && error && !data && (
+        <div
+          role="alert"
+          className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-900"
+        >
+          <p className="font-semibold">Client Insights could not load</p>
+          <p className="mt-1">{error}</p>
           <button
-            key={entry.id}
             type="button"
-            data-testid={`client-hub-tab-${entry.id}`}
-            onClick={() => setTab(entry.id)}
-            className={`min-h-9 shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${tab === entry.id ? 'bg-[#1C1C1E] text-white' : 'bg-white text-[#636366]'}`}
+            className="mt-4 min-h-11 rounded-full bg-red-900 px-5 text-sm font-semibold text-white"
+            onClick={() => void load()}
           >
-            {entry.label}
+            Try again
           </button>
-        ))}
-      </div>
-
-      {loading && <p className="py-6 text-center text-[13px] text-[#8E8E93]" role="status">Loading Client Hub…</p>}
-      {!loading && error && (
-        <div role="alert" className="rounded-[14px] border border-[#FF3B30]/30 bg-[#FF3B30]/10 p-3 text-[13px] text-[#D70015]">
-          {error}
         </div>
       )}
 
-      {!loading && hub && tab === 'overview' && (
-        <div className="space-y-3" data-testid="client-hub-overview">
-          <div className={card}>
-            {metric('Total clients', hub.overview.totalClients)}
-            {metric('New this month', hub.overview.newClientsThisMonth)}
-            {metric('Returning', hub.overview.returningClients)}
-            {metric('Due to return', hub.overview.dueToReturn)}
-            {metric('Overdue', hub.overview.overdue)}
-            {metric('No future appointment', hub.overview.noFutureAppointment)}
-          </div>
-          <div className={card}>
-            {metric('Completed appointments', hub.overview.completedAppointments)}
-            {metric('Cancellation rate', pct(hub.overview.cancellationRate))}
-            {metric('No-show rate', pct(hub.overview.noShowRate))}
-            {metric('Rebooking rate', pct(hub.overview.rebookingRate))}
-            {metric('Final service revenue', formatMoney(hub.overview.serviceRevenueCents))}
-            {metric('Outstanding balance (recorded)', formatMoney(hub.overview.outstandingCents))}
-          </div>
-          <div className={card}>
-            <h3 className="text-[14px] font-semibold text-[#1C1C1E]">Top services</h3>
-            {hub.overview.topServices.length === 0
-              ? <p className="mt-1 text-[13px] text-[#8E8E93]">{NOT_ENOUGH}</p>
-              : hub.overview.topServices.map(service =>
-                metric(service.name ?? 'Service', service.count))}
-          </div>
-        </div>
-      )}
+      {data && (
+        <>
+          <section aria-labelledby="client-health-heading">
+            <div className="mb-3">
+              <h2 id="client-health-heading" className="text-xl font-semibold text-[#4a1f31]">
+                Client health
+              </h2>
+              <p className="mt-1 text-sm text-stone-600">
+                Open any group to see the exact matching clients.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {KPI_CONFIG.map((kpi) => {
+                const Icon = kpi.icon;
+                return (
+                  <button
+                    key={kpi.id}
+                    type="button"
+                    data-testid={`client-insights-kpi-${kpi.id}`}
+                    onClick={() => onOpenSegment(kpi.id)}
+                    className="min-w-0 rounded-3xl border border-rose-100 bg-white p-4 text-left shadow-[0_10px_30px_rgba(83,37,54,0.06)] transition hover:-translate-y-0.5 hover:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  >
+                    <span className={`flex size-10 items-center justify-center rounded-2xl ${kpi.accent}`}>
+                      <Icon size={19} />
+                    </span>
+                    <strong className="mt-4 block text-3xl font-semibold text-[#3f1727]">
+                      {data.kpis[kpi.id]}
+                    </strong>
+                    <span className="mt-1 block text-sm font-semibold text-stone-900">
+                      {kpi.label}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-stone-500">
+                      {kpi.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-      {!loading && tab === 'followups' && (
-        <div className="space-y-3" data-testid="client-hub-followups">
-          <p className="px-1 text-[12px] text-[#8E8E93]">
-            The same follow-up list as Marketing — one definition of who is due.
-          </p>
-          {!followups && <p className="text-[13px] text-[#8E8E93]">{NOT_ENOUGH}</p>}
-          {followups?.groups.map(group => (
-            <div key={group.id} className={card}>
-              <h3 className="text-[14px] font-semibold text-[#1C1C1E]">{group.title}</h3>
-              {group.items.length === 0
-                ? <p className="mt-1 text-[13px] text-[#8E8E93]">No one right now.</p>
-                : group.items.map(item => (
-                  <div key={item.clientId} className="flex items-center justify-between gap-3 border-t border-[#F2F2F7] py-2 first:border-t-0">
-                    <div className="min-w-0 text-[13px]">
-                      <div className="font-semibold text-[#1C1C1E]">{item.clientName || 'Client'}</div>
-                      <div className="text-[12px] text-[#8E8E93]">
-                        {item.lastServiceName ? `Last: ${item.lastServiceName}` : 'No recorded service'}
-                      </div>
+          <section aria-labelledby="needs-attention-heading">
+            <div className="mb-3 flex items-end justify-between gap-4">
+              <div>
+                <h2 id="needs-attention-heading" className="text-xl font-semibold text-[#4a1f31]">
+                  Needs attention
+                </h2>
+                <p className="mt-1 text-sm text-stone-600">
+                  Practical groups for rebooking and follow-up.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {ATTENTION_SEGMENTS.map(segment => (
+                <button
+                  key={segment}
+                  type="button"
+                  data-testid={`client-insights-segment-${segment}`}
+                  onClick={() => onOpenSegment(segment)}
+                  className="flex min-h-16 min-w-0 items-center justify-between gap-3 rounded-2xl border border-stone-200/80 bg-[#fffaf5] px-4 py-3 text-left transition hover:border-rose-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-rose-400"
+                >
+                  <span className="min-w-0 text-sm font-medium text-stone-800">
+                    {CLIENT_INSIGHT_SEGMENT_LABELS[segment]}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 text-sm font-bold text-[#7a2948]">
+                    {segmentCounts.get(segment) ?? 0}
+                    <ChevronRight size={16} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section
+            aria-labelledby="follow-up-heading"
+            className="overflow-hidden rounded-3xl border border-rose-100 bg-white shadow-[0_12px_36px_rgba(83,37,54,0.07)]"
+          >
+            <div className="border-b border-rose-100 bg-gradient-to-r from-[#fff7f1] to-rose-50/60 px-5 py-4">
+              <h2 id="follow-up-heading" className="text-lg font-semibold text-[#4a1f31]">
+                Follow up next
+              </h2>
+              <p className="mt-1 text-sm text-stone-600">
+                Highest-priority clients, with each client shown once.
+              </p>
+            </div>
+
+            {data.attention.items.length === 0
+              ? (
+                  <div className="px-5 py-10 text-center">
+                    <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                      <Users size={21} />
                     </div>
-                    {onOpenClient && (
+                    <p className="mt-3 font-semibold text-stone-900">Nothing urgent right now</p>
+                    <p className="mt-1 text-sm text-stone-500">
+                      New follow-ups will appear as clients become due.
+                    </p>
+                  </div>
+                )
+              : data.attention.items.map((item, index) => (
+                <article
+                  key={item.clientId}
+                  className={`p-4 sm:p-5 ${index > 0 ? 'border-t border-stone-100' : ''}`}
+                  data-testid={`client-insights-attention-${item.clientId}`}
+                >
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <button
+                      type="button"
+                      onClick={() => onOpenClient(item.clientId)}
+                      className="min-w-0 text-left focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    >
+                      <span className="block truncate font-semibold text-stone-950">
+                        {item.clientName || 'Client'}
+                      </span>
+                      <span className="mt-1 block text-sm font-medium text-[#8c3657]">
+                        {reasonDescription(item)}
+                      </span>
+                      <span className="mt-1 block text-xs text-stone-500">
+                        Last visit:
+                        {' '}
+                        {formatDate(item.lastVisitAt, data.timeZone)}
+                      </span>
+                    </button>
+                    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                       <button
                         type="button"
-                        data-testid={`hub-open-client-${item.clientId}`}
                         onClick={() => onOpenClient(item.clientId)}
-                        className="min-h-9 shrink-0 rounded-full border border-[#D1D1D6] px-3 py-1.5 text-[12px] font-medium text-[#636366]"
+                        className="min-h-10 rounded-full border border-stone-200 px-3 text-xs font-semibold text-stone-700"
                       >
-                        Open
+                        View
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => onBookClient(item)}
+                        className="flex min-h-10 items-center justify-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800"
+                      >
+                        <CalendarPlus size={14} />
+                        Book
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => prepareText(item)}
+                        className="flex min-h-10 items-center justify-center gap-1 rounded-full bg-[#6f2745] px-3 text-xs font-semibold text-white"
+                      >
+                        <MessageCircle size={14} />
+                        Text
+                      </button>
+                    </div>
                   </div>
-                ))}
+                  {item.outreachStage && (
+                    <div className="mt-3 flex flex-wrap gap-4 pl-0 sm:justify-end">
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={() => void resolveRetention(item, 'snoozed')}
+                        className="text-xs font-semibold text-stone-600 underline disabled:opacity-50"
+                      >
+                        Snooze 7 days
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={() => void resolveRetention(item, 'dismissed')}
+                        className="text-xs font-semibold text-stone-500 underline disabled:opacity-50"
+                      >
+                        Dismiss
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={() => void resolveRetention(item, 'converted')}
+                        className="text-xs font-semibold text-rose-800 underline disabled:opacity-50"
+                      >
+                        Mark complete
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))}
+          </section>
+
+          {actionError && (
+            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+              {actionError}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      {!loading && hub && tab === 'segments' && (
-        <div className={card} data-testid="client-hub-segments">
-          {hub.segments.map(segment => metric(segment.label, segment.count))}
-          <p className="mt-2 text-[12px] text-[#8E8E93]">
-            Segments come only from recorded data — no birthdays or client
-            sources are stored, so those segments do not exist yet.
+          <p className="text-center text-xs text-stone-500">
+            Updated
+            {' '}
+            {new Intl.DateTimeFormat('en-CA', {
+              timeZone: data.timeZone,
+              hour: 'numeric',
+              minute: '2-digit',
+            }).format(new Date(data.generatedAt))}
           </p>
-        </div>
+        </>
       )}
 
-      {!loading && hub && tab === 'reports' && (
-        <div className="space-y-3" data-testid="client-hub-reports">
-          <div className={card}>
-            {metric('Completed', hub.reports.completed)}
-            {metric('Cancelled', hub.reports.cancelled)}
-            {metric('No-shows', hub.reports.noShows)}
-            {metric('Cancellation rate', pct(hub.reports.cancellationRate))}
-            {metric('No-show rate', pct(hub.reports.noShowRate))}
-            {metric('Rebooking rate', pct(hub.reports.rebookingRate))}
+      <DialogShell
+        isOpen={Boolean(draft)}
+        onClose={() => setDraft(null)}
+        closeOnBackdrop={actionBusy === null}
+        closeOnEscape={actionBusy === null}
+      >
+        {draft && (
+          <div role="dialog" aria-modal="true" aria-labelledby="client-insights-text-title">
+            <h2 id="client-insights-text-title" className="text-lg font-semibold text-stone-950">
+              Review text
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">
+              Edit the draft before opening your Messages app.
+            </p>
+            <textarea
+              aria-label="Text message"
+              value={draft.body}
+              onChange={event => setDraft(current =>
+                current ? { ...current, body: event.target.value } : current)}
+              rows={7}
+              className="mt-4 w-full rounded-2xl border border-stone-200 p-3 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-rose-300"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => setDraft(null)}
+                className="min-h-11 rounded-full px-4 text-sm font-semibold text-stone-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy !== null || !draft.body.trim()}
+                onClick={() => void openDraft()}
+                className="min-h-11 rounded-full bg-[#6f2745] px-5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Open Messages
+              </button>
+            </div>
           </div>
-          <div className={card} data-testid="client-hub-money">
-            {metric('Final service revenue', formatMoney(hub.reports.serviceRevenueCents))}
-            {metric('Discounts given', formatMoney(hub.reports.discountCents))}
-            {metric('Tax collected (not revenue)', formatMoney(hub.reports.taxCollectedCents))}
-            {metric('Tips', formatMoney(hub.reports.tipsCents))}
-            {metric('Amount paid (recorded)', formatMoney(hub.reports.amountPaidCents))}
-            {metric('Outstanding balance (recorded)', formatMoney(hub.reports.outstandingCents))}
+        )}
+      </DialogShell>
+
+      <DialogShell
+        isOpen={Boolean(pendingOutcome)}
+        onClose={() => {}}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+      >
+        {pendingOutcome && (
+          <div role="dialog" aria-modal="true" aria-labelledby="client-insights-outcome-title">
+            <h2 id="client-insights-outcome-title" className="text-lg font-semibold text-stone-950">
+              Did you send the text?
+            </h2>
+            <p className="mt-2 text-sm text-stone-600">
+              Opening Messages only prepares the text. Choose the actual result.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => void finishOutcome('not_sent')}
+                className="min-h-11 rounded-full border border-stone-200 px-4 text-sm font-semibold text-stone-700"
+              >
+                Not sent
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy !== null}
+                onClick={() => void finishOutcome('marked_sent')}
+                className="min-h-11 rounded-full bg-[#6f2745] px-4 text-sm font-semibold text-white"
+              >
+                Mark sent
+              </button>
+            </div>
           </div>
-          <div className={card}>
-            {metric('Win-back offers prepared', hub.reports.promotionsMinted)}
-            {metric('Promotions redeemed', hub.reports.promotionsRedeemed)}
-          </div>
-        </div>
-      )}
+        )}
+      </DialogShell>
     </div>
   );
 }
+
+// Internal compatibility export while older imports and tests migrate.
+export const ClientHubPanel = ClientInsightsPanel;

@@ -301,7 +301,15 @@ export async function POST(request: Request): Promise<Response> {
     .orderBy(desc(clientCommunicationSchema.createdAt))
     .limit(1);
 
-  const shouldUpdateLatest = Boolean(latest && (
+  // A manually completed follow-up after a not-sent or expired snooze is a
+  // new outcome, not a rewrite of the earlier honest state. Other existing
+  // consumers retain the shared transition rules unchanged.
+  const shouldCreateConvertedOutcome = Boolean(
+    latest
+    && parsed.data.status === 'converted'
+    && ['not_sent', 'snoozed'].includes(latest.status),
+  );
+  const shouldUpdateLatest = Boolean(latest && !shouldCreateConvertedOutcome && (
     ['prepared', 'not_sent', 'snoozed'].includes(latest.status)
     || (latest.status === 'marked_sent' && parsed.data.status === 'converted')
     || latest.status === parsed.data.status

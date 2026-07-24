@@ -319,6 +319,34 @@ function isSuppressedByCommunication(
     || communication.status === 'converted';
 }
 
+/**
+ * Apply the canonical retention communication suppression rules for one
+ * client, stage, and completed-visit cycle.
+ *
+ * Client Insights uses salon-local calendar dates for its due bands, while
+ * Marketing intentionally uses elapsed time for campaign stages. Keeping this
+ * helper shared lets both surfaces honour the same snoozed, sent, dismissed,
+ * and converted states without duplicating those rules.
+ */
+export function isRetentionStageSuppressed(args: {
+  communications: CommunicationSnapshot[];
+  clientId: string;
+  stage: RetentionStage;
+  lastVisitAt: Date;
+  now: Date;
+}): boolean {
+  const latest = getLatestCommunication(
+    args.communications,
+    communication => communication.salonClientId === args.clientId
+      && communication.kind === args.stage
+      // Outreach belongs to a visit cycle. An outcome from before the newest
+      // completed appointment must not suppress the same stage forever.
+      && communication.createdAt >= args.lastVisitAt,
+  );
+
+  return isSuppressedByCommunication(latest, args.now);
+}
+
 export function normalizeRetentionPhone(value: string): string {
   const digits = value.replace(/\D/g, '');
   return digits.length > 10 ? digits.slice(-10) : digits;
@@ -422,16 +450,13 @@ export function buildRetentionQueue(args: {
       return [];
     }
 
-    const latest = getLatestCommunication(
-      args.communications,
-      communication => communication.salonClientId === client.id
-        && communication.kind === stage.stage
-        // Outreach belongs to a visit cycle. A sent/dismissed/converted alert
-        // from before the client's newest completed appointment must not
-        // suppress the same stage forever on a later cycle.
-        && communication.createdAt >= lastVisitAt,
-    );
-    if (isSuppressedByCommunication(latest, now)) {
+    if (isRetentionStageSuppressed({
+      communications: args.communications,
+      clientId: client.id,
+      stage: stage.stage,
+      lastVisitAt,
+      now,
+    })) {
       return [];
     }
 

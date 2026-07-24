@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 import {
+  getCompletedOutstandingRows,
   getCurrentFinancialReportingRanges,
   getCurrentFinancialReportingSummaries,
   getFinancialBalanceSummary,
@@ -354,6 +355,24 @@ describe('financial balance aggregation', () => {
     // the real debt from another appointment in the salon aggregate.
     expect(summary.completedOutstandingCents).toBe(12040);
     expect(summary.upcomingBalanceCents).toBe(9000);
+  });
+
+  it('exposes the same tenant-scoped, per-appointment completed balances for segmentation', async () => {
+    const rows = await getCompletedOutstandingRows({
+      salonId: SALON_ID,
+      asOf: NOW,
+    });
+    const byPhone = new Map(
+      rows.map(row => [row.clientPhone, row.completedOutstandingCents]),
+    );
+
+    expect(
+      rows.reduce((sum, row) => sum + row.completedOutstandingCents, 0),
+    ).toBe(12040);
+    expect(byPhone.has('4165550799')).toBe(false);
+    expect(rows.some(row =>
+      row.clientPhone === '4165550700'
+      && row.completedOutstandingCents === 0)).toBe(true);
   });
 
   it('can scope completed outstanding to one client without weakening tenant scope', async () => {

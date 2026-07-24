@@ -316,6 +316,45 @@ function getClientListCalls() {
   return fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/admin/clients?'));
 }
 
+function buildInsightsResponse() {
+  const counts = {
+    active: 2,
+    new_this_month: 1,
+    rebooked: 1,
+    due_to_return: 1,
+    due_soon: 0,
+    due_now: 1,
+    overdue: 1,
+    needs_rebooking: 2,
+    no_future_appointment: 2,
+    first_time_no_return: 0,
+    recent_cancellation: 0,
+    not_seen_30: 1,
+    not_seen_60: 1,
+    inactive_90: 0,
+    completed_outstanding: 0,
+  } as const;
+  return {
+    data: {
+      generatedAt: '2026-07-15T16:00:00.000Z',
+      timeZone: 'America/Toronto',
+      rulesVersion: '2026-07-24',
+      kpis: {
+        active: counts.active,
+        new_this_month: counts.new_this_month,
+        due_to_return: counts.due_to_return,
+        overdue: counts.overdue,
+      },
+      segments: Object.entries(counts).map(([id, count]) => ({
+        id,
+        label: id,
+        count,
+      })),
+      attention: { total: 0, items: [] },
+    },
+  };
+}
+
 describe('ClientsModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -846,6 +885,77 @@ describe('ClientsModal', () => {
       isBlocked: true,
       blockedReason: 'Repeated no-shows',
     });
+  });
+
+  it('renames Client Hub to Client Insights and opens exact server-filtered directory results', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+
+      if (url.pathname === '/api/admin/settings/modules') {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/technicians') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/client-insights') {
+        return new Response(JSON.stringify(buildInsightsResponse()), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/clients') {
+        if (url.searchParams.get('segment') === 'overdue') {
+          return new Response(JSON.stringify(buildListResponse([
+            buildListClient({
+              id: 'client_overdue',
+              fullName: 'Overdue Olivia',
+              phone: '4165550110',
+            }),
+          ])), { status: 200 });
+        }
+        return new Response(JSON.stringify(buildListResponse([
+          buildListClient(),
+        ])), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    const search = await screen.findByPlaceholderText('Search clients');
+    fireEvent.change(search, { target: { value: 'Ava' } });
+    await waitFor(() => expect(search).toHaveValue('Ava'));
+
+    const directory = screen.getByTestId('clients-directory-scroll');
+    directory.scrollTop = 137;
+    fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+
+    expect(await screen.findByRole('heading', { name: 'Client health' })).toBeInTheDocument();
+    expect(screen.queryByText('Client Hub')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Clients' }));
+    await waitFor(() => expect(
+      screen.getByTestId('clients-directory-scroll').scrollTop,
+    ).toBe(137));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+
+    expect(await screen.findByRole('heading', { name: 'Client health' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('client-insights-kpi-overdue'));
+
+    expect(await screen.findByTestId('clients-active-segment')).toHaveTextContent('Overdue');
+    expect(await screen.findByRole('button', { name: /Overdue Olivia/ })).toBeInTheDocument();
+
+    const filteredCall = getClientListCalls()
+      .map(([url]) => new URL(String(url), 'http://localhost'))
+      .find(url => url.searchParams.get('segment') === 'overdue');
+
+    expect(filteredCall?.searchParams.get('search')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    expect(await screen.findByPlaceholderText('Search clients')).toHaveValue('Ava');
+    expect(screen.getByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
   });
 
   describe('appointment management from the client profile', () => {
