@@ -1,3 +1,15 @@
+# [1.33.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.32.0...v1.33.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **client-insights:** address review blockers ([25a2b91](https://github.com/SniperStopSniping/nailsalon/commit/25a2b91e26e4a8e3517b087adc90eaa3caaf68de))
+
+
+### Features
+
+* redesign client hub as client insights ([0f09f29](https://github.com/SniperStopSniping/nailsalon/commit/0f09f2966d1196160fc7f3876ea0e3ad21d45208))
+
 # [1.32.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.31.0...v1.32.0) (2026-07-24)
 
 
