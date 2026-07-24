@@ -18,8 +18,9 @@ import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
 
 /**
  * The one salon this script is allowed to create from nothing. Any other
- * E2E_SALON_SLUG must already exist: DATABASE_URL points at a database shared
- * with production, so inventing a salon nobody defined is not a safe default.
+ * E2E_SALON_SLUG must already exist. The script may also be run manually
+ * against a shared database, so inventing a salon nobody defined is not a safe
+ * default.
  */
 const PROVISIONABLE_SLUG = SALON.slug;
 const E2E_PRIMARY_LOCATION_ID = 'location_nail-salon-no5_primary';
@@ -40,10 +41,10 @@ type Db = ReturnType<typeof drizzle>;
 /**
  * Recreate the demo salon, its menu and its technicians.
  *
- * Deliberately does NOT run migrations - unlike scripts/seed.ts, which migrates
- * DATABASE_URL on startup. This runs in CI against the shared database, where
- * applying migrations as a side effect of seeding would be a much bigger event
- * than seeding.
+ * Deliberately does NOT run migrations. Schema changes stay an explicit caller
+ * responsibility: CI migrates its isolated PostgreSQL service first, while a
+ * manual run against a shared database must never migrate as a side effect of
+ * seeding.
  */
 async function provisionSalon(db: Db) {
   await db
