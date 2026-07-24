@@ -16,7 +16,11 @@ import {
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { upsertSalonClient } from '@/libs/queries';
+import { normalizePhone } from '@/libs/phone';
+import {
+  resolveSalonClientIdentityByPhone,
+  upsertSalonClient,
+} from '@/libs/queries';
 import { clientSchema } from '@/models/Schema';
 
 // =============================================================================
@@ -74,10 +78,32 @@ export async function POST(request: Request) {
     }
     const { salon } = salonGuard;
 
-    // 2. Ensure salonClient exists (starts at 0 loyalty points if new)
+    // 2. A historical phone alias may resolve to a salon profile whose current
+    // phone belongs to a different login identity. Do not let the old identity
+    // silently mutate the merged/current profile or create a split profile.
+    const salonClientIdentity = await resolveSalonClientIdentityByPhone(
+      salon.id,
+      normalizedPhone,
+    );
+    if (
+      salonClientIdentity
+      && normalizePhone(salonClientIdentity.client.phone) !== normalizedPhone
+    ) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+            message: 'This profile needs account assistance before it can be updated.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    // 3. Ensure salonClient exists (starts at 0 loyalty points if new)
     await upsertSalonClient(salon.id, normalizedPhone, firstName, email);
 
-    // 3. Upsert global client with name and email
+    // 4. Upsert global client with name and email
     const clientId = `client_${crypto.randomUUID()}`;
     const [client] = await db
       .insert(clientSchema)
@@ -110,7 +136,6 @@ export async function POST(request: Request) {
       })
       .where(eq(clientSchema.id, client.id));
 
-    // eslint-disable-next-line no-console
     console.warn(`[Profile] Completed profile for ${phoneForDb}: ${firstName}, ${email}`);
 
     return NextResponse.json({

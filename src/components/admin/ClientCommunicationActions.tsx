@@ -244,6 +244,7 @@ export function ClientCommunicationActions({
   onOpenNativeUrl = openNativeUrl,
   profileLayout = false,
   showHistory = true,
+  profileControls,
 }: {
   salonSlug: string;
   salonName: string;
@@ -257,6 +258,7 @@ export function ClientCommunicationActions({
   onOpenNativeUrl?: (href: string) => void;
   profileLayout?: boolean;
   showHistory?: boolean;
+  profileControls?: ReactNode;
 }) {
   const [supportData, setSupportData] = useState<SupportData>(DEFAULT_SUPPORT_DATA);
   const [supportLoading, setSupportLoading] = useState(true);
@@ -933,6 +935,7 @@ export function ClientCommunicationActions({
               title={reviewDisabledTitle}
               onClick={() => openDraft('google_review', 'Google review request', null)}
             />
+            {profileControls}
           </div>
         </details>
       </div>

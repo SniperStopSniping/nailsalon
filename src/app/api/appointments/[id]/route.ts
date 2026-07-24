@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
@@ -8,6 +8,7 @@ import {
   getAppointmentServiceNames,
   getSalonById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
   updateAppointmentStatus,
 } from '@/libs/queries';
 import { REFERRAL_REFERRER_AMOUNT_CENTS, REFERRAL_REFERRER_EXPIRY_DAYS } from '@/libs/rewardRules';
@@ -180,28 +181,22 @@ export async function PATCH(
         const pointsToRefund = Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10);
 
         if (pointsToRefund > 0) {
-          const normalizedPhone = existingAppointment.clientPhone.replace(/\D/g, '');
-          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-            ? normalizedPhone.slice(1)
-            : normalizedPhone;
-
-          const phoneVariants = [
-            tenDigitPhone,
-            `+1${tenDigitPhone}`,
+          const clientIdentity = await resolveSalonClientIdentityByPhone(
+            existingAppointment.salonId,
             existingAppointment.clientPhone,
-          ];
+          );
 
-          await db
-            .update(salonClientSchema)
-            .set({
-              loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
-            })
-            .where(
-              and(
+          if (clientIdentity) {
+            await db
+              .update(salonClientSchema)
+              .set({
+                loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+              })
+              .where(and(
                 eq(salonClientSchema.salonId, existingAppointment.salonId),
-                inArray(salonClientSchema.phone, phoneVariants),
-              ),
-            );
+                eq(salonClientSchema.id, clientIdentity.client.id),
+              ));
+          }
         }
       }
 

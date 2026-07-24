@@ -1,7 +1,15 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  or,
+} from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { resolveSalonClientIdentityByPhone } from '@/libs/queries';
 import { isFullAccess, redactClientForStaff } from '@/libs/redact';
 import { requireStaffOrAdminSalonAccess } from '@/libs/routeAccessGuards';
 import { getEffectiveVisibility } from '@/libs/visibilityPolicy';
@@ -11,7 +19,6 @@ import {
   appointmentServicesSchema,
   clientPreferencesSchema,
   clientSchema,
-  salonClientSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
@@ -110,22 +117,20 @@ export async function GET(
       );
     }
 
-    // Phone variants for matching
-    const phoneVariants = [
+    // Keep global client and client_preferences identities scoped to the phone
+    // in the URL. Salon history may additionally resolve stable merged IDs and
+    // historical phone aliases, but it must not merge these login identities.
+    const enteredPhoneVariants = [
       normalizedPhone,
       `+1${normalizedPhone}`,
       `1${normalizedPhone}`,
     ];
 
-    // Google review flag lives on the per-salon client record
-    const [salonClientRow] = await db
-      .select({ hasGoogleReview: salonClientSchema.hasGoogleReview })
-      .from(salonClientSchema)
-      .where(and(
-        eq(salonClientSchema.salonId, salon.id),
-        inArray(salonClientSchema.phone, phoneVariants),
-      ))
-      .limit(1);
+    const salonClientIdentity = await resolveSalonClientIdentityByPhone(
+      salon.id,
+      normalizedPhone,
+    );
+    const salonClientRow = salonClientIdentity?.client ?? null;
 
     // Tenant isolation: the global client record (name, member-since) is only
     // exposed when this phone number has a relationship with THIS salon.
@@ -135,7 +140,7 @@ export async function GET(
       ? await db
         .select()
         .from(clientSchema)
-        .where(inArray(clientSchema.phone, phoneVariants))
+        .where(inArray(clientSchema.phone, enteredPhoneVariants))
         .limit(1)
       : [undefined];
 
@@ -163,9 +168,25 @@ export async function GET(
     }
 
     // Get all appointments for this client at this salon
+    const historyIdentityClause = salonClientIdentity
+      ? or(
+        inArray(
+          appointmentSchema.salonClientId,
+          salonClientIdentity.clientIds,
+        ),
+        and(
+          isNull(appointmentSchema.salonClientId),
+          inArray(
+            appointmentSchema.clientPhone,
+            salonClientIdentity.phoneVariants,
+          ),
+        ),
+      )
+      : inArray(appointmentSchema.clientPhone, enteredPhoneVariants);
+
     const appointmentWhereClauses = [
       eq(appointmentSchema.salonId, salon.id),
-      inArray(appointmentSchema.clientPhone, phoneVariants),
+      historyIdentityClause,
       ...(access.actorRole === 'staff'
         ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
         : []),

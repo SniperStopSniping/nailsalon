@@ -5,7 +5,9 @@ import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   getAppointmentServiceNames,
   getSalonById,
+  getSalonClientById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
 } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { sendSmartAppointmentReminder } from '@/libs/SMS';
@@ -78,12 +80,18 @@ export async function POST(
   }
 
   try {
-    const [salon, services, technician] = await Promise.all([
+    const [salon, services, technician, salonClient] = await Promise.all([
       getSalonById(appointment.salonId),
       getAppointmentServiceNames(appointment.id),
       appointment.technicianId
         ? getTechnicianById(appointment.technicianId, appointment.salonId)
         : Promise.resolve(null),
+      appointment.salonClientId
+        ? getSalonClientById(appointment.salonId, appointment.salonClientId)
+        : resolveSalonClientIdentityByPhone(
+          appointment.salonId,
+          appointment.clientPhone,
+        ).then(identity => identity?.client ?? null),
     ]);
 
     if (!salon) {
@@ -118,7 +126,7 @@ export async function POST(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
     const result = await sendSmartAppointmentReminder(appointment.salonId, {
-      phone: appointment.clientPhone,
+      phone: salonClient ? salonClient.phone : appointment.clientPhone,
       clientName: appointment.clientName ?? undefined,
       appointmentId: appointment.id,
       salonName: salon.name,

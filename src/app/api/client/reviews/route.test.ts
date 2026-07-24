@@ -1,10 +1,12 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   db,
   getAppointmentById,
   getClientIp,
-  getSalonClientByPhone,
+  getSalonClientById,
+  resolveSalonClientIdentityByPhone,
   logReviewCreated,
   rateLimitResponse,
   requireClientApiSession,
@@ -70,7 +72,8 @@ const {
     requireClientSalonFromBody: vi.fn(),
     requireClientSalonFromQuery: vi.fn(),
     getAppointmentById: vi.fn(),
-    getSalonClientByPhone: vi.fn(),
+    getSalonClientById: vi.fn(),
+    resolveSalonClientIdentityByPhone: vi.fn(),
     checkEndpointRateLimit: vi.fn(),
     getClientIp: vi.fn(),
     rateLimitResponse: vi.fn(),
@@ -109,7 +112,8 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('@/libs/queries', () => ({
   getAppointmentById,
-  getSalonClientByPhone,
+  getSalonClientById,
+  resolveSalonClientIdentityByPhone,
 }));
 
 vi.mock('@/libs/rateLimit', () => ({
@@ -147,10 +151,27 @@ describe('/api/client/reviews', () => {
       clientName: 'Ava',
       status: 'completed',
       technicianId: 'tech_1',
+      salonClientId: 'salon_client_1',
     });
-    getSalonClientByPhone.mockResolvedValue({
+    getSalonClientById.mockResolvedValue({
       id: 'salon_client_1',
+      phone: '1111111111',
       fullName: 'Ava',
+      mergedIntoClientId: null,
+      archivedAt: null,
+    });
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'salon_client_1',
+        phone: '1111111111',
+        fullName: 'Ava',
+        mergedIntoClientId: null,
+        archivedAt: null,
+      },
+      clientIds: ['salon_client_1'],
+      normalizedPhones: ['1111111111'],
+      phoneVariants: ['1111111111', '+11111111111'],
+      resolvedFromClientId: null,
     });
     setSelectPlan([[]]);
     setInsertPlan({
@@ -249,6 +270,164 @@ describe('/api/client/reviews', () => {
       '127.0.0.1',
     );
     expect(body.success).toBe(true);
+    expect(getSalonClientById).toHaveBeenCalledWith(
+      'salon_1',
+      'salon_client_1',
+    );
+    expect(resolveSalonClientIdentityByPhone).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a merged phone alias as authorization for another appointment snapshot', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      clientPhone: '+12223334444',
+      clientName: 'Ava',
+      status: 'completed',
+      technicianId: 'tech_1',
+      salonClientId: 'salon_client_1',
+    });
+    // Even if a phone resolver would map the authenticated historical number
+    // to the same salon profile, ownership is the exact appointment snapshot.
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'salon_client_1',
+        phone: '2223334444',
+        fullName: 'Ava',
+      },
+      clientIds: ['salon_client_1'],
+      normalizedPhones: ['1111111111', '2223334444'],
+      phoneVariants: ['1111111111', '2223334444'],
+      resolvedFromClientId: 'salon_client_source',
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/client/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentId: 'appt_1',
+          salonSlug: 'salon-a',
+          rating: 5,
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('FORBIDDEN');
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(resolveSalonClientIdentityByPhone).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('requires reconciliation when an appointment now links to a different current phone', async () => {
+    getSalonClientById.mockResolvedValue({
+      id: 'salon_client_primary',
+      phone: '2223334444',
+      fullName: 'Primary',
+      mergedIntoClientId: null,
+      archivedAt: null,
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/client/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentId: 'appt_1',
+          salonSlug: 'salon-a',
+          rating: 5,
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_IDENTITY_RECONCILIATION_REQUIRED');
+    expect(resolveSalonClientIdentityByPhone).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects alias-only phone fallback for an unlinked legacy appointment', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_legacy',
+      salonId: 'salon_1',
+      clientPhone: '+11111111111',
+      clientName: 'Ava',
+      status: 'completed',
+      technicianId: null,
+      salonClientId: null,
+    });
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'salon_client_primary',
+        phone: '2223334444',
+        fullName: 'Ava',
+        mergedIntoClientId: null,
+        archivedAt: null,
+      },
+      clientIds: ['salon_client_primary', 'salon_client_source'],
+      normalizedPhones: ['1111111111', '2223334444'],
+      phoneVariants: ['1111111111', '2223334444'],
+      resolvedFromClientId: 'salon_client_source',
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/client/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentId: 'appt_legacy',
+          salonSlug: 'salon-a',
+          rating: 5,
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_IDENTITY_RECONCILIATION_REQUIRED');
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledWith(
+      'salon_1',
+      '1111111111',
+    );
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('links an unlinked legacy appointment only through an exact current active phone', async () => {
+    getAppointmentById.mockResolvedValue({
+      id: 'appt_legacy',
+      salonId: 'salon_1',
+      clientPhone: '+11111111111',
+      clientName: 'Ava',
+      status: 'completed',
+      technicianId: null,
+      salonClientId: null,
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/client/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointmentId: 'appt_legacy',
+          salonSlug: 'salon-a',
+          rating: 4,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledWith(
+      'salon_1',
+      '1111111111',
+    );
+    expect(txInsertValuesSpy).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_legacy',
+      salonClientId: 'salon_client_1',
+    }));
   });
 
   it('returns a conflict before inserting when the appointment already has a review', async () => {

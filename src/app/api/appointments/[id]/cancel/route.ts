@@ -8,6 +8,7 @@ import {
   getAppointmentServiceNames,
   getSalonById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
   updateSalonClientStats,
 } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
@@ -140,6 +141,12 @@ export async function PATCH(
     const pointsToRefund = pointsRedeemedMatch
       ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
       : 0;
+    const loyaltyIdentity = pointsToRefund > 0
+      ? await resolveSalonClientIdentityByPhone(
+        appointment.salonId,
+        appointment.clientPhone,
+      )
+      : null;
 
     // The terminal transition and every balance mutation are one atomic unit.
     // The status predicate is the compare-and-set: concurrent requests may both
@@ -230,20 +237,7 @@ export async function PATCH(
             ));
         }
 
-        if (pointsToRefund > 0) {
-          const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
-          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-            ? normalizedPhone.slice(1)
-            : normalizedPhone;
-          const phoneVariants = [
-            tenDigitPhone,
-            `+1${tenDigitPhone}`,
-            appointment.clientPhone,
-          ];
-          const clientIdentity = appointment.salonClientId
-            ? eq(salonClientSchema.id, appointment.salonClientId)
-            : inArray(salonClientSchema.phone, phoneVariants);
-
+        if (pointsToRefund > 0 && loyaltyIdentity) {
           await tx
             .update(salonClientSchema)
             .set({
@@ -251,7 +245,7 @@ export async function PATCH(
             })
             .where(and(
               eq(salonClientSchema.salonId, appointment.salonId),
-              clientIdentity,
+              eq(salonClientSchema.id, loyaltyIdentity.client.id),
             ));
         }
 

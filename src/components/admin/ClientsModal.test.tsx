@@ -105,6 +105,10 @@ type ListClient = {
   phone: string;
   fullName: string;
   email?: string | null;
+  birthday?: string | null;
+  archivedAt?: string | null;
+  mergedIntoClientId?: string | null;
+  updatedAt?: string;
   preferredTechnician?: {
     id: string;
     name: string;
@@ -125,6 +129,10 @@ function buildListClient(overrides: Partial<ListClient> = {}): ListClient {
     phone: '1111111111',
     fullName: 'Ava Thompson',
     email: 'ava@example.com',
+    birthday: '1992-06-12',
+    archivedAt: null,
+    mergedIntoClientId: null,
+    updatedAt: '2026-03-20T12:00:00.000Z',
     preferredTechnician: {
       id: 'tech_1',
       name: 'Daniela',
@@ -167,6 +175,8 @@ function buildDetailResponse(overrides?: Partial<{
   recentIssues: Array<Record<string, unknown>>;
   summary: Record<string, unknown>;
   submittedPreferences: Record<string, unknown> | null;
+  management: Record<string, unknown>;
+  notesHistory: Array<Record<string, unknown>>;
 }>) {
   return {
     data: {
@@ -174,21 +184,41 @@ function buildDetailResponse(overrides?: Partial<{
         id: 'client_1',
         phone: '1111111111',
         fullName: 'Ava Thompson',
+        firstName: 'Ava',
+        lastName: 'Thompson',
         email: 'ava@example.com',
+        birthday: '1992-06-12',
         preferredTechnician: {
           id: 'tech_1',
           name: 'Daniela',
           avatarUrl: null,
         },
         notes: 'Prefers shorter almond shape.',
+        sensitivities: null,
+        nailPreferences: {},
+        tags: ['regular'],
+        rebookIntervalDays: 21,
+        nextRebookDueAt: null,
+        lastContactAt: null,
         lastVisitAt: '2026-03-10T14:00:00.000Z',
         totalVisits: 6,
         totalSpent: 45500,
         averageSpend: 7583,
         noShowCount: 1,
         loyaltyPoints: 820,
+        hasGoogleReview: false,
+        googleReviewMarkedAt: null,
+        archivedAt: null,
+        mergedIntoClientId: null,
+        updatedAt: '2026-03-20T12:00:00.000Z',
         createdAt: '2025-01-01T00:00:00.000Z',
         ...overrides?.client,
+      },
+      management: overrides?.management ?? {
+        resolvedFromClientId: null,
+        canManageLifecycle: true,
+        canPermanentlyDelete: false,
+        authenticationIdentityDeferred: true,
       },
       upcomingAppointments: overrides?.upcomingAppointments ?? [{
         id: 'appt_upcoming',
@@ -270,6 +300,12 @@ function buildDetailResponse(overrides?: Partial<{
         updatedAt: '2026-03-01T00:00:00.000Z',
       },
       photos: [],
+      notesHistory: overrides?.notesHistory ?? [{
+        id: 'note_merged',
+        body: 'Avoid acetone soak when possible.',
+        sourceClientId: 'client_merged',
+        createdAt: '2026-02-20T12:00:00.000Z',
+      }],
     },
   };
 }
@@ -404,6 +440,9 @@ describe('ClientsModal', () => {
 
     expect(await screen.findByRole('button', { name: /ava thompson/i })).toBeInTheDocument();
     expect(screen.getByText('2 total')).toBeInTheDocument();
+    expect(getClientListCalls().some(([requestUrl]) => (
+      new URL(String(requestUrl), 'http://localhost').searchParams.get('scope') === 'active'
+    ))).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Load More Clients' }));
 
@@ -424,6 +463,225 @@ describe('ClientsModal', () => {
 
     expect(await screen.findByRole('button', { name: /zara bloom/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /nora vale/i })).not.toBeInTheDocument();
+  });
+
+  it('defaults to the active directory and replaces it with archived clients when requested', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+
+      if (url.pathname === '/api/admin/settings/modules') {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+
+      if (url.pathname === '/api/admin/technicians') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+
+      if (url.pathname === '/api/admin/clients') {
+        if (url.searchParams.get('scope') === 'archived') {
+          return new Response(JSON.stringify(buildListResponse([
+            buildListClient({
+              id: 'client_archived',
+              fullName: 'Archived Avery',
+              phone: '4165550199',
+              archivedAt: '2026-03-21T12:00:00.000Z',
+            }),
+          ])), { status: 200 });
+        }
+
+        return new Response(JSON.stringify(buildListResponse([
+          buildListClient({
+            id: 'client_active',
+            fullName: 'Active Avery',
+          }),
+        ])), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch: ${url.pathname}${url.search}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    expect(await screen.findByRole('button', { name: /active avery/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /archived avery/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Active' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Archived' }));
+
+    expect(await screen.findByRole('button', { name: /archived avery/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /active avery/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Archived' })).toHaveAttribute('aria-selected', 'true');
+    expect(getClientListCalls().some(([requestUrl]) => (
+      new URL(String(requestUrl), 'http://localhost').searchParams.get('scope') === 'archived'
+    ))).toBe(true);
+  });
+
+  it('keeps Book, Text, and Call intact and places management controls in More actions', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    for (const action of ['Book', 'Text', 'Call']) {
+      expect(await screen.findByRole('button', { name: action })).toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getByText('More actions'));
+
+    expect(screen.getByRole('button', { name: 'Edit client' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Merge duplicate' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive client' })).toBeInTheDocument();
+  });
+
+  it('refreshes profile, flags, and delete eligibility after an archived profile edit', async () => {
+    let edited = false;
+    let detailFetchCount = 0;
+    let flagFetchCount = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'ENABLED', clientBlocking: 'ENABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient({
+          archivedAt: '2026-03-21T12:00:00.000Z',
+        })])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
+        return new Response(JSON.stringify(buildDetailResponse({
+          client: {
+            archivedAt: '2026-03-21T12:00:00.000Z',
+            email: edited ? 'updated@example.com' : 'ava@example.com',
+            updatedAt: edited
+              ? '2026-03-21T13:00:00.000Z'
+              : '2026-03-20T12:00:00.000Z',
+          },
+          management: {
+            resolvedFromClientId: null,
+            canManageLifecycle: true,
+            canPermanentlyDelete: !edited,
+            authenticationIdentityDeferred: false,
+          },
+        })), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1/flag?salonSlug=isla-nail-studio') {
+        flagFetchCount += 1;
+        return new Response(JSON.stringify(buildFlagsResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1' && init?.method === 'PATCH') {
+        edited = true;
+        return new Response(JSON.stringify({
+          data: {
+            client: {
+              id: 'client_1',
+              email: 'updated@example.com',
+              updatedAt: '2026-03-21T13:00:00.000Z',
+            },
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(screen.getByText('More actions'));
+
+    expect(await screen.findByRole('button', { name: 'Delete permanently' }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit client' }));
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'updated@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Delete permanently' }))
+        .not.toBeInTheDocument();
+      expect(detailFetchCount).toBeGreaterThanOrEqual(2);
+      expect(flagFetchCount).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('keeps the profile edit surface constrained for an exact 390×844 viewport', async () => {
+    const previousWidth = window.innerWidth;
+    const previousHeight = window.innerHeight;
+    Object.defineProperties(window, {
+      innerWidth: { configurable: true, value: 390 },
+      innerHeight: { configurable: true, value: 844 },
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    try {
+      render(<ClientsModal onClose={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(screen.getByText('More actions'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit client' }));
+
+      const profileSurface = screen.getByRole('heading', { name: 'Ava Thompson' })
+        .closest('.overflow-x-hidden');
+      const editDialog = await screen.findByRole('dialog', { name: 'Edit client' });
+
+      expect(profileSurface).toBeInTheDocument();
+      expect(editDialog).toHaveClass('min-w-0');
+      expect(screen.getByLabelText('Phone number')).toHaveClass('w-full', 'min-w-0');
+      expect(screen.getByLabelText('First name').parentElement?.parentElement).toHaveClass(
+        'grid-cols-1',
+        'min-w-0',
+      );
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    } finally {
+      Object.defineProperties(window, {
+        innerWidth: { configurable: true, value: previousWidth },
+        innerHeight: { configurable: true, value: previousHeight },
+      });
+      window.dispatchEvent(new Event('resize'));
+    }
   });
 
   it('opens an exact client from a dashboard notification even when they are not on the first list page', async () => {
@@ -563,6 +821,9 @@ describe('ClientsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notes & Photos' }));
 
     expect(screen.getByLabelText('Private notes')).toHaveValue('Prefers shorter almond shape.');
+    expect(screen.getByText('Preserved note history')).toBeInTheDocument();
+    expect(screen.getByText('Avoid acetone soak when possible.')).toBeInTheDocument();
+    expect(screen.getByText(/From merged profile/)).toBeInTheDocument();
     expect(screen.getByText('No appointment photos yet.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Details' }));
@@ -775,6 +1036,8 @@ describe('ClientsModal', () => {
   });
 
   it('renders and saves flag and block controls when their modules are enabled', async () => {
+    let detailFetchCount = 0;
+    let flagFetchCount = 0;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
@@ -794,6 +1057,7 @@ describe('ClientsModal', () => {
       }
 
       if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
         return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
       }
 
@@ -802,6 +1066,7 @@ describe('ClientsModal', () => {
       }
 
       if (url === '/api/admin/clients/client_1/flag?salonSlug=isla-nail-studio') {
+        flagFetchCount += 1;
         return new Response(JSON.stringify(buildFlagsResponse()), { status: 200 });
       }
 
@@ -841,10 +1106,16 @@ describe('ClientsModal', () => {
 
     expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
       salonSlug: 'isla-nail-studio',
+      expectedUpdatedAt: '2026-03-20T12:00:00.000Z',
       isProblemClient: true,
       flagReason: 'Aggressive behavior',
       isBlocked: true,
       blockedReason: 'Repeated no-shows',
+    });
+
+    await waitFor(() => {
+      expect(detailFetchCount).toBeGreaterThanOrEqual(2);
+      expect(flagFetchCount).toBeGreaterThanOrEqual(2);
     });
   });
 

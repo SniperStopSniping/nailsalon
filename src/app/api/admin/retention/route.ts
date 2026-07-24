@@ -45,6 +45,7 @@ function serializeCommunication(row: CommunicationRow) {
     dueAt: row.dueAt?.toISOString() ?? null,
     snoozedUntil: row.snoozedUntil?.toISOString() ?? null,
     messageSnapshot: row.messageSnapshot,
+    destinationSnapshot: row.destinationSnapshot,
     metadata: row.metadata ?? {},
     preparedAt: row.preparedAt?.toISOString() ?? null,
     markedSentAt: row.markedSentAt?.toISOString() ?? null,
@@ -107,7 +108,11 @@ export async function GET(request: Request): Promise<Response> {
         isBlocked: salonClientSchema.isBlocked,
       })
       .from(salonClientSchema)
-      .where(eq(salonClientSchema.salonId, salon.id))
+      .where(and(
+        eq(salonClientSchema.salonId, salon.id),
+        isNull(salonClientSchema.archivedAt),
+        isNull(salonClientSchema.mergedIntoClientId),
+      ))
       .limit(5000),
     db
       .select({
@@ -232,6 +237,8 @@ export async function POST(request: Request): Promise<Response> {
     .where(and(
       eq(salonClientSchema.id, parsed.data.clientId),
       eq(salonClientSchema.salonId, salon.id),
+      isNull(salonClientSchema.archivedAt),
+      isNull(salonClientSchema.mergedIntoClientId),
     ))
     .limit(1);
   if (!client) {
@@ -383,6 +390,7 @@ export async function POST(request: Request): Promise<Response> {
           status: parsed.data.status,
           dueAt,
           messageSnapshot: safeMessageSnapshot ?? null,
+          destinationSnapshot: client.phone,
           actorAdminId: admin.id,
           ...timestamps,
         })

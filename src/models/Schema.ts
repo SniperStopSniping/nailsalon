@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -909,6 +911,7 @@ export const salonClientSchema = pgTable(
     phone: text('phone').notNull(), // normalized 10-digit
     fullName: text('full_name'),
     email: text('email'),
+    birthday: date('birthday'),
 
     // Preferences
     preferredTechnicianId: text('preferred_technician_id').references(
@@ -957,6 +960,17 @@ export const salonClientSchema = pgTable(
     isBlocked: boolean('is_blocked').default(false),
     blockedReason: text('blocked_reason'),
 
+    // Lifecycle state. A merged profile remains addressable for redirects and
+    // audit/history, but is no longer an active directory entry.
+    archivedAt: timestamp('archived_at', { mode: 'date', withTimezone: true }),
+    archivedBy: text('archived_by'),
+    mergedIntoClientId: text('merged_into_client_id').references(
+      (): AnyPgColumn => salonClientSchema.id,
+      { onDelete: 'restrict' },
+    ),
+    mergedAt: timestamp('merged_at', { mode: 'date', withTimezone: true }),
+    mergedBy: text('merged_by'),
+
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -970,11 +984,12 @@ export const salonClientSchema = pgTable(
       table.salonId,
       table.clientId,
     ),
-    // Unique constraint: one profile per phone per salon
+    // Merged source rows retain their historical contact details. Active and
+    // archived (but unmerged) profiles remain unique by salon + phone.
     uniqueSalonPhone: uniqueIndex('salon_client_salon_phone_idx').on(
       table.salonId,
       table.phone,
-    ),
+    ).where(sql`${table.mergedIntoClientId} is null`),
     // Search indexes
     salonIdx: index('salon_client_salon_idx').on(table.salonId),
     phoneIdx: index('salon_client_phone_idx').on(table.phone),
@@ -982,6 +997,77 @@ export const salonClientSchema = pgTable(
     lastVisitIdx: index('salon_client_last_visit_idx').on(
       table.salonId,
       table.lastVisitAt,
+    ),
+    lifecycleIdx: index('salon_client_lifecycle_idx').on(
+      table.salonId,
+      table.archivedAt,
+      table.mergedIntoClientId,
+    ),
+    mergedIntoIdx: index('salon_client_merged_into_idx').on(
+      table.salonId,
+      table.mergedIntoClientId,
+    ),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// SalonClientContactAlias - salon-private historical contact resolution
+// -----------------------------------------------------------------------------
+export const salonClientContactAliasSchema = pgTable(
+  'salon_client_contact_alias',
+  {
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'phone' | 'email'>().notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    uniqueSalonContact: uniqueIndex('salon_client_contact_alias_unique').on(
+      table.salonId,
+      table.kind,
+      table.normalizedValue,
+    ),
+    clientIdx: index('salon_client_contact_alias_client_idx').on(
+      table.salonId,
+      table.salonClientId,
+    ),
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// SalonClientNote - immutable notes retained across profile merges
+// -----------------------------------------------------------------------------
+export const salonClientNoteSchema = pgTable(
+  'salon_client_note',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    // Deliberately not an FK: the originating empty profile may later qualify
+    // for hard deletion, while the immutable provenance ID must remain.
+    sourceClientId: text('source_client_id'),
+    body: text('body').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    clientCreatedIdx: index('salon_client_note_client_created_idx').on(
+      table.salonId,
+      table.salonClientId,
+      table.createdAt,
+    ),
+    sourceIdx: index('salon_client_note_source_idx').on(
+      table.salonId,
+      table.sourceClientId,
     ),
   }),
 );
@@ -1054,6 +1140,9 @@ export const clientCommunicationSchema = pgTable(
     dueAt: timestamp('due_at', { mode: 'date', withTimezone: true }),
     snoozedUntil: timestamp('snoozed_until', { mode: 'date', withTimezone: true }),
     messageSnapshot: text('message_snapshot'),
+    // Immutable destination used for this communication. Existing rows remain
+    // null rather than being backfilled from today's client contact details.
+    destinationSnapshot: text('destination_snapshot'),
     metadata: jsonb('metadata').$type<import('@/types/retention').ClientCommunicationMetadata>().default({}),
     preparedAt: timestamp('prepared_at', { mode: 'date', withTimezone: true }),
     markedSentAt: timestamp('marked_sent_at', { mode: 'date', withTimezone: true }),
@@ -2027,6 +2116,10 @@ export type NewClient = typeof clientSchema.$inferInsert;
 
 export type SalonClient = typeof salonClientSchema.$inferSelect;
 export type NewSalonClient = typeof salonClientSchema.$inferInsert;
+export type SalonClientContactAlias = typeof salonClientContactAliasSchema.$inferSelect;
+export type NewSalonClientContactAlias = typeof salonClientContactAliasSchema.$inferInsert;
+export type SalonClientNote = typeof salonClientNoteSchema.$inferSelect;
+export type NewSalonClientNote = typeof salonClientNoteSchema.$inferInsert;
 
 export type SalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferSelect;
 export type NewSalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferInsert;

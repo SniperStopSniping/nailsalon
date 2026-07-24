@@ -6,7 +6,11 @@ import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { normalizePhone } from '@/libs/phone';
-import { getAppointmentServiceNames, getClientByPhone } from '@/libs/queries';
+import {
+  getAppointmentServiceNames,
+  getClientByPhone,
+  resolveSalonClientIdentityByPhone,
+} from '@/libs/queries';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
@@ -30,10 +34,12 @@ type ReminderCandidate = {
   salonName: string;
   salonSettings: unknown;
   clientName: string | null;
+  // Appointment contact fields are immutable historical snapshots.
   clientPhone: string;
   startTime: Date;
   endTime: Date;
   technicianName: string | null;
+  salonClientPhone: string | null;
   salonClientEmail: string | null;
   appointmentEmail: string | null;
   dayBeforeReminderSentAt: Date | null;
@@ -180,6 +186,7 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
       startTime: appointmentSchema.startTime,
       endTime: appointmentSchema.endTime,
       technicianName: technicianSchema.name,
+      salonClientPhone: salonClientSchema.phone,
       salonClientEmail: salonClientSchema.email,
       appointmentEmail: appointmentSchema.clientEmail,
       dayBeforeReminderSentAt: appointmentSchema.dayBeforeReminderSentAt,
@@ -222,7 +229,23 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
     .orderBy(appointmentSchema.startTime)
     .limit(MAX_CANDIDATES_PER_RUN);
 
-  return rows;
+  return Promise.all(rows.map(async (candidate) => {
+    if (candidate.salonClientPhone != null) {
+      return candidate;
+    }
+    const identity = await resolveSalonClientIdentityByPhone(
+      candidate.salonId,
+      candidate.clientPhone,
+    );
+    if (!identity) {
+      return candidate;
+    }
+    return {
+      ...candidate,
+      salonClientPhone: identity.client.phone,
+      salonClientEmail: identity.client.email,
+    };
+  }));
 }
 
 async function sendDayBeforeReminder(
@@ -246,7 +269,7 @@ async function sendDayBeforeReminder(
     )
     : false;
 
-  const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
+  const normalizedPhone = resolveClientPhone(candidate);
   if (!normalizedPhone) {
     return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
   }
@@ -288,7 +311,7 @@ async function sendSameDayReminder(
       manageUrl,
     }))
     : false;
-  const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
+  const normalizedPhone = resolveClientPhone(candidate);
   if (!normalizedPhone) {
     return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
   }
@@ -314,18 +337,31 @@ async function sendSameDayReminder(
 }
 
 async function resolveClientEmail(candidate: ReminderCandidate): Promise<string | null> {
+  // A joined salon-client row is the live destination. In particular, a
+  // deliberately cleared email must not revive an old appointment snapshot.
+  const hasLinkedSalonClient
+    = candidate.salonClientPhone != null || candidate.salonClientEmail != null;
+  const salonClientEmail = candidate.salonClientEmail?.trim().toLowerCase() ?? '';
+  if (hasLinkedSalonClient) {
+    return salonClientEmail || null;
+  }
+
   const appointmentEmail = candidate.appointmentEmail?.trim().toLowerCase() ?? '';
   if (appointmentEmail) {
     return appointmentEmail;
-  }
-  const salonClientEmail = candidate.salonClientEmail?.trim().toLowerCase() ?? '';
-  if (salonClientEmail) {
-    return salonClientEmail;
   }
 
   const globalClient = await getClientByPhone(candidate.clientPhone);
   const globalEmail = globalClient?.email?.trim().toLowerCase() ?? '';
   return globalEmail || null;
+}
+
+function resolveClientPhone(candidate: ReminderCandidate): string | null {
+  if (candidate.salonClientPhone != null) {
+    return normalizeReminderPhone(candidate.salonClientPhone);
+  }
+
+  return normalizeReminderPhone(candidate.clientPhone);
 }
 
 /**

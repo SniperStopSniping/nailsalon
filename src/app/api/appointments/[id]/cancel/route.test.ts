@@ -16,6 +16,7 @@ const {
   transaction,
   mockDbState,
   db,
+  resolveSalonClientIdentityByPhone,
   updateSalonClientStats,
 } = vi.hoisted(() => {
   const mockDbState = {
@@ -79,6 +80,7 @@ const {
       update,
       transaction,
     },
+    resolveSalonClientIdentityByPhone: vi.fn(),
     updateSalonClientStats: vi.fn(),
   };
 });
@@ -95,6 +97,7 @@ vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
   getSalonById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
   updateSalonClientStats,
 }));
 
@@ -117,6 +120,21 @@ vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }))
 import { sendCancellationConfirmation } from '@/libs/SMS';
 
 import { PATCH } from './route';
+
+function containsValue(
+  value: unknown,
+  expected: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (value === expected) {
+    return true;
+  }
+  if (!value || typeof value !== 'object' || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  return Object.values(value).some(child => containsValue(child, expected, seen));
+}
 
 describe('PATCH /api/appointments/[id]/cancel', () => {
   beforeEach(() => {
@@ -146,6 +164,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
+    resolveSalonClientIdentityByPhone.mockResolvedValue(null);
     updateSalonClientStats.mockResolvedValue(undefined);
   });
 
@@ -329,7 +348,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     const appointment = {
       id: 'appt_1',
       salonId: 'salon_1',
-      salonClientId: 'client_1',
+      salonClientId: 'client_source',
       technicianId: 'tech_1',
       status: 'confirmed',
       cancelReason: null,
@@ -346,6 +365,23 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       appointment,
     });
     mockDbState.rewardRows = [{ id: 'reward_1', status: 'pending' }];
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'client_primary',
+        phone: '6475550199',
+      },
+      clientIds: ['client_primary', 'client_source'],
+      normalizedPhones: ['4165551234', '5551234567', '6475550199'],
+      phoneVariants: [
+        '4165551234',
+        '+14165551234',
+        '5551234567',
+        '+15551234567',
+        '6475550199',
+        '+16475550199',
+      ],
+      resolvedFromClientId: 'client_source',
+    });
 
     const cancel = () => PATCH(
       new Request('http://localhost/api/appointments/appt_1/cancel', {
@@ -383,6 +419,13 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
 
     expect(loyaltyRefunds).toHaveLength(1);
     expect(rewardRestores).toHaveLength(1);
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledTimes(2);
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledWith(
+      'salon_1',
+      '+15551234567',
+    );
+    expect(containsValue(updateWhere.mock.calls, 'client_primary')).toBe(true);
+    expect(containsValue(updateWhere.mock.calls, 'client_source')).toBe(false);
     expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledTimes(1);
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
   });
