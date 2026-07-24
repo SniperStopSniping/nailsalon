@@ -207,6 +207,19 @@ suite('client merge stale-reference trigger — genuine concurrency', () => {
     await pool.end();
   });
 
+  it('preserves the v1.33 full phone conflict target after migration 0061', async () => {
+    const result = await pool.query<{ id: string }>(
+      `insert into salon_client (id, salon_id, phone, full_name)
+       values ('v133_conflict_probe', $1, $2, 'Compatibility Probe')
+       on conflict (salon_id, phone)
+       do update set updated_at = now()
+       returning id`,
+      [SALON_ID, PRIMARY_PHONE],
+    );
+
+    expect(result.rows).toEqual([{ id: PRIMARY_ID }]);
+  });
+
   it('relinks an insert that locks the duplicate before the real merge starts', async () => {
     const appointmentId = 'appointment_insert_before_merge';
     const writer = session('client-merge-concurrency-writer-first');
@@ -342,6 +355,69 @@ suite('client merge stale-reference trigger — genuine concurrency', () => {
       await insertPromise?.catch(() => undefined);
       await Promise.all([merger.end(), writer.end(), observer.end()]);
     }
+  }, 15_000);
+
+  it('serializes opposing merge attempts without a deadlock or split history', async () => {
+    const appointmentId = 'appointment_opposing_merge';
+    await db.insert(schema.appointmentSchema).values({
+      id: appointmentId,
+      salonId: SALON_ID,
+      salonClientId: DUPLICATE_ID,
+      clientPhone: HISTORIC_PHONE,
+      clientName: 'Opposing Merge Snapshot',
+      startTime: new Date('2099-10-03T15:00:00.000Z'),
+      endTime: new Date('2099-10-03T16:00:00.000Z'),
+      status: 'confirmed',
+      totalPrice: 6500,
+      totalDurationMinutes: 60,
+    });
+    const { primary, duplicate } = await loadClients();
+
+    const opposingMerges = Promise.allSettled([
+      mergeSalonClients({
+        salonId: SALON_ID,
+        primaryClientId: primary.id,
+        duplicateClientId: duplicate.id,
+        expectedPrimaryUpdatedAt: primary.updatedAt,
+        expectedDuplicateUpdatedAt: duplicate.updatedAt,
+        actor: { id: ACTOR_ID, role: 'owner' },
+      }),
+      mergeSalonClients({
+        salonId: SALON_ID,
+        primaryClientId: duplicate.id,
+        duplicateClientId: primary.id,
+        expectedPrimaryUpdatedAt: duplicate.updatedAt,
+        expectedDuplicateUpdatedAt: primary.updatedAt,
+        actor: { id: ACTOR_ID, role: 'owner' },
+      }),
+    ]);
+
+    let deadlockTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadlockTimeout = new Promise<never>((_, reject) => {
+      deadlockTimer = setTimeout(
+        () => reject(new Error('Opposing merge attempts deadlocked.')),
+        5_000,
+      );
+    });
+    const results = await Promise.race([opposingMerges, deadlockTimeout])
+      .finally(() => clearTimeout(deadlockTimer));
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+
+    const clients = Object.values(await loadClients());
+    const survivor = clients.find(client => client.mergedIntoClientId === null);
+    const source = clients.find(client => client.mergedIntoClientId !== null);
+
+    expect(survivor).toBeDefined();
+    expect(source).toMatchObject({
+      archivedAt: expect.any(Date),
+      mergedIntoClientId: survivor!.id,
+    });
+    expect(await loadAppointment(appointmentId)).toMatchObject({
+      salonClientId: survivor!.id,
+      clientPhone: HISTORIC_PHONE,
+    });
   }, 15_000);
 
   it('rejects a stale operational update after the source merge commits', async () => {

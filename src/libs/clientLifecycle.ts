@@ -49,7 +49,8 @@ export type ClientLifecycleErrorCode =
   | 'INVALID_CLIENT_STATE'
   | 'SAME_CLIENT'
   | 'CLIENT_HAS_HISTORY'
-  | 'CONTACT_ALIAS_CONFLICT';
+  | 'CONTACT_ALIAS_CONFLICT'
+  | 'EXTERNAL_IDENTITY_CONFLICT';
 
 export type ClientDuplicateSummary = {
   id: string;
@@ -568,6 +569,54 @@ async function collectAliasesWithHandle(
   };
 }
 
+async function hasUnsupportedExternalIdentityWithHandle(
+  handle: LifecycleDb,
+  input: {
+    salonId: string;
+    client: SalonClient;
+    additionalPhones?: string[];
+  },
+): Promise<boolean> {
+  if (input.client.clientId !== null) {
+    return true;
+  }
+
+  const aliases = await collectAliasesWithHandle(
+    handle,
+    input.salonId,
+    input.client.id,
+  );
+  const phoneKeys = phoneVariants([
+    ...aliases.phones,
+    ...(input.additionalPhones ?? []),
+  ]);
+  if (phoneKeys.length === 0) {
+    return false;
+  }
+
+  const [externalClientRows, clientSessionRows] = await Promise.all([
+    handle
+      .select({ id: clientSchema.id })
+      .from(clientSchema)
+      .where(inArray(clientSchema.phone, phoneKeys))
+      .limit(1),
+    handle
+      .select({ id: clientSessionSchema.id })
+      .from(clientSessionSchema)
+      .where(inArray(clientSessionSchema.clientPhone, phoneKeys))
+      .limit(1),
+  ]);
+
+  return externalClientRows.length > 0 || clientSessionRows.length > 0;
+}
+
+function externalIdentityConflict(): ClientLifecycleError {
+  return new ClientLifecycleError(
+    'EXTERNAL_IDENTITY_CONFLICT',
+    'This client has a customer login identity. Contact changes and profile merges require a separate identity-safe workflow.',
+  );
+}
+
 export async function collectClientContactAliases(input: {
   salonId: string;
   clientId: string;
@@ -939,6 +988,16 @@ export async function editSalonClient(
           { duplicates },
         );
       }
+    }
+    if (
+      phoneChanged
+      && await hasUnsupportedExternalIdentityWithHandle(tx, {
+        salonId: input.salonId,
+        client: existing,
+        additionalPhones: update.phone ? [update.phone] : [],
+      })
+    ) {
+      throw externalIdentityConflict();
     }
 
     const oldAliases: AliasValue[] = [];
@@ -1643,6 +1702,20 @@ export async function mergeSalonClients(
     assertExpectedVersion(primary, input.expectedPrimaryUpdatedAt);
     assertExpectedVersion(duplicate, input.expectedDuplicateUpdatedAt);
 
+    const [primaryHasExternalIdentity, duplicateHasExternalIdentity] = await Promise.all([
+      hasUnsupportedExternalIdentityWithHandle(tx, {
+        salonId: input.salonId,
+        client: primary,
+      }),
+      hasUnsupportedExternalIdentityWithHandle(tx, {
+        salonId: input.salonId,
+        client: duplicate,
+      }),
+    ]);
+    if (primaryHasExternalIdentity || duplicateHasExternalIdentity) {
+      throw externalIdentityConflict();
+    }
+
     const selections = input.selections ?? {};
     const selectedPreferredTechnicianId = selectedValue(
       'preferredTechnicianId',
@@ -1735,11 +1808,14 @@ export async function mergeSalonClients(
         ));
     }
 
-    // Mark the source merged before selecting its phone for the primary. The
-    // partial unique index still protects every unmerged profile.
+    // Keep the released full salon+phone unique index for migration-first
+    // compatibility with v1.33. The merged row is not a contact identity, so
+    // replace its current phone with a non-contact tombstone while preserving
+    // every real number in aliases and immutable historical snapshots.
     await tx
       .update(salonClientSchema)
       .set({
+        phone: `merged:${duplicate.id}`,
         archivedAt: duplicate.archivedAt ?? now,
         archivedBy: duplicate.archivedBy ?? input.actor.id,
         mergedIntoClientId: primary.id,

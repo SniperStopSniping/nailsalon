@@ -41,6 +41,9 @@ type ReminderCandidate = {
   technicianName: string | null;
   salonClientPhone: string | null;
   salonClientEmail: string | null;
+  // Archival suppresses proactive outreach, not transactional reminders for
+  // an appointment that remains scheduled.
+  salonClientArchivedAt: Date | null;
   appointmentEmail: string | null;
   dayBeforeReminderSentAt: Date | null;
   sameDayReminderSentAt: Date | null;
@@ -188,6 +191,7 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
       technicianName: technicianSchema.name,
       salonClientPhone: salonClientSchema.phone,
       salonClientEmail: salonClientSchema.email,
+      salonClientArchivedAt: salonClientSchema.archivedAt,
       appointmentEmail: appointmentSchema.clientEmail,
       dayBeforeReminderSentAt: appointmentSchema.dayBeforeReminderSentAt,
       sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,

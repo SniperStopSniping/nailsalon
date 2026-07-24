@@ -44,6 +44,28 @@ function withPrivateHeaders(response: Response): Response {
 }
 
 /**
+ * Production lifecycle mutations are activated only after migration 0061 and
+ * the new application have both passed health checks. Preview/test remain on
+ * by default so the exact release candidate can be exercised before rollout.
+ */
+export function clientLifecycleMutationsEnabled(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const explicit = environment.CLIENT_LIFECYCLE_MUTATIONS_ENABLED?.trim()
+    .toLowerCase();
+  if (explicit === 'true') {
+    return true;
+  }
+  if (explicit === 'false') {
+    return false;
+  }
+  if (environment.VERCEL_ENV) {
+    return environment.VERCEL_ENV !== 'production';
+  }
+  return environment.NODE_ENV !== 'production';
+}
+
+/**
  * Owner/admin-only guard for client merge and lifecycle mutations.
  *
  * `requireAdminSalon` remains the source of tenant authorization. This
@@ -67,6 +89,16 @@ export async function requireClientManagerSalon(
   }
 
   if (admin.isSuperAdmin) {
+    if (!clientLifecycleMutationsEnabled()) {
+      return {
+        ok: false,
+        response: errorResponse(
+          503,
+          'CLIENT_LIFECYCLE_NOT_ENABLED',
+          'Client merge and archive controls are not enabled yet.',
+        ),
+      };
+    }
     return {
       ok: true,
       salon,
@@ -79,6 +111,17 @@ export async function requireClientManagerSalon(
     return {
       ok: false,
       response: errorResponse(403, 'FORBIDDEN', 'Owner or admin access is required'),
+    };
+  }
+
+  if (!clientLifecycleMutationsEnabled()) {
+    return {
+      ok: false,
+      response: errorResponse(
+        503,
+        'CLIENT_LIFECYCLE_NOT_ENABLED',
+        'Client merge and archive controls are not enabled yet.',
+      ),
     };
   }
 

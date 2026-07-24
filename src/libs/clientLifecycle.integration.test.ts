@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
+import { getClientInsightsDirectoryPage } from './clientInsights.server';
 import {
   archiveSalonClient,
   collectClientContactAliases,
@@ -80,6 +81,10 @@ beforeAll(async () => {
     {
       id: 'global_client_unlinked_profile',
       phone: '+14165550189',
+    },
+    {
+      id: 'global_client_proposed_phone',
+      phone: '+14165550188',
     },
   ]);
   await db.insert(schema.salonClientSchema).values([
@@ -307,6 +312,7 @@ describe('client lifecycle service', () => {
       salonId: SALON_ID,
       amountCents: 3000,
       recordedByType: 'admin',
+      recordedAt: new Date('2026-07-20T18:00:00.000Z'),
     });
     await db.insert(schema.appointmentPhotoSchema).values({
       id: 'photo_duplicate',
@@ -447,6 +453,7 @@ describe('client lifecycle service', () => {
       actor: ACTOR,
       selections: {
         fullName: 'duplicate',
+        phone: 'duplicate',
         email: 'duplicate',
         birthday: 'duplicate',
         nailPreferences: 'duplicate',
@@ -455,6 +462,7 @@ describe('client lifecycle service', () => {
 
     expect(merged.idempotent).toBe(false);
     expect(merged.primary.fullName).toBe('Duplicate Person');
+    expect(merged.primary.phone).toBe('4165550102');
     expect(merged.primary.email).toBe('duplicate@example.test');
     expect(merged.primary.birthday).toBe('1988-07-09');
     expect(merged.primary.tags).toEqual(['primary', 'duplicate']);
@@ -467,7 +475,20 @@ describe('client lifecycle service', () => {
     expect(merged.primary.rebookIntervalDays).toBe(30);
     expect(merged.duplicate.mergedIntoClientId).toBe(merged.primary.id);
     expect(merged.duplicate.archivedAt).not.toBeNull();
+    expect(merged.duplicate.phone).toBe(`merged:${merged.duplicate.id}`);
     expect(merged.duplicate.loyaltyPoints).toBe(0);
+    expect(await collectClientContactAliases({
+      salonId: SALON_ID,
+      clientId: merged.primary.id,
+    })).toMatchObject({
+      phones: ['4165550101', '4165550102', '6475550101'],
+    });
+    await expect(permanentlyDeleteSalonClient({
+      salonId: SALON_ID,
+      clientId: merged.duplicate.id,
+      expectedUpdatedAt: merged.duplicate.updatedAt,
+      actor: ACTOR,
+    })).rejects.toMatchObject({ code: 'CLIENT_HAS_HISTORY' });
     await expect(getFinancialBalanceSummary({
       salonId: SALON_ID,
       salonClientId: merged.primary.id,
@@ -479,6 +500,52 @@ describe('client lifecycle service', () => {
       ],
     })).resolves.toMatchObject({
       completedOutstandingCents: 5000,
+    });
+
+    // A pre-stable-ID appointment using the merged source phone must resolve
+    // through the private alias to the surviving primary exactly once.
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_legacy_duplicate_alias',
+      salonId: SALON_ID,
+      salonClientId: null,
+      clientPhone: '+14165550102',
+      clientName: 'Historic Duplicate Name',
+      startTime: new Date('2026-07-21T15:00:00.000Z'),
+      endTime: new Date('2026-07-21T16:00:00.000Z'),
+      totalDurationMinutes: 60,
+      totalPrice: 2000,
+      amountPaidCents: 0,
+      status: 'completed',
+      paymentStatus: 'unpaid',
+    });
+    const activeInsightsDirectory = await getClientInsightsDirectoryPage({
+      salonId: SALON_ID,
+      timeZone: 'America/Toronto',
+      now: new Date('2026-07-24T16:00:00.000Z'),
+      segment: 'active',
+      search: 'Duplicate Person',
+      sortBy: 'recent',
+      sortOrder: 'desc',
+      page: 1,
+      limit: 50,
+    });
+    const mergedBalanceWithLegacyAlias = await getFinancialBalanceSummary({
+      salonId: SALON_ID,
+      salonClientId: merged.primary.id,
+      clientPhoneVariants: [
+        '4165550101',
+        '+14165550101',
+        '4165550102',
+        '+14165550102',
+      ],
+    });
+
+    expect(activeInsightsDirectory).toMatchObject({
+      total: 1,
+      clients: [expect.objectContaining({ id: merged.primary.id })],
+    });
+    expect(mergedBalanceWithLegacyAlias).toMatchObject({
+      completedOutstandingCents: 7000,
     });
 
     const [appointment] = await db
@@ -567,7 +634,7 @@ describe('client lifecycle service', () => {
           fullName: 'duplicate',
           email: 'duplicate',
           nailPreferences: 'duplicate',
-          phone: 'primary',
+          phone: 'duplicate',
           birthday: 'duplicate',
           rebookIntervalDays: 'duplicate',
         }),
@@ -635,21 +702,121 @@ describe('client lifecycle service', () => {
     });
   });
 
-  it('preserves linked customer authentication identity on the merged source', async () => {
+  it('rejects contact changes and merges that require external identity mutation', async () => {
     const primary = await loadClient('client_auth_primary');
     const duplicate = await loadClient('client_auth_duplicate');
-    const merged = await mergeSalonClients({
+
+    await expect(editSalonClient({
+      salonId: SALON_ID,
+      clientId: duplicate.id,
+      expectedUpdatedAt: duplicate.updatedAt,
+      actor: ACTOR,
+      changes: { phone: '4165550188' },
+    })).rejects.toMatchObject({ code: 'EXTERNAL_IDENTITY_CONFLICT' });
+
+    const safelyEdited = await editSalonClient({
+      salonId: SALON_ID,
+      clientId: duplicate.id,
+      expectedUpdatedAt: duplicate.updatedAt,
+      actor: ACTOR,
+      changes: {
+        fullName: 'Auth Duplicate Renamed',
+        email: 'auth.duplicate@example.test',
+        birthday: '1991-04-05',
+      },
+    });
+
+    expect(safelyEdited).toMatchObject({
+      phone: duplicate.phone,
+      fullName: 'Auth Duplicate Renamed',
+      email: 'auth.duplicate@example.test',
+      birthday: '1991-04-05',
+    });
+
+    await expect(mergeSalonClients({
       salonId: SALON_ID,
       primaryClientId: primary.id,
       duplicateClientId: duplicate.id,
       expectedPrimaryUpdatedAt: primary.updatedAt,
-      expectedDuplicateUpdatedAt: duplicate.updatedAt,
+      expectedDuplicateUpdatedAt: safelyEdited.updatedAt,
       actor: ACTOR,
-    });
+    })).rejects.toMatchObject({ code: 'EXTERNAL_IDENTITY_CONFLICT' });
 
-    expect(merged.primary.clientId).toBeNull();
-    expect(merged.duplicate.clientId).toBe('global_client_merge_deferred');
-    expect(merged.duplicate.mergedIntoClientId).toBe(merged.primary.id);
+    const primaryAfter = await loadClient(primary.id);
+    const duplicateAfter = await loadClient(duplicate.id);
+
+    expect(primaryAfter).toMatchObject({
+      mergedIntoClientId: null,
+      archivedAt: null,
+      phone: primary.phone,
+    });
+    expect(duplicateAfter).toMatchObject({
+      clientId: 'global_client_merge_deferred',
+      mergedIntoClientId: null,
+      archivedAt: null,
+      phone: duplicate.phone,
+    });
+  });
+
+  it('rejects a new contact phone that belongs to an unlinked customer login', async () => {
+    const primary = await loadClient('client_auth_primary');
+
+    await expect(editSalonClient({
+      salonId: SALON_ID,
+      clientId: primary.id,
+      expectedUpdatedAt: primary.updatedAt,
+      actor: ACTOR,
+      changes: { phone: '4165550188' },
+    })).rejects.toMatchObject({ code: 'EXTERNAL_IDENTITY_CONFLICT' });
+
+    expect(await loadClient(primary.id)).toMatchObject({
+      phone: primary.phone,
+      updatedAt: primary.updatedAt,
+    });
+  });
+
+  it('enforces same-salon terminal merge targets and rejects cycles in the database', async () => {
+    await db.insert(schema.salonClientSchema).values([
+      {
+        id: 'client_cycle_a',
+        salonId: SALON_ID,
+        phone: '4165550187',
+        fullName: 'Cycle A',
+      },
+      {
+        id: 'client_cycle_b',
+        salonId: SALON_ID,
+        phone: '4165550186',
+        fullName: 'Cycle B',
+      },
+    ]);
+
+    await expect(db
+      .update(schema.salonClientSchema)
+      .set({ mergedIntoClientId: 'client_cycle_a' })
+      .where(eq(schema.salonClientSchema.id, 'client_cycle_a')))
+      .rejects.toThrow(/cyclic same-salon client merge/i);
+
+    await expect(db
+      .update(schema.salonClientSchema)
+      .set({ mergedIntoClientId: 'client_other_salon' })
+      .where(eq(schema.salonClientSchema.id, 'client_cycle_a')))
+      .rejects.toThrow(/missing or foreign-salon client merge target/i);
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({
+        mergedIntoClientId: 'client_cycle_b',
+        mergedAt: new Date(),
+        archivedAt: new Date(),
+      })
+      .where(eq(schema.salonClientSchema.id, 'client_cycle_a'));
+
+    await expect(db
+      .update(schema.salonClientSchema)
+      .set({ mergedIntoClientId: 'client_cycle_a' })
+      .where(eq(schema.salonClientSchema.id, 'client_cycle_b')))
+      .rejects.toThrow(/cyclic same-salon client merge/i);
   });
 
   it('rolls every client and dependency change back when a late merge step fails', async () => {
@@ -750,6 +917,11 @@ describe('client lifecycle service', () => {
 
     expect(archived.archivedAt).not.toBeNull();
     expect(await db
+      .select({ status: schema.appointmentSchema.status })
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, 'appt_stale_merge_writer')))
+      .toEqual([{ status: 'confirmed' }]);
+    expect(await db
       .select({ status: schema.clientCommunicationSchema.status })
       .from(schema.clientCommunicationSchema)
       .where(and(
@@ -767,6 +939,20 @@ describe('client lifecycle service', () => {
 
     expect(activeDirectory.clients.map(row => row.id)).not.toContain(primary.id);
     expect(activeDirectory.clients.map(row => row.id)).not.toContain('client_duplicate');
+    expect(await getClientInsightsDirectoryPage({
+      salonId: SALON_ID,
+      timeZone: 'America/Toronto',
+      now: new Date('2026-07-24T16:00:00.000Z'),
+      segment: 'active',
+      search: 'Duplicate Person',
+      sortBy: 'recent',
+      sortOrder: 'desc',
+      page: 1,
+      limit: 50,
+    })).toMatchObject({
+      total: 0,
+      clients: [],
+    });
 
     const archivedDirectory = await getSalonClients(SALON_ID, {
       scope: 'archived',
@@ -799,6 +985,20 @@ describe('client lifecycle service', () => {
       scope: 'active',
       limit: 100,
     })).clients.map(row => row.id)).toContain(primary.id);
+    expect(await getClientInsightsDirectoryPage({
+      salonId: SALON_ID,
+      timeZone: 'America/Toronto',
+      now: new Date('2026-07-24T16:00:00.000Z'),
+      segment: 'active',
+      search: 'Duplicate Person',
+      sortBy: 'recent',
+      sortOrder: 'desc',
+      page: 1,
+      limit: 50,
+    })).toMatchObject({
+      total: 1,
+      clients: [expect.objectContaining({ id: primary.id })],
+    });
 
     const empty = await loadClient('client_empty');
     const emptyArchived = await archiveSalonClient({
@@ -950,5 +1150,17 @@ describe('client lifecycle service', () => {
     });
 
     expect(restoredWithOnlyArchivedMatch.archivedAt).toBeNull();
+
+    const archivedSharedB = await loadClient(sharedB.id);
+
+    await expect(restoreSalonClient({
+      salonId: SALON_ID,
+      clientId: archivedSharedB.id,
+      expectedUpdatedAt: archivedSharedB.updatedAt,
+      actor: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'POSSIBLE_DUPLICATE',
+      duplicates: [expect.objectContaining({ id: sharedA.id })],
+    });
   });
 });

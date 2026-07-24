@@ -14,7 +14,10 @@ import {
   clientLifecycleErrorResponse,
   privateClientJson,
 } from '@/libs/clientLifecycleHttp';
-import { requireClientManagerSalon } from '@/libs/clientManagementAuth';
+import {
+  clientLifecycleMutationsEnabled,
+  requireClientManagerSalon,
+} from '@/libs/clientManagementAuth';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
 import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
@@ -142,9 +145,12 @@ export async function GET(
     const admin = await getAdminSession();
     const membership = admin?.salons.find(candidate => candidate.salonId === salon.id);
     const canManageLifecycle = Boolean(
-      admin?.isSuperAdmin
-      || membership?.role === 'owner'
-      || membership?.role === 'admin',
+      clientLifecycleMutationsEnabled()
+      && (
+        admin?.isSuperAdmin
+        || membership?.role === 'owner'
+        || membership?.role === 'admin'
+      ),
     );
 
     // Resolve preserved merged aliases to their stable primary profile.

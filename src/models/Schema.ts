@@ -1,9 +1,9 @@
 import { sql } from 'drizzle-orm';
 import {
-  type AnyPgColumn,
   bigint,
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -964,10 +964,7 @@ export const salonClientSchema = pgTable(
     // audit/history, but is no longer an active directory entry.
     archivedAt: timestamp('archived_at', { mode: 'date', withTimezone: true }),
     archivedBy: text('archived_by'),
-    mergedIntoClientId: text('merged_into_client_id').references(
-      (): AnyPgColumn => salonClientSchema.id,
-      { onDelete: 'restrict' },
-    ),
+    mergedIntoClientId: text('merged_into_client_id'),
     mergedAt: timestamp('merged_at', { mode: 'date', withTimezone: true }),
     mergedBy: text('merged_by'),
 
@@ -984,12 +981,23 @@ export const salonClientSchema = pgTable(
       table.salonId,
       table.clientId,
     ),
-    // Merged source rows retain their historical contact details. Active and
-    // archived (but unmerged) profiles remain unique by salon + phone.
+    // Keep the released full unique index so migration-first rollout remains
+    // compatible with v1.33's ON CONFLICT (salon_id, phone) writes. A merged
+    // source receives a non-contact tombstone; its real phone remains in the
+    // salon-private alias table and immutable historical snapshots.
     uniqueSalonPhone: uniqueIndex('salon_client_salon_phone_idx').on(
       table.salonId,
       table.phone,
-    ).where(sql`${table.mergedIntoClientId} is null`),
+    ),
+    sameSalonMergeTarget: foreignKey({
+      columns: [table.salonId, table.mergedIntoClientId],
+      foreignColumns: [table.salonId, table.id],
+      name: 'salon_client_merged_into_client_id_fkey',
+    }).onDelete('restrict'),
+    salonIdIdIdx: uniqueIndex('salon_client_salon_id_id_idx').on(
+      table.salonId,
+      table.id,
+    ),
     // Search indexes
     salonIdx: index('salon_client_salon_idx').on(table.salonId),
     phoneIdx: index('salon_client_phone_idx').on(table.phone),

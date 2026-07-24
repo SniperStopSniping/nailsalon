@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { requireClientManagerSalon } from './clientManagementAuth';
+import {
+  clientLifecycleMutationsEnabled,
+  requireClientManagerSalon,
+} from './clientManagementAuth';
 
 const { getAdminSession, requireAdminSalon } = vi.hoisted(() => ({
   getAdminSession: vi.fn(),
@@ -19,6 +22,35 @@ const salon = {
   slug: 'salon-one',
 };
 
+describe('clientLifecycleMutationsEnabled', () => {
+  it('defaults production off while keeping Preview/test on', () => {
+    expect(clientLifecycleMutationsEnabled({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'production',
+    })).toBe(false);
+    expect(clientLifecycleMutationsEnabled({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'preview',
+    })).toBe(true);
+    expect(clientLifecycleMutationsEnabled({
+      NODE_ENV: 'test',
+    })).toBe(true);
+  });
+
+  it('honors an explicit rollout override', () => {
+    expect(clientLifecycleMutationsEnabled({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'production',
+      CLIENT_LIFECYCLE_MUTATIONS_ENABLED: 'true',
+    })).toBe(true);
+    expect(clientLifecycleMutationsEnabled({
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'preview',
+      CLIENT_LIFECYCLE_MUTATIONS_ENABLED: 'false',
+    })).toBe(false);
+  });
+});
+
 describe('requireClientManagerSalon', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -26,6 +58,10 @@ describe('requireClientManagerSalon', () => {
       error: null,
       salon,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it.each([
@@ -83,6 +119,36 @@ describe('requireClientManagerSalon', () => {
       error: {
         code: 'FORBIDDEN',
         message: 'Owner or admin access is required',
+      },
+    });
+  });
+
+  it('keeps authorized production mutations closed until explicit activation', async () => {
+    vi.stubEnv('CLIENT_LIFECYCLE_MUTATIONS_ENABLED', 'false');
+    getAdminSession.mockResolvedValue({
+      id: 'admin_owner',
+      isSuperAdmin: false,
+      salons: [{
+        salonId: salon.id,
+        salonSlug: salon.slug,
+        salonName: 'Salon One',
+        role: 'owner',
+      }],
+    });
+
+    const result = await requireClientManagerSalon(salon.slug);
+
+    expect(result.ok).toBe(false);
+
+    if (result.ok) {
+      throw new Error('Expected disabled lifecycle authorization to fail');
+    }
+
+    expect(result.response.status).toBe(503);
+    await expect(result.response.json()).resolves.toEqual({
+      error: {
+        code: 'CLIENT_LIFECYCLE_NOT_ENABLED',
+        message: 'Client merge and archive controls are not enabled yet.',
       },
     });
   });

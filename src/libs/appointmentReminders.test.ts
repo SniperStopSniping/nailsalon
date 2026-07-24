@@ -192,6 +192,37 @@ describe('appointment reminders', () => {
     }));
   });
 
+  it('continues transactional reminders for a scheduled archived client', async () => {
+    queueSelectResults([{
+      appointmentId: 'appt_archived_client',
+      salonId: 'salon_1',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165550100',
+      appointmentEmail: 'booking-snapshot@example.com',
+      salonClientPhone: '6475550199',
+      salonClientEmail: 'current.contact@example.com',
+      salonClientArchivedAt: new Date('2026-03-01T00:00:00.000Z'),
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'current.contact@example.com',
+    }));
+    expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
+      phone: '6475550199',
+    }));
+  });
+
   it('resolves a legacy unlinked snapshot phone to current primary contact details', async () => {
     resolveSalonClientIdentityByPhone.mockResolvedValue({
       client: {

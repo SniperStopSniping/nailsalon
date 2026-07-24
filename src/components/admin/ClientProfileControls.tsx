@@ -1504,7 +1504,7 @@ export function ClientProfileControls({
       <ConfirmDialog
         isOpen={confirmAction === 'archive'}
         title="Archive client?"
-        description="The client will leave the active directory. Their history and reporting records will remain available, and an owner or admin can restore the profile."
+        description="The client will leave the active directory and proactive follow-up lists. Existing appointments stay scheduled, including their transactional reminders. History and reporting remain available, and an owner or admin can restore the profile."
         confirmLabel="Archive client"
         tone="danger"
         busy={lifecycleBusy}

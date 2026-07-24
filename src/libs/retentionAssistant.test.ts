@@ -155,6 +155,55 @@ describe('retention queue', () => {
     expect(queue).toEqual([]);
   });
 
+  it('uses stable IDs and only unambiguous well-formed phones for future appointments', () => {
+    const clients = [
+      client({ id: 'unique', phone: '(416) 555-0101' }),
+      client({ id: 'duplicate-a', phone: '416-555-0202' }),
+      client({ id: 'duplicate-b', phone: '(416) 555-0202' }),
+      client({ id: 'stale-target', phone: '4165550303' }),
+      client({ id: 'changed', phone: '4165550404' }),
+      client({ id: 'phone-collision', phone: '4165550505' }),
+      client({ id: 'blank', phone: '' }),
+      client({ id: 'malformed', phone: '555-12' }),
+    ];
+    const appointment = (
+      id: string,
+      salonClientId: string | null,
+      clientPhone: string,
+    ) => ({
+      id,
+      salonClientId,
+      clientName: id,
+      clientPhone,
+      startTime: new Date(NOW.getTime() + DAY_MS),
+      endTime: new Date(NOW.getTime() + DAY_MS + 3_600_000),
+      status: 'confirmed',
+    });
+
+    const queue = buildRetentionQueue({
+      clients,
+      futureAppointments: [
+        appointment('unique-legacy', null, '+1 416-555-0101'),
+        appointment('ambiguous-legacy', null, '4165550202'),
+        appointment('stale-id', 'missing-client', '4165550303'),
+        appointment('changed-phone', 'changed', '4165550505'),
+        appointment('blank-legacy', null, ''),
+        appointment('malformed-legacy', null, '55512'),
+      ],
+      communications: [],
+      now: NOW,
+    });
+
+    expect(queue.map(item => item.clientId)).toEqual([
+      'duplicate-a',
+      'duplicate-b',
+      'stale-target',
+      'phone-collision',
+      'blank',
+      'malformed',
+    ]);
+  });
+
   it('suppresses the current stage after marked sent but permits later escalation', () => {
     const currentStage = buildRetentionQueue({
       clients: [client()],
@@ -190,6 +239,37 @@ describe('retention queue', () => {
 
     expect(escalated).toHaveLength(1);
     expect(escalated[0]?.stage).toBe('promo_6w');
+  });
+
+  it('uses the same deterministic ID tie-breaker as Client Insights', () => {
+    const createdAt = daysAgo(1);
+    const queue = buildRetentionQueue({
+      clients: [client()],
+      futureAppointments: [],
+      communications: [
+        {
+          id: 'communication-a',
+          salonClientId: 'client_1',
+          appointmentId: null,
+          kind: 'rebook',
+          status: 'not_sent',
+          snoozedUntil: null,
+          createdAt,
+        },
+        {
+          id: 'communication-b',
+          salonClientId: 'client_1',
+          appointmentId: null,
+          kind: 'rebook',
+          status: 'marked_sent',
+          snoozedUntil: null,
+          createdAt,
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(queue).toEqual([]);
   });
 
   it.each([
@@ -299,6 +379,37 @@ describe('appointment reminders', () => {
     expect(queue).toEqual([
       expect.objectContaining({ appointmentId: 'appointment_1', clientId: 'new_client' }),
     ]);
+  });
+
+  it('does not resolve reminder ownership through ambiguous or stale-ID phones', () => {
+    const clients = [
+      client({ id: 'duplicate-a', phone: '416-555-1111', lastVisitAt: null }),
+      client({ id: 'duplicate-b', phone: '(416) 555-1111', lastVisitAt: null }),
+      client({ id: 'stale-target', phone: '4165552222', lastVisitAt: null }),
+    ];
+
+    const queue = buildAppointmentReminderQueue({
+      clients,
+      appointments: [
+        {
+          ...appointment,
+          id: 'ambiguous',
+          salonClientId: null,
+          clientPhone: '+1 416-555-1111',
+        },
+        {
+          ...appointment,
+          id: 'stale',
+          salonClientId: 'missing-client',
+          clientPhone: '4165552222',
+        },
+      ],
+      communications: [],
+      reminderLeadHours: 24,
+      now: NOW,
+    });
+
+    expect(queue).toEqual([]);
   });
 
   it('suppresses automated, marked-sent, and actively snoozed reminders', () => {

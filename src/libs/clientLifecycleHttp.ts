@@ -53,6 +53,7 @@ export function clientLifecycleErrorResponse(
       || error.code === 'SAME_CLIENT'
       || error.code === 'CLIENT_HAS_HISTORY'
       || error.code === 'CONTACT_ALIAS_CONFLICT'
+      || error.code === 'EXTERNAL_IDENTITY_CONFLICT'
       ? 409
       : 400;
 

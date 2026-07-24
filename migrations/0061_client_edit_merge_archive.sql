@@ -7,18 +7,19 @@ ALTER TABLE "salon_client"
   ADD COLUMN IF NOT EXISTS "merged_by" text;
 --> statement-breakpoint
 
-ALTER TABLE "salon_client"
-  ADD CONSTRAINT "salon_client_merged_into_client_id_fkey"
-  FOREIGN KEY ("merged_into_client_id")
-  REFERENCES "salon_client"("id")
-  ON DELETE RESTRICT;
+CREATE UNIQUE INDEX "salon_client_salon_id_id_idx"
+  ON "salon_client" ("salon_id", "id");
 --> statement-breakpoint
 
-DROP INDEX IF EXISTS "salon_client_salon_phone_idx";
+ALTER TABLE "salon_client"
+  ADD CONSTRAINT "salon_client_merged_into_client_id_fkey"
+  FOREIGN KEY ("salon_id", "merged_into_client_id")
+  REFERENCES "salon_client"("salon_id", "id")
+  ON DELETE RESTRICT
+  NOT VALID;
 --> statement-breakpoint
-CREATE UNIQUE INDEX "salon_client_salon_phone_idx"
-  ON "salon_client" ("salon_id", "phone")
-  WHERE "merged_into_client_id" IS NULL;
+ALTER TABLE "salon_client"
+  VALIDATE CONSTRAINT "salon_client_merged_into_client_id_fkey";
 --> statement-breakpoint
 
 CREATE INDEX "salon_client_lifecycle_idx"
@@ -70,11 +71,81 @@ ALTER TABLE "client_communication"
   ADD COLUMN IF NOT EXISTS "destination_snapshot" text;
 --> statement-breakpoint
 
+-- Serialize merge-target transitions by salon, require an active same-salon
+-- terminal target, and reject self-links/cycles even for direct SQL writers.
+CREATE OR REPLACE FUNCTION "enforce_salon_client_merge_transition"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  current_id text;
+  next_id text;
+  current_archived_at timestamp with time zone;
+  visited text[] := ARRAY[]::text[];
+  chain_depth integer;
+BEGIN
+  IF NEW.merged_into_client_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Application merges already take this lock. Keeping the rule here also
+  -- serializes opposing direct-SQL transitions before either can form a cycle.
+  PERFORM 1
+  FROM salon
+  WHERE id = NEW.salon_id
+  FOR UPDATE;
+
+  current_id := NEW.merged_into_client_id;
+  FOR chain_depth IN 0..15 LOOP
+    IF current_id = NEW.id OR current_id = ANY(visited) THEN
+      RAISE EXCEPTION 'cyclic same-salon client merge for %', NEW.id
+        USING ERRCODE = '23514';
+    END IF;
+    visited := array_append(visited, current_id);
+
+    next_id := NULL;
+    current_archived_at := NULL;
+    SELECT client.merged_into_client_id, client.archived_at
+    INTO next_id, current_archived_at
+    FROM salon_client AS client
+    WHERE client.salon_id = NEW.salon_id
+      AND client.id = current_id
+    FOR KEY SHARE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'missing or foreign-salon client merge target for %', current_id
+        USING ERRCODE = '23514';
+    END IF;
+    IF next_id IS NULL THEN
+      IF current_archived_at IS NOT NULL THEN
+        RAISE EXCEPTION 'client merge target % must be active', current_id
+          USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END IF;
+    current_id := next_id;
+  END LOOP;
+
+  RAISE EXCEPTION 'client merge chain exceeds safe depth for %', NEW.id
+    USING ERRCODE = '23514';
+END;
+$$;
+--> statement-breakpoint
+
+CREATE TRIGGER "salon_client_enforce_merge_transition"
+  BEFORE INSERT OR UPDATE OF "salon_id", "merged_into_client_id"
+  ON "salon_client"
+  FOR EACH ROW
+  EXECUTE FUNCTION "enforce_salon_client_merge_transition"();
+--> statement-breakpoint
+
 -- Once a profile is a preserved merge source it is immutable. This closes the
 -- second stale-writer race: a request that selected the duplicate before the
 -- merge must not put rewards, review state, flags, caches, or contact data back
 -- onto the archived source after the merge commits. The initial transition is
--- allowed because OLD.merged_into_client_id is still null.
+-- allowed because OLD.merged_into_client_id is still null. Delete eligibility
+-- remains enforced by the application so parent-salon cascades and a future
+-- explicit privacy-erasure workflow are not blocked by this trigger.
 CREATE OR REPLACE FUNCTION "prevent_merged_salon_client_mutation"()
 RETURNS trigger
 LANGUAGE plpgsql

@@ -110,8 +110,8 @@ jobs:
       - name: Type checking
         run: npm run check-types
 
-      - name: Run unit tests
-        run: npm run test -- --coverage
+      - name: Run full unit and integration suite
+        run: npm run test:all -- --coverage
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4
