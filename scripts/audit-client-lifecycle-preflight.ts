@@ -20,7 +20,6 @@ if (!databaseUrl) {
 const client = new Client({
   connectionString: databaseUrl,
   application_name: 'client-lifecycle-read-only-preflight',
-  options: '-c default_transaction_read_only=on',
   statement_timeout: 60_000,
   query_timeout: 75_000,
 });
