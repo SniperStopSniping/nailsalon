@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, gte, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm';
 
 import {
   type AnalyticsDateRange,
@@ -69,6 +69,11 @@ export type FinancialReportingRangeSummaryInput = FinancialReportingRange & {
 export type FinancialBalanceSummaryInput = {
   salonId: string;
   asOf?: Date;
+  /**
+   * Preferred stable salon-client identity. Phone variants are used only for
+   * legacy appointments that predate the stable relationship.
+   */
+  salonClientId?: string;
   /**
    * Optional normalized/legacy phone variants for one tenant-scoped client.
    * The salon predicate remains mandatory and authoritative.
@@ -425,9 +430,19 @@ export async function getFinancialBalanceSummary(
     .from(appointmentSchema)
     .where(and(
       eq(appointmentSchema.salonId, input.salonId),
-      input.clientPhoneVariants
-        ? inArray(appointmentSchema.clientPhone, input.clientPhoneVariants)
-        : undefined,
+      input.salonClientId
+        ? or(
+          eq(appointmentSchema.salonClientId, input.salonClientId),
+          input.clientPhoneVariants
+            ? and(
+              isNull(appointmentSchema.salonClientId),
+              inArray(appointmentSchema.clientPhone, input.clientPhoneVariants),
+            )
+            : undefined,
+        )
+        : input.clientPhoneVariants
+          ? inArray(appointmentSchema.clientPhone, input.clientPhoneVariants)
+          : undefined,
     ));
 
   const aggregate = rows[0];

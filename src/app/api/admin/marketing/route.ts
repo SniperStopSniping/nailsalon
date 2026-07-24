@@ -77,7 +77,11 @@ export async function GET(request: Request): Promise<Response> {
         isBlocked: salonClientSchema.isBlocked,
       })
       .from(salonClientSchema)
-      .where(eq(salonClientSchema.salonId, salon.id))
+      .where(and(
+        eq(salonClientSchema.salonId, salon.id),
+        isNull(salonClientSchema.archivedAt),
+        isNull(salonClientSchema.mergedIntoClientId),
+      ))
       .limit(5000),
     db
       .select({

@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   requireAdminSalon,
-  getSalonClientById,
+  getAdminSession,
   normalizePhone,
-  updateSalonClient,
+  resolveSalonClient,
+  collectClientContactAliases,
+  getClientDependencySummary,
   selectQueue,
   db,
 } = vi.hoisted(() => {
@@ -33,9 +35,11 @@ const {
 
   return {
     requireAdminSalon: vi.fn(),
-    getSalonClientById: vi.fn(),
+    getAdminSession: vi.fn(),
     normalizePhone: vi.fn((phone: string) => phone.replace(/\D/g, '')),
-    updateSalonClient: vi.fn(),
+    resolveSalonClient: vi.fn(),
+    collectClientContactAliases: vi.fn(),
+    getClientDependencySummary: vi.fn(),
     selectQueue,
     db: {
       select,
@@ -44,14 +48,23 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession,
   requireAdminSalon,
 }));
 
 vi.mock('@/libs/queries', () => ({
-  getSalonClientById,
   normalizePhone,
-  updateSalonClient,
 }));
+
+vi.mock('@/libs/clientLifecycle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/clientLifecycle')>();
+  return {
+    ...actual,
+    resolveSalonClient,
+    collectClientContactAliases,
+    getClientDependencySummary,
+  };
+});
 
 vi.mock('@/libs/DB', () => ({
   db,
@@ -59,12 +72,29 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('server-only', () => ({}));
 
+import { ClientLifecycleError } from '@/libs/clientLifecycle';
+
 import { GET } from './route';
 
 describe('GET /api/admin/clients/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectQueue.length = 0;
+    collectClientContactAliases.mockResolvedValue({
+      phones: ['1111111111'],
+      emails: ['ava@example.com'],
+    });
+    getClientDependencySummary.mockResolvedValue({
+      clientId: 'client_1',
+      hasExternalClientIdentity: false,
+      counts: {},
+      hardDeleteEligible: false,
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      isSuperAdmin: false,
+      salons: [{ salonId: 'salon_1', role: 'owner' }],
+    });
   });
 
   it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
@@ -86,7 +116,7 @@ describe('GET /api/admin/clients/[id]', () => {
     expect(response.headers.get('cache-control')).toContain('private');
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(body).toEqual({ error: 'Forbidden' });
-    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(resolveSalonClient).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toMatch(
       /client|phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -97,7 +127,9 @@ describe('GET /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_fixture_owned' },
     });
-    getSalonClientById.mockResolvedValue(null);
+    resolveSalonClient.mockRejectedValue(
+      new ClientLifecycleError('CLIENT_NOT_FOUND', 'Client not found'),
+    );
 
     const response = await GET(
       new Request('http://localhost/api/admin/clients/client_fixture_unknown?salonSlug=salon-fixture-owned'),
@@ -114,10 +146,10 @@ describe('GET /api/admin/clients/[id]', () => {
         message: 'Client not found',
       },
     });
-    expect(getSalonClientById).toHaveBeenCalledWith(
-      'salon_fixture_owned',
-      'client_fixture_unknown',
-    );
+    expect(resolveSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_fixture_owned',
+      clientId: 'client_fixture_unknown',
+    });
     expect(JSON.stringify(body)).not.toMatch(
       /phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -128,11 +160,12 @@ describe('GET /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_1' },
     });
-    getSalonClientById.mockResolvedValue({
+    const client = {
       id: 'client_1',
       phone: '1111111111',
       fullName: 'Ava Thompson',
       email: 'ava@example.com',
+      birthday: null,
       preferredTechnicianId: 'tech_1',
       notes: 'VIP client',
       lastVisitAt: new Date('2026-03-10T14:00:00.000Z'),
@@ -148,7 +181,16 @@ describe('GET /api/admin/clients/[id]', () => {
       lastContactAt: null,
       hasGoogleReview: false,
       googleReviewMarkedAt: null,
+      clientId: null,
+      archivedAt: null,
+      archivedBy: null,
+      mergedIntoClientId: null,
+      updatedAt: new Date('2026-03-20T00:00:00.000Z'),
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+    resolveSalonClient.mockResolvedValue({
+      client,
+      redirectedFromClientId: null,
     });
 
     selectQueue.push(
@@ -233,6 +275,7 @@ describe('GET /api/admin/clients/[id]', () => {
       }],
       [],
       [{ id: 'svc_2', name: 'Classic Pedicure', count: 1, lastBookedAt: new Date('2026-03-10T14:00:00.000Z') }],
+      [],
       [],
     );
 

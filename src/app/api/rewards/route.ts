@@ -15,9 +15,11 @@ import {
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { normalizePhone } from '@/libs/phone';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { resolveSalonClientIdentityByPhone } from '@/libs/queries';
 import { getRewardDisplayContent } from '@/libs/rewardRules';
-import { appointmentSchema, type Reward, rewardSchema, salonClientSchema } from '@/models/Schema';
+import { appointmentSchema, type Reward, rewardSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -129,8 +131,28 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    // 4. Fetch the client's loyalty points balance from salonClient
-    // Try multiple phone formats
+    // 4. Resolve only to validate that this authenticated phone is still the
+    // current phone on an active profile. Historical aliases are association
+    // hints, not authentication identities.
+    const identity = await resolveSalonClientIdentityByPhone(
+      salon.id,
+      auth.normalizedPhone,
+    );
+    if (
+      identity
+      && normalizePhone(identity.client.phone) !== auth.normalizedPhone
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+            message: 'This client login must be verified before rewards can be accessed.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
     const phoneVariants = [...new Set([
       auth.normalizedPhone,
       auth.session.phone,
@@ -138,23 +160,8 @@ export async function GET(request: Request): Promise<Response> {
       `1${auth.normalizedPhone}`,
       auth.session.phone.replace(/\D/g, ''),
     ])];
-
-    const salonClients = await db
-      .select({
-        loyaltyPoints: salonClientSchema.loyaltyPoints,
-        totalVisits: salonClientSchema.totalVisits,
-      })
-      .from(salonClientSchema)
-      .where(
-        and(
-          eq(salonClientSchema.salonId, salon.id),
-          inArray(salonClientSchema.phone, phoneVariants),
-        ),
-      )
-      .limit(1);
-
-    const clientLoyaltyPoints = salonClients[0]?.loyaltyPoints ?? 0;
-    const totalVisits = salonClients[0]?.totalVisits ?? 0;
+    const clientLoyaltyPoints = identity?.client.loyaltyPoints ?? 0;
+    const totalVisits = identity?.client.totalVisits ?? 0;
 
     const pendingStats = await db
       .select({
@@ -181,7 +188,7 @@ export async function GET(request: Request): Promise<Response> {
       .where(
         and(
           eq(rewardSchema.salonId, salon.id),
-          eq(rewardSchema.clientPhone, auth.normalizedPhone),
+          inArray(rewardSchema.clientPhone, phoneVariants),
         ),
       )
       .orderBy(desc(rewardSchema.createdAt));

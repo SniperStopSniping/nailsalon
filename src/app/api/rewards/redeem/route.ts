@@ -5,7 +5,7 @@
  * Redeems a reward by applying it to an existing appointment
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -15,6 +15,8 @@ import {
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { normalizePhone } from '@/libs/phone';
+import { resolveSalonClientIdentityByPhone } from '@/libs/queries';
 import { calculateRewardDiscountCents, getRewardDisplayContent } from '@/libs/rewardRules';
 import { appointmentSchema, appointmentServicesSchema, rewardSchema, serviceSchema } from '@/models/Schema';
 
@@ -54,6 +56,8 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+class RewardClaimConflictError extends Error {}
 
 // =============================================================================
 // POST /api/rewards/redeem - Apply a reward to an appointment
@@ -110,6 +114,32 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const identity = await resolveSalonClientIdentityByPhone(
+      salon.id,
+      normalizedPhone,
+    );
+    if (
+      identity
+      && normalizePhone(identity.client.phone) !== normalizedPhone
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+            message: 'This client login must be verified before rewards can be accessed.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    const phoneVariants = [...new Set([
+      normalizedPhone,
+      auth.session.phone,
+      `+1${normalizedPhone}`,
+      `1${normalizedPhone}`,
+      auth.session.phone.replace(/\D/g, ''),
+    ])];
+
     // 3. Verify the reward exists, belongs to this client, and is active
     const rewards = await db
       .select()
@@ -118,7 +148,7 @@ export async function POST(request: Request): Promise<Response> {
         and(
           eq(rewardSchema.id, rewardId),
           eq(rewardSchema.salonId, salon.id),
-          eq(rewardSchema.clientPhone, normalizedPhone),
+          inArray(rewardSchema.clientPhone, phoneVariants),
         ),
       )
       .limit(1);
@@ -171,11 +201,6 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 4. Verify the appointment exists and belongs to this client
-    const phoneVariants = [
-      normalizedPhone,
-      auth.session.phone,
-    ];
-
     const appointments = await db
       .select()
       .from(appointmentSchema)
@@ -290,6 +315,44 @@ export async function POST(request: Request): Promise<Response> {
     const rewardDisplay = getRewardDisplayContent(reward);
 
     await db.transaction(async (tx) => {
+      // Serialize all reward claims for this appointment, then recheck both the
+      // appointment and reward claims inside the transaction. This prevents two
+      // merged-phone sessions from spending the same reward (or stacking two
+      // rewards) after both passed the read-only preview checks.
+      await tx.execute(sql`
+        select ${appointmentSchema.id}
+        from ${appointmentSchema}
+        where ${appointmentSchema.id} = ${appointmentId}
+          and ${appointmentSchema.salonId} = ${salon.id}
+        for update
+      `);
+      const [alreadyClaimed] = await tx
+        .select({ id: rewardSchema.id })
+        .from(rewardSchema)
+        .where(and(
+          eq(rewardSchema.salonId, salon.id),
+          eq(rewardSchema.usedInAppointmentId, appointmentId),
+        ))
+        .limit(1);
+      if (alreadyClaimed) {
+        throw new RewardClaimConflictError();
+      }
+
+      const [claimedReward] = await tx
+        .update(rewardSchema)
+        .set({ usedInAppointmentId: appointmentId })
+        .where(and(
+          eq(rewardSchema.id, rewardId),
+          eq(rewardSchema.salonId, salon.id),
+          eq(rewardSchema.status, 'active'),
+          isNull(rewardSchema.usedInAppointmentId),
+          inArray(rewardSchema.clientPhone, phoneVariants),
+        ))
+        .returning();
+      if (!claimedReward) {
+        throw new RewardClaimConflictError();
+      }
+
       // Update the appointment price
       await tx
         .update(appointmentSchema)
@@ -305,15 +368,6 @@ export async function POST(request: Request): Promise<Response> {
             eq(appointmentSchema.salonId, salon.id),
           ),
         );
-
-      // Mark the reward as pending (will be marked as 'used' when appointment completes)
-      await tx
-        .update(rewardSchema)
-        .set({
-          usedInAppointmentId: appointmentId,
-          // Keep status as 'active' until appointment completes, then it becomes 'used'
-        })
-        .where(eq(rewardSchema.id, rewardId));
     });
 
     // 7. Return success response
@@ -336,6 +390,17 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (error instanceof RewardClaimConflictError) {
+      return Response.json(
+        {
+          error: {
+            code: 'REWARD_ALREADY_APPLIED',
+            message: 'This reward or appointment was already claimed',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error redeeming reward:', error);
 
     return Response.json(

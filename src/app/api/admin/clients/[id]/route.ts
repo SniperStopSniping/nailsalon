@@ -1,16 +1,27 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import {
+  collectClientContactAliases,
+  editSalonClient,
+  getClientDependencySummary,
+  permanentlyDeleteSalonClient,
+  resolveSalonClient,
+} from '@/libs/clientLifecycle';
+import {
+  clientLifecycleErrorResponse,
+  privateClientJson,
+} from '@/libs/clientLifecycleHttp';
+import {
+  clientLifecycleMutationsEnabled,
+  requireClientManagerSalon,
+} from '@/libs/clientManagementAuth';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
 import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
-import {
-  getSalonClientById,
-  normalizePhone,
-  updateSalonClient,
-} from '@/libs/queries';
+import { normalizePhone } from '@/libs/queries';
 import { completedAppointmentRevenueAggregateSql } from '@/libs/revenueSql';
 import {
   appointmentAddOnSchema,
@@ -20,6 +31,7 @@ import {
   appointmentSchema,
   appointmentServicesSchema,
   clientPreferencesSchema,
+  salonClientNoteSchema,
   salonLocationSchema,
   serviceSchema,
   technicianSchema,
@@ -38,8 +50,13 @@ const getQuerySchema = z.object({
 
 const updateSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  fullName: z.string().optional(),
-  email: z.string().email().optional().nullable(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  firstName: z.string().trim().max(100).optional().nullable(),
+  lastName: z.string().trim().max(100).optional().nullable(),
+  fullName: z.string().trim().max(200).optional().nullable(),
+  phone: z.string().trim().min(1).optional(),
+  email: z.string().trim().email().optional().nullable(),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   preferredTechnicianId: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   sensitivities: z.string().max(2000).optional().nullable(),
@@ -51,6 +68,11 @@ const updateSchema = z.object({
   }).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
   rebookIntervalDays: z.number().int().min(1).max(365).optional().nullable(),
+});
+
+const destructiveSchema = z.object({
+  salonSlug: z.string().min(1, 'Salon slug is required'),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 // =============================================================================
@@ -65,22 +87,12 @@ type ErrorResponse = {
   };
 };
 
-const PRIVATE_HEADERS = {
-  'Cache-Control': 'private, no-store, max-age=0',
-  'Pragma': 'no-cache',
-  'Vary': 'Cookie',
-};
-
-function privateJson(body: unknown, init?: ResponseInit): Response {
-  const headers = new Headers(init?.headers);
-  for (const [key, value] of Object.entries(PRIVATE_HEADERS)) {
-    headers.set(key, value);
-  }
-  return Response.json(body, { ...init, headers });
-}
-
 function withPrivateNoStore(response: Response): Response {
-  for (const [key, value] of Object.entries(PRIVATE_HEADERS)) {
+  for (const [key, value] of Object.entries({
+    'Cache-Control': 'private, no-store, max-age=0',
+    'Pragma': 'no-cache',
+    'Vary': 'Cookie',
+  })) {
     response.headers.set(key, value);
   }
   return response;
@@ -111,7 +123,7 @@ export async function GET(
     // Validate query params
     const validated = getQuerySchema.safeParse(queryParams);
     if (!validated.success) {
-      return privateJson(
+      return privateClientJson(
         {
           error: {
             code: 'VALIDATION_ERROR',
@@ -130,20 +142,23 @@ export async function GET(
     if (error || !salon) {
       return withPrivateNoStore(error!);
     }
+    const admin = await getAdminSession();
+    const membership = admin?.salons.find(candidate => candidate.salonId === salon.id);
+    const canManageLifecycle = Boolean(
+      clientLifecycleMutationsEnabled()
+      && (
+        admin?.isSuperAdmin
+        || membership?.role === 'owner'
+        || membership?.role === 'admin'
+      ),
+    );
 
-    // Get client (scoped to salon)
-    const client = await getSalonClientById(salon.id, clientId);
-    if (!client) {
-      return privateJson(
-        {
-          error: {
-            code: 'CLIENT_NOT_FOUND',
-            message: 'Client not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
+    // Resolve preserved merged aliases to their stable primary profile.
+    const resolvedClient = await resolveSalonClient({
+      salonId: salon.id,
+      clientId,
+    });
+    const client = resolvedClient.client;
 
     // Get preferred technician details if set
     let preferredTechnician = null;
@@ -155,14 +170,35 @@ export async function GET(
           avatarUrl: technicianSchema.avatarUrl,
         })
         .from(technicianSchema)
-        .where(eq(technicianSchema.id, client.preferredTechnicianId))
+        .where(and(
+          eq(technicianSchema.id, client.preferredTechnicianId),
+          eq(technicianSchema.salonId, salon.id),
+        ))
         .limit(1);
       preferredTechnician = tech ?? null;
     }
 
-    // Build phone variants for matching appointments
+    // Stable IDs are authoritative. Contact aliases only recover legacy rows
+    // that predate appointment.salon_client_id.
+    const contactAliases = await collectClientContactAliases({
+      salonId: salon.id,
+      clientId: client.id,
+    });
     const normalizedPhone = normalizePhone(client.phone);
-    const phoneVariants = [normalizedPhone, `+1${normalizedPhone}`, client.phone];
+    const normalizedPhones = [...new Set([
+      normalizedPhone,
+      ...contactAliases.phones.map(normalizePhone),
+    ].filter(Boolean))];
+    const phoneVariants = [...new Set(
+      normalizedPhones.flatMap(phone => [phone, `1${phone}`, `+1${phone}`]),
+    )];
+    const clientAppointmentIdentity = or(
+      eq(appointmentSchema.salonClientId, client.id),
+      and(
+        isNull(appointmentSchema.salonClientId),
+        inArray(appointmentSchema.clientPhone, phoneVariants),
+      ),
+    );
 
     const now = new Date();
 
@@ -188,7 +224,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
           isNull(appointmentSchema.deletedAt),
           gte(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['pending', 'confirmed']),
@@ -219,7 +255,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           eq(appointmentSchema.status, 'completed'),
@@ -250,7 +286,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['cancelled', 'no_show']),
@@ -521,20 +557,21 @@ export async function GET(
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
         )),
       db
         .select(revenueAggregate)
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
           gte(appointmentSchema.startTime, monthToDate.start),
           lt(appointmentSchema.startTime, monthToDate.end),
         )),
       getFinancialBalanceSummary({
         salonId: salon.id,
         asOf: now,
+        salonClientId: client.id,
         clientPhoneVariants: phoneVariants,
       }),
       db
@@ -542,8 +579,13 @@ export async function GET(
         .from(clientPreferencesSchema)
         .where(and(
           eq(clientPreferencesSchema.salonId, salon.id),
-          eq(clientPreferencesSchema.normalizedClientPhone, normalizedPhone),
+          inArray(clientPreferencesSchema.normalizedClientPhone, normalizedPhones),
         ))
+        .orderBy(sql`CASE
+          WHEN ${clientPreferencesSchema.normalizedClientPhone} = ${normalizedPhone}
+            THEN 0
+          ELSE 1
+        END`)
         .limit(1),
       db
         .select({
@@ -560,7 +602,7 @@ export async function GET(
         .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          clientAppointmentIdentity,
           eq(appointmentSchema.status, 'completed'),
           isNull(appointmentSchema.deletedAt),
         ))
@@ -618,26 +660,62 @@ export async function GET(
                 ? { status: 'overdue', dueAt: client.nextRebookDueAt.toISOString() }
                 : { status: 'due_later', dueAt: client.nextRebookDueAt.toISOString() };
 
-    const clientPhotos = await db.select({
-      id: appointmentPhotoSchema.id,
-      appointmentId: appointmentPhotoSchema.appointmentId,
-      imageUrl: appointmentPhotoSchema.imageUrl,
-      thumbnailUrl: appointmentPhotoSchema.thumbnailUrl,
-      photoType: appointmentPhotoSchema.photoType,
-      caption: appointmentPhotoSchema.caption,
-      createdAt: appointmentPhotoSchema.createdAt,
-    }).from(appointmentPhotoSchema).where(and(
-      eq(appointmentPhotoSchema.salonId, salon.id),
-      eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
-    )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
+    const [clientPhotos, clientNotes, dependencies] = await Promise.all([
+      db
+        .select({
+          id: appointmentPhotoSchema.id,
+          appointmentId: appointmentPhotoSchema.appointmentId,
+          imageUrl: appointmentPhotoSchema.imageUrl,
+          thumbnailUrl: appointmentPhotoSchema.thumbnailUrl,
+          photoType: appointmentPhotoSchema.photoType,
+          caption: appointmentPhotoSchema.caption,
+          createdAt: appointmentPhotoSchema.createdAt,
+        })
+        .from(appointmentPhotoSchema)
+        .innerJoin(
+          appointmentSchema,
+          eq(appointmentPhotoSchema.appointmentId, appointmentSchema.id),
+        )
+        .where(and(
+          eq(appointmentPhotoSchema.salonId, salon.id),
+          eq(appointmentSchema.salonId, salon.id),
+          clientAppointmentIdentity,
+        ))
+        .orderBy(desc(appointmentPhotoSchema.createdAt))
+        .limit(24),
+      db
+        .select({
+          id: salonClientNoteSchema.id,
+          body: salonClientNoteSchema.body,
+          sourceClientId: salonClientNoteSchema.sourceClientId,
+          createdBy: salonClientNoteSchema.createdBy,
+          createdAt: salonClientNoteSchema.createdAt,
+        })
+        .from(salonClientNoteSchema)
+        .where(and(
+          eq(salonClientNoteSchema.salonId, salon.id),
+          eq(salonClientNoteSchema.salonClientId, client.id),
+        ))
+        .orderBy(desc(salonClientNoteSchema.createdAt))
+        .limit(100),
+      getClientDependencySummary({
+        salonId: salon.id,
+        clientId: client.id,
+      }),
+    ]);
+    const trimmedName = client.fullName?.trim() ?? '';
+    const [firstName = '', ...lastNameParts] = trimmedName.split(/\s+/).filter(Boolean);
 
-    return privateJson({
+    return privateClientJson({
       data: {
         client: {
           id: client.id,
           phone: client.phone,
           fullName: client.fullName,
+          firstName,
+          lastName: lastNameParts.join(' '),
           email: client.email,
+          birthday: client.birthday,
           preferredTechnician,
           notes: client.notes,
           sensitivities: client.sensitivities,
@@ -654,7 +732,18 @@ export async function GET(
           loyaltyPoints: client.loyaltyPoints ?? 0,
           hasGoogleReview: client.hasGoogleReview,
           googleReviewMarkedAt: client.googleReviewMarkedAt?.toISOString() ?? null,
+          archivedAt: client.archivedAt?.toISOString() ?? null,
+          archivedBy: client.archivedBy,
+          mergedIntoClientId: client.mergedIntoClientId,
+          updatedAt: client.updatedAt.toISOString(),
           createdAt: client.createdAt.toISOString(),
+        },
+        management: {
+          resolvedFromClientId: resolvedClient.redirectedFromClientId,
+          canManageLifecycle,
+          canPermanentlyDelete: dependencies.hardDeleteEligible,
+          dependencies,
+          authenticationIdentityDeferred: dependencies.hasExternalClientIdentity,
         },
         summary: {
           currency: bookingConfig.currency,
@@ -704,19 +793,14 @@ export async function GET(
           ...photo,
           createdAt: photo.createdAt.toISOString(),
         })),
+        notesHistory: clientNotes.map(note => ({
+          ...note,
+          createdAt: note.createdAt.toISOString(),
+        })),
       },
     });
   } catch (error) {
-    console.error('Error fetching client:', error);
-    return Response.json(
-      {
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to fetch client',
-        },
-      } satisfies ErrorResponse,
-      { status: 500 },
-    );
+    return clientLifecycleErrorResponse(error, 'Failed to fetch client');
   }
 }
 
@@ -735,7 +819,7 @@ export async function PATCH(
     // Validate request body
     const validated = updateSchema.safeParse(body);
     if (!validated.success) {
-      return privateJson(
+      return privateClientJson(
         {
           error: {
             code: 'VALIDATION_ERROR',
@@ -747,89 +831,81 @@ export async function PATCH(
       );
     }
 
-    const { salonSlug, ...updates } = validated.data;
+    const {
+      salonSlug,
+      expectedUpdatedAt,
+      firstName,
+      lastName,
+      ...updates
+    } = validated.data;
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
     if (error || !salon) {
-      return error!;
+      return withPrivateNoStore(error!);
     }
 
-    // Verify client exists (scoped to salon)
-    const existingClient = await getSalonClientById(salon.id, clientId);
-    if (!existingClient) {
-      return Response.json(
-        {
-          error: {
-            code: 'CLIENT_NOT_FOUND',
-            message: 'Client not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
+    const admin = await getAdminSession();
+    if (!admin) {
+      return privateClientJson(
+        { error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } },
+        { status: 401 },
       );
     }
+    const membership = admin.salons.find(candidate => candidate.salonId === salon.id);
+    const actorRole = admin.isSuperAdmin
+      ? 'admin'
+      : membership?.role === 'owner' || membership?.role === 'admin'
+        ? membership.role
+        : 'staff';
 
-    // Validate technician if provided
-    if (updates.preferredTechnicianId) {
-      const [tech] = await db
-        .select({ id: technicianSchema.id })
-        .from(technicianSchema)
-        .where(
-          and(
-            eq(technicianSchema.id, updates.preferredTechnicianId),
-            eq(technicianSchema.salonId, salon.id),
-          ),
-        )
-        .limit(1);
-
-      if (!tech) {
-        return Response.json(
-          {
-            error: {
-              code: 'INVALID_TECHNICIAN',
-              message: 'Technician not found for this salon',
-            },
-          } satisfies ErrorResponse,
-          { status: 400 },
-        );
-      }
+    let fullName = updates.fullName;
+    if (firstName !== undefined || lastName !== undefined) {
+      const resolved = await resolveSalonClient({ salonId: salon.id, clientId });
+      const currentParts = resolved.client.fullName?.trim().split(/\s+/).filter(Boolean) ?? [];
+      const currentFirstName = currentParts[0] ?? '';
+      const currentLastName = currentParts.slice(1).join(' ');
+      fullName = [
+        firstName === undefined ? currentFirstName : firstName ?? '',
+        lastName === undefined ? currentLastName : lastName ?? '',
+      ].filter(Boolean).join(' ').trim() || null;
     }
 
-    // Update client
-    const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
-      ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
-      : updates.rebookIntervalDays === null ? null : undefined;
-    const updatedClient = await updateSalonClient(salon.id, clientId, {
-      fullName: updates.fullName,
-      email: updates.email,
-      preferredTechnicianId: updates.preferredTechnicianId,
-      notes: updates.notes,
-      sensitivities: updates.sensitivities,
-      nailPreferences: updates.nailPreferences,
-      tags: updates.tags ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))] : undefined,
-      rebookIntervalDays: updates.rebookIntervalDays,
-      nextRebookDueAt,
+    const updatedClient = await editSalonClient({
+      salonId: salon.id,
+      clientId,
+      expectedUpdatedAt,
+      actor: {
+        id: admin.id,
+        role: actorRole,
+      },
+      changes: {
+        fullName,
+        phone: updates.phone,
+        birthday: updates.birthday,
+        email: updates.email,
+        preferredTechnicianId: updates.preferredTechnicianId,
+        notes: updates.notes,
+        sensitivities: updates.sensitivities,
+        nailPreferences: updates.nailPreferences,
+        tags: updates.tags
+          ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))]
+          : undefined,
+        rebookIntervalDays: updates.rebookIntervalDays,
+      },
     });
 
-    if (!updatedClient) {
-      return Response.json(
-        {
-          error: {
-            code: 'UPDATE_FAILED',
-            message: 'Failed to update client',
-          },
-        } satisfies ErrorResponse,
-        { status: 500 },
-      );
-    }
-
-    return Response.json({
+    const updatedNameParts = updatedClient.fullName?.trim().split(/\s+/).filter(Boolean) ?? [];
+    return privateClientJson({
       data: {
         client: {
           id: updatedClient.id,
           phone: updatedClient.phone,
           fullName: updatedClient.fullName,
+          firstName: updatedNameParts[0] ?? '',
+          lastName: updatedNameParts.slice(1).join(' '),
           email: updatedClient.email,
+          birthday: updatedClient.birthday,
           preferredTechnicianId: updatedClient.preferredTechnicianId,
           notes: updatedClient.notes,
           sensitivities: updatedClient.sensitivities,
@@ -837,6 +913,8 @@ export async function PATCH(
           tags: updatedClient.tags ?? [],
           rebookIntervalDays: updatedClient.rebookIntervalDays,
           nextRebookDueAt: updatedClient.nextRebookDueAt?.toISOString() ?? null,
+          archivedAt: updatedClient.archivedAt?.toISOString() ?? null,
+          mergedIntoClientId: updatedClient.mergedIntoClientId,
           updatedAt: updatedClient.updatedAt.toISOString(),
         },
       },
@@ -845,15 +923,45 @@ export async function PATCH(
       },
     });
   } catch (error) {
-    console.error('Error updating client:', error);
-    return Response.json(
-      {
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to update client',
+    return clientLifecycleErrorResponse(error, 'Failed to update client');
+  }
+}
+
+// =============================================================================
+// DELETE /api/admin/clients/[id] - Permanently delete an eligible empty profile
+// =============================================================================
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    const { id: clientId } = await params;
+    const validated = destructiveSchema.safeParse(await request.json());
+    if (!validated.success) {
+      return privateClientJson(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid request data',
+            details: validated.error.flatten(),
+          },
         },
-      } satisfies ErrorResponse,
-      { status: 500 },
-    );
+        { status: 400 },
+      );
+    }
+    const guard = await requireClientManagerSalon(validated.data.salonSlug);
+    if (!guard.ok) {
+      return guard.response;
+    }
+    const result = await permanentlyDeleteSalonClient({
+      salonId: guard.salon.id,
+      clientId,
+      expectedUpdatedAt: validated.data.expectedUpdatedAt,
+      actor: guard.actor,
+    });
+    return privateClientJson({ data: result });
+  } catch (error) {
+    return clientLifecycleErrorResponse(error, 'Failed to permanently delete client');
   }
 }

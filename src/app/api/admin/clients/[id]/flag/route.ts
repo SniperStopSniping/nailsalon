@@ -9,7 +9,7 @@
  * - Admin-only access (Clerk auth)
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
@@ -34,6 +34,7 @@ type ErrorResponse = {
 
 const updateFlagsSchema = z.object({
   salonSlug: z.string().min(1),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
   // Problem client flag
   isProblemClient: z.boolean().optional(),
   flagReason: z.string().max(500).optional(),
@@ -41,6 +42,18 @@ const updateFlagsSchema = z.object({
   isBlocked: z.boolean().optional(),
   blockedReason: z.string().max(500).optional(),
 });
+
+function staleClientResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'STALE_CLIENT',
+        message: 'This client changed since it was loaded. Refresh and try again.',
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
 
 // =============================================================================
 // PUT /api/admin/clients/[id]/flag
@@ -69,7 +82,15 @@ export async function PUT(
       );
     }
 
-    const { salonSlug, isProblemClient, flagReason, isBlocked, blockedReason } = parsed.data;
+    const {
+      salonSlug,
+      expectedUpdatedAt,
+      isProblemClient,
+      flagReason,
+      isBlocked,
+      blockedReason,
+    } = parsed.data;
+    const expectedVersion = new Date(expectedUpdatedAt);
 
     // 2. Resolve salon and verify admin auth
     const { error, salon } = await requireAdminSalon(salonSlug);
@@ -132,6 +153,22 @@ export async function PUT(
       );
     }
 
+    if (client.mergedIntoClientId) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_CLIENT_STATE',
+            message: 'This client can no longer be updated directly.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    if (client.updatedAt.getTime() !== expectedVersion.getTime()) {
+      return staleClientResponse();
+    }
+
     // 5. Build update data
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -171,20 +208,32 @@ export async function PUT(
     const [updated] = await db
       .update(salonClientSchema)
       .set(updateData)
-      .where(eq(salonClientSchema.id, clientId))
+      .where(
+        and(
+          eq(salonClientSchema.id, clientId),
+          eq(salonClientSchema.salonId, salon.id),
+          isNull(salonClientSchema.mergedIntoClientId),
+          eq(salonClientSchema.updatedAt, expectedVersion),
+        ),
+      )
       .returning();
+
+    if (!updated) {
+      return staleClientResponse();
+    }
 
     return Response.json({
       data: {
         client: {
-          id: updated!.id,
-          phone: updated!.phone,
-          fullName: updated!.fullName,
-          adminFlags: updated!.adminFlags,
-          isBlocked: updated!.isBlocked,
-          blockedReason: updated!.blockedReason,
-          noShowCount: updated!.noShowCount,
-          lateCancelCount: updated!.lateCancelCount,
+          id: updated.id,
+          phone: updated.phone,
+          fullName: updated.fullName,
+          adminFlags: updated.adminFlags,
+          isBlocked: updated.isBlocked,
+          blockedReason: updated.blockedReason,
+          noShowCount: updated.noShowCount,
+          lateCancelCount: updated.lateCancelCount,
+          updatedAt: updated.updatedAt.toISOString(),
         },
       },
     });
@@ -245,12 +294,14 @@ export async function GET(
         blockedReason: salonClientSchema.blockedReason,
         noShowCount: salonClientSchema.noShowCount,
         lateCancelCount: salonClientSchema.lateCancelCount,
+        updatedAt: salonClientSchema.updatedAt,
       })
       .from(salonClientSchema)
       .where(
         and(
           eq(salonClientSchema.id, clientId),
           eq(salonClientSchema.salonId, salon.id),
+          isNull(salonClientSchema.mergedIntoClientId),
         ),
       )
       .limit(1);
@@ -269,7 +320,10 @@ export async function GET(
 
     return Response.json({
       data: {
-        client,
+        client: {
+          ...client,
+          updatedAt: client.updatedAt.toISOString(),
+        },
       },
     });
   } catch (error) {

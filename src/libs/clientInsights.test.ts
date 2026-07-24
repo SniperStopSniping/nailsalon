@@ -85,6 +85,19 @@ async function addAppointment(args: {
   return row;
 }
 
+async function addPreMigrationAppointment(args: Parameters<typeof addAppointment>[0]) {
+  await client.exec(
+    'ALTER TABLE appointment DISABLE TRIGGER appointment_resolve_merged_client',
+  );
+  try {
+    return await addAppointment(args);
+  } finally {
+    await client.exec(
+      'ALTER TABLE appointment ENABLE TRIGGER appointment_resolve_merged_client',
+    );
+  }
+}
+
 async function snapshot(now: Date = NOW) {
   return getClientInsightsSnapshot({
     salonId: SALON_ID,
@@ -537,7 +550,7 @@ describe('canonical Client Insights SQL projection', () => {
       phone: '6475559999',
       start: '2026-07-10T16:00:00.000Z',
     });
-    await addAppointment({
+    await addPreMigrationAppointment({
       id: 'stale-or-foreign-id',
       clientId: foreign.id,
       phone: unique.phone,
@@ -554,7 +567,7 @@ describe('canonical Client Insights SQL projection', () => {
       ['outstanding-duplicate', '4165550202', null],
       ['outstanding-foreign', unique.phone, foreign.id],
     ] as const) {
-      await addAppointment({
+      await (stableId ? addPreMigrationAppointment : addAppointment)({
         id,
         clientId: stableId,
         phone,

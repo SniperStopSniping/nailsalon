@@ -1,38 +1,56 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('server-only', () => ({}));
+
 const {
   requireAppointmentAccess,
   updateAppointmentStatus,
   getSalonById,
   getAppointmentServiceNames,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
   sendBookingNotificationsForAppointmentCancelled,
   sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
+  updateSet,
+  updateWhere,
   db,
-} = vi.hoisted(() => ({
-  requireAppointmentAccess: vi.fn(),
-  updateAppointmentStatus: vi.fn(),
-  getSalonById: vi.fn(),
-  getAppointmentServiceNames: vi.fn(),
-  getTechnicianById: vi.fn(),
-  sendBookingNotificationsForAppointmentCancelled: vi.fn(),
-  sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
-  deleteGoogleCalendarEventForAppointment: vi.fn(),
-  enqueueGoogleCalendarDelete: vi.fn(),
-  db: {
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => []),
-          then: (resolve: (value: unknown) => void) => resolve([]),
+} = vi.hoisted(() => {
+  const updateWhere = vi.fn(async (_condition: unknown) => []);
+  const updateSet = vi.fn(() => ({ where: updateWhere }));
+  const update = vi.fn(() => ({ set: updateSet }));
+
+  return {
+    requireAppointmentAccess: vi.fn(),
+    updateAppointmentStatus: vi.fn(),
+    getSalonById: vi.fn(),
+    getAppointmentServiceNames: vi.fn(),
+    getTechnicianById: vi.fn(),
+    resolveSalonClientIdentityByPhone: vi.fn(),
+    sendBookingNotificationsForAppointmentCancelled: vi.fn(),
+    sendSalonNotificationEmail: vi.fn(async () => ({
+      status: 'sent',
+      deliveryId: 'delivery_1',
+    })),
+    deleteGoogleCalendarEventForAppointment: vi.fn(),
+    enqueueGoogleCalendarDelete: vi.fn(),
+    updateSet,
+    updateWhere,
+    db: {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => []),
+            then: (resolve: (value: unknown) => void) => resolve([]),
+          })),
         })),
       })),
-    })),
-  },
-}));
+      update,
+    },
+  };
+});
 
 vi.mock('@/libs/routeAccessGuards', () => ({
   requireAppointmentAccess,
@@ -43,6 +61,7 @@ vi.mock('@/libs/queries', () => ({
   getSalonById,
   getAppointmentServiceNames,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -67,12 +86,38 @@ vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }))
 
 import { GET, PATCH } from './route';
 
+function makeLimitSelect(result: unknown[]) {
+  return {
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => result),
+      })),
+    })),
+  };
+}
+
+function containsValue(
+  value: unknown,
+  expected: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (value === expected) {
+    return true;
+  }
+  if (!value || typeof value !== 'object' || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  return Object.values(value).some(child => containsValue(child, expected, seen));
+}
+
 describe('appointment detail route auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
+    resolveSalonClientIdentityByPhone.mockResolvedValue(null);
   });
 
   it('rejects unauthenticated appointment updates', async () => {
@@ -268,5 +313,71 @@ describe('appointment detail route auth', () => {
       services: ['BIAB Fill'],
       cancelReason: 'client_request',
     }));
+  });
+
+  it('refunds points to the unmerged primary while retaining the appointment snapshot', async () => {
+    const appointment = {
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonClientId: 'client_source',
+      technicianId: null,
+      status: 'confirmed',
+      notes: '[Points redeemed: $5 off - 2,500 pts for $5.00 off]',
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      googleCalendarEventId: 'calendar_1',
+    };
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment,
+    });
+    updateAppointmentStatus.mockResolvedValue({
+      ...appointment,
+      status: 'cancelled',
+      cancelReason: 'rescheduled',
+    });
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'client_primary',
+        phone: '6475550199',
+      },
+      clientIds: ['client_primary', 'client_source'],
+      normalizedPhones: ['4165551234', '6475550199'],
+      phoneVariants: [
+        '4165551234',
+        '+14165551234',
+        '6475550199',
+        '+16475550199',
+      ],
+      resolvedFromClientId: 'client_source',
+    });
+    db.select.mockReturnValueOnce(makeLimitSelect([]));
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'cancelled',
+          cancelReason: 'rescheduled',
+        }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledWith(
+      'salon_1',
+      '+14165551234',
+    );
+    expect(updateSet).toHaveBeenCalledTimes(1);
+    expect(containsValue(updateWhere.mock.calls[0]![0], 'client_primary')).toBe(true);
+    expect(containsValue(updateWhere.mock.calls[0]![0], 'client_source')).toBe(false);
+    expect(appointment).toMatchObject({
+      salonClientId: 'client_source',
+      clientPhone: '+14165551234',
+    });
   });
 });

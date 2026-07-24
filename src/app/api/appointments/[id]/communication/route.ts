@@ -71,6 +71,7 @@ function serializeCommunication(row: CommunicationRow) {
     dueAt: row.dueAt?.toISOString() ?? null,
     snoozedUntil: row.snoozedUntil?.toISOString() ?? null,
     messageSnapshot: row.messageSnapshot,
+    destinationSnapshot: row.destinationSnapshot,
     metadata: row.metadata ?? {},
     preparedAt: row.preparedAt?.toISOString() ?? null,
     markedSentAt: row.markedSentAt?.toISOString() ?? null,
@@ -355,6 +356,7 @@ export async function POST(
             status: parsed.data.status,
             dueAt,
             messageSnapshot: safeMessageSnapshot ?? null,
+            destinationSnapshot: client.phone,
             actorAdminId: access.actorRole === 'admin' ? access.admin.id : null,
             ...timestamps,
           })

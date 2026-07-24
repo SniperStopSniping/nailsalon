@@ -22,6 +22,10 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
+import {
+  type ClientProfileControlProfile,
+  ClientProfileControls,
+} from '@/components/admin/ClientProfileControls';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -45,6 +49,10 @@ type ClientSummary = {
   phone: string;
   fullName: string | null;
   email: string | null;
+  birthday?: string | null;
+  archivedAt?: string | null;
+  mergedIntoClientId?: string | null;
+  updatedAt?: string;
   lastVisitAt: string | null;
   totalVisits: number;
   totalSpent: number;
@@ -62,7 +70,10 @@ type ClientProfile = {
   id: string;
   phone: string;
   fullName: string | null;
+  firstName: string | null;
+  lastName: string | null;
   email: string | null;
+  birthday: string | null;
   preferredTechnician: {
     id: string;
     name: string;
@@ -88,7 +99,17 @@ type ClientProfile = {
   loyaltyPoints: number;
   hasGoogleReview: boolean;
   googleReviewMarkedAt: string | null;
+  archivedAt: string | null;
+  mergedIntoClientId: string | null;
+  updatedAt: string;
   createdAt: string;
+};
+
+type ClientManagement = {
+  resolvedFromClientId: string | null;
+  canManageLifecycle: boolean;
+  canPermanentlyDelete: boolean;
+  authenticationIdentityDeferred: boolean;
 };
 
 type ClientAppointment = {
@@ -223,12 +244,14 @@ type ModuleAvailability = {
 
 type ClientDetailCacheEntry = {
   profile: ClientProfile | null;
+  management: ClientManagement | null;
   summary: ClientProfileSummary | null;
   submittedPreferences: SubmittedPreferences | null;
   upcomingAppointments: ClientAppointment[];
   pastAppointments: ClientAppointment[];
   recentIssues: ClientAppointment[];
   photos: ClientPhoto[];
+  notesHistory: ClientNoteHistory[];
   flagsState: ClientFlagsState | null;
   flagsLoaded: boolean;
 };
@@ -239,6 +262,13 @@ type ClientPhoto = {
   thumbnailUrl: string | null;
   photoType: string;
   caption: string | null;
+  createdAt: string;
+};
+
+type ClientNoteHistory = {
+  id: string;
+  body: string;
+  sourceClientId: string | null;
   createdAt: string;
 };
 
@@ -257,11 +287,13 @@ type PromotionSettingsStage = Extract<
 >;
 
 type SortOption = 'recent' | 'visits' | 'spent' | 'name';
+type ClientDirectoryScope = 'active' | 'archived';
 type DirectoryStateSnapshot = {
   clients: ClientSummary[];
   searchQuery: string;
   debouncedSearchQuery: string;
   sortBy: SortOption;
+  directoryScope: ClientDirectoryScope;
   page: number;
   hasMore: boolean;
   totalClients: number;
@@ -772,6 +804,8 @@ function ClientDetail({
   onCacheUpdate,
   onRefreshTechnicians,
   onOpenPromotionSettings,
+  onDirectoryChanged,
+  onOpenClient,
   onBack,
 }: {
   clientSummary: ClientSummary;
@@ -785,9 +819,14 @@ function ClientDetail({
   onCacheUpdate: (clientId: string, updates: Partial<ClientDetailCacheEntry>) => void;
   onRefreshTechnicians: () => Promise<void> | void;
   onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
+  onDirectoryChanged: () => Promise<void> | void;
+  onOpenClient: (clientId: string) => Promise<void> | void;
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
+  const [management, setManagement] = useState<ClientManagement | null>(
+    initialCachedDetail?.management ?? null,
+  );
   const [summary, setSummary] = useState<ClientProfileSummary | null>(initialCachedDetail?.summary ?? null);
   const [submittedPreferences, setSubmittedPreferences] = useState<SubmittedPreferences | null>(
     initialCachedDetail?.submittedPreferences ?? null,
@@ -796,6 +835,9 @@ function ClientDetail({
   const [pastAppointments, setPastAppointments] = useState<ClientAppointment[]>(initialCachedDetail?.pastAppointments ?? []);
   const [recentIssues, setRecentIssues] = useState<ClientAppointment[]>(initialCachedDetail?.recentIssues ?? []);
   const [photos, setPhotos] = useState<ClientPhoto[]>(initialCachedDetail?.photos ?? []);
+  const [notesHistory, setNotesHistory] = useState<ClientNoteHistory[]>(
+    initialCachedDetail?.notesHistory ?? [],
+  );
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
@@ -835,24 +877,28 @@ function ClientDetail({
 
   const applyDetailPayload = useCallback((payload: {
     client: ClientProfile;
+    management?: ClientManagement;
     summary?: ClientProfileSummary;
     submittedPreferences?: SubmittedPreferences | null;
     upcomingAppointments: ClientAppointment[];
     pastAppointments: ClientAppointment[];
     recentIssues?: ClientAppointment[];
     photos?: ClientPhoto[];
+    notesHistory?: ClientNoteHistory[];
   }) => {
     const nextUpcoming = payload.upcomingAppointments ?? [];
     const nextPast = payload.pastAppointments ?? [];
     const nextIssues = payload.recentIssues ?? [];
 
     setProfile(payload.client);
+    setManagement(payload.management ?? null);
     setSummary(payload.summary ?? null);
     setSubmittedPreferences(payload.submittedPreferences ?? null);
     setUpcomingAppointments(nextUpcoming);
     setPastAppointments(nextPast);
     setRecentIssues(nextIssues);
     setPhotos(payload.photos ?? []);
+    setNotesHistory(payload.notesHistory ?? []);
     setNotesDraft(payload.client.notes ?? '');
     setPreferredTechnicianIdDraft(payload.client.preferredTechnician?.id ?? '');
     setSensitivitiesDraft(payload.client.sensitivities ?? '');
@@ -865,12 +911,14 @@ function ClientDetail({
 
     onCacheUpdate(clientSummary.id, {
       profile: payload.client,
+      management: payload.management ?? null,
       summary: payload.summary ?? null,
       submittedPreferences: payload.submittedPreferences ?? null,
       upcomingAppointments: nextUpcoming,
       pastAppointments: nextPast,
       recentIssues: nextIssues,
       photos: payload.photos ?? [],
+      notesHistory: payload.notesHistory ?? [],
     });
   }, [clientSummary.id, onCacheUpdate]);
 
@@ -1048,6 +1096,7 @@ function ClientDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
+          expectedUpdatedAt: profile?.updatedAt,
           notes: notesDraft.trim() || null,
           preferredTechnicianId: preferredTechnicianIdDraft || null,
           sensitivities: sensitivitiesDraft.trim() || null,
@@ -1063,13 +1112,23 @@ function ClientDetail({
       });
 
       if (!response.ok) {
+        if (response.status === 409) {
+          throw new Error('This profile changed. Reload it before saving.');
+        }
         throw new Error('Failed to save client profile');
       }
 
-      await fetchClientDetail(true);
+      await Promise.all([
+        fetchClientDetail(true),
+        fetchFlags(true),
+      ]);
     } catch (error) {
       console.error('Failed to save client profile:', error);
-      setProfileSaveError('Could not save client details');
+      setProfileSaveError(
+        error instanceof Error && error.message.includes('changed')
+          ? error.message
+          : 'Could not save client details',
+      );
     } finally {
       setProfileSaving(false);
     }
@@ -1085,6 +1144,7 @@ function ClientDetail({
       setFlagsSaveError(null);
       const body: Record<string, unknown> = {
         salonSlug,
+        expectedUpdatedAt: profile?.updatedAt,
       };
 
       if (moduleAvailability.clientFlags) {
@@ -1104,13 +1164,23 @@ function ClientDetail({
       });
 
       if (!response.ok) {
+        if (response.status === 409) {
+          throw new Error('This profile changed. Reload it before saving client status.');
+        }
         throw new Error('Failed to save client status');
       }
 
-      await fetchFlags(true);
+      await Promise.all([
+        fetchClientDetail(true),
+        fetchFlags(true),
+      ]);
     } catch (error) {
       console.error('Failed to save client status:', error);
-      setFlagsSaveError('Could not save client status');
+      setFlagsSaveError(
+        error instanceof Error && error.message.includes('changed')
+          ? error.message
+          : 'Could not save client status',
+      );
     } finally {
       setFlagsSaving(false);
     }
@@ -1186,6 +1256,83 @@ function ClientDetail({
           onOpenPromotionSettings={onOpenPromotionSettings}
           profileLayout
           showHistory={activeSection === 'activity'}
+          profileControls={profile && management
+            ? (
+                <ClientProfileControls
+                  salonSlug={salonSlug}
+                  currency={summary?.currency ?? 'CAD'}
+                  profile={{
+                    id: profile.id,
+                    fullName: profile.fullName,
+                    firstName: profile.firstName,
+                    lastName: profile.lastName,
+                    phone: profile.phone,
+                    email: profile.email,
+                    birthday: profile.birthday,
+                    notes: profile.notes,
+                    preferredTechnicianId: profile.preferredTechnician?.id ?? null,
+                    preferredTechnicianName: profile.preferredTechnician?.name ?? null,
+                    rebookIntervalDays: profile.rebookIntervalDays,
+                    updatedAt: profile.updatedAt,
+                    archivedAt: profile.archivedAt,
+                    mergedIntoClientId: profile.mergedIntoClientId,
+                    canManageLifecycle: management.canManageLifecycle,
+                    canPermanentlyDelete: management.canPermanentlyDelete,
+                  }}
+                  onUpdated={(updatedProfile: ClientProfileControlProfile) => {
+                    setProfile((current) => {
+                      if (!current) {
+                        return current;
+                      }
+                      const nextProfile = {
+                        ...current,
+                        fullName: updatedProfile.fullName,
+                        firstName: updatedProfile.firstName,
+                        lastName: updatedProfile.lastName,
+                        phone: updatedProfile.phone ?? current.phone,
+                        email: updatedProfile.email,
+                        birthday: updatedProfile.birthday,
+                        updatedAt: updatedProfile.updatedAt,
+                        archivedAt: updatedProfile.archivedAt,
+                        mergedIntoClientId: updatedProfile.mergedIntoClientId,
+                      };
+                      onCacheUpdate(clientSummary.id, { profile: nextProfile });
+                      return nextProfile;
+                    });
+                    setManagement(current => current
+                      ? {
+                          ...current,
+                          canManageLifecycle: updatedProfile.canManageLifecycle,
+                          canPermanentlyDelete: updatedProfile.canPermanentlyDelete,
+                        }
+                      : current);
+                    void onDirectoryChanged();
+                    void Promise.all([
+                      fetchClientDetail(true),
+                      fetchFlags(true),
+                    ]);
+                  }}
+                  onViewClient={(clientId) => {
+                    void onOpenClient(clientId);
+                  }}
+                  onMerged={(primaryId) => {
+                    void onDirectoryChanged();
+                    if (primaryId === clientSummary.id) {
+                      void Promise.all([
+                        fetchClientDetail(true),
+                        fetchFlags(true),
+                      ]);
+                    } else {
+                      void onOpenClient(primaryId);
+                    }
+                  }}
+                  onRemoved={() => {
+                    void onDirectoryChanged();
+                    onBack();
+                  }}
+                />
+              )
+            : null}
           onBookAppointment={() => {
             const previousAppointment = pastAppointments[0];
             openBookingModal({
@@ -1311,7 +1458,7 @@ function ClientDetail({
                             onChange={event => setSensitivitiesDraft(event.target.value)}
                             rows={3}
                             placeholder="Allergies, product reactions, damaged nails, removal care..."
-                            className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                            className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder:text-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                           />
                           <span className="mt-1 block text-[11px] text-[#8E8E93]">Shown to the tech on today’s schedule before every appointment.</span>
                         </label>
@@ -1585,7 +1732,7 @@ function ClientDetail({
                                         onChange={event => setProblemClientReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client flagged?"
-                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder:text-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
                                       />
                                     )}
                                   </div>
@@ -1613,7 +1760,7 @@ function ClientDetail({
                                         onChange={event => setBlockedReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client blocked?"
-                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder:text-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
                                       />
                                     )}
                                   </div>
@@ -1651,7 +1798,7 @@ function ClientDetail({
                         className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-300"
                       />
                       <p className="mt-1 text-xs text-stone-500">
-                        This is the current salon note. Historical authorship and revisions are not recorded.
+                        This is the current salon note. Earlier saved or merged notes are preserved below.
                       </p>
                       {profileSaveError && <p className="mt-2 text-sm text-red-600">{profileSaveError}</p>}
                       <div className="mt-3 flex justify-end">
@@ -1665,6 +1812,30 @@ function ClientDetail({
                           {profileSaving ? 'Saving…' : 'Save note'}
                         </Button>
                       </div>
+
+                      {notesHistory.length > 0 && (
+                        <div className="mt-5 border-t border-stone-100 pt-4">
+                          <div className="text-[12px] font-medium uppercase text-[#8E8E93]">
+                            Preserved note history
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {notesHistory.map(note => (
+                              <div
+                                key={note.id}
+                                className="min-w-0 rounded-2xl bg-stone-50 px-4 py-3"
+                              >
+                                <p className="break-words text-sm text-stone-800">{note.body}</p>
+                                <p className="mt-1 text-xs text-stone-500">
+                                  {formatDate(note.createdAt)}
+                                  {note.sourceClientId && note.sourceClientId !== profile?.id
+                                    ? ' · From merged profile'
+                                    : ''}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[#8E8E93]">Nail history photos</div>
                       {photos.length > 0
@@ -1872,6 +2043,7 @@ export function ClientsModal({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchRevision, setSearchRevision] = useState(0);
   const [sortBy, setSortBy] = useState<SortOption>('recent');
+  const [directoryScope, setDirectoryScope] = useState<ClientDirectoryScope>('active');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
@@ -1905,6 +2077,7 @@ export function ClientsModal({
   const directoryQuerySignature = JSON.stringify({
     salonSlug,
     activeSegment,
+    directoryScope,
     search: debouncedSearchQuery,
     searchRevision,
     sortBy,
@@ -1945,6 +2118,7 @@ export function ClientsModal({
       const params = new URLSearchParams({
         salonSlug,
         sortBy,
+        scope: directoryScope,
         sortOrder: sortBy === 'name' ? 'asc' : 'desc',
         page: String(targetPage),
         limit: String(CLIENTS_PAGE_SIZE),
@@ -1996,6 +2170,7 @@ export function ClientsModal({
   }, [
     activeSegment,
     debouncedSearchQuery,
+    directoryScope,
     directoryQuerySignature,
     salonSlug,
     sortBy,
@@ -2053,12 +2228,14 @@ export function ClientsModal({
   const updateClientDetailCache = useCallback((clientId: string, updates: Partial<ClientDetailCacheEntry>) => {
     const existing = clientDetailCacheRef.current[clientId] ?? {
       profile: null,
+      management: null,
       summary: null,
       submittedPreferences: null,
       upcomingAppointments: [],
       pastAppointments: [],
       recentIssues: [],
       photos: [],
+      notesHistory: [],
       flagsState: null,
       flagsLoaded: false,
     };
@@ -2101,12 +2278,14 @@ export function ClientsModal({
         const client = payload.data.client as ClientProfile;
         clientDetailCacheRef.current[client.id] = {
           profile: client,
+          management: payload.data.management ?? null,
           summary: payload.data.summary ?? null,
           submittedPreferences: payload.data.submittedPreferences ?? null,
           upcomingAppointments: payload.data.upcomingAppointments ?? [],
           pastAppointments: payload.data.pastAppointments ?? [],
           recentIssues: payload.data.recentIssues ?? [],
           photos: payload.data.photos ?? [],
+          notesHistory: payload.data.notesHistory ?? [],
           flagsState: null,
           flagsLoaded: false,
         };
@@ -2132,6 +2311,80 @@ export function ClientsModal({
         );
       });
   }, [clients, initialClientId, salonSlug, selectedClient?.id]);
+
+  const openClientById = useCallback(async (clientId: string) => {
+    const listedClient = clients.find(client => client.id === clientId);
+    if (listedClient) {
+      setSelectedClient(listedClient);
+      return;
+    }
+
+    const cached = clientDetailCacheRef.current[clientId]?.profile;
+    if (cached) {
+      setSelectedClient({
+        id: cached.id,
+        phone: cached.phone,
+        fullName: cached.fullName,
+        email: cached.email,
+        birthday: cached.birthday,
+        archivedAt: cached.archivedAt,
+        mergedIntoClientId: cached.mergedIntoClientId,
+        updatedAt: cached.updatedAt,
+        lastVisitAt: cached.lastVisitAt,
+        totalVisits: cached.totalVisits,
+        totalSpent: cached.totalSpent,
+        noShowCount: cached.noShowCount,
+        loyaltyPoints: cached.loyaltyPoints,
+        preferredTechnician: cached.preferredTechnician,
+        notes: cached.notes,
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/admin/clients/${encodeURIComponent(clientId)}?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data?.client) {
+        throw new Error('Client could not be loaded.');
+      }
+      const client = payload.data.client as ClientProfile;
+      clientDetailCacheRef.current[client.id] = {
+        profile: client,
+        management: payload.data.management ?? null,
+        summary: payload.data.summary ?? null,
+        submittedPreferences: payload.data.submittedPreferences ?? null,
+        upcomingAppointments: payload.data.upcomingAppointments ?? [],
+        pastAppointments: payload.data.pastAppointments ?? [],
+        recentIssues: payload.data.recentIssues ?? [],
+        photos: payload.data.photos ?? [],
+        notesHistory: payload.data.notesHistory ?? [],
+        flagsState: null,
+        flagsLoaded: false,
+      };
+      setSelectedClient({
+        id: client.id,
+        phone: client.phone,
+        fullName: client.fullName,
+        email: client.email,
+        birthday: client.birthday,
+        archivedAt: client.archivedAt,
+        mergedIntoClientId: client.mergedIntoClientId,
+        updatedAt: client.updatedAt,
+        lastVisitAt: client.lastVisitAt,
+        totalVisits: client.totalVisits,
+        totalSpent: client.totalSpent,
+        noShowCount: client.noShowCount,
+        loyaltyPoints: client.loyaltyPoints,
+        preferredTechnician: client.preferredTechnician,
+        notes: client.notes,
+      });
+    } catch {
+      setInitialClientError('Client could not be loaded.');
+    }
+  }, [clients, salonSlug]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2171,7 +2424,14 @@ export function ClientsModal({
     lastFetchedPageRef.current = 1;
     setPage(1);
     fetchClients(1, true);
-  }, [activeSegment, debouncedSearchQuery, fetchClients, salonSlug, sortBy]);
+  }, [
+    activeSegment,
+    debouncedSearchQuery,
+    directoryScope,
+    fetchClients,
+    salonSlug,
+    sortBy,
+  ]);
 
   const groupedClients = useMemo(() => (
     sortBy === 'name' ? groupClientsByLetter(clients) : null
@@ -2197,6 +2457,7 @@ export function ClientsModal({
         searchQuery,
         debouncedSearchQuery,
         sortBy,
+        directoryScope,
         page,
         hasMore,
         totalClients,
@@ -2204,6 +2465,7 @@ export function ClientsModal({
       };
     }
     setActiveSegment(segment);
+    setDirectoryScope('active');
     setSearchQuery('');
     setDebouncedSearchQuery('');
     setClients([]);
@@ -2216,6 +2478,7 @@ export function ClientsModal({
     activeSegment,
     clients,
     debouncedSearchQuery,
+    directoryScope,
     hasMore,
     page,
     searchQuery,
@@ -2238,6 +2501,7 @@ export function ClientsModal({
     setSearchQuery(saved.searchQuery);
     setDebouncedSearchQuery(saved.debouncedSearchQuery);
     setSortBy(saved.sortBy);
+    setDirectoryScope(saved.directoryScope);
     setPage(saved.page);
     setHasMore(saved.hasMore);
     setTotalClients(saved.totalClients);
@@ -2265,6 +2529,15 @@ export function ClientsModal({
     setError(null);
     setSortBy(value);
   }, [invalidateDirectoryRequests, sortBy]);
+
+  const handleDirectoryScopeChange = useCallback((value: ClientDirectoryScope) => {
+    if (value === directoryScope) {
+      return;
+    }
+    invalidateDirectoryRequests(true);
+    setError(null);
+    setDirectoryScope(value);
+  }, [directoryScope, invalidateDirectoryRequests]);
 
   const restoreDirectoryScroll = useCallback(() => {
     const scrollTop = directoryReturnScrollRef.current;
@@ -2303,6 +2576,7 @@ export function ClientsModal({
                         searchQuery,
                         debouncedSearchQuery,
                         sortBy,
+                        directoryScope,
                         page,
                         hasMore,
                         totalClients,
@@ -2335,6 +2609,30 @@ export function ClientsModal({
                 placeholder="Search clients"
                 inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
               />
+              {!activeSegment && (
+                <div
+                  className="flex rounded-[10px] bg-[rgba(118,118,128,0.12)] p-0.5"
+                  role="tablist"
+                  aria-label="Client directory status"
+                >
+                  {([['active', 'Active'], ['archived', 'Archived']] as const).map(([scope, label]) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      role="tab"
+                      aria-selected={directoryScope === scope}
+                      onClick={() => handleDirectoryScopeChange(scope)}
+                      className={`min-h-9 flex-1 rounded-[8px] text-[14px] font-semibold ${
+                        directoryScope === scope
+                          ? 'bg-white text-[#1C1C1E] shadow-sm'
+                          : 'text-[#636366]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <SortPills sortBy={sortBy} onChange={handleSortChange} />
               {activeSegment && (
                 <div
@@ -2519,6 +2817,11 @@ export function ClientsModal({
             initialCachedDetail={clientDetailCacheRef.current[selectedClient.id] ?? null}
             onCacheUpdate={updateClientDetailCache}
             onRefreshTechnicians={fetchTechnicians}
+            onDirectoryChanged={() => {
+              clientDetailCacheRef.current = {};
+              return fetchClients(1, true);
+            }}
+            onOpenClient={openClientById}
             onOpenPromotionSettings={stage =>
               onOpenPromotionSettings?.(stage, selectedClient.id)}
             onBack={() => setSelectedClient(null)}

@@ -1,3 +1,4 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -58,6 +59,9 @@ vi.mock('@/libs/DB', () => ({
 
 import { GET, PUT } from './route';
 
+const clientVersion = '2026-07-24T12:00:00.000Z';
+const nextClientVersion = '2026-07-24T12:00:01.000Z';
+
 describe('/api/admin/clients/[id]/flag auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -97,6 +101,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
       blockedReason: 'Repeated no-shows',
       noShowCount: 2,
       lateCancelCount: 1,
+      updatedAt: new Date(clientVersion),
     }]);
 
     const response = await GET(
@@ -117,6 +122,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
           blockedReason: 'Repeated no-shows',
           noShowCount: 2,
           lateCancelCount: 1,
+          updatedAt: clientVersion,
         },
       },
     });
@@ -141,6 +147,8 @@ describe('/api/admin/clients/[id]/flag auth', () => {
       blockedReason: null,
       noShowCount: 0,
       lateCancelCount: 0,
+      mergedIntoClientId: null,
+      updatedAt: new Date(clientVersion),
     }]);
     updateResults.push([{
       id: 'client_1',
@@ -155,6 +163,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
       blockedReason: 'Abusive behavior',
       noShowCount: 0,
       lateCancelCount: 0,
+      updatedAt: new Date(nextClientVersion),
     }]);
 
     const response = await PUT(
@@ -163,6 +172,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
           isProblemClient: true,
           flagReason: 'Abusive behavior',
           isBlocked: true,
@@ -178,6 +188,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
     expect(guardModuleOr403).toHaveBeenNthCalledWith(2, { salonId: 'salon_1', module: 'clientBlocking' });
     expect(body.data.client.adminFlags.flaggedBy).toBe('admin_1');
     expect(body.data.client.isBlocked).toBe(true);
+    expect(body.data.client.updatedAt).toBe(nextClientVersion);
   });
 
   it('uses the clientBlocking module gate for booking blocks without requiring clientFlags', async () => {
@@ -199,6 +210,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
           isBlocked: true,
           blockedReason: 'Repeated no-shows',
         }),
@@ -230,6 +242,7 @@ describe('/api/admin/clients/[id]/flag auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
           isProblemClient: true,
           flagReason: 'Aggressive behavior',
         }),
@@ -240,5 +253,164 @@ describe('/api/admin/clients/[id]/flag auth', () => {
     expect(response.status).toBe(403);
     expect(guardModuleOr403).toHaveBeenCalledTimes(1);
     expect(guardModuleOr403).toHaveBeenCalledWith({ salonId: 'salon_1', module: 'clientFlags' });
+  });
+
+  it('requires an expected client version for flag mutations', async () => {
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_1/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          isBlocked: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(requireAdminSalon).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale version without disclosing current client data', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Owner',
+    });
+    selectResults.push([{
+      id: 'client_1',
+      salonId: 'salon_1',
+      phone: '1111111111',
+      fullName: 'Ava',
+      adminFlags: {},
+      isBlocked: false,
+      blockedReason: null,
+      noShowCount: 0,
+      lateCancelCount: 0,
+      mergedIntoClientId: null,
+      updatedAt: new Date(nextClientVersion),
+    }]);
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_1/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
+          isBlocked: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: {
+        code: 'STALE_CLIENT',
+        message: 'This client changed since it was loaded. Refresh and try again.',
+      },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/phone|fullName|adminFlags|isBlocked/);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('returns STALE_CLIENT when the compare-and-set update loses a race', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Owner',
+    });
+    selectResults.push([{
+      id: 'client_1',
+      salonId: 'salon_1',
+      phone: '1111111111',
+      fullName: 'Ava',
+      adminFlags: {},
+      isBlocked: false,
+      blockedReason: null,
+      noShowCount: 0,
+      lateCancelCount: 0,
+      mergedIntoClientId: null,
+      updatedAt: new Date(clientVersion),
+    }]);
+    updateResults.push([]);
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_1/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
+          isProblemClient: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'STALE_CLIENT',
+        message: 'This client changed since it was loaded. Refresh and try again.',
+      },
+    });
+    expect(db.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects mutations against a preserved merged source profile', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Owner',
+    });
+    selectResults.push([{
+      id: 'client_duplicate',
+      salonId: 'salon_1',
+      phone: '1111111111',
+      fullName: 'Ava',
+      adminFlags: {},
+      isBlocked: false,
+      blockedReason: null,
+      noShowCount: 0,
+      lateCancelCount: 0,
+      mergedIntoClientId: 'client_primary',
+      updatedAt: new Date(clientVersion),
+    }]);
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/clients/client_duplicate/flag', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: clientVersion,
+          isBlocked: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_duplicate' }) },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'INVALID_CLIENT_STATE',
+        message: 'This client can no longer be updated directly.',
+      },
+    });
+    expect(db.update).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { getClientInsightsDirectoryPage } from '@/libs/clientInsights.server';
+import { privateClientJson } from '@/libs/clientLifecycleHttp';
 import {
   getSalonClients,
   type ListSalonClientsOptions,
@@ -26,6 +27,7 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
   sortBy: z.enum(['recent', 'visits', 'spent', 'name']).optional().default('recent'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+  scope: z.enum(['active', 'archived']).optional().default('active'),
   page: z.coerce.number().min(1).optional().default(1),
   limit: z.coerce.number().min(1).max(100).optional().default(50),
   segment: z.enum(CLIENT_INSIGHT_SEGMENT_IDS).optional(),
@@ -55,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
     // Validate query params
     const validated = listQuerySchema.safeParse(queryParams);
     if (!validated.success) {
-      return Response.json(
+      return privateClientJson(
         {
           error: {
             code: 'VALIDATION_ERROR',
@@ -67,13 +69,36 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const { salonSlug, search, sortBy, sortOrder, page, limit, segment } = validated.data;
+    const {
+      salonSlug,
+      search,
+      sortBy,
+      sortOrder,
+      scope,
+      page,
+      limit,
+      segment,
+    } = validated.data;
 
     // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
     if (error || !salon) {
-      error!.headers.set('Cache-Control', PRIVATE_HEADERS['Cache-Control']);
+      error!.headers.set('Cache-Control', 'private, no-store, max-age=0');
+      error!.headers.set('Pragma', 'no-cache');
+      error!.headers.set('Vary', 'Cookie');
       return error!;
+    }
+
+    if (segment && scope !== 'active') {
+      return privateClientJson(
+        {
+          error: {
+            code: 'INVALID_CLIENT_SCOPE',
+            message: 'Client Insights segments are available for active clients only',
+          },
+        } satisfies ErrorResponse,
+        { status: 400, headers: PRIVATE_HEADERS },
+      );
     }
 
     const bookingConfig = resolveBookingConfigFromSettings(
@@ -96,6 +121,7 @@ export async function GET(request: Request): Promise<Response> {
       search,
       sortBy,
       sortOrder,
+      scope,
       page,
       limit,
     };
@@ -116,10 +142,14 @@ export async function GET(request: Request): Promise<Response> {
       noShowCount: client.noShowCount ?? 0,
       loyaltyPoints: client.loyaltyPoints ?? 0,
       notes: client.notes,
+      birthday: client.birthday,
+      archivedAt: client.archivedAt?.toISOString() ?? null,
+      mergedIntoClientId: client.mergedIntoClientId,
+      updatedAt: client.updatedAt.toISOString(),
       createdAt: client.createdAt.toISOString(),
     }));
 
-    return Response.json({
+    return privateClientJson({
       data: {
         clients: formattedClients,
         pagination: {
@@ -127,6 +157,7 @@ export async function GET(request: Request): Promise<Response> {
           limit,
           total,
           totalPages: Math.ceil(total / limit),
+          scope,
         },
         filter: {
           segment: segment ?? null,
@@ -137,7 +168,7 @@ export async function GET(request: Request): Promise<Response> {
     }, { headers: PRIVATE_HEADERS });
   } catch (error) {
     console.error('Error fetching clients:', error);
-    return Response.json(
+    return privateClientJson(
       {
         error: {
           code: 'INTERNAL_ERROR',

@@ -13,6 +13,7 @@ vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 const requireAdminSalon = vi.hoisted(() => vi.fn());
+const getAdminSession = vi.hoisted(() => vi.fn());
 
 vi.mock('@/libs/DB', () => ({
   get db() {
@@ -21,6 +22,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession,
   requireAdminSalon,
 }));
 
@@ -119,6 +121,11 @@ beforeEach(() => {
         },
       },
     },
+  });
+  getAdminSession.mockResolvedValue({
+    id: 'admin_client_profile_financial',
+    isSuperAdmin: false,
+    salons: [{ salonId: SALON_ID, role: 'owner' }],
   });
 });
 

@@ -23,7 +23,11 @@ import {
   requireClientSalonFromQuery,
 } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
-import { getAppointmentById, getSalonClientByPhone } from '@/libs/queries';
+import {
+  getAppointmentById,
+  getSalonClientById,
+  resolveSalonClientIdentityByPhone,
+} from '@/libs/queries';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import { reviewSchema, technicianSchema } from '@/models/Schema';
 
@@ -170,8 +174,58 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 7. Get salonClient for identity linkage
-    const salonClient = await getSalonClientByPhone(salon.id, clientSession.normalizedPhone);
+    // 7. Link the review to the salon identity already attached to the
+    // authorized appointment. Phone remains the authorization boundary above;
+    // historical contact aliases never authorize a review.
+    let salonClient = appointment.salonClientId
+      ? await getSalonClientById(salon.id, appointment.salonClientId)
+      : null;
+
+    if (
+      salonClient
+      && (
+        salonClient.mergedIntoClientId
+        || salonClient.archivedAt
+        || normalizeClientPhone(salonClient.phone) !== clientSession.normalizedPhone
+      )
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+            message: 'This client login must be verified before a review can be submitted.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    if (!salonClient) {
+      const clientIdentity = await resolveSalonClientIdentityByPhone(
+        salon.id,
+        clientSession.normalizedPhone,
+      );
+      if (
+        clientIdentity
+        && (
+          clientIdentity.resolvedFromClientId !== null
+          || clientIdentity.client.archivedAt
+          || normalizeClientPhone(clientIdentity.client.phone)
+          !== clientSession.normalizedPhone
+        )
+      ) {
+        return Response.json(
+          {
+            error: {
+              code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+              message: 'This client login must be verified before a review can be submitted.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+      salonClient = clientIdentity?.client ?? null;
+    }
 
     if (!salonClient) {
       return Response.json(

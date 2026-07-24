@@ -63,6 +63,8 @@ export async function POST(request: Request): Promise<Response> {
     .where(and(
       eq(salonClientSchema.id, parsed.data.clientId),
       eq(salonClientSchema.salonId, salon.id),
+      isNull(salonClientSchema.archivedAt),
+      isNull(salonClientSchema.mergedIntoClientId),
     ))
     .limit(1);
   if (!client) {

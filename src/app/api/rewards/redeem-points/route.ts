@@ -15,6 +15,8 @@ import {
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { normalizePhone } from '@/libs/phone';
+import { resolveSalonClientIdentityByPhone } from '@/libs/queries';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -123,29 +125,14 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 3. Get the client's current points balance
-    const phoneVariants = [
+    // 3. Resolve current and historical phones to the unmerged profile whose
+    // loyalty balance is operational. Merge aliases remain salon-scoped.
+    const clientIdentity = await resolveSalonClientIdentityByPhone(
+      salon.id,
       normalizedPhone,
-      auth.session.phone,
-    ];
+    );
 
-    const salonClients = await db
-      .select({
-        id: salonClientSchema.id,
-        loyaltyPoints: salonClientSchema.loyaltyPoints,
-      })
-      .from(salonClientSchema)
-      .where(
-        and(
-          eq(salonClientSchema.salonId, salon.id),
-          inArray(salonClientSchema.phone, phoneVariants),
-        ),
-      )
-      .limit(1);
-
-    const salonClient = salonClients[0];
-
-    if (!salonClient) {
+    if (!clientIdentity) {
       return Response.json(
         {
           error: {
@@ -156,8 +143,26 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
+    if (normalizePhone(clientIdentity.client.phone) !== normalizedPhone) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_RECONCILIATION_REQUIRED',
+            message: 'This client login must be verified before rewards can be accessed.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
 
-    const currentPoints = salonClient.loyaltyPoints ?? 0;
+    const currentPoints = clientIdentity.client.loyaltyPoints ?? 0;
+    const phoneVariants = [...new Set([
+      normalizedPhone,
+      auth.session.phone,
+      `+1${normalizedPhone}`,
+      `1${normalizedPhone}`,
+      auth.session.phone.replace(/\D/g, ''),
+    ])];
 
     // 4. Check if client has enough points
     if (currentPoints < rewardPoints) {
@@ -257,7 +262,10 @@ export async function POST(request: Request): Promise<Response> {
         .set({
           loyaltyPoints: sql`GREATEST(0, COALESCE(${salonClientSchema.loyaltyPoints}, 0) - ${rewardPoints})`,
         })
-        .where(eq(salonClientSchema.id, salonClient.id));
+        .where(and(
+          eq(salonClientSchema.salonId, salon.id),
+          eq(salonClientSchema.id, clientIdentity.client.id),
+        ));
     });
 
     // 8. Return success response (convert cents to dollars for display)

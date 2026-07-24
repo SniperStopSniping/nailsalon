@@ -1,6 +1,20 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import {
   type AddOn,
@@ -14,6 +28,7 @@ import {
   type Salon,
   salonAuditLogSchema,
   type SalonClient,
+  salonClientContactAliasSchema,
   salonClientSchema,
   type SalonLocation,
   salonLocationSchema,
@@ -557,6 +572,7 @@ export async function getAppointmentServiceNames(appointmentId: string): Promise
 /**
  * Update an appointment's status and optionally cancel reason
  * @param appointmentId - The appointment's unique ID
+ * @param salonId - The salon that owns the appointment
  * @param status - The new status
  * @param cancelReason - Optional cancel reason (only for cancelled appointments)
  * @returns The updated appointment or null if not found
@@ -645,6 +661,232 @@ export async function getActiveAppointmentsForClient(
 // SALON CLIENT QUERIES - Salon-scoped client profiles
 // =============================================================================
 
+type SalonClientIdentityDb = {
+  select: typeof db.select;
+  insert: typeof db.insert;
+  update: typeof db.update;
+  execute: typeof db.execute;
+};
+
+export type ResolvedSalonClientIdentity = {
+  client: SalonClient;
+  clientIds: string[];
+  normalizedPhones: string[];
+  phoneVariants: string[];
+  resolvedFromClientId: string | null;
+};
+
+function buildClientPhoneVariants(phones: string[]): string[] {
+  const variants = new Set<string>();
+  for (const rawPhone of phones) {
+    const normalized = normalizePhone(rawPhone);
+    if (!normalized) {
+      continue;
+    }
+    variants.add(normalized);
+    variants.add(`1${normalized}`);
+    variants.add(`+1${normalized}`);
+    variants.add(rawPhone);
+    variants.add(rawPhone.replace(/\D/g, ''));
+  }
+  return [...variants];
+}
+
+async function lockSalonClientIdentity(
+  handle: SalonClientIdentityDb,
+  salonId: string,
+): Promise<void> {
+  // Lifecycle mutations take FOR UPDATE on the salon row. KEY SHARE keeps
+  // ordinary bookings concurrent with each other while making client creation
+  // wait for an in-flight edit/merge (and vice versa).
+  await handle.execute(sql`
+    select ${salonSchema.id}
+    from ${salonSchema}
+    where ${salonSchema.id} = ${salonId}
+    for key share
+  `);
+}
+
+async function resolveMergedPrimaryWithHandle(
+  handle: SalonClientIdentityDb,
+  salonId: string,
+  seed: SalonClient,
+): Promise<{
+  client: SalonClient;
+  resolvedFromClientId: string | null;
+} | null> {
+  let client = seed;
+  const visited = new Set<string>();
+  while (client.mergedIntoClientId) {
+    if (visited.has(client.id) || visited.size >= 16) {
+      return null;
+    }
+    visited.add(client.id);
+    const [target] = await handle
+      .select()
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salonId),
+        eq(salonClientSchema.id, client.mergedIntoClientId),
+      ))
+      .limit(1);
+    if (!target) {
+      return null;
+    }
+    client = target;
+  }
+  return {
+    client,
+    resolvedFromClientId: client.id === seed.id ? null : seed.id,
+  };
+}
+
+async function resolveSalonClientIdentityByPhoneWithHandle(
+  handle: SalonClientIdentityDb,
+  salonId: string,
+  phone: string,
+): Promise<ResolvedSalonClientIdentity | null> {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone || normalizedPhone.length !== 10) {
+    return null;
+  }
+
+  // Aliases are authoritative after an edit/merge. Looking here first also
+  // repairs reads if an older buggy booking created a second current row for a
+  // historical number.
+  const [aliasMatch] = await handle
+    .select({ client: salonClientSchema })
+    .from(salonClientContactAliasSchema)
+    .innerJoin(
+      salonClientSchema,
+      and(
+        eq(
+          salonClientSchema.id,
+          salonClientContactAliasSchema.salonClientId,
+        ),
+        eq(
+          salonClientSchema.salonId,
+          salonClientContactAliasSchema.salonId,
+        ),
+      ),
+    )
+    .where(and(
+      eq(salonClientContactAliasSchema.salonId, salonId),
+      eq(salonClientContactAliasSchema.kind, 'phone'),
+      eq(salonClientContactAliasSchema.normalizedValue, normalizedPhone),
+    ))
+    .limit(1);
+
+  let seed = aliasMatch?.client ?? null;
+  if (!seed) {
+    const [current] = await handle
+      .select()
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salonId),
+        eq(salonClientSchema.phone, normalizedPhone),
+        isNull(salonClientSchema.mergedIntoClientId),
+      ))
+      .limit(1);
+    seed = current ?? null;
+  }
+  if (!seed) {
+    const [mergedSource] = await handle
+      .select()
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salonId),
+        eq(salonClientSchema.phone, normalizedPhone),
+        isNotNull(salonClientSchema.mergedIntoClientId),
+      ))
+      .limit(1);
+    seed = mergedSource ?? null;
+  }
+  if (!seed) {
+    return null;
+  }
+
+  const resolved = await resolveMergedPrimaryWithHandle(
+    handle,
+    salonId,
+    seed,
+  );
+  if (!resolved) {
+    return null;
+  }
+
+  const clientIds = new Set<string>([resolved.client.id]);
+  const normalizedPhones = new Set<string>([
+    normalizePhone(resolved.client.phone),
+    normalizedPhone,
+  ]);
+  let frontier = [resolved.client.id];
+  for (let depth = 0; depth < 16 && frontier.length > 0; depth += 1) {
+    const mergedSources = await handle
+      .select({
+        id: salonClientSchema.id,
+        phone: salonClientSchema.phone,
+      })
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salonId),
+        inArray(salonClientSchema.mergedIntoClientId, frontier),
+      ));
+    frontier = [];
+    for (const source of mergedSources) {
+      if (clientIds.has(source.id)) {
+        continue;
+      }
+      clientIds.add(source.id);
+      normalizedPhones.add(normalizePhone(source.phone));
+      frontier.push(source.id);
+    }
+  }
+
+  const aliasRows = await handle
+    .select({
+      normalizedValue: salonClientContactAliasSchema.normalizedValue,
+    })
+    .from(salonClientContactAliasSchema)
+    .where(and(
+      eq(salonClientContactAliasSchema.salonId, salonId),
+      eq(salonClientContactAliasSchema.kind, 'phone'),
+      inArray(salonClientContactAliasSchema.salonClientId, [...clientIds]),
+    ));
+  for (const alias of aliasRows) {
+    normalizedPhones.add(normalizePhone(alias.normalizedValue));
+  }
+
+  const phones = [...normalizedPhones].filter(Boolean).sort();
+  return {
+    client: resolved.client,
+    clientIds: [
+      resolved.client.id,
+      ...[...clientIds]
+        .filter(clientId => clientId !== resolved.client.id)
+        .sort(),
+    ],
+    normalizedPhones: phones,
+    phoneVariants: buildClientPhoneVariants(phones),
+    resolvedFromClientId: resolved.resolvedFromClientId,
+  };
+}
+
+/**
+ * Resolve a current or historical phone to the unmerged salon-scoped primary.
+ * This never changes the global client/session identity linked to either row.
+ */
+export async function resolveSalonClientIdentityByPhone(
+  salonId: string,
+  phone: string,
+): Promise<ResolvedSalonClientIdentity | null> {
+  return resolveSalonClientIdentityByPhoneWithHandle(
+    db as SalonClientIdentityDb,
+    salonId,
+    phone,
+  );
+}
+
 /**
  * @deprecated Import from '@/libs/phone' instead to avoid DB module deps.
  * This re-export exists only for backwards compatibility with existing code.
@@ -683,26 +925,57 @@ export async function getOrCreateSalonClient(
   // Only update name if provided and non-empty (don't overwrite good names)
   const trimmedName = name?.trim() || undefined;
 
-  // INSERT ... ON CONFLICT DO UPDATE RETURNING ensures atomicity
-  // Two concurrent requests for same phone will not create duplicate rows
-  // Note: Drizzle requires at least one field in `set`, so we always update `updatedAt`
-  const [client] = await db
-    .insert(salonClientSchema)
-    .values({
-      id: `sc_${crypto.randomUUID()}`,
-      salonId,
-      phone: normalizedPhone,
-      fullName: trimmedName,
-    })
-    .onConflictDoUpdate({
-      target: [salonClientSchema.salonId, salonClientSchema.phone],
-      set: trimmedName
-        ? { fullName: trimmedName, updatedAt: new Date() }
-        : { updatedAt: new Date() }, // Always set updatedAt to satisfy Drizzle's requirement
-    })
-    .returning();
+  return db.transaction(async (transaction) => {
+    const tx = transaction as unknown as SalonClientIdentityDb;
+    await lockSalonClientIdentity(tx, salonId);
 
-  return client ?? null;
+    const existingIdentity
+      = await resolveSalonClientIdentityByPhoneWithHandle(
+        tx,
+        salonId,
+        normalizedPhone,
+      );
+    if (existingIdentity) {
+      const isCurrentPrimaryPhone
+        = normalizePhone(existingIdentity.client.phone) === normalizedPhone;
+      if (!trimmedName || !isCurrentPrimaryPhone) {
+        // A historical phone can associate a booking with the stable primary,
+        // but must not rewrite that profile's current identity fields.
+        return existingIdentity.client;
+      }
+      const [updated] = await tx
+        .update(salonClientSchema)
+        .set({ fullName: trimmedName, updatedAt: new Date() })
+        .where(and(
+          eq(salonClientSchema.salonId, salonId),
+          eq(salonClientSchema.id, existingIdentity.client.id),
+          isNull(salonClientSchema.mergedIntoClientId),
+        ))
+        .returning();
+      return updated ?? existingIdentity.client;
+    }
+
+    // INSERT ... ON CONFLICT DO UPDATE RETURNING remains the atomic fallback
+    // for simultaneous first bookings on the same brand-new phone.
+    const [client] = await tx
+      .insert(salonClientSchema)
+      .values({
+        id: `sc_${crypto.randomUUID()}`,
+        salonId,
+        phone: normalizedPhone,
+        fullName: trimmedName,
+      })
+      .onConflictDoUpdate({
+        target: [salonClientSchema.salonId, salonClientSchema.phone],
+        targetWhere: isNull(salonClientSchema.mergedIntoClientId),
+        set: trimmedName
+          ? { fullName: trimmedName, updatedAt: new Date() }
+          : { updatedAt: new Date() },
+      })
+      .returning();
+
+    return client ?? null;
+  });
 }
 
 /**
@@ -733,145 +1006,103 @@ export async function upsertSalonClient(
   const normalizedPhone = normalizePhone(phone);
   const salonClientId = `sc_${crypto.randomUUID()}`;
 
-  // If we have a globalClientId, prefer matching by (salonId, clientId)
-  // This ensures authenticated users get their profile linked correctly
-  if (globalClientId) {
-    // First, check if a salon client already exists for this global client
-    const existingByClientId = await db
-      .select()
-      .from(salonClientSchema)
-      .where(
-        and(
+  return db.transaction(async (transaction) => {
+    const tx = transaction as unknown as SalonClientIdentityDb;
+    await lockSalonClientIdentity(tx, salonId);
+
+    if (globalClientId) {
+      const [existingByClientId] = await tx
+        .select()
+        .from(salonClientSchema)
+        .where(and(
           eq(salonClientSchema.salonId, salonId),
           eq(salonClientSchema.clientId, globalClientId),
-        ),
-      )
-      .limit(1);
+        ))
+        .limit(1);
 
-    if (existingByClientId.length > 0) {
-      const existing = existingByClientId[0]!;
-      const [updated] = await db
-        .update(salonClientSchema)
-        .set({
-          ...(fullName && { fullName }),
-          ...(email && { email }),
-          phone: normalizedPhone,
-          updatedAt: new Date(),
-        })
-        .where(eq(salonClientSchema.id, existing.id))
-        .returning();
-
-      return updated!;
+      if (existingByClientId) {
+        const resolved = await resolveMergedPrimaryWithHandle(
+          tx,
+          salonId,
+          existingByClientId,
+        );
+        if (!resolved) {
+          throw new Error('Invalid salon client merge history');
+        }
+        if (normalizePhone(resolved.client.phone) !== normalizedPhone) {
+          // The external identity remains attached to the preserved source.
+          // Return the operational primary without silently transferring the
+          // identity or replacing the owner's selected contact fields.
+          return resolved.client;
+        }
+        const [updated] = await tx
+          .update(salonClientSchema)
+          .set({
+            ...(fullName && { fullName }),
+            ...(email && { email }),
+            phone: normalizedPhone,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(salonClientSchema.id, resolved.client.id),
+            eq(salonClientSchema.salonId, salonId),
+            isNull(salonClientSchema.mergedIntoClientId),
+          ))
+          .returning();
+        return updated ?? resolved.client;
+      }
     }
 
-    // Check if there's an existing record by phone that we should link
-    const existingByPhone = await db
-      .select()
-      .from(salonClientSchema)
-      .where(
-        and(
+    const existingIdentity
+      = await resolveSalonClientIdentityByPhoneWithHandle(
+        tx,
+        salonId,
+        normalizedPhone,
+      );
+    if (existingIdentity) {
+      const isCurrentPrimaryPhone
+        = normalizePhone(existingIdentity.client.phone) === normalizedPhone;
+      if (!isCurrentPrimaryPhone) {
+        // Historical aliases are association hints, not permission to link a
+        // global login or change owner-selected profile fields.
+        return existingIdentity.client;
+      }
+      const mayLinkGlobalIdentity
+        = Boolean(globalClientId) && existingIdentity.client.clientId === null;
+      const [updated] = await tx
+        .update(salonClientSchema)
+        .set({
+          ...(mayLinkGlobalIdentity && { clientId: globalClientId }),
+          ...(fullName && { fullName }),
+          ...(email && { email }),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(salonClientSchema.id, existingIdentity.client.id),
           eq(salonClientSchema.salonId, salonId),
-          eq(salonClientSchema.phone, normalizedPhone),
-        ),
-      )
-      .limit(1);
-
-    if (existingByPhone.length > 0) {
-      const existing = existingByPhone[0]!;
-      // Link existing phone-based record to global client
-      const [updated] = await db
-        .update(salonClientSchema)
-        .set({
-          clientId: globalClientId,
-          ...(fullName && { fullName }),
-          ...(email && { email }),
-          updatedAt: new Date(),
-        })
-        .where(eq(salonClientSchema.id, existing.id))
+          isNull(salonClientSchema.mergedIntoClientId),
+        ))
         .returning();
-
-      return updated!;
+      return updated ?? existingIdentity.client;
     }
 
-    // Create new record with global client link.
-    return await createSalonClient(
-      salonClientId,
-      salonId,
-      normalizedPhone,
-      fullName,
-      email,
-      globalClientId,
-    );
-  }
-
-  // No globalClientId - use phone-based conflict resolution
-  // First check if the record exists (to determine if this is a new client)
-  const [existingClient] = await db
-    .select({ id: salonClientSchema.id })
-    .from(salonClientSchema)
-    .where(
-      and(
-        eq(salonClientSchema.salonId, salonId),
-        eq(salonClientSchema.phone, normalizedPhone),
-      ),
-    )
-    .limit(1);
-
-  if (existingClient) {
-    // Existing client - update in place.
-    const [updated] = await db
-      .update(salonClientSchema)
-      .set({
-        ...(fullName && { fullName }),
-        ...(email && { email }),
-        updatedAt: new Date(),
+    const [created] = await tx
+      .insert(salonClientSchema)
+      .values({
+        id: salonClientId,
+        salonId,
+        phone: normalizedPhone,
+        fullName,
+        email,
+        clientId: globalClientId ?? null,
+        loyaltyPoints: 0,
       })
-      .where(eq(salonClientSchema.id, existingClient.id))
       .returning();
-
-    return updated!;
-  }
-
-  // New client - create without any automatic welcome points.
-  return await createSalonClient(
-    salonClientId,
-    salonId,
-    normalizedPhone,
-    fullName,
-    email,
-    null,
-  );
-}
-
-/**
- * Create a new salon client profile with zero starting points.
- */
-async function createSalonClient(
-  salonClientId: string,
-  salonId: string,
-  phone: string,
-  fullName?: string,
-  email?: string,
-  globalClientId?: string | null,
-): Promise<SalonClient> {
-  const [newClient] = await db
-    .insert(salonClientSchema)
-    .values({
-      id: salonClientId,
-      salonId,
-      phone,
-      fullName,
-      email,
-      clientId: globalClientId ?? null,
-      loyaltyPoints: 0,
-    })
-    .returning();
-
-  if (!newClient) {
-    throw new Error('Failed to create salon client');
-  }
-
-  return newClient;
+    if (!created) {
+      throw new Error('Failed to create salon client');
+    }
+    return created;
+  });
 }
 
 /**
@@ -884,20 +1115,8 @@ export async function getSalonClientByPhone(
   salonId: string,
   phone: string,
 ): Promise<SalonClient | null> {
-  const normalizedPhone = normalizePhone(phone);
-
-  const results = await db
-    .select()
-    .from(salonClientSchema)
-    .where(
-      and(
-        eq(salonClientSchema.salonId, salonId),
-        eq(salonClientSchema.phone, normalizedPhone),
-      ),
-    )
-    .limit(1);
-
-  return results[0] ?? null;
+  const identity = await resolveSalonClientIdentityByPhone(salonId, phone);
+  return identity?.client ?? null;
 }
 
 /**
@@ -910,7 +1129,7 @@ export async function getSalonClientById(
   salonId: string,
   salonClientId: string,
 ): Promise<SalonClient | null> {
-  const results = await db
+  const [client] = await db
     .select()
     .from(salonClientSchema)
     .where(
@@ -921,7 +1140,15 @@ export async function getSalonClientById(
     )
     .limit(1);
 
-  return results[0] ?? null;
+  if (!client) {
+    return null;
+  }
+  const resolved = await resolveMergedPrimaryWithHandle(
+    db as SalonClientIdentityDb,
+    salonId,
+    client,
+  );
+  return resolved?.client ?? null;
 }
 
 /**
@@ -931,6 +1158,7 @@ export type ListSalonClientsOptions = {
   search?: string;
   sortBy?: 'recent' | 'visits' | 'spent' | 'name';
   sortOrder?: 'asc' | 'desc';
+  scope?: 'active' | 'archived';
   page?: number;
   limit?: number;
 };
@@ -960,21 +1188,64 @@ export async function getSalonClients(
     search,
     sortBy = 'recent',
     sortOrder = 'desc',
+    scope = 'active',
     page = 1,
     limit = 50,
   } = options;
 
   // Build where conditions
-  const conditions = [eq(salonClientSchema.salonId, salonId)];
+  const conditions = [
+    eq(salonClientSchema.salonId, salonId),
+    isNull(salonClientSchema.mergedIntoClientId),
+    scope === 'archived'
+      ? isNotNull(salonClientSchema.archivedAt)
+      : isNull(salonClientSchema.archivedAt),
+  ];
 
   // Add search filter
   if (search) {
-    const searchPattern = `%${search}%`;
+    const trimmedSearch = search.trim();
+    const searchPattern = `%${trimmedSearch}%`;
+    const normalizedPhoneSearch = normalizePhone(trimmedSearch);
+    const aliasPredicates = [
+      and(
+        eq(salonClientContactAliasSchema.kind, 'email'),
+        ilike(
+          salonClientContactAliasSchema.normalizedValue,
+          searchPattern.toLowerCase(),
+        ),
+      )!,
+    ];
+    if (normalizedPhoneSearch) {
+      aliasPredicates.push(
+        and(
+          eq(salonClientContactAliasSchema.kind, 'phone'),
+          ilike(
+            salonClientContactAliasSchema.normalizedValue,
+            `%${normalizedPhoneSearch}%`,
+          ),
+        )!,
+      );
+    }
     conditions.push(
       or(
         ilike(salonClientSchema.fullName, searchPattern),
         ilike(salonClientSchema.phone, searchPattern),
+        normalizedPhoneSearch
+          ? ilike(
+            salonClientSchema.phone,
+            `%${normalizedPhoneSearch}%`,
+          )
+          : undefined,
         ilike(salonClientSchema.email, searchPattern),
+        sql`exists (
+          select 1
+          from ${salonClientContactAliasSchema}
+          where ${salonClientContactAliasSchema.salonId} = ${salonId}
+            and ${salonClientContactAliasSchema.salonClientId}
+              = ${salonClientSchema.id}
+            and ${or(...aliasPredicates)}
+        )`,
       ) ?? sql`1=0`,
     );
   }
@@ -1093,87 +1364,96 @@ export async function updateSalonClientStats(
   salonId: string,
   phone: string,
 ): Promise<void> {
-  const normalizedPhone = normalizePhone(phone);
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as SalonClientIdentityDb;
+    await lockSalonClientIdentity(tx, salonId);
+    const identity = await resolveSalonClientIdentityByPhoneWithHandle(
+      tx,
+      salonId,
+      phone,
+    );
+    if (!identity) {
+      return;
+    }
 
-  // Get the salon client (scoped to this salon)
-  const salonClient = await getSalonClientByPhone(salonId, normalizedPhone);
-  if (!salonClient) {
-    // No salon client record exists - nothing to update
-    // This can happen if booking was created before the salon_client feature
-    return;
-  }
-
-  // Build comprehensive phone variants for matching appointments
-  // Appointments may store phone in various formats
-  const phoneVariants = [
-    normalizedPhone, // "4165551234"
-    `+1${normalizedPhone}`, // "+14165551234"
-    `1${normalizedPhone}`, // "14165551234"
-    phone, // original format passed in
-    phone.replace(/\D/g, ''), // digits only from original
-  ];
-  // Deduplicate
-  const uniquePhoneVariants = [...new Set(phoneVariants)];
-
-  // Calculate stats from appointments - SCOPED TO THIS SALON ONLY
-  // Using FILTER clause for conditional aggregation (Postgres 9.4+)
-  const stats = await db
-    .select({
-      totalVisits: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
-      // Client spending = final charged price (net of tax; booked total for
-      // legacy rows), counted only once the appointment is fully PAID — an
-      // unpaid/partial/comp completion is a visit but not spend, and loyalty
-      // points derive from this figure. Tax is excluded by construction
-      // (finalPriceCents never includes it).
-      totalSpent: sql<number>`COALESCE(sum(COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice})) FILTER (WHERE ${appointmentSchema.status} = 'completed' AND ${appointmentSchema.paymentStatus} = 'paid'), 0)::int`,
-      noShowCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'no_show')::int`,
-      lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (WHERE ${appointmentSchema.status} = 'completed')`,
-    })
-    .from(appointmentSchema)
-    .where(
-      and(
+    // Stable IDs are authoritative. Phone aliases are used only for legacy
+    // appointment rows that predate salon_client_id.
+    const [clientStats] = await tx
+      .select({
+        totalVisits: sql<number>`count(*) FILTER (
+          WHERE ${appointmentSchema.status} = 'completed'
+            AND ${appointmentSchema.deletedAt} IS NULL
+        )::int`,
+        // Client spending = final charged price (net of tax; booked total for
+        // legacy rows), counted only once the appointment is fully paid.
+        totalSpent: sql<number>`COALESCE(sum(
+          COALESCE(
+            ${appointmentSchema.finalPriceCents},
+            ${appointmentSchema.totalPrice}
+          )
+        ) FILTER (
+          WHERE ${appointmentSchema.status} = 'completed'
+            AND ${appointmentSchema.paymentStatus} = 'paid'
+            AND ${appointmentSchema.deletedAt} IS NULL
+        ), 0)::int`,
+        noShowCount: sql<number>`count(*) FILTER (
+          WHERE ${appointmentSchema.status} = 'no_show'
+            AND ${appointmentSchema.deletedAt} IS NULL
+        )::int`,
+        lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (
+          WHERE ${appointmentSchema.status} = 'completed'
+            AND ${appointmentSchema.deletedAt} IS NULL
+        )`,
+      })
+      .from(appointmentSchema)
+      .where(and(
         eq(appointmentSchema.salonId, salonId),
-        inArray(appointmentSchema.clientPhone, uniquePhoneVariants),
-      ),
-    );
+        or(
+          inArray(appointmentSchema.salonClientId, identity.clientIds),
+          and(
+            isNull(appointmentSchema.salonClientId),
+            inArray(
+              appointmentSchema.clientPhone,
+              identity.phoneVariants,
+            ),
+          ),
+        ),
+      ));
 
-  const clientStats = stats[0];
+    const totalVisits = Number(clientStats?.totalVisits ?? 0);
+    const totalSpent = Number(clientStats?.totalSpent ?? 0);
+    const noShowCount = Number(clientStats?.noShowCount ?? 0);
+    const loyaltyPoints = reconcileLoyaltyPointsBalance({
+      currentBalance: identity.client.loyaltyPoints,
+      previousCompletedSpendCents: identity.client.totalSpent,
+      nextCompletedSpendCents: totalSpent,
+    });
+    const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
+    const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
+    const nextRebookDueAt = lastVisitAt && identity.client.rebookIntervalDays
+      ? new Date(
+        lastVisitAt.getTime()
+        + identity.client.rebookIntervalDays * 86_400_000,
+      )
+      : null;
 
-  // Calculate loyalty points using centralized formula (totalSpent is in cents)
-  // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
-  const totalSpentCents = clientStats?.totalSpent ?? 0;
-  const loyaltyPoints = reconcileLoyaltyPointsBalance({
-    currentBalance: salonClient.loyaltyPoints,
-    previousCompletedSpendCents: salonClient.totalSpent,
-    nextCompletedSpendCents: totalSpentCents,
-  });
-  // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
-  // others (pg) — normalize before doing Date math or writing back.
-  const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
-  const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
-  const nextRebookDueAt = lastVisitAt && salonClient.rebookIntervalDays
-    ? new Date(lastVisitAt.getTime() + salonClient.rebookIntervalDays * 86_400_000)
-    : null;
-
-  // Update the salon client with computed stats
-  // Double-check salonId in WHERE clause for multi-tenant safety
-  await db
-    .update(salonClientSchema)
-    .set({
-      totalVisits: clientStats?.totalVisits ?? 0,
-      totalSpent: clientStats?.totalSpent ?? 0,
-      noShowCount: clientStats?.noShowCount ?? 0,
-      lastVisitAt,
-      nextRebookDueAt,
-      loyaltyPoints,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(salonClientSchema.id, salonClient.id),
+    await tx
+      .update(salonClientSchema)
+      .set({
+        totalVisits,
+        totalSpent,
+        noShowCount,
+        lastVisitAt,
+        nextRebookDueAt,
+        loyaltyPoints,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(salonClientSchema.id, identity.client.id),
         eq(salonClientSchema.salonId, salonId),
-      ),
-    );
+        isNull(salonClientSchema.mergedIntoClientId),
+      ));
+  });
 }
 
 // =============================================================================

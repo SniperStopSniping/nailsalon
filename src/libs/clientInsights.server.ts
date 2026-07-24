@@ -32,6 +32,10 @@ export type ClientInsightsDirectoryClient = {
   phone: string;
   fullName: string | null;
   email: string | null;
+  birthday: string | null;
+  archivedAt: Date | null;
+  mergedIntoClientId: string | null;
+  updatedAt: Date;
   preferredTechnician: {
     id: string;
     name: string;
@@ -177,6 +181,9 @@ export function buildClientInsightsProjectionSql(
         sc.full_name,
         sc.phone,
         sc.email,
+        sc.birthday,
+        sc.archived_at,
+        sc.merged_into_client_id,
         sc.preferred_technician_id,
         sc.notes,
         sc.rebook_interval_days,
@@ -187,9 +194,12 @@ export function buildClientInsightsProjectionSql(
         sc.no_show_count,
         sc.loyalty_points,
         sc.created_at,
+        sc.updated_at,
         regexp_replace(COALESCE(sc.phone, ''), '[^0-9]', '', 'g') AS phone_digits
       FROM salon_client sc
       INNER JOIN insight_params p ON p.salon_id = sc.salon_id
+      WHERE sc.archived_at IS NULL
+        AND sc.merged_into_client_id IS NULL
     ),
     client_base AS (
       SELECT
@@ -202,15 +212,32 @@ export function buildClientInsightsProjectionSql(
         END AS normalized_phone
       FROM client_digits cd
     ),
-    unique_client_phone AS (
+    client_phone_candidates AS (
       SELECT
         cb.salon_id,
         cb.normalized_phone,
-        min(cb.id) AS client_id
+        cb.id AS client_id
       FROM client_base cb
       WHERE cb.normalized_phone IS NOT NULL
-      GROUP BY cb.salon_id, cb.normalized_phone
-      HAVING count(*) = 1
+      UNION
+      SELECT
+        alias.salon_id,
+        alias.normalized_value AS normalized_phone,
+        alias.salon_client_id AS client_id
+      FROM salon_client_contact_alias alias
+      INNER JOIN client_base cb
+        ON cb.salon_id = alias.salon_id
+       AND cb.id = alias.salon_client_id
+      WHERE alias.kind = 'phone'
+    ),
+    unique_client_phone AS (
+      SELECT
+        candidate.salon_id,
+        candidate.normalized_phone,
+        min(candidate.client_id) AS client_id
+      FROM client_phone_candidates candidate
+      GROUP BY candidate.salon_id, candidate.normalized_phone
+      HAVING count(DISTINCT candidate.client_id) = 1
     ),
     appointment_digits AS (
       SELECT
@@ -295,6 +322,9 @@ export function buildClientInsightsProjectionSql(
         cb.full_name,
         cb.phone,
         cb.email,
+        cb.birthday,
+        cb.archived_at,
+        cb.merged_into_client_id,
         cb.preferred_technician_id,
         cb.notes,
         cb.rebook_interval_days,
@@ -305,6 +335,7 @@ export function buildClientInsightsProjectionSql(
         COALESCE(cb.no_show_count, 0)::int AS no_show_count,
         COALESCE(cb.loyalty_points, 0)::int AS loyalty_points,
         cb.created_at,
+        cb.updated_at,
         min(af.start_time) FILTER (
           WHERE af.status = 'completed' AND af.start_time <= p.as_of
         ) AS first_completed_at,
@@ -331,6 +362,9 @@ export function buildClientInsightsProjectionSql(
         cb.full_name,
         cb.phone,
         cb.email,
+        cb.birthday,
+        cb.archived_at,
+        cb.merged_into_client_id,
         cb.preferred_technician_id,
         cb.notes,
         cb.rebook_interval_days,
@@ -340,7 +374,8 @@ export function buildClientInsightsProjectionSql(
         cb.total_spent,
         cb.no_show_count,
         cb.loyalty_points,
-        cb.created_at
+        cb.created_at,
+        cb.updated_at
     ),
     recent_cancellation AS (
       SELECT DISTINCT cancelled.resolved_client_id AS client_id
@@ -738,6 +773,9 @@ export function buildClientInsightsDirectoryQuery(
         phone,
         full_name,
         email,
+        birthday,
+        archived_at,
+        merged_into_client_id,
         preferred_technician_id,
         last_completed_at,
         cached_total_visits,
@@ -745,7 +783,8 @@ export function buildClientInsightsDirectoryQuery(
         no_show_count,
         loyalty_points,
         notes,
-        created_at
+        created_at,
+        updated_at
       FROM classified
       WHERE ${segmentPredicate}
       ${searchPredicate}
@@ -768,6 +807,9 @@ export function buildClientInsightsDirectoryQuery(
       page.phone,
       page.full_name,
       page.email,
+      page.birthday,
+      page.archived_at,
+      page.merged_into_client_id,
       page.preferred_technician_id,
       page.last_completed_at,
       page.cached_total_visits,
@@ -776,6 +818,7 @@ export function buildClientInsightsDirectoryQuery(
       page.loyalty_points,
       page.notes,
       page.created_at,
+      page.updated_at,
       technician.name AS technician_name,
       technician.avatar_url AS technician_avatar_url,
       page.page_order
@@ -852,6 +895,12 @@ export async function getClientInsightsDirectoryPage(
       phone: String(row.phone ?? ''),
       fullName: row.full_name == null ? null : String(row.full_name),
       email: row.email == null ? null : String(row.email),
+      birthday: row.birthday == null ? null : String(row.birthday),
+      archivedAt: dateValue(row.archived_at),
+      mergedIntoClientId: row.merged_into_client_id == null
+        ? null
+        : String(row.merged_into_client_id),
+      updatedAt: dateValue(row.updated_at) ?? now,
       preferredTechnician: row.preferred_technician_id == null
         ? null
         : {

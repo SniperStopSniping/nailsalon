@@ -4,14 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   getAppointmentServiceNames,
   getSalonById,
+  getSalonClientById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
   mintAppointmentManageLink,
   requireAppointmentManagerAccess,
   sendSmartAppointmentReminder,
 } = vi.hoisted(() => ({
   getAppointmentServiceNames: vi.fn(),
   getSalonById: vi.fn(),
+  getSalonClientById: vi.fn(),
   getTechnicianById: vi.fn(),
+  resolveSalonClientIdentityByPhone: vi.fn(),
   mintAppointmentManageLink: vi.fn(),
   requireAppointmentManagerAccess: vi.fn(),
   sendSmartAppointmentReminder: vi.fn(),
@@ -21,7 +25,9 @@ vi.mock('@/libs/appointmentManageLink', () => ({ mintAppointmentManageLink }));
 vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
   getSalonById,
+  getSalonClientById,
   getTechnicianById,
+  resolveSalonClientIdentityByPhone,
 }));
 vi.mock('@/libs/routeAccessGuards', () => ({ requireAppointmentManagerAccess }));
 vi.mock('@/libs/SMS', () => ({ sendSmartAppointmentReminder }));
@@ -31,6 +37,7 @@ import { POST } from './route';
 const appointment = {
   id: 'appt_1',
   salonId: 'salon_1',
+  salonClientId: 'sc_1',
   technicianId: 'tech_1',
   clientName: 'Ava',
   clientPhone: '(416) 555-1234',
@@ -54,7 +61,14 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       settings: { booking: { timezone: 'America/Toronto' } },
     });
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
+    getSalonClientById.mockResolvedValue({
+      id: 'sc_1',
+      salonId: 'salon_1',
+      phone: '6475550199',
+      email: 'current@example.com',
+    });
     getTechnicianById.mockResolvedValue({ id: 'tech_1', name: 'Daniela' });
+    resolveSalonClientIdentityByPhone.mockResolvedValue(null);
     mintAppointmentManageLink.mockResolvedValue('https://islanailsalon.com/en/isla/manage/token');
     sendSmartAppointmentReminder.mockResolvedValue({
       outcome: 'sent',
@@ -76,9 +90,10 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       assignedOnly: true,
       salonSlugHint: 'isla',
     }));
+    expect(getSalonClientById).toHaveBeenCalledWith('salon_1', 'sc_1');
     expect(sendSmartAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
       appointmentId: 'appt_1',
-      phone: '(416) 555-1234',
+      phone: '6475550199',
       services: ['BIAB Fill'],
       technicianName: 'Daniela',
       timeZone: 'America/Toronto',
@@ -93,6 +108,46 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
         sentAt: '2026-07-22T18:00:00.000Z',
       },
     });
+  });
+
+  it('resolves an unlinked legacy snapshot phone to the current primary', async () => {
+    const legacyAppointment = {
+      ...appointment,
+      id: 'appt_legacy',
+      salonClientId: null,
+    };
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      appointment: legacyAppointment,
+      actorRole: 'admin',
+    });
+    resolveSalonClientIdentityByPhone.mockResolvedValue({
+      client: {
+        id: 'sc_primary',
+        salonId: 'salon_1',
+        phone: '6475550188',
+        email: 'current-primary@example.com',
+      },
+      clientIds: ['sc_primary', 'sc_source'],
+      normalizedPhones: ['4165551234', '6475550188'],
+      phoneVariants: ['4165551234', '6475550188'],
+      resolvedFromClientId: 'sc_source',
+    });
+
+    await POST(
+      new Request('https://app.test/api/appointments/appt_legacy/send-reminder', { method: 'POST' }),
+      { params: { id: 'appt_legacy' } },
+    );
+
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(resolveSalonClientIdentityByPhone).toHaveBeenCalledWith(
+      'salon_1',
+      '(416) 555-1234',
+    );
+    expect(sendSmartAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
+      phone: '6475550188',
+    }));
+    expect(legacyAppointment.clientPhone).toBe('(416) 555-1234');
   });
 
   it('returns an editable draft for known automatic-send ineligibility', async () => {
