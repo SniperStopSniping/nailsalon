@@ -250,6 +250,37 @@ describe('merged salon-client operational identity', () => {
     expect(result.clients[0]?.salonId).toBe(SALON_ID);
   });
 
+  it('does not widen an alphanumeric name search with extracted phone digits', async () => {
+    await db
+      .update(schema.salonClientSchema)
+      .set({ fullName: 'PR55 Primary' })
+      .where(eq(schema.salonClientSchema.id, 'client_primary'));
+    await db.insert(schema.salonClientSchema).values({
+      id: 'client_search_decoy',
+      salonId: SALON_ID,
+      phone: '9055550144',
+      fullName: 'Unrelated Client',
+    });
+
+    try {
+      const result = await getSalonClients(SALON_ID, {
+        search: 'PR55 Primary',
+        scope: 'active',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.clients.map(row => row.id)).toEqual(['client_primary']);
+    } finally {
+      await db
+        .delete(schema.salonClientSchema)
+        .where(eq(schema.salonClientSchema.id, 'client_search_decoy'));
+      await db
+        .update(schema.salonClientSchema)
+        .set({ fullName: 'Primary Client' })
+        .where(eq(schema.salonClientSchema.id, 'client_primary'));
+    }
+  });
+
   it('recomputes only the primary cache from stable IDs and legacy alias snapshots', async () => {
     await updateSalonClientStats(SALON_ID, OLD_PHONE);
 

@@ -1206,7 +1206,12 @@ export async function getSalonClients(
   if (search) {
     const trimmedSearch = search.trim();
     const searchPattern = `%${trimmedSearch}%`;
-    const normalizedPhoneSearch = normalizePhone(trimmedSearch);
+    // Only treat phone-shaped input as a normalized phone search. Extracting
+    // digits from an alphanumeric name (for example, "Studio 55 Client")
+    // otherwise broadens the query to every phone containing those digits.
+    const normalizedPhoneSearch = /^[+\d().\-\s]+$/.test(trimmedSearch)
+      ? normalizePhone(trimmedSearch)
+      : '';
     const aliasPredicates = [
       and(
         eq(salonClientContactAliasSchema.kind, 'email'),
