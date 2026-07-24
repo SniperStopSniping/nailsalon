@@ -60,6 +60,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       # PR tests must never migrate or mutate a shared production-like database.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nailsalon_test
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nailsalon_test
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       E2E_SUPER_ADMIN_PHONE: ${{ secrets.E2E_SUPER_ADMIN_PHONE }}
