@@ -169,12 +169,19 @@ export async function openAdminBookings(page: Page) {
   await expect(page.getByRole('button', { name: /next week/i })).toBeVisible();
 }
 
-async function getSelectedCalendarDay(page: Page) {
+async function getCalendarAnchorDay(page: Page) {
   const selected = page.locator('[data-testid^="calendar-day-"][data-selected="true"]').first();
+  const anchor = await selected.isVisible().catch(() => false)
+    ? selected
+    : page.locator('[data-testid^="calendar-day-"]').first();
 
-  await expect(selected).toBeVisible();
+  // The schedule intentionally opens with no selected day. When the fixture's
+  // next available appointment falls outside the current week, navigate from
+  // the first visible day instead of waiting for a selection that does not yet
+  // exist.
+  await expect(anchor).toBeVisible();
 
-  const testId = await selected.getAttribute('data-testid');
+  const testId = await anchor.getAttribute('data-testid');
   return testId?.replace('calendar-day-', '') ?? null;
 }
 
@@ -187,13 +194,13 @@ export async function ensureCalendarDayVisible(page: Page, dateString: string) {
       return dayButton;
     }
 
-    const selectedDateKey = await getSelectedCalendarDay(page);
-    if (!selectedDateKey) {
+    const anchorDateKey = await getCalendarAnchorDay(page);
+    if (!anchorDateKey) {
       break;
     }
 
-    const selectedDate = new Date(`${selectedDateKey}T00:00:00`);
-    const goForward = targetDate.getTime() >= selectedDate.getTime();
+    const anchorDate = new Date(`${anchorDateKey}T00:00:00`);
+    const goForward = targetDate.getTime() >= anchorDate.getTime();
 
     await page.getByRole('button', { name: goForward ? /next week/i : /previous week/i }).click();
   }
@@ -260,7 +267,7 @@ export async function waitForAppointmentBlockState(page: Page, args: {
       return JSON.stringify(lastState);
     }).toBe(expected);
   } catch (error) {
-    const selectedDay = await getSelectedCalendarDay(page).catch(() => null);
+    const calendarAnchor = await getCalendarAnchorDay(page).catch(() => null);
     const visibleBlocks = await page.locator('[data-testid^="appointment-block-"]').evaluateAll(elements => (
       elements.map(element => ({
         testId: element.getAttribute('data-testid'),
@@ -271,7 +278,7 @@ export async function waitForAppointmentBlockState(page: Page, args: {
     )).catch(() => []);
     const details = lastState ? JSON.stringify(lastState) : 'unavailable';
     throw new Error(
-      `Appointment block ${args.appointmentId} did not settle to expected state. expected=${expected} actual=${details} selectedDay=${selectedDay ?? 'unknown'} visibleBlocks=${JSON.stringify(visibleBlocks)}${error instanceof Error ? ` cause=${error.message}` : ''}`,
+      `Appointment block ${args.appointmentId} did not settle to expected state. expected=${expected} actual=${details} calendarAnchor=${calendarAnchor ?? 'unknown'} visibleBlocks=${JSON.stringify(visibleBlocks)}${error instanceof Error ? ` cause=${error.message}` : ''}`,
     );
   }
 }
