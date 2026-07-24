@@ -13,6 +13,20 @@ function isCloudinaryServiceImageUrl(imageUrl: string): boolean {
   }
 }
 
+const DEVELOPMENT_SERVICE_UPLOAD_URL
+  = /^\/uploads\/services\/[\w-]{1,128}\/service_[\w-]{1,128}_[\w-]{16}\.webp$/;
+
+function isDevelopmentServiceUploadUrl(imageUrl: string): boolean {
+  return process.env.NODE_ENV !== 'production' && DEVELOPMENT_SERVICE_UPLOAD_URL.test(imageUrl);
+}
+
+export function isPublicServiceCustomImageUrl(imageUrl: string | null | undefined): boolean {
+  const normalized = normalizeImageUrlValue(imageUrl);
+
+  return isCloudinaryServiceImageUrl(normalized)
+    || isDevelopmentServiceUploadUrl(normalized);
+}
+
 export function isUnusablePublicServiceImageUrl(imageUrl: string | null | undefined): boolean {
   const normalized = normalizeImageUrlValue(imageUrl);
 
@@ -21,6 +35,10 @@ export function isUnusablePublicServiceImageUrl(imageUrl: string | null | undefi
   }
 
   if (normalized.startsWith('/uploads/')) {
+    return !isDevelopmentServiceUploadUrl(normalized);
+  }
+
+  if (normalized.startsWith('/public/uploads/')) {
     return true;
   }
 

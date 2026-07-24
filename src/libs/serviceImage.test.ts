@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveServiceCardImage, SERVICE_IMAGE } from '@/libs/serviceImage';
+import {
+  isPublicServiceCustomImageUrl,
+  normalizePublicServiceImageUrl,
+  PUBLIC_SERVICE_IMAGE_FALLBACK,
+  resolveServiceCardImage,
+  SERVICE_IMAGE,
+} from '@/libs/serviceImage';
 import { SERVICE_TEMPLATES } from '@/libs/serviceTemplateCatalog';
 
 const COMBO_IMAGES = new Set<string>([
@@ -33,6 +39,10 @@ const HANDS_IMAGES = new Set<string>([
 
 const bookableTemplates = SERVICE_TEMPLATES.filter(template => template.serviceType !== 'addon');
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('resolveServiceCardImage', () => {
   it('keeps a salon-uploaded Cloudinary image', () => {
     const uploaded = 'https://res.cloudinary.com/demo/image/upload/mani.jpg';
@@ -44,6 +54,15 @@ describe('resolveServiceCardImage', () => {
     expect(resolveServiceCardImage({ imageUrl: '/uploads/old.png', templateKey: 'gel_manicure' })).toBe(
       SERVICE_IMAGE.manicureGel,
     );
+  });
+
+  it.each([
+    ['template-specific', { imageUrl: null, templateKey: 'french_gel_toes' }, SERVICE_IMAGE.pedicureFrench],
+    ['manicure', { imageUrl: null, bookingCategory: 'manicure' }, SERVICE_IMAGE.manicureGel],
+    ['pedicure', { imageUrl: null, bookingCategory: 'pedicure' }, SERVICE_IMAGE.pedicureGel],
+    ['combo', { imageUrl: null, bookingCategory: 'combo' }, SERVICE_IMAGE.comboNude],
+  ] as const)('restores the %s fallback when the custom image is removed', (_label, service, expected) => {
+    expect(resolveServiceCardImage(service)).toBe(expected);
   });
 
   it.each(bookableTemplates.map(t => [t.systemKey, t.bookingCategory, t.name] as const))(
@@ -132,5 +151,52 @@ describe('resolveServiceCardImage', () => {
     for (const name of comboNames) {
       expect(COMBO_IMAGES, name).toContain(resolveServiceCardImage({ name, bookingCategory: 'combo' }));
     }
+  });
+});
+
+describe('development service uploads', () => {
+  const uploaded = '/uploads/services/salon_1/service_svc_123_AbCdEfGhIjKlMnOp.webp';
+
+  it('distinguishes uploaded images from built-in fallback artwork', () => {
+    expect(isPublicServiceCustomImageUrl(
+      'https://res.cloudinary.com/demo/image/upload/mani.jpg',
+    )).toBe(true);
+    expect(isPublicServiceCustomImageUrl(
+      '/assets/images/services/manicure-gel-nude.webp',
+    )).toBe(false);
+  });
+
+  it('keeps an app-managed local service image outside production', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+
+    expect(isPublicServiceCustomImageUrl(uploaded)).toBe(true);
+    expect(normalizePublicServiceImageUrl(uploaded)).toBe(uploaded);
+    expect(resolveServiceCardImage({ imageUrl: uploaded, templateKey: 'gel_manicure' })).toBe(uploaded);
+  });
+
+  it('rejects local service images in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+
+    expect(isPublicServiceCustomImageUrl(uploaded)).toBe(false);
+    expect(normalizePublicServiceImageUrl(uploaded)).toBe(PUBLIC_SERVICE_IMAGE_FALLBACK);
+    expect(resolveServiceCardImage({ imageUrl: uploaded, templateKey: 'gel_manicure' })).toBe(
+      SERVICE_IMAGE.manicureGel,
+    );
+  });
+
+  it.each([
+    '/uploads/staff/staff_1/avatar.webp',
+    '/uploads/services/salon_1/service_svc_123_AbCdEfGhIjKlMnOp.jpg',
+    '/uploads/services/salon_1/not-a-generated-name.webp',
+    '/uploads/services/salon_1/../service_svc_123_AbCdEfGhIjKlMnOp.webp',
+    '/uploads/services/salon_1/%2e%2e/service_svc_123_AbCdEfGhIjKlMnOp.webp',
+    '/uploads/services//service_svc_123_AbCdEfGhIjKlMnOp.webp',
+    '/uploads/services/salon_1/service_svc_123_AbCdEfGhIjKlMnOp.webp?cache=1',
+    '/public/uploads/services/salon_1/service_svc_123_AbCdEfGhIjKlMnOp.webp',
+    String.raw`/uploads/services/salon_1\service_svc_123_AbCdEfGhIjKlMnOp.webp`,
+  ])('rejects an unrelated or malformed local upload path: %s', (imageUrl) => {
+    vi.stubEnv('NODE_ENV', 'development');
+
+    expect(normalizePublicServiceImageUrl(imageUrl)).toBe(PUBLIC_SERVICE_IMAGE_FALLBACK);
   });
 });
