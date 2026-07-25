@@ -64,6 +64,7 @@ vi.mock('@/libs/integrationOutbox', () => ({
 const SALON_ID = 'salon_resched';
 const TECH_ID = 'tech_resched';
 const SERVICE_ID = 'svc_resched_gel';
+const CLIENT_ID = 'client_resched';
 
 // 2026-09-01 is a Tuesday. 18:00Z = 14:00 EDT, inside the seeded 09:00–20:00.
 const CURRENT_START = new Date('2026-09-01T18:00:00.000Z');
@@ -86,6 +87,7 @@ async function seedAppointmentWithToken(
     clientPhone: '4165559876',
     clientName: 'Daniel Smith',
     clientEmail: 'daniel@example.com',
+    salonClientId: CLIENT_ID,
     startTime,
     endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
     status: 'confirmed',
@@ -156,6 +158,13 @@ beforeAll(async () => {
       saturday: { start: '09:00', end: '20:00' },
       sunday: { start: '09:00', end: '20:00' },
     },
+  });
+  await db.insert(schema.salonClientSchema).values({
+    id: CLIENT_ID,
+    salonId: SALON_ID,
+    phone: '4165559876',
+    fullName: 'Daniel Smith',
+    email: 'current@example.com',
   });
   await db.insert(schema.serviceSchema).values({
     id: SERVICE_ID,
@@ -248,7 +257,7 @@ describe('customer manage-link reschedule', () => {
 
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
     expect(sendTransactionalEmail.mock.calls[0]![0]).toMatchObject({
-      to: 'daniel@example.com',
+      to: 'current@example.com',
       subject: 'Isla Nail Studio appointment rescheduled',
     });
 
@@ -271,6 +280,77 @@ describe('customer manage-link reschedule', () => {
 
     expect(email.text).toContain(`https://app.luster.test/en/isla-nail-studio1/manage/${encodeURIComponent(token)}`);
     expect(email.text).not.toMatch(/\/book\//);
+  });
+
+  it('does not re-notify when the same committed move is submitted again', async () => {
+    const { token } = await seedAppointmentWithToken();
+
+    const first = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+    const second = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+    const secondBody = await second.json();
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(secondBody.data.status).toBe('unchanged');
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a moved appointment committed when customer email delivery fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    sendTransactionalEmail.mockRejectedValue(new Error('provider unavailable'));
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+
+    expect(response.status).toBe(200);
+
+    const [appointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.startTime.toISOString()).toBe(NEW_START.toISOString());
+    expect(appointment!.clientEmail).toBe('daniel@example.com');
+
+    vi.restoreAllMocks();
+  });
+
+  it('moves the appointment but sends nothing when the current email is invalid', async () => {
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'invalid-current-email' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+
+    const [appointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.startTime.toISOString()).toBe(NEW_START.toISOString());
+    expect(appointment!.clientEmail).toBe('daniel@example.com');
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'current@example.com' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
   });
 
   /**

@@ -37,6 +37,7 @@ vi.mock('@/libs/email', () => ({
 
 const SALON_ID = 'salon_manage';
 const TECH_ID = 'tech_manage';
+const CLIENT_ID = 'client_manage';
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -55,6 +56,7 @@ async function seedAppointmentWithToken(
     clientPhone: '4165559876',
     clientName: 'Daniel Smith',
     clientEmail: 'daniel@example.com',
+    salonClientId: CLIENT_ID,
     startTime,
     endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
     status: 'confirmed',
@@ -120,6 +122,13 @@ beforeAll(async () => {
     salonId: SALON_ID,
     name: 'Daniela',
   });
+  await db.insert(schema.salonClientSchema).values({
+    id: CLIENT_ID,
+    salonId: SALON_ID,
+    phone: '4165559876',
+    fullName: 'Daniel Smith',
+    email: 'current@example.com',
+  });
   await db.insert(schema.serviceSchema).values({
     id: 'svc_manage_gel',
     salonId: SALON_ID,
@@ -177,16 +186,23 @@ describe('customer manage-link cancellation', () => {
     );
   });
 
-  it('still sends the client confirmation unchanged', async () => {
-    const { token } = await seedAppointmentWithToken();
+  it('sends the client confirmation to the current terminal email without changing the snapshot', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
 
     await PATCH(cancelRequest(), { params: { token } });
 
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
     expect(sendTransactionalEmail.mock.calls[0]![0]).toMatchObject({
-      to: 'daniel@example.com',
+      to: 'current@example.com',
       subject: 'Isla Nail Studio appointment cancelled',
     });
+
+    const [appointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.clientEmail).toBe('daniel@example.com');
   });
 
   it('does not notify again when the cancellation is repeated', async () => {
@@ -199,6 +215,7 @@ describe('customer manage-link cancellation', () => {
     expect(second.status).toBe(409);
     expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
     expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
   });
 
   it('sends nothing for an appointment that was already cancelled', async () => {
@@ -262,5 +279,51 @@ describe('customer manage-link cancellation', () => {
     expect(deliveries[0]!.status).toBe('failed');
 
     vi.restoreAllMocks();
+  });
+
+  it('keeps the appointment cancelled when current-recipient delivery fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    sendTransactionalEmail.mockRejectedValue(new Error('provider unavailable'));
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await PATCH(cancelRequest(), { params: { token } });
+
+    expect(response.status).toBe(200);
+
+    const [appointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.status).toBe('cancelled');
+    expect(appointment!.clientEmail).toBe('daniel@example.com');
+
+    vi.restoreAllMocks();
+  });
+
+  it('commits cancellation but sends nothing when the current identity is unsupported', async () => {
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'invalid-current-email' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await PATCH(cancelRequest(), { params: { token } });
+
+    expect(response.status).toBe(200);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+
+    const [appointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.status).toBe('cancelled');
+    expect(appointment!.clientEmail).toBe('daniel@example.com');
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'current@example.com' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
   });
 });
