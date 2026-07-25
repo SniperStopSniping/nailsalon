@@ -1,0 +1,461 @@
+import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { getClientLifecycleSchemaReadiness } from './clientLifecycleSchemaCore';
+
+const { Client, Pool } = pg;
+const databaseUrl = process.env.CLIENT_LIFECYCLE_TEST_DATABASE_URL;
+if (databaseUrl) {
+  const hostname = new URL(databaseUrl).hostname;
+  const isLoopback = hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1';
+  if (
+    !isLoopback
+    || process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED !== 'true'
+  ) {
+    throw new Error(
+      'Lifecycle migration tests require an explicitly confirmed loopback disposable database.',
+    );
+  }
+}
+const describePostgres = databaseUrl ? describe : describe.skip;
+
+type Journal = {
+  dialect?: string;
+  version?: string;
+  entries: Array<{
+    idx: number;
+    version: string;
+    when: number;
+    tag: string;
+    breakpoints: boolean;
+  }>;
+};
+
+async function resetDatabase(pool: pg.Pool): Promise<void> {
+  await pool.query('drop schema if exists drizzle cascade');
+  await pool.query('drop schema if exists public cascade');
+  await pool.query('create schema public');
+}
+
+async function migrationFolderThrough(
+  maximumIndex: number,
+  replacement0062?: string,
+): Promise<string> {
+  const source = path.join(process.cwd(), 'migrations');
+  const destination = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'client-lifecycle-migrations-'),
+  );
+  await fs.mkdir(path.join(destination, 'meta'));
+  const journal = JSON.parse(
+    await fs.readFile(path.join(source, 'meta', '_journal.json'), 'utf8'),
+  ) as Journal;
+  const selected = journal.entries.filter(entry => entry.idx <= maximumIndex);
+  await fs.writeFile(
+    path.join(destination, 'meta', '_journal.json'),
+    `${JSON.stringify({ ...journal, entries: selected }, null, 2)}\n`,
+  );
+  await Promise.all(
+    selected.map(async (entry) => {
+      const sqlText = entry.idx === 62 && replacement0062 != null
+        ? replacement0062
+        : await fs.readFile(path.join(source, `${entry.tag}.sql`), 'utf8');
+      await fs.writeFile(
+        path.join(destination, `${entry.tag}.sql`),
+        sqlText,
+      );
+    }),
+  );
+  return destination;
+}
+
+async function appliedMigrationRows(pool: pg.Pool): Promise<Array<{
+  hash: string;
+  created_at: string;
+}>> {
+  const result = await pool.query<{ hash: string; created_at: string }>(
+    `select hash, created_at::text
+     from drizzle.__drizzle_migrations
+     order by created_at`,
+  );
+  return result.rows;
+}
+
+function runProtectedLifecycleMigration(): ReturnType<typeof spawnSync> {
+  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  return spawnSync(
+    executable,
+    ['tsx', 'scripts/migrate-client-lifecycle.ts'],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+      },
+      encoding: 'utf8',
+      timeout: 60_000,
+    },
+  );
+}
+
+describePostgres.sequential('client lifecycle migration chain', () => {
+  let pool: pg.Pool;
+  const temporaryFolders: string[] = [];
+
+  beforeAll(async () => {
+    pool = new Pool({
+      connectionString: databaseUrl,
+      max: 4,
+      application_name: 'client-lifecycle-migration-test',
+    });
+  });
+
+  afterAll(async () => {
+    await pool?.end();
+    await Promise.all(
+      temporaryFolders.map(folder =>
+        fs.rm(folder, { recursive: true, force: true })),
+    );
+  });
+
+  it('applies the fresh chain through exact 0061 and atomic 0062 once', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(fullFolder);
+
+    await migrate(database, { migrationsFolder: fullFolder });
+    const firstRows = await appliedMigrationRows(pool);
+    const migration0061 = firstRows.find(
+      row => Number(row.created_at) === 1784950000006,
+    );
+
+    expect(migration0061?.hash).toBe(
+      'ec2ea523735b0a45b964ed78f6f56327c9019678c29e6e994f161a8b2a4f7731',
+    );
+    expect(firstRows.at(-1)?.created_at).toBe('1784950000007');
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(await appliedMigrationRows(pool)).toEqual(firstRows);
+  });
+
+  it('upgrades populated 0060 through exact 0061 and 0062', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0060 = await migrationFolderThrough(60);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0060, fullFolder);
+    await migrate(database, { migrationsFolder: through0060 });
+
+    await pool.query(`
+      insert into salon (id, name, slug, theme_key)
+      values ('migration-salon', 'Migration Salon', 'migration-salon', 'minimal')
+    `);
+    await pool.query(`
+      insert into salon_client (
+        id,
+        salon_id,
+        phone,
+        full_name,
+        created_at,
+        updated_at
+      )
+      values (
+        'migration-client',
+        'migration-salon',
+        '4165550100',
+        'Migration Fixture',
+        now(),
+        now()
+      )
+    `);
+
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+
+    const preserved = await pool.query<{ count: string }>(
+      `select count(*)::text as count
+       from salon_client
+       where id = 'migration-client'`,
+    );
+
+    expect(preserved.rows[0]?.count).toBe('1');
+  });
+
+  it('applies only 0062 over populated exact 0061 and keeps old writes compatible', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      insert into salon (id, name, slug, theme_key)
+      values ('compat-salon', 'Compatibility Salon', 'compat-salon', 'minimal')
+    `);
+    await pool.query(`
+      insert into salon_client (
+        id, salon_id, phone, full_name, created_at, updated_at
+      )
+      values
+        (
+          'compat-primary',
+          'compat-salon',
+          '4165550111',
+          'Primary Fixture',
+          now(),
+          now()
+        ),
+        (
+          'compat-source',
+          'compat-salon',
+          '4165550222',
+          'Source Fixture',
+          now(),
+          now()
+        )
+    `);
+    await pool.query(`
+      update salon_client
+      set
+        archived_at = now(),
+        archived_by = 'migration-test',
+        merged_into_client_id = 'compat-primary',
+        merged_at = now(),
+        merged_by = 'migration-test'
+      where id = 'compat-source'
+    `);
+
+    const rowsBefore = await appliedMigrationRows(pool);
+    await migrate(database, { migrationsFolder: fullFolder });
+    const rowsAfter = await appliedMigrationRows(pool);
+
+    expect(rowsAfter).toHaveLength(rowsBefore.length + 1);
+    expect(rowsAfter.at(-1)?.created_at).toBe('1784950000007');
+
+    await expect(pool.query(`
+      update salon_client
+      set preferred_technician_id = null,
+          notes = 'old writer compatibility'
+      where id = 'compat-source'
+    `)).resolves.toBeDefined();
+    await expect(pool.query(`
+      update salon_client
+      set merged_into_client_id = null
+      where id = 'compat-source'
+    `)).rejects.toMatchObject({ code: '55000' });
+    await expect(pool.query(`
+      update salon_client
+      set merged_into_client_id = 'compat-source'
+      where id = 'compat-primary'
+    `)).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('rolls back a failure before readiness and then applies a clean retry', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const failing0062 = await migrationFolderThrough(
+      62,
+      `create table app_schema_capability (
+         capability text primary key,
+         version integer not null,
+         state text not null,
+         merge_writes_enabled boolean not null
+       );
+       insert into app_schema_capability
+       values ('client_lifecycle', 2, 'ready', false);
+       do $$ begin raise exception 'forced migration failure'; end $$;`,
+    );
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, failing0062, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await expect(
+      migrate(database, { migrationsFolder: failing0062 }),
+    ).rejects.toThrow('forced migration failure');
+
+    const rolledBack = await pool.query<{ table_name: string | null }>(
+      `select to_regclass('public.app_schema_capability')::text as table_name`,
+    );
+
+    expect(rolledBack.rows[0]?.table_name).toBeNull();
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  });
+
+  it('rejects a preexisting incomplete capability table before publishing readiness', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      create table app_schema_capability (
+        capability text not null,
+        version integer not null,
+        state text not null,
+        merge_writes_enabled boolean default false not null,
+        installed_at timestamp with time zone default now() not null
+      )
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('client lifecycle capability constraints are unavailable');
+
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+
+    const readyRows = await pool.query<{ count: string }>(`
+      select count(*)::text as count
+      from app_schema_capability
+      where capability = 'client_lifecycle'
+        and state = 'ready'
+    `);
+
+    expect(readyRows.rows[0]?.count).toBe('0');
+
+    await pool.query('drop table app_schema_capability');
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  });
+
+  it('rejects a same-named index with the wrong definition before readiness', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      create unique index salon_client_contact_alias_unique
+        on salon_client_contact_alias (
+          salon_id,
+          normalized_value,
+          kind
+        )
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('required client lifecycle indexes are missing');
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+
+    const capability = await pool.query<{ table_name: string | null }>(
+      `select to_regclass('public.app_schema_capability')::text as table_name`,
+    );
+
+    expect(capability.rows[0]?.table_name).toBeNull();
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      create unique index salon_client_contact_alias_unique
+        on salon_client_contact_alias (
+          salon_id,
+          kind,
+          normalized_value
+        )
+    `);
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  });
+
+  it('serializes 0062 with a pooled-safe transaction lock, then applies and no-ops', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    temporaryFolders.push(through0061);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    const lockClient = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-lifecycle-wrapper-lock-test',
+    });
+    await lockClient.connect();
+    try {
+      await lockClient.query('begin');
+      await lockClient.query(
+        `select pg_advisory_xact_lock(
+           hashtextextended('client-lifecycle-stabilization-migration', 0)
+         )`,
+      );
+      const blocked = runProtectedLifecycleMigration();
+
+      expect(blocked.status).toBe(1);
+      expect(blocked.stderr).toContain('canceling statement due to lock timeout');
+      expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+        '1784950000006',
+      );
+    } finally {
+      await lockClient.query('rollback');
+      await lockClient.end();
+    }
+
+    const applied = runProtectedLifecycleMigration();
+
+    expect(applied.status).toBe(0);
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+
+    const rowsAfterApply = await appliedMigrationRows(pool);
+
+    const noOp = runProtectedLifecycleMigration();
+
+    expect(noOp.status).toBe(0);
+    expect(await appliedMigrationRows(pool)).toEqual(rowsAfterApply);
+  }, 120_000);
+
+  it('keeps the repository 0061 file byte-identical to Production evidence', async () => {
+    const migration = await fs.readFile(
+      path.join(
+        process.cwd(),
+        'migrations',
+        '0061_client_edit_merge_archive.sql',
+      ),
+    );
+
+    expect(migration).toHaveLength(9316);
+    expect(crypto.createHash('sha256').update(migration).digest('hex')).toBe(
+      'ec2ea523735b0a45b964ed78f6f56327c9019678c29e6e994f161a8b2a4f7731',
+    );
+  });
+});

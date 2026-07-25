@@ -1084,6 +1084,33 @@ export const salonClientNoteSchema = pgTable(
   }),
 );
 
+export const appSchemaCapabilitySchema = pgTable(
+  'app_schema_capability',
+  {
+    capability: text('capability').primaryKey(),
+    version: integer('version').notNull(),
+    state: text('state').$type<'ready'>().notNull(),
+    mergeWritesEnabled: boolean('merge_writes_enabled').notNull().default(false),
+    installedAt: timestamp('installed_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  table => ({
+    stateValid: check(
+      'app_schema_capability_state_valid',
+      sql`${table.state} = 'ready'`,
+    ),
+    versionPositive: check(
+      'app_schema_capability_version_positive',
+      sql`${table.version} > 0`,
+    ),
+    mergeWritesDisabled: check(
+      'app_schema_capability_merge_writes_disabled',
+      sql`${table.mergeWritesEnabled} = false`,
+    ),
+  }),
+);
+
 // -----------------------------------------------------------------------------
 // Retention assistant settings - one durable configuration row per salon
 // -----------------------------------------------------------------------------
