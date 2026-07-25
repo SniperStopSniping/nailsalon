@@ -1,3 +1,14 @@
+## [1.33.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.1...v1.33.2) (2026-07-25)
+
+
+### Bug Fixes
+
+* **appointments:** serialize active-state transitions ([66f9a57](https://github.com/SniperStopSniping/nailsalon/commit/66f9a577fac4eef83ccf2ba5777077e9f59dccaf))
+* **booking:** serialize canonical client identity ([100e6f0](https://github.com/SniperStopSniping/nailsalon/commit/100e6f0f2f2b570f037568ce69e9bd12225a8d8e))
+* **clients:** add canonical identity guards ([59b5952](https://github.com/SniperStopSniping/nailsalon/commit/59b595265388f86bb0c2245c0128682f68f509d8))
+* **clients:** resolve stale identity safely ([4210d54](https://github.com/SniperStopSniping/nailsalon/commit/4210d5404b49e462adaca3ffd1fd07771dd7a6c5))
+* **clients:** serialize contact identity updates ([aae43c6](https://github.com/SniperStopSniping/nailsalon/commit/aae43c6b17efbbd50c8c8eb74e4b9174522ab23c))
+
 ## [1.33.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.0...v1.33.1) (2026-07-25)
 
 
