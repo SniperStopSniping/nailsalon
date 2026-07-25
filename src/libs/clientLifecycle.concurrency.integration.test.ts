@@ -11,6 +11,7 @@ import {
   type LifecycleSqlHandle,
   lockTerminalSalonClientsWithHandle,
   resolveTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
 } from './clientLifecycleStabilization';
 import { purgeSalonGroups, type PurgeTx } from './salonPurge';
 
@@ -202,6 +203,50 @@ async function waitForLockWait(
   }
   throw new Error('Timed out waiting for deterministic PostgreSQL lock state.');
 }
+
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
+};
+
+function createDeferred(): Deferred {
+  let resolve = () => {};
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function createBarrier(participants: number): () => Promise<void> {
+  const released = createDeferred();
+  let arrivals = 0;
+
+  return async () => {
+    arrivals += 1;
+    if (arrivals === participants) {
+      released.resolve();
+    }
+    await released.promise;
+  };
+}
+
+function databaseErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') {
+    return null;
+  }
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (typeof candidate.code === 'string') {
+    return candidate.code;
+  }
+  return candidate.cause === error
+    ? null
+    : databaseErrorCode(candidate.cause);
+}
+
+const retryWithoutDelay = {
+  sleep: async () => {},
+  random: () => 0,
+};
 
 describePostgres.sequential('client lifecycle PostgreSQL concurrency', () => {
   let pool: pg.Pool;
@@ -579,6 +624,280 @@ describePostgres.sequential('client lifecycle PostgreSQL concurrency', () => {
       await Promise.all([first.end(), second.end(), observer.end()]);
     }
   });
+
+  it('recovers one real opposing-row deadlock and commits each idempotent operation once', async () => {
+    await pool.query(`
+      drop table if exists client_lifecycle_deadlock_commit;
+      create table client_lifecycle_deadlock_commit (
+        operation_id text primary key,
+        committed_at timestamp with time zone not null default now()
+      )
+    `);
+
+    const firstLocksReady = createBarrier(2);
+    const attempts = new Map<string, number>();
+    const retryableErrors: string[] = [];
+
+    const runOperation = (
+      operationId: string,
+      firstClientId: string,
+      secondClientId: string,
+    ) => withClientLifecycleTransactionRetry(async (attempt) => {
+      attempts.set(operationId, attempt);
+      const client = await pool.connect();
+
+      try {
+        await client.query('begin');
+        await client.query(`set local statement_timeout = '5s'`);
+
+        if (attempt === 1) {
+          await client.query(
+            `select id
+             from salon_client
+             where salon_id = 'lifecycle-salon-a'
+               and id = $1
+             for update`,
+            [firstClientId],
+          );
+          await firstLocksReady();
+          await client.query(
+            `select id
+             from salon_client
+             where salon_id = 'lifecycle-salon-a'
+               and id = $1
+             for update`,
+            [secondClientId],
+          );
+        } else {
+          await client.query(
+            `select id
+             from salon_client
+             where salon_id = 'lifecycle-salon-a'
+               and id = any($1::text[])
+             order by id
+             for update`,
+            [[firstClientId, secondClientId].sort()],
+          );
+        }
+
+        await client.query(
+          `insert into client_lifecycle_deadlock_commit (operation_id)
+           values ($1)
+           on conflict (operation_id) do nothing`,
+          [operationId],
+        );
+        await client.query('commit');
+      } catch (error) {
+        const code = databaseErrorCode(error);
+        if (code) {
+          retryableErrors.push(code);
+        }
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    }, retryWithoutDelay);
+
+    try {
+      await Promise.all([
+        runOperation(
+          'deadlock-operation-a',
+          'lifecycle-lock-a',
+          'lifecycle-lock-b',
+        ),
+        runOperation(
+          'deadlock-operation-b',
+          'lifecycle-lock-b',
+          'lifecycle-lock-a',
+        ),
+      ]);
+
+      const committed = await pool.query<{
+        operation_id: string;
+        commit_count: string;
+      }>(
+        `select operation_id, count(*)::text as commit_count
+         from client_lifecycle_deadlock_commit
+         group by operation_id
+         order by operation_id`,
+      );
+
+      expect(retryableErrors.filter(code => code === '40P01')).toHaveLength(1);
+      expect([...attempts.values()].sort()).toEqual([1, 2]);
+      expect(committed.rows).toEqual([
+        { operation_id: 'deadlock-operation-a', commit_count: '1' },
+        { operation_id: 'deadlock-operation-b', commit_count: '1' },
+      ]);
+    } finally {
+      await pool.query('drop table if exists client_lifecycle_deadlock_commit');
+    }
+  }, 15_000);
+
+  it('recovers a real serializable conflict and applies each operation exactly once', async () => {
+    await pool.query(`
+      drop table if exists client_lifecycle_serializable_operation;
+      drop table if exists client_lifecycle_serializable_counter;
+      create table client_lifecycle_serializable_counter (
+        id text primary key,
+        value integer not null
+      );
+      create table client_lifecycle_serializable_operation (
+        operation_id text primary key
+      );
+      insert into client_lifecycle_serializable_counter (id, value)
+      values ('shared', 0)
+    `);
+
+    const firstReadsReady = createBarrier(2);
+    const attempts = new Map<string, number>();
+    const retryableErrors: string[] = [];
+
+    const runOperation = (operationId: string) =>
+      withClientLifecycleTransactionRetry(async (attempt) => {
+        attempts.set(operationId, attempt);
+        const client = await pool.connect();
+
+        try {
+          await client.query('begin isolation level serializable');
+          await client.query(`set local statement_timeout = '5s'`);
+          const snapshot = await client.query<{ value: number }>(
+            `select value
+             from client_lifecycle_serializable_counter
+             where id = 'shared'`,
+          );
+          if (attempt === 1) {
+            await firstReadsReady();
+          }
+
+          const inserted = await client.query(
+            `insert into client_lifecycle_serializable_operation (operation_id)
+             values ($1)
+             on conflict (operation_id) do nothing
+             returning operation_id`,
+            [operationId],
+          );
+          if (inserted.rowCount === 1) {
+            await client.query(
+              `update client_lifecycle_serializable_counter
+               set value = $1
+               where id = 'shared'`,
+              [(snapshot.rows[0]?.value ?? 0) + 1],
+            );
+          }
+          await client.query('commit');
+        } catch (error) {
+          const code = databaseErrorCode(error);
+          if (code) {
+            retryableErrors.push(code);
+          }
+          await client.query('rollback').catch(() => undefined);
+          throw error;
+        } finally {
+          client.release();
+        }
+      }, retryWithoutDelay);
+
+    try {
+      await Promise.all([
+        runOperation('serializable-operation-a'),
+        runOperation('serializable-operation-b'),
+      ]);
+
+      const counter = await pool.query<{ value: number }>(
+        `select value
+         from client_lifecycle_serializable_counter
+         where id = 'shared'`,
+      );
+      const operations = await pool.query<{ count: string }>(
+        `select count(*)::text as count
+         from client_lifecycle_serializable_operation`,
+      );
+
+      expect(retryableErrors.filter(code => code === '40001')).toHaveLength(1);
+      expect([...attempts.values()].sort()).toEqual([1, 2]);
+      expect(counter.rows[0]?.value).toBe(2);
+      expect(operations.rows[0]?.count).toBe('2');
+    } finally {
+      await pool.query(`
+        drop table if exists client_lifecycle_serializable_operation;
+        drop table if exists client_lifecycle_serializable_counter
+      `);
+    }
+  }, 15_000);
+
+  it('exhausts exactly three attempts when PostgreSQL returns 40001 every time', async () => {
+    await pool.query(`
+      drop table if exists client_lifecycle_retry_exhaustion;
+      create table client_lifecycle_retry_exhaustion (
+        id text primary key,
+        value integer not null
+      );
+      insert into client_lifecycle_retry_exhaustion (id, value)
+      values ('shared', 0)
+    `);
+
+    const observedErrors: string[] = [];
+    const attempts: number[] = [];
+
+    try {
+      await expect(withClientLifecycleTransactionRetry(async (attempt) => {
+        attempts.push(attempt);
+        const client = await pool.connect();
+
+        try {
+          await client.query('begin isolation level serializable');
+          await client.query(`set local statement_timeout = '5s'`);
+          const snapshot = await client.query<{ value: number }>(
+            `select value
+             from client_lifecycle_retry_exhaustion
+             where id = 'shared'`,
+          );
+
+          const readerReady = createDeferred();
+          const conflictingWriter = (async () => {
+            await readerReady.promise;
+            await pool.query(
+              `update client_lifecycle_retry_exhaustion
+               set value = value + 1
+               where id = 'shared'`,
+            );
+          })();
+          readerReady.resolve();
+          await conflictingWriter;
+
+          await client.query(
+            `update client_lifecycle_retry_exhaustion
+             set value = $1
+             where id = 'shared'`,
+            [(snapshot.rows[0]?.value ?? 0) + 1],
+          );
+          await client.query('commit');
+        } catch (error) {
+          const code = databaseErrorCode(error);
+          if (code) {
+            observedErrors.push(code);
+          }
+          await client.query('rollback').catch(() => undefined);
+          throw error;
+        } finally {
+          client.release();
+        }
+      }, retryWithoutDelay)).rejects.toMatchObject({ code: '40001' });
+
+      const counter = await pool.query<{ value: number }>(
+        `select value
+         from client_lifecycle_retry_exhaustion
+         where id = 'shared'`,
+      );
+
+      expect(attempts).toEqual([1, 2, 3]);
+      expect(observedErrors).toEqual(['40001', '40001', '40001']);
+      expect(counter.rows[0]?.value).toBe(3);
+    } finally {
+      await pool.query('drop table if exists client_lifecycle_retry_exhaustion');
+    }
+  }, 15_000);
 
   it('keeps the actual v1.33 staff reset compatible with merged sources', async () => {
     const database = drizzle(pool);

@@ -128,6 +128,229 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  client-lifecycle-postgres:
+    name: Client lifecycle PostgreSQL stabilization
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+
+    # This job is deliberately isolated from repository secrets and from every
+    # shared/hosted database. These constants exist only inside the disposable
+    # PostgreSQL service for this job.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: lifecycle_ci
+          POSTGRES_USER: lifecycle_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lifecycle_ci -d lifecycle_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CLIENT_LIFECYCLE_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+      CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+      V133_COMMIT: 759b645ceb75d33c09fcc529450825e3781cfe79
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The conditional v1.33 smoke uses the exact immutable Production
+          # commit in a detached temporary worktree.
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+
+      - name: Verify the exercised staff reset is exact v1.33 code
+        run: git diff --exit-code "$V133_COMMIT" -- src/libs/salonPurge.ts
+
+      - name: Run real migration, concurrency, and directory suites
+        run: npm run test:client-lifecycle:pg
+
+      - name: Run focused lifecycle regressions
+        run: npm run test:client-lifecycle:regression
+
+      - name: Reset the disposable database for the command gate
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+        run: |
+          node <<'NODE'
+          const { Client } = require('pg');
+
+          async function reset() {
+            const client = new Client({
+              connectionString: process.env.DATABASE_URL,
+              application_name: 'client-lifecycle-ci-reset',
+            });
+            await client.connect();
+            try {
+              await client.query('drop schema if exists drizzle cascade');
+              await client.query('drop schema if exists public cascade');
+              await client.query('create schema public');
+            } finally {
+              await client.end();
+            }
+          }
+
+          reset().catch(() => {
+            process.stderr.write('Disposable PostgreSQL reset failed.\n');
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Apply the protected lifecycle migration
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+        run: npm run db:migrate:client-lifecycle
+
+      - name: Verify lifecycle schema readiness
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+        run: npm run db:verify:client-lifecycle
+
+      - name: Prove protected migration no-op and readiness
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+        run: |
+          npm run db:migrate:client-lifecycle
+          npm run db:verify:client-lifecycle
+
+      - name: Smoke stabilization health against the migrated schema
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+          CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+          STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+          STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+          BILLING_PLAN_ENV: test
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+        run: |
+          HEALTH_PID=''
+
+          cleanup_health() {
+            if [ -n "$HEALTH_PID" ] && kill -0 "$HEALTH_PID" 2>/dev/null; then
+              kill "$HEALTH_PID" 2>/dev/null || true
+              wait "$HEALTH_PID" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_health EXIT
+
+          ./node_modules/.bin/next dev --hostname 127.0.0.1 --port 3107 \
+            >/dev/null 2>&1 &
+          HEALTH_PID=$!
+
+          HEALTH_READY=false
+          for _attempt in $(seq 1 45); do
+            if curl -sS http://127.0.0.1:3107/api/health 2>/dev/null \
+              | node -e '
+                let input = "";
+                process.stdin.setEncoding("utf8");
+                process.stdin.on("data", chunk => input += chunk);
+                process.stdin.on("end", () => {
+                  try {
+                    const body = JSON.parse(input);
+                    process.exit(
+                      body?.checks?.db === true
+                      && body?.clientLifecycleSchema === "ready"
+                        ? 0
+                        : 1,
+                    );
+                  } catch {
+                    process.exit(1);
+                  }
+                });
+              '; then
+              HEALTH_READY=true
+              break
+            fi
+            sleep 1
+          done
+
+          test "$HEALTH_READY" = true
+          echo '{"database":"ready","clientLifecycleSchema":"ready"}'
+          cleanup_health
+          trap - EXIT
+
+      - name: Smoke exact v1.33 conditional DB compatibility
+        env:
+          DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
+          CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+          STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+          STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+          BILLING_PLAN_ENV: test
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+        run: |
+          V133_WORKTREE="$RUNNER_TEMP/nailsalon-v133-lifecycle"
+          V133_PID=''
+
+          cleanup_v133() {
+            if [ -n "$V133_PID" ] && kill -0 "$V133_PID" 2>/dev/null; then
+              kill "$V133_PID" 2>/dev/null || true
+              wait "$V133_PID" 2>/dev/null || true
+            fi
+            git worktree remove --force "$V133_WORKTREE" >/dev/null 2>&1 || true
+          }
+          trap cleanup_v133 EXIT
+
+          git worktree add --detach "$V133_WORKTREE" "$V133_COMMIT"
+          test "$(git -C "$V133_WORKTREE" rev-parse HEAD)" = "$V133_COMMIT"
+          (
+            cd "$V133_WORKTREE"
+            HUSKY=0 npm ci
+          )
+
+          (
+            cd "$V133_WORKTREE"
+            exec ./node_modules/.bin/next dev --hostname 127.0.0.1 --port 3108 \
+              >/dev/null 2>&1
+          ) &
+          V133_PID=$!
+
+          V133_READY=false
+          for _attempt in $(seq 1 45); do
+            if curl -sS http://127.0.0.1:3108/api/health 2>/dev/null \
+              | node -e '
+                let input = "";
+                process.stdin.setEncoding("utf8");
+                process.stdin.on("data", chunk => input += chunk);
+                process.stdin.on("end", () => {
+                  try {
+                    const body = JSON.parse(input);
+                    process.exit(body?.checks?.db === true ? 0 : 1);
+                  } catch {
+                    process.exit(1);
+                  }
+                });
+              '; then
+              V133_READY=true
+              break
+            fi
+            sleep 1
+          done
+
+          test "$V133_READY" = true
+          echo '{"database":"ready","compatibility":"conditional"}'
+
+          cleanup_v133
+          trap - EXIT
+
   synchronize-with-crowdin:
     name: GitHub PR synchronize with Crowdin
     runs-on: ubuntu-latest

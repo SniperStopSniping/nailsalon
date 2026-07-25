@@ -87,6 +87,30 @@ Do not create a competing deployment pipeline and do not promote application
 code when migration or readiness fails. Edit, Merge, Archive, Restore, and
 Delete remain unavailable throughout stabilization.
 
+### Temporary-clone lifecycle rehearsal
+
+Before Production review, create an isolated Neon branch from the current
+Production branch through the authenticated Neon integration. Never use the
+Production writer connection. Supply its connection string through the
+operator's secret environment and independently copy only the temporary
+endpoint hostname into `CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST`.
+
+Run the count-only, fail-closed rehearsal with:
+
+```bash
+CLIENT_LIFECYCLE_REHEARSAL_CONFIRMED=true \
+CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED=true \
+npx tsx scripts/rehearse-client-lifecycle.ts
+```
+
+The command refuses to connect unless both confirmations, the expected host,
+and TLS for a non-loopback endpoint are present. It stops before migration when
+aggregate preflight blockers are nonzero, emits no client values or connection
+details, rolls back synthetic writes, and reports migration/readiness timing
+plus observed lock and write-delay measurements. Delete the temporary branch,
+unset its environment variables, and close authenticated sessions when the
+rehearsal finishes or stops.
+
 ## Cron Setup
 
 ### Active in `vercel.json`

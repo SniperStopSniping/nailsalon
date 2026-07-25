@@ -107,6 +107,36 @@ function runProtectedLifecycleMigration(): ReturnType<typeof spawnSync> {
   );
 }
 
+function runLifecycleRehearsal(
+  confirmed = true,
+  overrides: {
+    databaseUrl?: string;
+    expectedHost?: string;
+    disposableConfirmed?: boolean;
+  } = {},
+): ReturnType<typeof spawnSync> {
+  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const rehearsalDatabaseUrl = overrides.databaseUrl ?? databaseUrl;
+  return spawnSync(
+    executable,
+    ['tsx', 'scripts/rehearse-client-lifecycle.ts'],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: rehearsalDatabaseUrl,
+        CLIENT_LIFECYCLE_REHEARSAL_CONFIRMED: confirmed ? 'true' : 'false',
+        CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED:
+          overrides.disposableConfirmed === false ? 'false' : 'true',
+        CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST:
+          overrides.expectedHost ?? new URL(rehearsalDatabaseUrl!).hostname,
+      },
+      encoding: 'utf8',
+      timeout: 120_000,
+    },
+  );
+}
+
 describePostgres.sequential('client lifecycle migration chain', () => {
   let pool: pg.Pool;
   const temporaryFolders: string[] = [];
@@ -457,5 +487,277 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(crypto.createHash('sha256').update(migration).digest('hex')).toBe(
       'ec2ea523735b0a45b964ed78f6f56327c9019678c29e6e994f161a8b2a4f7731',
     );
+  });
+
+  it('rehearses exact 0061 through ready 0062 with aggregate-only output', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    temporaryFolders.push(through0061);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      insert into salon (id, name, slug, theme_key)
+      values (
+        'rehearsal-salon',
+        'Rehearsal fixture',
+        'rehearsal-fixture',
+        'minimal'
+      )
+    `);
+    await pool.query(`
+      insert into salon_client (
+        id, salon_id, phone, full_name, created_at, updated_at
+      )
+      values
+        (
+          'rehearsal-primary',
+          'rehearsal-salon',
+          '4165550131',
+          'Primary fixture',
+          now(),
+          now()
+        ),
+        (
+          'rehearsal-source',
+          'rehearsal-salon',
+          '4165550132',
+          'Source fixture',
+          now(),
+          now()
+        )
+    `);
+    await pool.query(`
+      update salon_client
+      set
+        archived_at = now(),
+        archived_by = 'migration-test',
+        merged_into_client_id = 'rehearsal-primary',
+        merged_at = now(),
+        merged_by = 'migration-test'
+      where id = 'rehearsal-source'
+    `);
+
+    const rehearsal = runLifecycleRehearsal();
+    const stdout = String(rehearsal.stdout);
+
+    expect(rehearsal.status).toBe(0);
+    expect(rehearsal.stderr).toBe('');
+    expect(stdout).not.toContain(String(databaseUrl));
+    expect(stdout).not.toContain('4165550131');
+    expect(stdout).not.toContain('rehearsal-primary');
+
+    const output = JSON.parse(stdout) as {
+      status: string;
+      preflight: {
+        exact0061Applied: boolean;
+        rowsPreventing0062: number;
+        mergedSources: { rows: number };
+      };
+      migration: {
+        attempts: number;
+        commandTotalMillisecondsIncludingInducedWait: number;
+      };
+      readiness: { milliseconds: number };
+      noOp: { attempts: number; milliseconds: number };
+      measurements: {
+        inducedCoordinationWaitMilliseconds: number;
+        transactionAdvisoryLockHoldMilliseconds: number;
+        postBarrierMigrationCompletionMilliseconds: number;
+        lockObservation: {
+          samples: number;
+          longestObservedLock: {
+            lockType: 'advisory' | 'relation';
+            table: string | null;
+            mode: string;
+            observedMilliseconds: number;
+          } | null;
+          longestObservedExistingTableLock: {
+            lockType: 'relation';
+            table: string;
+            mode: string;
+            observedMilliseconds: number;
+          } | null;
+        };
+        writesAfterBarrierRelease: {
+          probeLaunchedBeforeMigrationCompleted: boolean;
+          appointmentMilliseconds: number;
+          paymentMilliseconds: number;
+        };
+        post0062: {
+          appointmentWriteMilliseconds: number;
+          paymentWriteMilliseconds: number;
+          terminalResolutionTriggerOverheadMilliseconds: number;
+        };
+      };
+    };
+
+    expect(output.status).toBe('ok');
+    expect(output.preflight).toMatchObject({
+      exact0061Applied: true,
+      rowsPreventing0062: 0,
+      mergedSources: { rows: 1 },
+    });
+    expect(output.migration.attempts).toBeGreaterThanOrEqual(1);
+    expect(
+      output.migration.commandTotalMillisecondsIncludingInducedWait,
+    ).toBeGreaterThanOrEqual(0);
+    expect(output.readiness.milliseconds).toBeGreaterThanOrEqual(0);
+    expect(output.noOp.attempts).toBe(1);
+    expect(output.noOp.milliseconds).toBeGreaterThanOrEqual(0);
+    expect(output.measurements.inducedCoordinationWaitMilliseconds)
+      .toBeGreaterThanOrEqual(0);
+    expect(output.measurements.transactionAdvisoryLockHoldMilliseconds)
+      .toBeGreaterThanOrEqual(0);
+    expect(output.measurements.postBarrierMigrationCompletionMilliseconds)
+      .toBeGreaterThanOrEqual(0);
+    expect(output.measurements.lockObservation.samples)
+      .toBeGreaterThanOrEqual(1);
+
+    const longestObservedLock
+      = output.measurements.lockObservation.longestObservedLock;
+    if (longestObservedLock) {
+      expect(longestObservedLock.observedMilliseconds)
+        .toBeGreaterThanOrEqual(0);
+    }
+
+    expect(
+      output.measurements.writesAfterBarrierRelease
+        .probeLaunchedBeforeMigrationCompleted,
+    ).toBe(true);
+    expect(
+      output.measurements
+        .writesAfterBarrierRelease
+        .appointmentMilliseconds,
+    )
+      .toBeGreaterThanOrEqual(0);
+    expect(
+      output.measurements
+        .writesAfterBarrierRelease
+        .paymentMilliseconds,
+    )
+      .toBeGreaterThanOrEqual(0);
+    expect(output.measurements.post0062.appointmentWriteMilliseconds)
+      .toBeGreaterThanOrEqual(0);
+    expect(output.measurements.post0062.paymentWriteMilliseconds)
+      .toBeGreaterThanOrEqual(0);
+    expect(
+      output.measurements
+        .post0062
+        .terminalResolutionTriggerOverheadMilliseconds,
+    )
+      .toBeGreaterThanOrEqual(0);
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  }, 120_000);
+
+  it('blocks rehearsal before 0062 when active contact data is incompatible', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    temporaryFolders.push(through0061);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      insert into salon (id, name, slug, theme_key)
+      values (
+        'blocked-rehearsal-salon',
+        'Blocked rehearsal fixture',
+        'blocked-rehearsal-fixture',
+        'minimal'
+      )
+    `);
+    await pool.query(`
+      insert into salon_client (
+        id, salon_id, phone, full_name, created_at, updated_at
+      )
+      values (
+        'blocked-rehearsal-client',
+        'blocked-rehearsal-salon',
+        'invalid-active-phone',
+        'Blocked fixture',
+        now(),
+        now()
+      )
+    `);
+
+    const rehearsal = runLifecycleRehearsal();
+    const stdout = String(rehearsal.stdout);
+
+    expect(rehearsal.status).toBe(1);
+    expect(rehearsal.stderr).toBe('');
+    expect(stdout).not.toContain(String(databaseUrl));
+    expect(stdout).not.toContain('invalid-active-phone');
+    expect(stdout).not.toContain('blocked-rehearsal-client');
+
+    const output = JSON.parse(stdout) as {
+      status: string;
+      stage: string;
+      preflight: {
+        rowsPreventing0062: number;
+        contacts: { invalidActivePhoneRows: number };
+      };
+    };
+
+    expect(output).toMatchObject({
+      status: 'blocked',
+      stage: 'preflight',
+      preflight: {
+        contacts: { invalidActivePhoneRows: 1 },
+      },
+    });
+    expect(output.preflight.rowsPreventing0062).toBeGreaterThanOrEqual(1);
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+  });
+
+  it('refuses to connect without explicit rehearsal confirmation', () => {
+    const rehearsal = runLifecycleRehearsal(false);
+
+    expect(rehearsal.status).toBe(1);
+    expect(rehearsal.stdout).toBe('');
+    expect(JSON.parse(String(rehearsal.stderr))).toEqual({
+      status: 'failed',
+      stage: 'configuration',
+    });
+  });
+
+  it('refuses a mismatched endpoint, missing disposable attestation, or cleartext remote URL', () => {
+    const mismatchedHost = runLifecycleRehearsal(true, {
+      expectedHost: 'different-temporary-endpoint.invalid',
+    });
+    const missingDisposableAttestation = runLifecycleRehearsal(true, {
+      disposableConfirmed: false,
+    });
+    const cleartextRemote = runLifecycleRehearsal(true, {
+      databaseUrl: 'postgresql://rehearsal.invalid/rehearsal',
+      expectedHost: 'rehearsal.invalid',
+    });
+
+    for (const rehearsal of [
+      mismatchedHost,
+      missingDisposableAttestation,
+      cleartextRemote,
+    ]) {
+      expect(rehearsal.status).toBe(1);
+      expect(rehearsal.stdout).toBe('');
+      expect(JSON.parse(String(rehearsal.stderr))).toEqual({
+        status: 'failed',
+        stage: 'configuration',
+      });
+    }
+  });
+
+  it('uses a transaction-scoped rehearsal barrier that cannot leak across pooled sessions', async () => {
+    const rehearsalSource = await fs.readFile(
+      path.join(process.cwd(), 'scripts/rehearse-client-lifecycle.ts'),
+      'utf8',
+    );
+
+    expect(rehearsalSource).toContain('pg_advisory_xact_lock(');
+    expect(rehearsalSource).not.toMatch(/\bpg_advisory_lock\s*\(/);
+    expect(rehearsalSource).not.toMatch(/\bpg_advisory_unlock\s*\(/);
   });
 });
