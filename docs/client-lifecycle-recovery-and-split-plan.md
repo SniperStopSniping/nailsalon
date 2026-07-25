@@ -8,16 +8,18 @@ merged.
 
 The replacement sequence is:
 
-1. Production lifecycle stabilization.
-2. Edit Client only.
-3. Archive and Restore.
-4. Merge redesign.
-5. Permanent deletion deferred.
+1. PR 0A — Schema and Runtime Stabilization.
+2. PR 0B — Canonical Client Compatibility.
+3. Edit Client only.
+4. Archive and Restore.
+5. Merge redesign.
+6. Permanent deletion deferred.
 
-After the stabilization release is production-verified, record a path-level
+After both stabilization releases are production-verified, record a path-level
 extraction manifest for the remaining feature PRs and close PR #55 as
 superseded. Do not cherry-pick either of its large mixed feature commits
-wholesale.
+wholesale. All lifecycle product flags remain disabled until PR 0B is also
+merged and production-verified.
 
 ## 2. Immediate production risk
 
@@ -34,29 +36,57 @@ migration-blocking rows. However:
 - The health endpoint does not prove that lifecycle schema is ready.
 - Application promotion is not enforced as a migration-first process.
 
-All lifecycle feature flags must remain disabled until stabilization is
-deployed and verified. Increases in SQLSTATE `40P01`, `40001`, `55000`, lock
-waits, retention failures, or merged-source write failures are incident
+All lifecycle feature flags must remain disabled until both PR 0A and PR 0B
+are deployed and verified. Increases in SQLSTATE `40P01`, `40001`, `55000`,
+lock waits, retention failures, or merged-source write failures are incident
 signals.
 
 ## 3. Recommended PR sequence
 
-### PR 0 — Production lifecycle stabilization
+### PR 0A — Schema and Runtime Stabilization
 
 - **Purpose:** Reconcile repository history with the immutable 0061 already in
-  Production, add forward-only 0062 stabilization, make existing writers safe,
-  and add schema-readiness and migration-first release gates.
+  Production, add forward-only 0062 stabilization, make the proven current
+  writers compatible with the existing merged source, and add
+  schema-readiness and migration-first release gates.
 - **Scope:** Exact 0061 adoption, 0062, terminal-client compatibility, shared
-  lifecycle-active queries, deterministic PostgreSQL coverage, and additive
+  lifecycle-active queries, reminders and cancellation compatibility,
+  canonical cached totals, deterministic PostgreSQL coverage, and additive
   health/readiness checks.
-- **Exclusions:** No Edit, Merge, Archive, Restore, Delete, loyalty movement,
-  reward movement, external identity merge, or unrelated product work.
+- **Exclusions:** No historical-alias booking gate, current-email
+  confirmation/manage-link work, canonical reward lookup or issuance,
+  complete primary-profile history expansion, Edit, Merge, Archive, Restore,
+  Delete, loyalty movement, reward movement, external identity merge, or
+  unrelated product work.
 - **Dependency:** Latest clean production `main`.
-- **Expected size:** A focused medium PR dominated by migrations, tests, and
-  narrow writer compatibility changes.
+- **Expected size:** Approximately 46 changed files. Stop before entering
+  another subsystem or increasing the unique-file boundary.
 - **Review:** Independent database/platform and application/security review.
 - **Gate:** Production-shaped rehearsal, current-app compatibility, all CI,
   Vercel Preview, and no unresolved Critical, High, or Medium finding.
+
+PR 0A is foundational stabilization, not complete canonical client-lifecycle
+support.
+
+### PR 0B — Canonical Client Compatibility
+
+- **Purpose:** Close the remaining identity, contact, reward, and profile
+  correctness gaps before any lifecycle feature can be enabled.
+- **Scope:** Historical-alias active-appointment enforcement; current email
+  for confirmations and manage links; canonical reward lookup, issuance,
+  redemption, and race protection; primary-profile historical and financial
+  completeness; and count-only loyalty/reward/referral compatibility checks.
+- **Exclusions:** No Edit, Merge, Archive, Restore, Delete, lifecycle UI,
+  loyalty transfer, reward movement, or external identity merge.
+- **Dependency:** Branch only from the production-verified PR 0A result.
+- **Expected size:** At most approximately 30 changed files. If the path
+  manifest exceeds that limit, split into Identity/Contact Compatibility and
+  Economic/Reward Compatibility.
+- **Review:** Booking/authentication, rewards/financial, database/concurrency,
+  and application/security review.
+- **Gate:** Production-shaped rehearsal, canonical identity/economic
+  compatibility, all CI and Preview checks, and no unresolved Critical, High,
+  or Medium finding.
 
 ### PR 1 — Edit Client only
 
@@ -65,7 +95,7 @@ signals.
   protection.
 - **Exclusions:** Merge, archive, restore, delete, loyalty/reward movement, and
   external identity changes.
-- **Dependency:** PR 0 production-stable for at least 24 hours.
+- **Dependency:** PR 0B production-stable for at least 24 hours.
 - **Expected size:** Small.
 - **Review:** Application/security and booking reviewers.
 - **Gate:** Preview verification at desktop and exact 390x844, followed by
@@ -101,9 +131,10 @@ signals.
 Ordinary permanent deletion is removed from the initial lifecycle roadmap.
 Legal/privacy erasure is a separate audited workflow.
 
-## 4. Stabilization PR file plan
+## 4. PR 0A file plan
 
-The stabilization PR starts from latest clean production `main`.
+PR 0A starts from latest clean production `main` and remains near the approved
+46-file boundary.
 
 ### Mandatory history and schema files
 
@@ -137,27 +168,29 @@ evidence. Stop on any mismatch.
 
 ### Proven existing writers and reads
 
-Only writers and shared reads proven to diverge or fail for the existing
-merged-source state are eligible:
+Only writers and shared reads proven necessary for PR 0A compatibility with
+the existing merged-source state are eligible:
 
 - Retention communication and campaign preparation.
 - Appointment communication, review follow-up, cancellation, and update.
-- Reward redemption.
+- Cancellation-linked reward and point restoration.
 - Client flag updates.
 - Preferred-technician/staff resets.
 - Shared client queries and Client Insights.
 - Financial reporting and legacy Client Hub compatibility metrics.
+- Canonical cached visits, spend, no-show, and last-visit recalculation.
 
 Every production-code change requires focused regression coverage. No client
 profile lifecycle action component or lifecycle action route belongs in this
-PR.
+PR. Historical reward lookup/issuance, alias booking enforcement, current
+confirmation/manage-link email, and primary-profile expansion belong in PR 0B.
 
 ## 5. Repository adoption and forward migration design
 
 ### Exact 0061 repository adoption
 
 Current production-main repository history ends at journal index 60 while
-Production already contains the exact 0061 migration record and schema. PR 0
+Production already contains the exact 0061 migration record and schema. PR 0A
 must reconcile the repository before adding 0062.
 
 The adoption commit must contain:
@@ -279,7 +312,7 @@ referral -> review -> fraud_signal -> salon_client_note`.
 | Staff reset | Terminal clients in sorted batches |
 | Identity/session creation | Canonical client, aliases, customer account, sessions |
 
-PR 0 implements only compatibility behavior for existing operations. It does
+PR 0A implements only compatibility behavior for existing operations. It does
 not create Edit, Archive, Restore, or Merge transactions.
 
 Application transaction retry is limited to three complete attempts for
@@ -294,7 +327,7 @@ side effect require an idempotency or uniqueness guarantee before retry.
 | v1.33 + 0062 | Conditionally safe emergency compatibility | Lifecycle features disabled; no new lifecycle actions; merged-source operations monitored |
 | Stabilization app + 0061 | Unsafe for promotion | Readiness must fail and deployment must not receive production traffic |
 | Stabilization app + 0062 | Safe target state | Readiness passes and stabilization behavior is active |
-| Future Edit app + 0062 | Safe only after Edit's own gates | Merge/archive remain disabled |
+| Future Edit app + 0062 | Safe only after PR 0B and Edit's own gates | Merge/archive remain disabled |
 | Rollback to v1.33 with 0062 retained | Conditionally safe emergency compatibility | Lifecycle features disabled and stabilization restored promptly |
 
 The old application is not described as fully lifecycle-aware.
@@ -401,9 +434,9 @@ barriers or advisory locks, not arbitrary sleeps.
 | H1 | Populated migration with retention paused at lock boundaries |
 | H2 | Remove each required object and assert readiness failure/503 |
 | H3 | Child, review, campaign, appointment, and lifecycle interleavings |
-| H4 | Merge blocked for nonzero/manual loyalty value |
-| H5 | Alias reward lookup plus simultaneous issuance/redemption |
-| H6 | Concurrent current-contact and alias bookings yield one active appointment |
+| H4 | PR 0B blocks unsafe economic operations pending ledger-backed merge design |
+| H5 | PR 0B alias reward lookup plus simultaneous issuance/redemption |
+| H6 | PR 0B concurrent current-contact and alias bookings yield one active appointment |
 | H7 | Archive commits while outreach is paused; no later outreach state |
 | H8 | No ordinary delete action/route; deletion project remains gated |
 | M1 | Every proven v1.33 writer succeeds through terminal resolution |
@@ -412,7 +445,7 @@ barriers or advisory locks, not arbitrary sleeps.
 | M4 | Manual/automatic reminder parity for archived future appointments |
 | M5 | Required upgrade, compatibility, concurrency, browser, and coverage jobs |
 
-PR 0 additionally requires:
+PR 0A additionally requires:
 
 - Fresh full chain through 0060, exact 0061, and 0062.
 - Populated 0060 to exact 0061 to 0062.
@@ -453,12 +486,12 @@ deferred.
 
 Repository inspection must precede workflow edits. The existing path consists
 of CI on `main`, semantic-release after successful CI, and an external Vercel
-Git integration. PR 0 must not create a competing production deployment
+Git integration. PR 0A must not create a competing production deployment
 pipeline.
 
 The migration-first release runbook is:
 
-1. Keep PR 0 unmerged.
+1. Keep PR 0A unmerged.
 2. Approve one immutable PR head after CI, Preview, rehearsal, and review.
 3. Run count-only Production preflight from that immutable commit.
 4. Apply 0062.
@@ -468,7 +501,8 @@ The migration-first release runbook is:
 7. Only then merge the approved commit so the existing Vercel integration can
    deploy `main`.
 8. Verify the additive health response and deployed SHA.
-9. Keep all lifecycle flags disabled.
+9. Keep all lifecycle flags disabled through PR 0B deployment and production
+   verification.
 
 If this ordering cannot be guaranteed operationally, stop release and add
 enforcement through the existing deployment provider/settings rather than
@@ -515,7 +549,7 @@ audit history, or capability metadata.
 
 ## 13. Exit criteria
 
-### Stabilization PR may merge only when
+### PR 0A may merge only when
 
 - The plan-only commit is first.
 - Exact 0061 adoption is a separate verified commit.
@@ -532,11 +566,20 @@ audit history, or capability metadata.
 - Full CI, Vercel Preview, and independent database/security review have no
   Critical, High, or Medium blocker.
 
+### PR 0B may begin only when
+
+- PR 0A is deployed from its reviewed immutable commit.
+- Migration/readiness and current-writer signals are healthy.
+- Production-clone evidence contains no unexplained lifecycle inconsistency.
+- A path manifest confirms the approximately 30-file boundary or records the
+  approved Identity/Contact and Economic/Reward split.
+- All lifecycle flags remain disabled.
+
 ### Edit may begin only when
 
-Stabilization has operated in Production for at least 24 hours without
-lifecycle readiness, lock, writer, Client Insights, financial, or identity
-regression.
+PR 0B has operated in Production for at least 24 hours without lifecycle
+readiness, lock, writer, booking identity, reward, Client Insights, financial,
+or authentication regression.
 
 ### Archive/Restore may begin only when
 
@@ -551,7 +594,7 @@ approved, and reward/external identity handling is fail closed.
 
 ### PR #55 may be closed only when
 
-- Stabilization is production-verified.
+- PR 0A and PR 0B are production-verified.
 - Every useful PR #55 path is mapped to a successor or explicitly rejected.
 - No required audit, test, or evidence exists only in PR #55.
 - Its closing note states that it was never merged or deployed and is
