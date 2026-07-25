@@ -27,6 +27,14 @@ const {
       cancelReason: string | null;
       updatedAt: Date;
     }>,
+    lockedAppointmentRows: [] as Array<{
+      id: string;
+      salonId: string;
+      status: string;
+      cancelReason: string | null;
+      notes: string | null;
+      updatedAt: Date;
+    }>,
     rewardRows: [] as Array<{
       id: string;
       status: string;
@@ -45,13 +53,19 @@ const {
       && 'cancelReason' in projection
       && 'updatedAt' in projection,
     );
-    const limit = vi.fn(async () => (
-      readsCurrentAppointment
-        ? mockDbState.currentAppointmentRows
-        : mockDbState.rewardRows
-    ));
-    const where = vi.fn(() => ({ limit }));
-    const from = vi.fn(() => ({ where }));
+    const from = vi.fn((table: Record<string, unknown>) => {
+      const readsAppointmentTable = 'startTime' in table;
+      const limit = vi.fn(async () => (
+        readsCurrentAppointment
+          ? mockDbState.currentAppointmentRows
+          : readsAppointmentTable
+            ? mockDbState.lockedAppointmentRows
+            : mockDbState.rewardRows
+      ));
+      const forLock = vi.fn(() => ({ limit }));
+      const where = vi.fn(() => ({ for: forLock, limit }));
+      return { where };
+    });
     return { from };
   });
   const transitionReturning = vi.fn(async () => {
@@ -179,6 +193,14 @@ describe('appointment detail route auth', () => {
       status: 'cancelled',
       cancelReason: 'client_request',
       updatedAt: new Date('2026-07-17T16:00:00.000Z'),
+    }];
+    mockDbState.lockedAppointmentRows = [{
+      id: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      cancelReason: null,
+      notes: null,
+      updatedAt: new Date('2026-07-17T15:00:00.000Z'),
     }];
     mockDbState.rewardRows = [];
     mockDbState.transitionApplied = false;
@@ -374,6 +396,7 @@ describe('appointment detail route auth', () => {
   });
 
   it('resolves a merged source before refunding points and sending cancellation SMS', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes = '[Points redeemed: 100 pts]';
     requireAppointmentAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
@@ -470,6 +493,7 @@ describe('appointment detail route auth', () => {
   });
 
   it('resolves and locks a legacy phone client before the appointment CAS', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes = '[Points redeemed: 100 pts]';
     requireAppointmentAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
@@ -535,6 +559,7 @@ describe('appointment detail route auth', () => {
   });
 
   it('applies concurrent cancellation once without rewriting historical snapshots', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes = '[Points redeemed: 100 pts]';
     const historicalAppointment = Object.freeze({
       id: 'appt_1',
       salonId: 'salon_1',

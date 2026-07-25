@@ -625,6 +625,344 @@ describePostgres.sequential('client lifecycle PostgreSQL concurrency', () => {
     }
   });
 
+  it('serializes points redemption with cancellation without a lost or duplicate refund', async () => {
+    const observer = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-lifecycle-reward-cancel-observer',
+    });
+    await observer.connect();
+
+    const seedAppointment = async (appointmentId: string) => {
+      await pool.query(
+        `delete from appointment where id = $1`,
+        [appointmentId],
+      );
+      await pool.query(
+        `update salon_client
+         set loyalty_points = 1000
+         where salon_id = 'lifecycle-salon-a'
+           and id = 'lifecycle-primary'`,
+      );
+      await pool.query(
+        `insert into appointment (
+           id,
+           salon_id,
+           salon_client_id,
+           client_phone,
+           client_name,
+           start_time,
+           end_time,
+           status,
+           total_price,
+           total_duration_minutes,
+           notes
+         )
+         values (
+           $1,
+           'lifecycle-salon-a',
+           'lifecycle-primary',
+           'historic-reward-phone',
+           'Historical Snapshot',
+           '2027-05-01T15:00:00Z',
+           '2027-05-01T16:00:00Z',
+           'confirmed',
+           5000,
+           60,
+           null
+         )`,
+        [appointmentId],
+      );
+    };
+
+    const beginClient = async (applicationName: string) => {
+      const client = new Client({
+        connectionString: databaseUrl,
+        application_name: applicationName,
+      });
+      await client.connect();
+      await client.query('begin');
+      await client.query(`set local statement_timeout = '5s'`);
+      return client;
+    };
+
+    try {
+      // Redemption takes the terminal-client lock first. Cancellation waits,
+      // then reads the committed redemption marker under the appointment lock
+      // and restores the points exactly once.
+      const redemptionFirstId = 'lifecycle-reward-cancel-redemption-first';
+      await seedAppointment(redemptionFirstId);
+      const redemption = await beginClient(
+        'client-lifecycle-redemption-first',
+      );
+      const cancellation = await beginClient(
+        'client-lifecycle-cancel-second',
+      );
+
+      try {
+        await redemption.query(
+          `select id
+           from salon_client
+           where salon_id = 'lifecycle-salon-a'
+             and id = 'lifecycle-primary'
+           for update`,
+        );
+        const cancellationClientLock = cancellation.query(
+          `select id
+           from salon_client
+           where salon_id = 'lifecycle-salon-a'
+             and id = 'lifecycle-primary'
+           for update`,
+        );
+        await waitForLockWait(observer, 'client-lifecycle-cancel-second');
+
+        const lockedForRedemption = await redemption.query<{
+          status: string;
+        }>(
+          `select status
+           from appointment
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+           for update`,
+          [redemptionFirstId],
+        );
+
+        expect(lockedForRedemption.rows[0]?.status).toBe('confirmed');
+
+        await redemption.query(
+          `update appointment
+           set
+             total_price = total_price - 200,
+             notes = '[Points redeemed: Test - 1,000 pts for $2.00 off]'
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+             and status in ('pending', 'confirmed')`,
+          [redemptionFirstId],
+        );
+        await redemption.query(
+          `update salon_client
+           set loyalty_points = loyalty_points - 1000
+           where salon_id = 'lifecycle-salon-a'
+             and id = 'lifecycle-primary'`,
+        );
+        await redemption.query('commit');
+
+        await cancellationClientLock;
+        const lockedForCancellation = await cancellation.query<{
+          notes: string | null;
+          status: string;
+        }>(
+          `select status, notes
+           from appointment
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+           for update`,
+          [redemptionFirstId],
+        );
+        const cancellationTransition = await cancellation.query(
+          `update appointment
+           set status = 'cancelled', cancel_reason = 'client_request'
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+             and status in ('pending', 'confirmed', 'in_progress')
+           returning id`,
+          [redemptionFirstId],
+        );
+        if (
+          cancellationTransition.rowCount === 1
+          && lockedForCancellation.rows[0]?.notes?.includes('1,000 pts')
+        ) {
+          await cancellation.query(
+            `update salon_client
+             set loyalty_points = loyalty_points + 1000
+             where salon_id = 'lifecycle-salon-a'
+               and id = 'lifecycle-primary'`,
+          );
+        }
+        await cancellation.query('commit');
+
+        const retryCancellation = await pool.connect();
+        try {
+          await retryCancellation.query('begin');
+          await retryCancellation.query(
+            `select id
+             from salon_client
+             where salon_id = 'lifecycle-salon-a'
+               and id = 'lifecycle-primary'
+             for update`,
+          );
+          await retryCancellation.query(
+            `select id
+             from appointment
+             where salon_id = 'lifecycle-salon-a'
+               and id = $1
+             for update`,
+            [redemptionFirstId],
+          );
+          const retry = await retryCancellation.query(
+            `update appointment
+             set status = 'cancelled', cancel_reason = 'client_request'
+             where salon_id = 'lifecycle-salon-a'
+               and id = $1
+               and status in ('pending', 'confirmed', 'in_progress')
+             returning id`,
+            [redemptionFirstId],
+          );
+
+          expect(retry.rowCount).toBe(0);
+
+          await retryCancellation.query('commit');
+        } catch (error) {
+          await retryCancellation.query('rollback');
+          throw error;
+        } finally {
+          retryCancellation.release();
+        }
+
+        const redemptionFirstResult = await pool.query<{
+          client_phone: string;
+          loyalty_points: number;
+          notes: string | null;
+          status: string;
+          total_price: number;
+        }>(
+          `select
+             appointment.client_phone,
+             appointment.notes,
+             appointment.status,
+             appointment.total_price,
+             salon_client.loyalty_points
+           from appointment
+           inner join salon_client
+             on salon_client.id = appointment.salon_client_id
+            and salon_client.salon_id = appointment.salon_id
+           where appointment.id = $1`,
+          [redemptionFirstId],
+        );
+
+        expect(redemptionFirstResult.rows[0]).toEqual({
+          client_phone: 'historic-reward-phone',
+          loyalty_points: 1000,
+          notes: '[Points redeemed: Test - 1,000 pts for $2.00 off]',
+          status: 'cancelled',
+          total_price: 4800,
+        });
+      } finally {
+        await Promise.all([
+          redemption.query('rollback').catch(() => undefined),
+          cancellation.query('rollback').catch(() => undefined),
+        ]);
+        await Promise.all([redemption.end(), cancellation.end()]);
+      }
+
+      // Cancellation takes the terminal lock first. Redemption waits, sees the
+      // terminal appointment state under lock, and commits no economic change.
+      const cancellationFirstId = 'lifecycle-reward-cancel-cancellation-first';
+      await seedAppointment(cancellationFirstId);
+      const cancellationFirst = await beginClient(
+        'client-lifecycle-cancel-first',
+      );
+      const redemptionSecond = await beginClient(
+        'client-lifecycle-redemption-second',
+      );
+
+      try {
+        await cancellationFirst.query(
+          `select id
+           from salon_client
+           where salon_id = 'lifecycle-salon-a'
+             and id = 'lifecycle-primary'
+           for update`,
+        );
+        const redemptionClientLock = redemptionSecond.query(
+          `select id
+           from salon_client
+           where salon_id = 'lifecycle-salon-a'
+             and id = 'lifecycle-primary'
+           for update`,
+        );
+        await waitForLockWait(observer, 'client-lifecycle-redemption-second');
+
+        await cancellationFirst.query(
+          `select id
+           from appointment
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+           for update`,
+          [cancellationFirstId],
+        );
+        await cancellationFirst.query(
+          `update appointment
+           set status = 'cancelled', cancel_reason = 'client_request'
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+             and status in ('pending', 'confirmed', 'in_progress')`,
+          [cancellationFirstId],
+        );
+        await cancellationFirst.query('commit');
+
+        await redemptionClientLock;
+        const redemptionStatus = await redemptionSecond.query<{
+          status: string;
+        }>(
+          `select status
+           from appointment
+           where salon_id = 'lifecycle-salon-a'
+             and id = $1
+           for update`,
+          [cancellationFirstId],
+        );
+
+        expect(redemptionStatus.rows[0]?.status).toBe('cancelled');
+
+        await redemptionSecond.query('commit');
+
+        const cancellationFirstResult = await pool.query<{
+          client_phone: string;
+          loyalty_points: number;
+          notes: string | null;
+          status: string;
+          total_price: number;
+        }>(
+          `select
+             appointment.client_phone,
+             appointment.notes,
+             appointment.status,
+             appointment.total_price,
+             salon_client.loyalty_points
+           from appointment
+           inner join salon_client
+             on salon_client.id = appointment.salon_client_id
+            and salon_client.salon_id = appointment.salon_id
+           where appointment.id = $1`,
+          [cancellationFirstId],
+        );
+
+        expect(cancellationFirstResult.rows[0]).toEqual({
+          client_phone: 'historic-reward-phone',
+          loyalty_points: 1000,
+          notes: null,
+          status: 'cancelled',
+          total_price: 5000,
+        });
+      } finally {
+        await Promise.all([
+          cancellationFirst.query('rollback').catch(() => undefined),
+          redemptionSecond.query('rollback').catch(() => undefined),
+        ]);
+        await Promise.all([cancellationFirst.end(), redemptionSecond.end()]);
+      }
+    } finally {
+      await observer.end();
+      await pool.query(
+        `delete from appointment
+         where id in (
+           'lifecycle-reward-cancel-redemption-first',
+           'lifecycle-reward-cancel-cancellation-first'
+         )`,
+      );
+    }
+  }, 20_000);
+
   it('recovers one real opposing-row deadlock and commits each idempotent operation once', async () => {
     await pool.query(`
       drop table if exists client_lifecycle_deadlock_commit;

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import {
   lockOperationalSalonClientContactWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -80,6 +81,13 @@ function invalidStateResponse(status: string): Response {
   );
 }
 
+function pointsRedeemedFromNotes(notes: string | null): number {
+  const match = (notes ?? '').match(
+    /\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/,
+  );
+  return match ? Number.parseInt(match[1]!.replace(/,/g, ''), 10) : 0;
+}
+
 // =============================================================================
 // PATCH /api/appointments/[id]/cancel - Cancel an appointment
 // =============================================================================
@@ -139,12 +147,6 @@ export async function PATCH(
       return invalidStateResponse(appointment.status);
     }
 
-    const notesText = appointment.notes || '';
-    const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
-    const pointsToRefund = pointsRedeemedMatch
-      ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
-      : 0;
-
     // The terminal transition and every balance mutation are one atomic unit.
     // The status predicate is the compare-and-set: concurrent requests may both
     // authenticate against the old snapshot, but exactly one can transition the
@@ -160,15 +162,71 @@ export async function PATCH(
     } else {
       transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<CancellationTransition> => {
-          const operationalClient = appointment.salonClientId
+          let operationalClient = appointment.salonClientId
             ? await lockOperationalSalonClientContactWithHandle(tx, {
               salonId: appointment.salonId,
               clientId: appointment.salonClientId,
               allowArchived: true,
             })
             : null;
+          if (!operationalClient) {
+            const terminalClient
+              = await resolveOperationalSalonClientByPhoneWithHandle(tx, {
+                salonId: appointment.salonId,
+                phone: appointment.clientPhone,
+                allowArchived: true,
+              });
+            operationalClient = terminalClient
+              ? await lockOperationalSalonClientContactWithHandle(tx, {
+                salonId: appointment.salonId,
+                clientId: terminalClient.id,
+                allowArchived: true,
+              })
+              : null;
+          }
           operationalClientPhone
             = operationalClient?.phone ?? appointment.clientPhone;
+          const [lockedAppointment] = await tx
+            .select()
+            .from(appointmentSchema)
+            .where(and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, appointment.salonId),
+            ))
+            .for('update')
+            .limit(1);
+
+          if (!lockedAppointment) {
+            return {
+              applied: false,
+              conflictStatus: 'missing',
+              cancelledAt: now,
+            };
+          }
+
+          if (isSameCancellation(
+            lockedAppointment,
+            resolvedStatus,
+            validated.data.cancelReason,
+          )) {
+            return {
+              applied: false,
+              conflictStatus: null,
+              cancelledAt: lockedAppointment.updatedAt,
+            };
+          }
+
+          if (!CANCELLABLE_STATUSES.includes(lockedAppointment.status)) {
+            return {
+              applied: false,
+              conflictStatus: lockedAppointment.status,
+              cancelledAt: now,
+            };
+          }
+
+          const pointsToRefund = pointsRedeemedFromNotes(
+            lockedAppointment.notes,
+          );
           const [cancelledAppointment] = await tx
             .update(appointmentSchema)
             .set({
@@ -176,7 +234,7 @@ export async function PATCH(
               canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
               canvasStateUpdatedAt: now,
               cancelReason: validated.data.cancelReason,
-              notes: validated.data.notes || appointment.notes,
+              notes: validated.data.notes || lockedAppointment.notes,
               updatedAt: now,
             })
             .where(
@@ -245,20 +303,7 @@ export async function PATCH(
               ));
           }
 
-          if (pointsToRefund > 0) {
-            const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
-            const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-              ? normalizedPhone.slice(1)
-              : normalizedPhone;
-            const phoneVariants = [
-              tenDigitPhone,
-              `+1${tenDigitPhone}`,
-              appointment.clientPhone,
-            ];
-            const clientIdentity = operationalClient
-              ? eq(salonClientSchema.id, operationalClient.id)
-              : inArray(salonClientSchema.phone, phoneVariants);
-
+          if (pointsToRefund > 0 && operationalClient) {
             await tx
               .update(salonClientSchema)
               .set({
@@ -266,7 +311,7 @@ export async function PATCH(
               })
               .where(and(
                 eq(salonClientSchema.salonId, appointment.salonId),
-                clientIdentity,
+                eq(salonClientSchema.id, operationalClient.id),
               ));
           }
 

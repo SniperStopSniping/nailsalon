@@ -12,6 +12,10 @@ import {
   requireClientApiSession,
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
+import {
+  lockOperationalSalonClientContactWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
@@ -55,6 +59,24 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+type RedemptionTransactionResult =
+  | {
+    ok: true;
+    discountApplied: number;
+    newPointsBalance: number;
+    newTotalPrice: number;
+  }
+  | {
+    ok: false;
+    code:
+      | 'APPOINTMENT_NOT_FOUND'
+      | 'FIRST_VISIT_DISCOUNT_ALREADY_APPLIED'
+      | 'INSUFFICIENT_POINTS'
+      | 'INVALID_APPOINTMENT_STATUS';
+    message: string;
+    status: 400 | 404;
+  };
 
 // =============================================================================
 // Points to discount conversion
@@ -157,22 +179,8 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const currentPoints = salonClient.loyaltyPoints ?? 0;
-
-    // 4. Check if client has enough points
-    if (currentPoints < rewardPoints) {
-      return Response.json(
-        {
-          error: {
-            code: 'INSUFFICIENT_POINTS',
-            message: `You need ${rewardPoints.toLocaleString()} points but only have ${currentPoints.toLocaleString()}`,
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
-    }
-
-    // 5. Verify the appointment exists and belongs to this client
+    // 4. Verify the appointment exists and belongs to this client. The same
+    // predicate is rechecked after both rows are locked inside the transaction.
     const appointments = await db
       .select()
       .from(appointmentSchema)
@@ -199,7 +207,8 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // Check appointment status - only allow for pending/confirmed
+    // Preserve the existing fast-fail responses. These checks are advisory
+    // only; the locked transaction below is authoritative.
     if (!['pending', 'confirmed'].includes(appointment.status)) {
       return Response.json(
         {
@@ -224,45 +233,145 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 6. Calculate the discount (in cents)
-    const discountCents = pointsToDiscountCents(rewardPoints);
-    const discountApplied = Math.min(discountCents, appointment.totalPrice);
-    const newTotalPrice = Math.max(0, appointment.totalPrice - discountApplied);
-    const newPointsBalance = currentPoints - rewardPoints;
+    // 5. Global order: lock the same-salon terminal client first, then the
+    // appointment. Cancellation follows the same order, so neither path can
+    // hold one row while waiting for the other in reverse.
+    const result = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx): Promise<RedemptionTransactionResult> => {
+        const operationalClient
+          = await lockOperationalSalonClientContactWithHandle(tx, {
+            salonId: salon.id,
+            clientId: salonClient.id,
+            allowArchived: true,
+          });
 
-    // Format for display
-    const discountDollars = (discountApplied / 100).toFixed(2);
+        const [lockedAppointment] = await tx
+          .select()
+          .from(appointmentSchema)
+          .where(
+            and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, salon.id),
+              inArray(appointmentSchema.clientPhone, phoneVariants),
+            ),
+          )
+          .for('update')
+          .limit(1);
 
-    // 7. Apply the discount and deduct points in a transaction
-    await db.transaction(async (tx) => {
-      // Update the appointment price
-      await tx
-        .update(appointmentSchema)
-        .set({
-          totalPrice: newTotalPrice,
-          notes: appointment.notes
-            ? `${appointment.notes}\n[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`
-            : `[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`,
-        })
-        .where(
-          and(
-            eq(appointmentSchema.id, appointmentId),
-            eq(appointmentSchema.salonId, salon.id),
-          ),
+        if (!lockedAppointment) {
+          return {
+            ok: false,
+            code: 'APPOINTMENT_NOT_FOUND',
+            message: 'Appointment not found or does not belong to you',
+            status: 404,
+          };
+        }
+
+        if (!['pending', 'confirmed'].includes(lockedAppointment.status)) {
+          return {
+            ok: false,
+            code: 'INVALID_APPOINTMENT_STATUS',
+            message: 'Rewards can only be applied to pending or confirmed appointments',
+            status: 400,
+          };
+        }
+
+        if (lockedAppointment.discountType === FIRST_VISIT_DISCOUNT_TYPE) {
+          return {
+            ok: false,
+            code: 'FIRST_VISIT_DISCOUNT_ALREADY_APPLIED',
+            message: 'Points cannot be redeemed on an appointment that already has the first-visit discount applied',
+            status: 400,
+          };
+        }
+
+        const [lockedClient] = await tx
+          .select({
+            loyaltyPoints: salonClientSchema.loyaltyPoints,
+          })
+          .from(salonClientSchema)
+          .where(
+            and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, operationalClient.id),
+            ),
+          )
+          .limit(1);
+        const lockedPoints = lockedClient?.loyaltyPoints ?? 0;
+
+        if (lockedPoints < rewardPoints) {
+          return {
+            ok: false,
+            code: 'INSUFFICIENT_POINTS',
+            message: `You need ${rewardPoints.toLocaleString()} points but only have ${lockedPoints.toLocaleString()}`,
+            status: 400,
+          };
+        }
+
+        const discountCents = pointsToDiscountCents(rewardPoints);
+        const discountApplied = Math.min(
+          discountCents,
+          lockedAppointment.totalPrice,
         );
+        const newTotalPrice = Math.max(
+          0,
+          lockedAppointment.totalPrice - discountApplied,
+        );
+        const newPointsBalance = lockedPoints - rewardPoints;
+        const discountDollars = (discountApplied / 100).toFixed(2);
 
-      // Deduct points from client's balance
-      await tx
-        .update(salonClientSchema)
-        .set({
-          loyaltyPoints: sql`GREATEST(0, COALESCE(${salonClientSchema.loyaltyPoints}, 0) - ${rewardPoints})`,
-        })
-        .where(eq(salonClientSchema.id, salonClient.id));
-    });
+        await tx
+          .update(appointmentSchema)
+          .set({
+            totalPrice: newTotalPrice,
+            notes: lockedAppointment.notes
+              ? `${lockedAppointment.notes}\n[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`
+              : `[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`,
+          })
+          .where(
+            and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, salon.id),
+              eq(appointmentSchema.status, lockedAppointment.status),
+            ),
+          );
 
-    // 8. Return success response (convert cents to dollars for display)
-    const discountAppliedDollars = discountApplied / 100;
-    const newTotalPriceDollars = newTotalPrice / 100;
+        await tx
+          .update(salonClientSchema)
+          .set({
+            loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) - ${rewardPoints}`,
+          })
+          .where(
+            and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, operationalClient.id),
+            ),
+          );
+
+        return {
+          ok: true,
+          discountApplied,
+          newPointsBalance,
+          newTotalPrice,
+        };
+      }),
+    );
+
+    if (!result.ok) {
+      return Response.json(
+        {
+          error: {
+            code: result.code,
+            message: result.message,
+          },
+        } satisfies ErrorResponse,
+        { status: result.status },
+      );
+    }
+
+    // 6. Return success response (convert cents to dollars for display)
+    const discountAppliedDollars = result.discountApplied / 100;
+    const newTotalPriceDollars = result.newTotalPrice / 100;
 
     const response: SuccessResponse = {
       data: {
@@ -270,7 +379,7 @@ export async function POST(request: Request): Promise<Response> {
         pointsSpent: rewardPoints,
         discountApplied: discountAppliedDollars,
         newTotalPrice: newTotalPriceDollars,
-        newPointsBalance,
+        newPointsBalance: result.newPointsBalance,
         message: `Success! You used ${rewardPoints.toLocaleString()} points and saved $${discountAppliedDollars.toFixed(2)}.`,
       },
       meta: {

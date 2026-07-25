@@ -80,6 +80,13 @@ function cancellationConflictResponse(status: string): Response {
   );
 }
 
+function pointsRedeemedFromNotes(notes: string | null): number {
+  const match = (notes ?? '').match(
+    /\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/,
+  );
+  return match ? Number.parseInt(match[1]!.replace(/,/g, ''), 10) : 0;
+}
+
 // =============================================================================
 // PATCH /api/appointments/[id] - Update appointment status
 // =============================================================================
@@ -176,11 +183,6 @@ export async function PATCH(
     if (data.status === 'cancelled') {
       const requestedReason
         = data.cancelReason ?? existingAppointment.cancelReason ?? null;
-      const notesText = existingAppointment.notes || '';
-      const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
-      const pointsToRefund = pointsRedeemedMatch
-        ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
-        : 0;
 
       if (existingAppointment.status === 'cancelled') {
         if (existingAppointment.cancelReason !== requestedReason) {
@@ -223,6 +225,58 @@ export async function PATCH(
             }
             const currentPhone
               = operationalClient?.phone ?? existingAppointment.clientPhone;
+            const [lockedAppointment] = await tx
+              .select()
+              .from(appointmentSchema)
+              .where(
+                and(
+                  eq(appointmentSchema.id, appointmentId),
+                  eq(appointmentSchema.salonId, existingAppointment.salonId),
+                ),
+              )
+              .for('update')
+              .limit(1);
+
+            if (!lockedAppointment) {
+              return {
+                applied: false,
+                appointment: existingAppointment,
+                conflictStatus: 'missing',
+                operationalClientPhone: currentPhone,
+              };
+            }
+
+            if (lockedAppointment.status === 'cancelled') {
+              if (lockedAppointment.cancelReason === requestedReason) {
+                return {
+                  applied: false,
+                  appointment: lockedAppointment,
+                  conflictStatus: null,
+                  operationalClientPhone: currentPhone,
+                };
+              }
+              return {
+                applied: false,
+                appointment: lockedAppointment,
+                conflictStatus: lockedAppointment.status,
+                operationalClientPhone: currentPhone,
+              };
+            }
+
+            if (!CANCELLABLE_STATUSES.includes(
+              lockedAppointment.status as (typeof APPOINTMENT_STATUSES)[number],
+            )) {
+              return {
+                applied: false,
+                appointment: lockedAppointment,
+                conflictStatus: lockedAppointment.status,
+                operationalClientPhone: currentPhone,
+              };
+            }
+
+            const pointsToRefund = pointsRedeemedFromNotes(
+              lockedAppointment.notes,
+            );
             const now = new Date();
             const [cancelledAppointment] = await tx
               .update(appointmentSchema)
@@ -235,7 +289,7 @@ export async function PATCH(
                 and(
                   eq(appointmentSchema.id, appointmentId),
                   eq(appointmentSchema.salonId, existingAppointment.salonId),
-                  eq(appointmentSchema.status, existingAppointment.status),
+                  eq(appointmentSchema.status, lockedAppointment.status),
                   inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
                 ),
               )
