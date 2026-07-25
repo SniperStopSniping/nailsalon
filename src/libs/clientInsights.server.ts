@@ -9,6 +9,7 @@ import {
 } from '@/libs/clientInsights';
 import { db } from '@/libs/DB';
 import { buildFinancialBalanceSql } from '@/libs/financialReportingServer';
+import { normalizePhone } from '@/libs/phone';
 import {
   RETENTION_PROMO_6W_DAYS,
   RETENTION_PROMO_8W_DAYS,
@@ -161,7 +162,7 @@ export function buildClientInsightsProjectionSql(
   });
 
   return sql`
-    WITH
+    WITH RECURSIVE
     insight_params AS (
       SELECT
         ${input.salonId}::text AS salon_id,
@@ -187,11 +188,13 @@ export function buildClientInsightsProjectionSql(
         sc.no_show_count,
         sc.loyalty_points,
         sc.created_at,
+        sc.archived_at,
+        sc.merged_into_client_id,
         regexp_replace(COALESCE(sc.phone, ''), '[^0-9]', '', 'g') AS phone_digits
       FROM salon_client sc
       INNER JOIN insight_params p ON p.salon_id = sc.salon_id
     ),
-    client_base AS (
+    client_records AS (
       SELECT
         cd.*,
         CASE
@@ -202,15 +205,142 @@ export function buildClientInsightsProjectionSql(
         END AS normalized_phone
       FROM client_digits cd
     ),
-    unique_client_phone AS (
+    client_walk AS (
       SELECT
-        cb.salon_id,
-        cb.normalized_phone,
-        min(cb.id) AS client_id
-      FROM client_base cb
-      WHERE cb.normalized_phone IS NOT NULL
-      GROUP BY cb.salon_id, cb.normalized_phone
-      HAVING count(*) = 1
+        client.salon_id,
+        client.id AS source_client_id,
+        client.id AS current_client_id,
+        client.merged_into_client_id AS next_client_id,
+        client.archived_at AS current_archived_at,
+        ARRAY[client.id]::text[] AS path,
+        0 AS depth
+      FROM client_records client
+
+      UNION ALL
+
+      SELECT
+        walk.salon_id,
+        walk.source_client_id,
+        target.id AS current_client_id,
+        target.merged_into_client_id AS next_client_id,
+        target.archived_at AS current_archived_at,
+        walk.path || target.id,
+        walk.depth + 1
+      FROM client_walk walk
+      INNER JOIN client_records target
+        ON target.salon_id = walk.salon_id
+       AND target.id = walk.next_client_id
+      WHERE walk.next_client_id IS NOT NULL
+        AND walk.depth < 15
+        AND NOT target.id = ANY(walk.path)
+    ),
+    client_terminal_map AS (
+      SELECT
+        walk.salon_id,
+        walk.source_client_id,
+        walk.current_client_id AS terminal_client_id
+      FROM client_walk walk
+      WHERE walk.next_client_id IS NULL
+        AND walk.current_archived_at IS NULL
+    ),
+    client_base AS (
+      SELECT client.*
+      FROM client_records client
+      INNER JOIN client_terminal_map terminal
+        ON terminal.salon_id = client.salon_id
+       AND terminal.source_client_id = client.id
+       AND terminal.terminal_client_id = client.id
+      WHERE client.archived_at IS NULL
+        AND client.merged_into_client_id IS NULL
+    ),
+    canonical_contact_values AS (
+      SELECT DISTINCT
+        terminal.salon_id,
+        terminal.terminal_client_id,
+        'phone'::text AS kind,
+        client.normalized_phone AS normalized_value
+      FROM client_records client
+      INNER JOIN client_terminal_map terminal
+        ON terminal.salon_id = client.salon_id
+       AND terminal.source_client_id = client.id
+      WHERE client.normalized_phone IS NOT NULL
+
+      UNION
+
+      SELECT DISTINCT
+        terminal.salon_id,
+        terminal.terminal_client_id,
+        'email'::text AS kind,
+        lower(btrim(client.email)) AS normalized_value
+      FROM client_records client
+      INNER JOIN client_terminal_map terminal
+        ON terminal.salon_id = client.salon_id
+       AND terminal.source_client_id = client.id
+      WHERE NULLIF(btrim(client.email), '') IS NOT NULL
+
+      UNION
+
+      SELECT DISTINCT
+        terminal.salon_id,
+        terminal.terminal_client_id,
+        alias.kind,
+        CASE
+          WHEN alias.kind = 'phone' THEN
+            CASE
+              WHEN length(regexp_replace(
+                alias.normalized_value,
+                '[^0-9]',
+                '',
+                'g'
+              )) = 10
+                THEN regexp_replace(alias.normalized_value, '[^0-9]', '', 'g')
+              WHEN length(regexp_replace(
+                alias.normalized_value,
+                '[^0-9]',
+                '',
+                'g'
+              )) = 11
+                AND left(regexp_replace(
+                  alias.normalized_value,
+                  '[^0-9]',
+                  '',
+                  'g'
+                ), 1) = '1'
+                THEN right(regexp_replace(
+                  alias.normalized_value,
+                  '[^0-9]',
+                  '',
+                  'g'
+                ), 10)
+              ELSE NULL
+            END
+          ELSE lower(btrim(alias.normalized_value))
+        END AS normalized_value
+      FROM salon_client_contact_alias alias
+      INNER JOIN insight_params p ON p.salon_id = alias.salon_id
+      INNER JOIN client_terminal_map terminal
+        ON terminal.salon_id = alias.salon_id
+       AND terminal.source_client_id = alias.salon_client_id
+      WHERE alias.kind IN ('phone', 'email')
+    ),
+    canonical_contacts AS (
+      SELECT DISTINCT
+        contact.salon_id,
+        contact.terminal_client_id,
+        contact.kind,
+        contact.normalized_value
+      FROM canonical_contact_values contact
+      WHERE NULLIF(contact.normalized_value, '') IS NOT NULL
+    ),
+    unique_canonical_phone AS (
+      SELECT
+        contact.salon_id,
+        contact.normalized_value AS normalized_phone,
+        min(contact.terminal_client_id) AS client_id
+      FROM canonical_contacts contact
+      WHERE contact.kind = 'phone'
+      GROUP BY contact.salon_id, contact.normalized_value
+      HAVING count(DISTINCT contact.terminal_client_id) = 1
     ),
     appointment_digits AS (
       SELECT
@@ -262,17 +392,17 @@ export function buildClientInsightsProjectionSql(
       SELECT
         ac.*,
         CASE
-          WHEN ac.salon_client_id IS NOT NULL THEN stable.id
+          WHEN ac.salon_client_id IS NOT NULL THEN stable.terminal_client_id
           ELSE legacy.client_id
         END AS resolved_client_id,
         COALESCE(pa.positive_payment_cents, 0)::bigint AS positive_payment_cents,
         COALESCE(pa.has_payment_history, false) AS has_payment_history
       FROM appointment_candidates ac
-      LEFT JOIN client_base stable
+      LEFT JOIN client_terminal_map stable
         ON ac.salon_client_id IS NOT NULL
        AND stable.salon_id = ac.salon_id
-       AND stable.id = ac.salon_client_id
-      LEFT JOIN unique_client_phone legacy
+       AND stable.source_client_id = ac.salon_client_id
+      LEFT JOIN unique_canonical_phone legacy
         ON ac.salon_client_id IS NULL
        AND legacy.salon_id = ac.salon_id
        AND legacy.normalized_phone = ac.normalized_phone
@@ -410,6 +540,21 @@ export function buildClientInsightsProjectionSql(
           AT TIME ZONE lifecycle.time_zone AS expected_return_at
       FROM lifecycle
     ),
+    resolved_communications AS (
+      SELECT
+        communication.id,
+        communication.salon_id,
+        terminal.terminal_client_id AS resolved_client_id,
+        communication.kind,
+        communication.status,
+        communication.snoozed_until,
+        communication.created_at
+      FROM client_communication communication
+      INNER JOIN insight_params p ON p.salon_id = communication.salon_id
+      INNER JOIN client_terminal_map terminal
+        ON terminal.salon_id = communication.salon_id
+       AND terminal.source_client_id = communication.salon_client_id
+    ),
     communication_ranked AS (
       SELECT
         lifecycle.client_id,
@@ -420,9 +565,9 @@ export function buildClientInsightsProjectionSql(
           ORDER BY communication.created_at DESC, communication.id DESC
         ) AS communication_rank
       FROM lifecycle_stage lifecycle
-      INNER JOIN client_communication communication
+      INNER JOIN resolved_communications communication
         ON communication.salon_id = lifecycle.salon_id
-       AND communication.salon_client_id = lifecycle.client_id
+       AND communication.resolved_client_id = lifecycle.client_id
        AND communication.kind = lifecycle.outreach_stage
        AND communication.created_at >= lifecycle.last_completed_at
       WHERE lifecycle.outreach_stage IS NOT NULL
@@ -719,11 +864,32 @@ export function buildClientInsightsDirectoryQuery(
   const projection = buildClientInsightsProjectionSql(input);
   const segmentPredicate = SEGMENT_SQL[input.segment];
   const search = input.search?.trim();
+  const normalizedPhoneSearch = search && /^[+\d().\-\s]+$/.test(search)
+    ? normalizePhone(search)
+    : '';
+  const canonicalContactPredicate = search
+    ? normalizedPhoneSearch
+      ? sql`(
+          contact.kind = 'email'
+            AND contact.normalized_value ILIKE ${`%${search.toLowerCase()}%`}
+          OR contact.kind = 'phone'
+            AND contact.normalized_value ILIKE ${`%${normalizedPhoneSearch}%`}
+        )`
+      : sql`contact.kind = 'email'
+          AND contact.normalized_value ILIKE ${`%${search.toLowerCase()}%`}`
+    : sql`false`;
   const searchPredicate = search
     ? sql`AND (
-        full_name ILIKE ${`%${search}%`}
-        OR phone ILIKE ${`%${search}%`}
-        OR email ILIKE ${`%${search}%`}
+        classified.full_name ILIKE ${`%${search}%`}
+        OR classified.phone ILIKE ${`%${search}%`}
+        OR classified.email ILIKE ${`%${search}%`}
+        OR EXISTS (
+          SELECT 1
+          FROM canonical_contacts contact
+          WHERE contact.salon_id = classified.salon_id
+            AND contact.terminal_client_id = classified.client_id
+            AND ${canonicalContactPredicate}
+        )
       )`
     : sql``;
   const orderBy = directoryOrderSql(input.sortBy, input.sortOrder);

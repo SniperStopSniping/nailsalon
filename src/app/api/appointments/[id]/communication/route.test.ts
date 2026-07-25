@@ -5,11 +5,12 @@ const {
   db,
   getRetentionSettingsForSalon,
   getSalonClientById,
-  getSalonClientByPhone,
   insertedValues,
   lifecycleOperations,
   lifecycleState,
   lockTerminalSalonClientWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClient,
   requireAppointmentManagerAccess,
   selectQueue,
   updateSets,
@@ -80,7 +81,6 @@ const {
     },
     getRetentionSettingsForSalon: vi.fn(),
     getSalonClientById: vi.fn(),
-    getSalonClientByPhone: vi.fn(),
     insertedValues,
     lifecycleOperations,
     lifecycleState,
@@ -101,6 +101,20 @@ const {
           : [input.clientId],
       };
     }),
+    resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
+    resolveTerminalSalonClient: vi.fn(async (
+      input: { salonId: string; clientId: string },
+    ) => ({
+      id: lifecycleState.terminalClientId ?? input.clientId,
+      salonId: input.salonId,
+      archivedAt: null,
+      redirectedFromClientId: lifecycleState.terminalClientId
+        ? input.clientId
+        : null,
+      lineagePath: lifecycleState.terminalClientId
+        ? [input.clientId, lifecycleState.terminalClientId]
+        : [input.clientId],
+    })),
     requireAppointmentManagerAccess: vi.fn(),
     selectQueue,
     updateSets,
@@ -112,10 +126,12 @@ const {
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   lockTerminalSalonClientWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
 }));
 vi.mock('@/libs/DB', () => ({ db }));
-vi.mock('@/libs/queries', () => ({ getSalonClientById, getSalonClientByPhone }));
+vi.mock('@/libs/queries', () => ({ getSalonClientById }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
 vi.mock('@/libs/routeAccessGuards', () => ({ requireAppointmentManagerAccess }));
 
@@ -185,7 +201,7 @@ describe('/api/appointments/[id]/communication', () => {
       appointment,
     });
     getSalonClientById.mockResolvedValue(client);
-    getSalonClientByPhone.mockResolvedValue(null);
+    resolveOperationalSalonClientByPhoneWithHandle.mockResolvedValue(null);
     getRetentionSettingsForSalon.mockResolvedValue({ reminderLeadHours: 24 });
   });
 
@@ -239,7 +255,6 @@ describe('/api/appointments/[id]/communication', () => {
 
   it('returns an untracked empty state when a legacy appointment has no salon client', async () => {
     getSalonClientById.mockResolvedValue(null);
-    getSalonClientByPhone.mockResolvedValue(null);
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
@@ -250,6 +265,82 @@ describe('/api/appointments/[id]/communication', () => {
       data: { reminderDue: false, history: [] },
     });
     expect(db.select).not.toHaveBeenCalled();
+    expect(resolveOperationalSalonClientByPhoneWithHandle).not.toHaveBeenCalled();
+  });
+
+  it('loads merged-source communication history through the active terminal', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientById.mockResolvedValue({
+      ...client,
+      id: 'primary_client',
+    });
+    selectQueue.push([
+      communication({
+        salonClientId: 'primary_client',
+      }),
+    ], []);
+
+    const response = await GET(
+      new Request('https://app.test/api/appointments/appt_1/communication'),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'client_1',
+    });
+    expect(getSalonClientById).toHaveBeenCalledWith(
+      'salon_1',
+      'primary_client',
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        history: [{
+          clientId: 'primary_client',
+        }],
+      },
+    });
+  });
+
+  it('loads a null-ID legacy appointment through a private historical phone alias', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'staff',
+      session: { technicianId: 'tech_1' },
+      appointment: {
+        ...appointment,
+        salonClientId: null,
+        clientPhone: '4165559999',
+      },
+    });
+    resolveOperationalSalonClientByPhoneWithHandle.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'source_client',
+      lineagePath: ['source_client', 'primary_client'],
+    });
+    getSalonClientById.mockResolvedValue({
+      ...client,
+      id: 'primary_client',
+    });
+    selectQueue.push([], []);
+
+    const response = await GET(
+      new Request('https://app.test/api/appointments/appt_1/communication'),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveOperationalSalonClientByPhoneWithHandle).toHaveBeenCalledWith(
+      db,
+      { salonId: 'salon_1', phone: '4165559999' },
+    );
+    expect(getSalonClientById).toHaveBeenCalledWith(
+      'salon_1',
+      'primary_client',
+    );
   });
 
   it('records sanitized appointment outreach for assigned staff', async () => {
@@ -367,7 +458,6 @@ describe('/api/appointments/[id]/communication', () => {
 
   it('keeps contact actions usable when communication tracking has no client row', async () => {
     getSalonClientById.mockResolvedValue(null);
-    getSalonClientByPhone.mockResolvedValue(null);
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/communication', {

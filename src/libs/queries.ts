@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
+import { CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH } from '@/libs/clientLifecycleStabilization';
 import {
   type AddOn,
   addOnSchema,
@@ -965,16 +966,76 @@ export async function getSalonClients(
   } = options;
 
   // Build where conditions
-  const conditions = [eq(salonClientSchema.salonId, salonId)];
+  const conditions = [
+    eq(salonClientSchema.salonId, salonId),
+    isNull(salonClientSchema.archivedAt),
+    isNull(salonClientSchema.mergedIntoClientId),
+  ];
 
   // Add search filter
   if (search) {
     const searchPattern = `%${search}%`;
+    const normalizedPhoneSearch = /^[+\d().\-\s]+$/.test(search)
+      ? normalizePhone(search)
+      : '';
+    const phoneSearchPattern = `%${normalizedPhoneSearch}%`;
+    const lineageContactMatch = sql<boolean>`
+      exists (
+        with recursive directory_lineage(id, path, depth) as (
+          select
+            ${salonClientSchema.id},
+            array[${salonClientSchema.id}]::text[],
+            0
+
+          union all
+
+          select
+            source.id,
+            directory_lineage.path || source.id,
+            directory_lineage.depth + 1
+          from directory_lineage
+          inner join salon_client as source
+            on source.salon_id = ${salonId}
+           and source.merged_into_client_id = directory_lineage.id
+           and source.archived_at is not null
+          where directory_lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+            and not source.id = any(directory_lineage.path)
+        )
+        select 1
+        from directory_lineage
+        inner join salon_client as lineage_client
+          on lineage_client.salon_id = ${salonId}
+         and lineage_client.id = directory_lineage.id
+        where (
+          ${normalizedPhoneSearch !== ''
+            ? sql`lineage_client.phone ilike ${phoneSearchPattern}`
+            : sql`false`}
+        )
+           or lineage_client.email ilike ${searchPattern}
+           or exists (
+             select 1
+             from salon_client_contact_alias as contact_alias
+             where contact_alias.salon_id = ${salonId}
+               and contact_alias.salon_client_id = directory_lineage.id
+               and (
+                 (
+                   contact_alias.kind = 'phone'
+                   and ${normalizedPhoneSearch !== ''
+                      ? sql`contact_alias.normalized_value ilike ${phoneSearchPattern}`
+                      : sql`false`}
+                 )
+                 or (
+                   contact_alias.kind = 'email'
+                   and contact_alias.normalized_value ilike ${searchPattern}
+                 )
+               )
+           )
+      )
+    `;
     conditions.push(
       or(
         ilike(salonClientSchema.fullName, searchPattern),
-        ilike(salonClientSchema.phone, searchPattern),
-        ilike(salonClientSchema.email, searchPattern),
+        lineageContactMatch,
       ) ?? sql`1=0`,
     );
   }

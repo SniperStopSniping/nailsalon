@@ -3,10 +3,12 @@ import { z } from 'zod';
 
 import {
   lockTerminalSalonClientWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { getSalonClientById, getSalonClientByPhone } from '@/libs/queries';
+import { getSalonClientById } from '@/libs/queries';
 import {
   buildAppointmentReminderQueue,
   buildCommunicationStatusTimestamps,
@@ -105,16 +107,24 @@ async function resolveAppointmentClient(appointment: {
   clientPhone: string;
 }): Promise<AppointmentClient | null> {
   if (appointment.salonClientId) {
+    const terminal = await resolveTerminalSalonClient({
+      salonId: appointment.salonId,
+      clientId: appointment.salonClientId,
+    });
     const linkedClient = await getSalonClientById(
       appointment.salonId,
-      appointment.salonClientId,
+      terminal.id,
     );
-    if (linkedClient) {
-      return linkedClient;
-    }
+    return linkedClient;
   }
 
-  return getSalonClientByPhone(appointment.salonId, appointment.clientPhone);
+  const terminal = await resolveOperationalSalonClientByPhoneWithHandle(db, {
+    salonId: appointment.salonId,
+    phone: appointment.clientPhone,
+  });
+  return terminal
+    ? getSalonClientById(appointment.salonId, terminal.id)
+    : null;
 }
 
 function accessOptions(request: Request) {
