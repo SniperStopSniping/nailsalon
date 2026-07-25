@@ -203,7 +203,8 @@ beforeAll(async () => {
   });
 }, 60_000);
 
-beforeEach(() => {
+beforeEach(async () => {
+  await db.delete(schema.appointmentSchema);
   evaluateAndFlagIfNeeded.mockClear();
   holder.access = { actorRole: 'admin', salonId: SALON_ID };
   vi.spyOn(console, 'info').mockImplementation(() => {});

@@ -1,10 +1,21 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  ACTIVE_APPOINTMENT_STATUSES,
+  getActiveAppointmentsForCanonicalClientWithHandle,
+} from '@/libs/activeAppointments';
+import {
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
+} from '@/libs/bookingConflictGuard';
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import {
+  ClientLifecycleStabilizationError,
   lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -45,6 +56,12 @@ const CANCELLABLE_STATUSES: Array<(typeof APPOINTMENT_STATUSES)[number]> = [
   'in_progress',
 ];
 
+const TERMINAL_APPOINTMENT_STATUSES = [
+  'cancelled',
+  'completed',
+  'no_show',
+] as const;
+
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
@@ -68,12 +85,39 @@ type CancellationTransition = {
   operationalClientPhone: string;
 };
 
+type ReactivationTransition = {
+  applied: boolean;
+  appointment: AppointmentRecord;
+  conflictStatus: string | null;
+};
+
+class ActiveAppointmentConflictError extends Error {
+  constructor() {
+    super('CLIENT_ALREADY_HAS_ACTIVE_APPOINTMENT');
+    this.name = 'ActiveAppointmentConflictError';
+  }
+}
+
 function cancellationConflictResponse(status: string): Response {
   return Response.json(
     {
       error: {
         code: 'INVALID_STATE',
         message: `Appointment is already in "${status}" status.`,
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+function reactivationConflictResponse(status?: string | null): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'INVALID_STATE',
+        message: status
+          ? `Appointment cannot be reactivated from "${status}" status.`
+          : 'Appointment cannot be reactivated safely.',
       },
     } satisfies ErrorResponse,
     { status: 409 },
@@ -409,6 +453,235 @@ export async function PATCH(
           });
         }
       }
+    } else if (
+      data.status
+      && ACTIVE_APPOINTMENT_STATUSES.includes(
+        data.status as (typeof ACTIVE_APPOINTMENT_STATUSES)[number],
+      )
+    ) {
+      const transition = await withClientLifecycleTransactionRetry(() =>
+        db.transaction(async (tx): Promise<ReactivationTransition> => {
+          // Global order for active-state writes:
+          // terminal client -> technician advisory lock -> appointment row ->
+          // lineage-wide active check -> compare-and-set.
+          let terminalClient = existingAppointment.salonClientId
+            ? await lockOperationalSalonClientContactWithHandle(tx, {
+              salonId: existingAppointment.salonId,
+              clientId: existingAppointment.salonClientId,
+              allowArchived: true,
+            })
+            : null;
+
+          if (!terminalClient) {
+            let identity;
+            try {
+              identity = await resolveCanonicalSalonClientIdentityWithHandle(
+                tx,
+                {
+                  salonId: existingAppointment.salonId,
+                  phone: existingAppointment.clientPhone,
+                  email: existingAppointment.clientEmail,
+                  allowArchived: true,
+                },
+              );
+            } catch (error) {
+              if (error instanceof TypeError) {
+                throw new ActiveAppointmentConflictError();
+              }
+              throw error;
+            }
+            if (!identity) {
+              throw new ActiveAppointmentConflictError();
+            }
+            terminalClient = await lockOperationalSalonClientContactWithHandle(
+              tx,
+              {
+                salonId: existingAppointment.salonId,
+                clientId: identity.terminal.id,
+                allowArchived: true,
+              },
+            );
+          }
+
+          if (existingAppointment.technicianId) {
+            await tx.execute(sql`
+              select pg_advisory_xact_lock(
+                hashtext(${existingAppointment.salonId}),
+                hashtext(${existingAppointment.technicianId})
+              )
+            `);
+          }
+
+          const [lockedAppointment] = await tx
+            .select()
+            .from(appointmentSchema)
+            .where(
+              and(
+                eq(appointmentSchema.id, appointmentId),
+                eq(appointmentSchema.salonId, existingAppointment.salonId),
+              ),
+            )
+            .for('update')
+            .limit(1);
+
+          if (!lockedAppointment) {
+            return {
+              applied: false,
+              appointment: existingAppointment,
+              conflictStatus: 'missing',
+            };
+          }
+          if (lockedAppointment.status !== existingAppointment.status) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: lockedAppointment.status,
+            };
+          }
+
+          let lockedTerminalClientId: string | null = null;
+          if (lockedAppointment.salonClientId) {
+            lockedTerminalClientId = (
+              await resolveTerminalSalonClientWithHandle(tx, {
+                salonId: lockedAppointment.salonId,
+                clientId: lockedAppointment.salonClientId,
+                allowArchived: true,
+              })
+            ).id;
+          } else {
+            try {
+              lockedTerminalClientId = (
+                await resolveCanonicalSalonClientIdentityWithHandle(tx, {
+                  salonId: lockedAppointment.salonId,
+                  phone: lockedAppointment.clientPhone,
+                  email: lockedAppointment.clientEmail,
+                  allowArchived: true,
+                })
+              )?.terminal.id ?? null;
+            } catch (error) {
+              if (error instanceof TypeError) {
+                throw new ActiveAppointmentConflictError();
+              }
+              throw error;
+            }
+          }
+          if (lockedTerminalClientId !== terminalClient.id) {
+            throw new ActiveAppointmentConflictError();
+          }
+
+          const lockedStatusCanBecomeActive
+            = TERMINAL_APPOINTMENT_STATUSES.includes(
+              lockedAppointment.status as (typeof TERMINAL_APPOINTMENT_STATUSES)[number],
+            )
+            || ACTIVE_APPOINTMENT_STATUSES.includes(
+              lockedAppointment.status as (typeof ACTIVE_APPOINTMENT_STATUSES)[number],
+            );
+          if (!lockedStatusCanBecomeActive) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: lockedAppointment.status,
+            };
+          }
+
+          if (
+            lockedAppointment.technicianId
+            !== existingAppointment.technicianId
+          ) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: lockedAppointment.status,
+            };
+          }
+
+          const activeAppointments
+            = await getActiveAppointmentsForCanonicalClientWithHandle(tx, {
+              salonId: existingAppointment.salonId,
+              terminalClientId: terminalClient.id,
+              horizon: 'lineage-active',
+              excludeAppointmentId: appointmentId,
+              allowArchived: true,
+            });
+          if (activeAppointments.length > 0) {
+            throw new ActiveAppointmentConflictError();
+          }
+
+          if (lockedAppointment.technicianId) {
+            const blockedDurationMinutes
+              = lockedAppointment.blockedDurationMinutes
+              ?? (
+                lockedAppointment.totalDurationMinutes
+                + (lockedAppointment.bufferMinutes ?? 0)
+              );
+            const blockedEndTime = new Date(Math.max(
+              lockedAppointment.endTime.getTime(),
+              lockedAppointment.startTime.getTime()
+              + blockedDurationMinutes * 60_000,
+            ));
+            await lockTechnicianAndAssertSlotFree(tx, {
+              salonId: lockedAppointment.salonId,
+              technicianId: lockedAppointment.technicianId,
+              startTime: lockedAppointment.startTime,
+              blockedEndTime,
+              excludedAppointmentId: appointmentId,
+            });
+          }
+
+          const [reactivatedAppointment] = await tx
+            .update(appointmentSchema)
+            .set({
+              status: data.status,
+              cancelReason: null,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(appointmentSchema.id, appointmentId),
+                eq(appointmentSchema.salonId, existingAppointment.salonId),
+                eq(appointmentSchema.status, lockedAppointment.status),
+                inArray(
+                  appointmentSchema.status,
+                  [
+                    ...ACTIVE_APPOINTMENT_STATUSES,
+                    ...TERMINAL_APPOINTMENT_STATUSES,
+                  ],
+                ),
+                isNull(appointmentSchema.deletedAt),
+              ),
+            )
+            .returning();
+
+          if (!reactivatedAppointment) {
+            const [currentAppointment] = await tx
+              .select()
+              .from(appointmentSchema)
+              .where(
+                and(
+                  eq(appointmentSchema.id, appointmentId),
+                  eq(appointmentSchema.salonId, existingAppointment.salonId),
+                ),
+              )
+              .limit(1);
+            return {
+              applied: false,
+              appointment: currentAppointment ?? existingAppointment,
+              conflictStatus: currentAppointment?.status ?? 'missing',
+            };
+          }
+
+          return {
+            applied: true,
+            appointment: reactivatedAppointment,
+            conflictStatus: null,
+          };
+        }),
+      );
+
+      if (!transition.applied) {
+        return reactivationConflictResponse(transition.conflictStatus);
+      }
+      updatedAppointment = transition.appointment;
     } else {
       const result = await updateAppointmentStatus(
         appointmentId,
@@ -575,6 +848,13 @@ export async function PATCH(
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
+    if (
+      error instanceof ActiveAppointmentConflictError
+      || error instanceof SlotConflictError
+      || error instanceof ClientLifecycleStabilizationError
+    ) {
+      return reactivationConflictResponse();
+    }
     console.error('Error updating appointment:', error);
 
     return Response.json(

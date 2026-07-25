@@ -14,8 +14,13 @@ import {
   requireClientApiSession,
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
+import {
+  ClientLifecycleStabilizationError,
+  resolveCanonicalSalonClientIdentity,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { normalizePhone } from '@/libs/phone';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { referralSchema } from '@/models/Schema';
 
@@ -65,6 +70,46 @@ function generateReferralCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
+}
+
+async function resolveAuthenticatedReferrer(
+  salonId: string,
+  sessionPhone: string,
+): Promise<string | null> {
+  try {
+    const identity = await resolveCanonicalSalonClientIdentity({
+      salonId,
+      phone: sessionPhone,
+    });
+    if (
+      !identity
+      || identity.externalClientId !== null
+      || normalizePhone(identity.terminal.phone) !== sessionPhone
+    ) {
+      return null;
+    }
+    return sessionPhone;
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function invalidSessionResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'INVALID_SESSION',
+        message: 'Client session is invalid',
+      },
+    } satisfies ErrorResponse,
+    { status: 401 },
+  );
 }
 
 // =============================================================================
@@ -135,6 +180,14 @@ export async function POST(request: Request): Promise<Response> {
       return referralsGuard;
     }
 
+    const referrerPhone = await resolveAuthenticatedReferrer(
+      salon.id,
+      auth.normalizedPhone,
+    );
+    if (!referrerPhone) {
+      return invalidSessionResponse();
+    }
+
     // 3. Generate a unique referral code
     const referralCode = generateReferralCode();
     const referralId = `ref_${referralCode}`;
@@ -143,7 +196,7 @@ export async function POST(request: Request): Promise<Response> {
     await db.insert(referralSchema).values({
       id: referralId,
       salonId: salon.id,
-      referrerPhone: auth.normalizedPhone,
+      referrerPhone,
       referrerName: auth.session.clientName ?? referrerName ?? null,
       status: 'sent',
       // refereePhone and refereeName are null until claim

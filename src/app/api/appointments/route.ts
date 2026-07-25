@@ -13,7 +13,10 @@ import {
   TTL,
 } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
-import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
+import {
+  getActiveAppointmentsForCanonicalClientWithHandle,
+  getActiveAppointmentsForContact,
+} from '@/libs/activeAppointments';
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
@@ -45,6 +48,18 @@ import {
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
+import {
+  type CanonicalSalonClientIdentity,
+  ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockOperationalSalonClientContactWithHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  type OperationalSalonClientContact,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveOperationalSalonClientContact,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
@@ -67,7 +82,6 @@ import {
   getAppointmentServiceNames,
   getClientByPhone,
   getLocationById,
-  getOrCreateSalonClient,
   getPrimaryLocation,
   getSalonBySlug,
   getServicesByIds,
@@ -126,6 +140,7 @@ import {
   retentionCampaignRedemptionSchema,
   retentionCampaignSchema,
   rewardSchema,
+  salonClientSchema,
   salonSchema,
   type Service,
   serviceSchema,
@@ -326,6 +341,27 @@ class SmartFitStaleError extends Error {
   }
 }
 
+class BookingIdentityAppearedError extends Error {
+  constructor() {
+    super('BOOKING_IDENTITY_APPEARED');
+    this.name = 'BookingIdentityAppearedError';
+  }
+}
+
+class BookingClientConflictError extends Error {
+  constructor() {
+    super('BOOKING_CLIENT_CONFLICT');
+    this.name = 'BookingClientConflictError';
+  }
+}
+
+class BookingActiveAppointmentError extends Error {
+  constructor() {
+    super('BOOKING_ACTIVE_APPOINTMENT');
+    this.name = 'BookingActiveAppointmentError';
+  }
+}
+
 function smartFitStaleResponse(error: SmartFitStaleError): Response {
   return Response.json(
     {
@@ -357,6 +393,34 @@ function campaignFailureResponse(code: CampaignValidationFailureCode): Response 
         : 'This promotion does not apply to the selected service.';
 
   return Response.json({ error: { code, message } } satisfies ErrorResponse, { status });
+}
+
+function bookingClientConflictResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'CONTACT_IDENTITY_CONFLICT',
+        message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+function bookingActiveAppointmentResponse(
+  bookingSubjectMode: BookingSubjectMode,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'EXISTING_APPOINTMENT',
+        message: bookingSubjectMode === 'self'
+          ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
+          : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
 }
 
 function isCampaignFailureCode(value: string): value is CampaignValidationFailureCode {
@@ -814,6 +878,28 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    let preliminaryCanonicalIdentity: CanonicalSalonClientIdentity | null = null;
+    try {
+      preliminaryCanonicalIdentity = await resolveCanonicalSalonClientIdentity({
+        salonId: salon.id,
+        phone: normalizedPhone,
+        email: normalizedClientEmail,
+      });
+    } catch (error) {
+      if (error instanceof ClientLifecycleStabilizationError) {
+        return Response.json(
+          {
+            error: {
+              code: 'CONTACT_IDENTITY_CONFLICT',
+              message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
+
     // 2d. IDEMPOTENCY CHECK: Prevent double-submit on booking confirmation
     // Client should send Idempotency-Key header with a UUID generated on page load
     const idempotencyKey = request.headers.get('Idempotency-Key');
@@ -1178,11 +1264,20 @@ export async function POST(request: Request): Promise<Response> {
           : Promise.resolve([]),
       ]);
 
+      const stableLineageIds = new Set(
+        preliminaryCanonicalIdentity?.clientIds ?? [],
+      );
+      const eligiblePhoneMatches = phoneMatches.filter(appointment =>
+        appointment.salonClientId == null
+        || stableLineageIds.has(appointment.salonClientId));
+      const eligibleEmailMatches = emailMatches.filter(appointment =>
+        appointment.salonClientId == null
+        || stableLineageIds.has(appointment.salonClientId));
       const duplicate = classifyDuplicateBooking({
         normalizedPhone,
         email: normalizedClientEmail,
-        phoneMatches,
-        emailMatches,
+        phoneMatches: eligiblePhoneMatches,
+        emailMatches: eligibleEmailMatches,
       });
 
       // Every branch below is intentionally detail-free: these responses are
@@ -1218,6 +1313,7 @@ export async function POST(request: Request): Promise<Response> {
     // 4c. If this is a reschedule, validate that the original appointment exists
     // and that the authenticated actor is allowed to reschedule it.
     let originalAppointment = null;
+    let originalOperationalClient: OperationalSalonClientContact | null = null;
     if (normalizedOriginalApptId) {
       originalAppointment = await getAppointmentById(
         normalizedOriginalApptId,
@@ -1248,10 +1344,40 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       const normalizedOriginalPhone = normalizePhone(originalAppointment.clientPhone);
+      try {
+        if (originalAppointment.salonClientId) {
+          originalOperationalClient = await resolveOperationalSalonClientContact({
+            salonId: salon.id,
+            clientId: originalAppointment.salonClientId,
+          });
+        } else {
+          const resolvedOriginalIdentity = await resolveCanonicalSalonClientIdentity({
+            salonId: salon.id,
+            phone: normalizedOriginalPhone,
+            email: originalAppointment.clientEmail,
+          });
+          originalOperationalClient = resolvedOriginalIdentity?.terminal ?? null;
+        }
+      } catch (error) {
+        if (error instanceof ClientLifecycleStabilizationError) {
+          return Response.json(
+            {
+              error: {
+                code: 'UNAUTHORIZED_RESCHEDULE',
+                message: 'You can only reschedule your own appointments',
+              },
+            } satisfies ErrorResponse,
+            { status: 403 },
+          );
+        }
+        throw error;
+      }
       const clientOwnsOriginal = actorRole === 'client'
         && clientAuth?.ok
-        && clientAuth.phoneVariants.some(phoneVariant =>
-          normalizePhone(phoneVariant) === normalizedOriginalPhone,
+        && (
+          originalOperationalClient
+            ? clientAuth.normalizedPhone === originalOperationalClient.phone
+            : clientAuth.normalizedPhone === normalizedOriginalPhone
         );
 
       const guestOwnsOriginal = actorRole === 'guest' && data.manageToken
@@ -1923,39 +2049,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 7b. Resolve salonClientId before the appointment insert
-    const salonClient = await getOrCreateSalonClient(
-      salon.id,
-      clientPhoneInput ?? normalizedPhone,
-      clientName ?? undefined,
-    );
-
-    if (!salonClient) {
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_PHONE',
-            message: 'Invalid phone number format. Please provide a valid 10-digit phone number.',
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
-    }
-
     if (retentionCampaign) {
-      const campaignValidation = validateRetentionCampaign({
-        promotion: retentionCampaign.promotionSnapshot,
-        expiresAt: retentionCampaign.expiresAt,
-        redeemedAt: retentionCampaign.redeemedAt,
-        singleUse: retentionCampaign.singleUse,
-        campaignClientId: retentionCampaign.salonClientId,
-        bookingClientId: salonClient.id,
-        serviceIds: services.map(service => service.id),
-      });
-      if (!campaignValidation.valid) {
-        return campaignFailureResponse(campaignValidation.code);
-      }
-
       const campaignDiscount = calculateRetentionDiscount({
         promotion: retentionCampaign.promotionSnapshot,
         services: services.map(service => ({ id: service.id, priceCents: service.price })),
@@ -1994,7 +2088,10 @@ export async function POST(request: Request): Promise<Response> {
 
     type BookingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-    const finalizeBookingPricingInTx = async (tx: BookingTx): Promise<void> => {
+    const finalizeBookingPricingInTx = async (
+      tx: BookingTx,
+      salonClient: Pick<OperationalSalonClientContact, 'id' | 'phone'>,
+    ): Promise<void> => {
       const lockedTechnician = technician;
       smartFitGrantEvaluation = null;
 
@@ -2156,7 +2253,155 @@ export async function POST(request: Request): Promise<Response> {
     const managementCapability = createOpaqueToken();
     const capabilityExpiresAt = new Date(endTime.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    const pricingBeforeTransaction = {
+      appliedReward,
+      appointmentDiscountLabel,
+      appointmentDiscountPercent,
+      appointmentDiscountType,
+      discountAmountCents,
+      discountAppliedAt,
+      totalPrice,
+    };
+    const resetTransactionPricing = () => {
+      appliedReward = pricingBeforeTransaction.appliedReward;
+      appointmentDiscountLabel = pricingBeforeTransaction.appointmentDiscountLabel;
+      appointmentDiscountPercent = pricingBeforeTransaction.appointmentDiscountPercent;
+      appointmentDiscountType = pricingBeforeTransaction.appointmentDiscountType;
+      discountAmountCents = pricingBeforeTransaction.discountAmountCents;
+      discountAppliedAt = pricingBeforeTransaction.discountAppliedAt;
+      totalPrice = pricingBeforeTransaction.totalPrice;
+      smartFitGrantEvaluation = null;
+    };
+
+    const resolveBookingSalonClientInTx = async (
+      tx: BookingTx,
+      expectedTerminalClientId: string | null,
+    ): Promise<OperationalSalonClientContact> => {
+      if (expectedTerminalClientId) {
+        const lockedClient = await lockOperationalSalonClientContactWithHandle(
+          tx as LifecycleSqlHandle,
+          {
+            salonId: salon.id,
+            clientId: expectedTerminalClientId,
+          },
+        );
+        const authoritativeIdentity
+          = await resolveCanonicalSalonClientIdentityWithHandle(
+            tx as LifecycleSqlHandle,
+            {
+              salonId: salon.id,
+              phone: normalizedPhone,
+              email: normalizedClientEmail,
+            },
+          );
+        if (
+          authoritativeIdentity
+          && authoritativeIdentity.terminal.id !== lockedClient.id
+        ) {
+          throw new BookingClientConflictError();
+        }
+        if (!authoritativeIdentity && !originalOperationalClient) {
+          throw new BookingClientConflictError();
+        }
+        if (
+          actorRole === 'client'
+          && clientAuth?.ok
+          && clientAuth.normalizedPhone !== lockedClient.phone
+        ) {
+          throw new BookingClientConflictError();
+        }
+        return lockedClient;
+      }
+
+      await lockSalonClientIdentityKeysWithHandle(
+        tx as LifecycleSqlHandle,
+        {
+          salonId: salon.id,
+          phone: normalizedPhone,
+          email: normalizedClientEmail,
+        },
+      );
+      const appearedIdentity = await resolveCanonicalSalonClientIdentityWithHandle(
+        tx as LifecycleSqlHandle,
+        {
+          salonId: salon.id,
+          phone: normalizedPhone,
+          email: normalizedClientEmail,
+        },
+      );
+      if (appearedIdentity) {
+        throw new BookingIdentityAppearedError();
+      }
+
+      const [createdClient] = await tx
+        .insert(salonClientSchema)
+        .values({
+          id: `sc_${crypto.randomUUID()}`,
+          salonId: salon.id,
+          phone: normalizedPhone,
+          fullName: clientName ?? undefined,
+          email: normalizedClientEmail,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!createdClient) {
+        throw new BookingIdentityAppearedError();
+      }
+
+      return {
+        id: createdClient.id,
+        salonId: createdClient.salonId,
+        archivedAt: createdClient.archivedAt,
+        redirectedFromClientId: null,
+        lineagePath: [createdClient.id],
+        phone: createdClient.phone,
+        email: createdClient.email,
+      };
+    };
+
+    const runSerializedBookingTransaction = async <T>(
+      operation: (
+        tx: BookingTx,
+        salonClient: OperationalSalonClientContact,
+      ) => Promise<T>,
+    ): Promise<T> => {
+      let expectedTerminalClientId = originalOperationalClient?.id
+        ?? preliminaryCanonicalIdentity?.terminal.id
+        ?? null;
+
+      for (let identityAttempt = 0; identityAttempt < 2; identityAttempt += 1) {
+        try {
+          return await withClientLifecycleTransactionRetry(async () => {
+            resetTransactionPricing();
+            return db.transaction(async (tx) => {
+              const salonClient = await resolveBookingSalonClientInTx(
+                tx,
+                expectedTerminalClientId,
+              );
+              return operation(tx, salonClient);
+            });
+          });
+        } catch (error) {
+          if (!(error instanceof BookingIdentityAppearedError)) {
+            throw error;
+          }
+          const refreshedIdentity = await resolveCanonicalSalonClientIdentity({
+            salonId: salon.id,
+            phone: normalizedPhone,
+            email: normalizedClientEmail,
+          });
+          if (!refreshedIdentity) {
+            throw new BookingClientConflictError();
+          }
+          expectedTerminalClientId = refreshedIdentity.terminal.id;
+        }
+      }
+
+      throw new BookingClientConflictError();
+    };
+
     let appointment: Appointment | null = null;
+    let salonClient: OperationalSalonClientContact | null = null;
     let appointmentServices: AppointmentService[] = [];
     let appointmentAddOns: Array<{
       id: string | null;
@@ -2168,169 +2413,217 @@ export async function POST(request: Request): Promise<Response> {
 
     if (originalAppointment && normalizedOriginalApptId) {
       try {
-        const transactionalResult = await db.transaction(async (tx) => {
-          // Cancel the original first so the replacement can occupy the same or
-          // an overlapping window without tripping the double-booking
-          // constraints. Atomic within this transaction: a failure below rolls
-          // the cancellation back, and other sessions never observe a gap.
-          const [cancelledOriginal] = await tx
-            .update(appointmentSchema)
-            .set({
-              status: 'cancelled',
-              cancelReason: 'rescheduled',
-              // Keep the staff-facing canvas column in lockstep with the
-              // legacy status column (the two-column invariant the state
-              // machine documents). Without this the rescheduled-away row
-              // would linger as a 'waiting' card on the staff board while
-              // reading 'cancelled' everywhere else — the same sync the
-              // cancel and transition routes already perform.
-              canvasState: 'cancelled',
-              canvasStateUpdatedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
+        const transactionalResult = await runSerializedBookingTransaction(
+          async (tx, lockedSalonClient) => {
+            if (technician) {
+              await lockTechnicianAndAssertSlotFree(tx, {
+                salonId: salon.id,
+                technicianId: technician.id,
+                startTime,
+                blockedEndTime,
+                excludedAppointmentId: normalizedOriginalApptId,
+              });
+            }
+
+            const [lockedOriginal] = await tx
+              .select()
+              .from(appointmentSchema)
+              .where(and(
                 eq(appointmentSchema.id, normalizedOriginalApptId),
                 eq(appointmentSchema.salonId, salon.id),
-                inArray(appointmentSchema.status, ['pending', 'confirmed']),
-              ),
-            )
-            .returning();
+              ))
+              .for('update')
+              .limit(1);
+            if (
+              !lockedOriginal
+              || !['pending', 'confirmed'].includes(lockedOriginal.status)
+            ) {
+              throw new Error('RESCHEDULE_CONFLICT');
+            }
+            if (
+              lockedOriginal.salonClientId !== originalAppointment.salonClientId
+              || (
+                originalOperationalClient
+                && originalOperationalClient.id !== lockedSalonClient.id
+              )
+            ) {
+              throw new BookingClientConflictError();
+            }
 
-          if (!cancelledOriginal) {
-            throw new Error('RESCHEDULE_CONFLICT');
-          }
+            const competingAppointments
+              = await getActiveAppointmentsForCanonicalClientWithHandle(
+                tx as LifecycleSqlHandle,
+                {
+                  salonId: salon.id,
+                  terminalClientId: lockedSalonClient.id,
+                  horizon: 'lineage-active',
+                  excludeAppointmentId: normalizedOriginalApptId,
+                },
+              );
+            if (competingAppointments.length > 0) {
+              throw new BookingActiveAppointmentError();
+            }
 
-          if (technician) {
-            await lockTechnicianAndAssertSlotFree(tx, {
-              salonId: salon.id,
-              technicianId: technician.id,
-              startTime,
-              blockedEndTime,
-              excludedAppointmentId: normalizedOriginalApptId,
-            });
-          }
+            const [cancelledOriginal] = await tx
+              .update(appointmentSchema)
+              .set({
+                status: 'cancelled',
+                cancelReason: 'rescheduled',
+                // Keep the staff-facing canvas column in lockstep with the
+                // legacy status column (the two-column invariant the state
+                // machine documents). Without this the rescheduled-away row
+                // would linger as a 'waiting' card on the staff board while
+                // reading 'cancelled' everywhere else — the same sync the
+                // cancel and transition routes already perform.
+                canvasState: 'cancelled',
+                canvasStateUpdatedAt: new Date(),
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(appointmentSchema.id, normalizedOriginalApptId),
+                  eq(appointmentSchema.salonId, salon.id),
+                  inArray(appointmentSchema.status, ['pending', 'confirmed']),
+                ),
+              )
+              .returning();
 
-          await finalizeBookingPricingInTx(tx);
+            if (!cancelledOriginal) {
+              throw new Error('RESCHEDULE_CONFLICT');
+            }
 
-          const [createdAppointment] = await tx
-            .insert(appointmentSchema)
-            .values({
-              id: appointmentId,
-              salonId: salon.id,
-              technicianId: technician?.id ?? null,
-              locationId: validatedLocationId,
-              clientPhone: salonClient.phone,
-              clientName,
-              clientEmail: normalizedClientEmail ?? originalAppointment.clientEmail,
-              notes: normalizedNotes ?? originalAppointment.notes,
-              salonClientId: salonClient.id,
-              googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
-              startTime,
-              endTime,
-              status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
-              totalPrice,
-              totalDurationMinutes,
-              basePriceCents,
-              addOnsPriceCents,
-              baseDurationMinutes,
-              addOnsDurationMinutes,
-              bufferMinutes,
-              blockedDurationMinutes,
-              subtotalBeforeDiscountCents,
-              discountAmountCents,
-              discountType: appointmentDiscountType,
-              discountLabel: appointmentDiscountLabel,
-              discountPercent: appointmentDiscountPercent,
-              discountAppliedAt,
-            })
-            .returning();
+            await finalizeBookingPricingInTx(tx, lockedSalonClient);
 
-          if (!createdAppointment) {
-            throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT');
-          }
-
-          await tx.insert(appointmentAccessTokenSchema).values({
-            id: crypto.randomUUID(),
-            salonId: salon.id,
-            appointmentId: createdAppointment.id,
-            tokenHash: managementCapability.tokenHash,
-            expiresAt: capabilityExpiresAt,
-          });
-          await tx.update(appointmentAccessTokenSchema)
-            .set({ revokedAt: new Date() })
-            .where(and(
-              eq(appointmentAccessTokenSchema.salonId, salon.id),
-              eq(appointmentAccessTokenSchema.appointmentId, normalizedOriginalApptId),
-              isNull(appointmentAccessTokenSchema.revokedAt),
-            ));
-
-          await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
-
-          const insertedServices: AppointmentService[] = [];
-          for (const service of services) {
-            const [apptService] = await tx
-              .insert(appointmentServicesSchema)
+            const [createdAppointment] = await tx
+              .insert(appointmentSchema)
               .values({
-                id: `apptSvc_${crypto.randomUUID()}`,
-                appointmentId: createdAppointment.id,
-                serviceId: service.id,
-                priceAtBooking: service.price,
-                durationAtBooking: service.durationMinutes,
-                nameSnapshot: service.name,
-                categorySnapshot: service.category,
-                priceCentsSnapshot: service.price,
-                durationMinutesSnapshot: service.durationMinutes,
-                priceDisplayTextSnapshot: service.priceDisplayText ?? null,
-                resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+                id: appointmentId,
+                salonId: salon.id,
+                technicianId: technician?.id ?? null,
+                locationId: validatedLocationId,
+                clientPhone: lockedSalonClient.phone,
+                clientName,
+                clientEmail: normalizedClientEmail ?? originalAppointment.clientEmail,
+                notes: normalizedNotes ?? originalAppointment.notes,
+                salonClientId: lockedSalonClient.id,
+                googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
+                startTime,
+                endTime,
+                status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+                totalPrice,
+                totalDurationMinutes,
+                basePriceCents,
+                addOnsPriceCents,
+                baseDurationMinutes,
+                addOnsDurationMinutes,
+                bufferMinutes,
+                blockedDurationMinutes,
+                subtotalBeforeDiscountCents,
+                discountAmountCents,
+                discountType: appointmentDiscountType,
+                discountLabel: appointmentDiscountLabel,
+                discountPercent: appointmentDiscountPercent,
+                discountAppliedAt,
               })
               .returning();
 
-            if (!apptService) {
-              throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT_SERVICE');
+            if (!createdAppointment) {
+              throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT');
             }
 
-            insertedServices.push(apptService);
-          }
-
-          const insertedAddOns: typeof appointmentAddOns = [];
-          for (const addOn of selectedAddOnsForBooking) {
-            await tx
-              .insert(appointmentAddOnSchema)
-              .values({
-                id: `apptAddon_${crypto.randomUUID()}`,
-                appointmentId: createdAppointment.id,
-                addOnId: addOn.addOnId,
-                quantitySnapshot: addOn.quantity,
-                nameSnapshot: addOn.name,
-                categorySnapshot: addOn.category,
-                pricingTypeSnapshot: addOn.pricingType,
-                unitPriceCentsSnapshot: addOn.unitPriceCents,
-                durationMinutesSnapshot: addOn.unitDurationMinutes,
-                lineTotalCentsSnapshot: addOn.lineTotalCents,
-                lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
-              });
-
-            insertedAddOns.push({
-              id: addOn.addOnId,
-              name: addOn.name,
-              quantity: addOn.quantity,
-              lineTotalCents: addOn.lineTotalCents,
-              lineDurationMinutes: addOn.lineDurationMinutes,
+            await tx.insert(appointmentAccessTokenSchema).values({
+              id: crypto.randomUUID(),
+              salonId: salon.id,
+              appointmentId: createdAppointment.id,
+              tokenHash: managementCapability.tokenHash,
+              expiresAt: capabilityExpiresAt,
             });
-          }
+            await tx.update(appointmentAccessTokenSchema)
+              .set({ revokedAt: new Date() })
+              .where(and(
+                eq(appointmentAccessTokenSchema.salonId, salon.id),
+                eq(appointmentAccessTokenSchema.appointmentId, normalizedOriginalApptId),
+                isNull(appointmentAccessTokenSchema.revokedAt),
+              ));
 
-          return {
-            appointment: createdAppointment,
-            appointmentServices: insertedServices,
-            appointmentAddOns: insertedAddOns,
-          };
-        });
+            await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
+
+            const insertedServices: AppointmentService[] = [];
+            for (const service of services) {
+              const [apptService] = await tx
+                .insert(appointmentServicesSchema)
+                .values({
+                  id: `apptSvc_${crypto.randomUUID()}`,
+                  appointmentId: createdAppointment.id,
+                  serviceId: service.id,
+                  priceAtBooking: service.price,
+                  durationAtBooking: service.durationMinutes,
+                  nameSnapshot: service.name,
+                  categorySnapshot: service.category,
+                  priceCentsSnapshot: service.price,
+                  durationMinutesSnapshot: service.durationMinutes,
+                  priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+                  resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+                })
+                .returning();
+
+              if (!apptService) {
+                throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT_SERVICE');
+              }
+
+              insertedServices.push(apptService);
+            }
+
+            const insertedAddOns: typeof appointmentAddOns = [];
+            for (const addOn of selectedAddOnsForBooking) {
+              await tx
+                .insert(appointmentAddOnSchema)
+                .values({
+                  id: `apptAddon_${crypto.randomUUID()}`,
+                  appointmentId: createdAppointment.id,
+                  addOnId: addOn.addOnId,
+                  quantitySnapshot: addOn.quantity,
+                  nameSnapshot: addOn.name,
+                  categorySnapshot: addOn.category,
+                  pricingTypeSnapshot: addOn.pricingType,
+                  unitPriceCentsSnapshot: addOn.unitPriceCents,
+                  durationMinutesSnapshot: addOn.unitDurationMinutes,
+                  lineTotalCentsSnapshot: addOn.lineTotalCents,
+                  lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+                });
+
+              insertedAddOns.push({
+                id: addOn.addOnId,
+                name: addOn.name,
+                quantity: addOn.quantity,
+                lineTotalCents: addOn.lineTotalCents,
+                lineDurationMinutes: addOn.lineDurationMinutes,
+              });
+            }
+
+            return {
+              appointment: createdAppointment,
+              appointmentServices: insertedServices,
+              appointmentAddOns: insertedAddOns,
+              salonClient: lockedSalonClient,
+            };
+          },
+        );
 
         appointment = transactionalResult.appointment;
         appointmentServices = transactionalResult.appointmentServices;
         appointmentAddOns = transactionalResult.appointmentAddOns;
+        salonClient = transactionalResult.salonClient;
       } catch (error) {
+        if (error instanceof BookingActiveAppointmentError) {
+          return bookingActiveAppointmentResponse(bookingSubjectMode);
+        }
+        if (
+          error instanceof BookingClientConflictError
+          || error instanceof ClientLifecycleStabilizationError
+        ) {
+          return bookingClientConflictResponse();
+        }
         if (error instanceof Error && error.message === 'RESCHEDULE_CONFLICT') {
           return Response.json(
             {
@@ -2363,230 +2656,256 @@ export async function POST(request: Request): Promise<Response> {
       }
     } else {
       try {
-        const transactionalResult = await db.transaction(async (tx) => {
-          if (technician) {
+        const transactionalResult = await runSerializedBookingTransaction(
+          async (tx, lockedSalonClient) => {
+            if (technician) {
             // Re-validate the slot against committed bookings while holding a
             // per-technician advisory lock, so two concurrent requests for the
             // same slot serialize here and exactly one succeeds.
-            await lockTechnicianAndAssertSlotFree(tx, {
-              salonId: salon.id,
-              technicianId: technician.id,
-              startTime,
-              blockedEndTime,
-            });
-          }
-
-          await finalizeBookingPricingInTx(tx);
-
-          let lockedRetentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
-          if (retentionCampaign) {
-            const [lockedCampaign] = await tx
-              .select()
-              .from(retentionCampaignSchema)
-              .where(and(
-                eq(retentionCampaignSchema.id, retentionCampaign.id),
-                eq(retentionCampaignSchema.salonId, salon.id),
-              ))
-              .for('update')
-              .limit(1);
-
-            if (!lockedCampaign) {
-              throw new Error('CAMPAIGN_NOT_FOUND');
+              await lockTechnicianAndAssertSlotFree(tx, {
+                salonId: salon.id,
+                technicianId: technician.id,
+                startTime,
+                blockedEndTime,
+              });
             }
-            const lockedValidation = validateRetentionCampaign({
-              promotion: lockedCampaign.promotionSnapshot,
-              expiresAt: lockedCampaign.expiresAt,
-              redeemedAt: lockedCampaign.redeemedAt,
-              singleUse: lockedCampaign.singleUse,
-              campaignClientId: lockedCampaign.salonClientId,
-              bookingClientId: salonClient.id,
-              serviceIds: services.map(service => service.id),
-            });
-            if (!lockedValidation.valid) {
-              throw new Error(lockedValidation.code);
+
+            const competingAppointments
+            = await getActiveAppointmentsForCanonicalClientWithHandle(
+              tx as LifecycleSqlHandle,
+              {
+                salonId: salon.id,
+                terminalClientId: lockedSalonClient.id,
+                horizon: 'lineage-active',
+              },
+            );
+            if (competingAppointments.length > 0) {
+              throw new BookingActiveAppointmentError();
             }
-            lockedRetentionCampaign = lockedCampaign;
-          }
 
-          const [createdAppointment] = await tx
-            .insert(appointmentSchema)
-            .values({
-              id: appointmentId,
-              salonId: salon.id,
-              technicianId: technician?.id ?? null,
-              locationId: validatedLocationId,
-              clientPhone: salonClient.phone,
-              clientName,
-              clientEmail: normalizedClientEmail,
-              notes: normalizedNotes,
-              salonClientId: salonClient.id,
-              googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
-              startTime,
-              endTime,
-              status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
-              totalPrice,
-              totalDurationMinutes,
-              basePriceCents,
-              addOnsPriceCents,
-              baseDurationMinutes,
-              addOnsDurationMinutes,
-              bufferMinutes,
-              blockedDurationMinutes,
-              subtotalBeforeDiscountCents,
-              discountAmountCents,
-              discountType: appointmentDiscountType,
-              discountLabel: appointmentDiscountLabel,
-              discountPercent: appointmentDiscountPercent,
-              discountAppliedAt,
-            })
-            .returning();
+            await finalizeBookingPricingInTx(tx, lockedSalonClient);
 
-          if (!createdAppointment) {
-            throw new Error('Failed to create appointment');
-          }
+            let lockedRetentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
+            if (retentionCampaign) {
+              const [lockedCampaign] = await tx
+                .select()
+                .from(retentionCampaignSchema)
+                .where(and(
+                  eq(retentionCampaignSchema.id, retentionCampaign.id),
+                  eq(retentionCampaignSchema.salonId, salon.id),
+                ))
+                .for('update')
+                .limit(1);
 
-          await tx.insert(appointmentAccessTokenSchema).values({
-            id: crypto.randomUUID(),
-            salonId: salon.id,
-            appointmentId: createdAppointment.id,
-            tokenHash: managementCapability.tokenHash,
-            expiresAt: capabilityExpiresAt,
-          });
-          if (data.smsConsent?.granted) {
-            await tx.insert(communicationConsentSchema).values({
+              if (!lockedCampaign) {
+                throw new Error('CAMPAIGN_NOT_FOUND');
+              }
+              const lockedValidation = validateRetentionCampaign({
+                promotion: lockedCampaign.promotionSnapshot,
+                expiresAt: lockedCampaign.expiresAt,
+                redeemedAt: lockedCampaign.redeemedAt,
+                singleUse: lockedCampaign.singleUse,
+                campaignClientId: lockedCampaign.salonClientId,
+                bookingClientId: lockedSalonClient.id,
+                serviceIds: services.map(service => service.id),
+              });
+              if (!lockedValidation.valid) {
+                throw new Error(lockedValidation.code);
+              }
+              lockedRetentionCampaign = lockedCampaign;
+            }
+
+            const [createdAppointment] = await tx
+              .insert(appointmentSchema)
+              .values({
+                id: appointmentId,
+                salonId: salon.id,
+                technicianId: technician?.id ?? null,
+                locationId: validatedLocationId,
+                clientPhone: lockedSalonClient.phone,
+                clientName,
+                clientEmail: normalizedClientEmail,
+                notes: normalizedNotes,
+                salonClientId: lockedSalonClient.id,
+                googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
+                startTime,
+                endTime,
+                status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+                totalPrice,
+                totalDurationMinutes,
+                basePriceCents,
+                addOnsPriceCents,
+                baseDurationMinutes,
+                addOnsDurationMinutes,
+                bufferMinutes,
+                blockedDurationMinutes,
+                subtotalBeforeDiscountCents,
+                discountAmountCents,
+                discountType: appointmentDiscountType,
+                discountLabel: appointmentDiscountLabel,
+                discountPercent: appointmentDiscountPercent,
+                discountAppliedAt,
+              })
+              .returning();
+
+            if (!createdAppointment) {
+              throw new Error('Failed to create appointment');
+            }
+
+            await tx.insert(appointmentAccessTokenSchema).values({
               id: crypto.randomUUID(),
               salonId: salon.id,
-              recipient: salonClient.phone,
-              channel: 'sms',
-              purpose: 'appointment_transactional',
-              status: 'granted',
-              wordingVersion: data.smsConsent.wordingVersion,
-              source: 'public_booking',
-              grantedAt: new Date(),
-              metadata: { appointmentId: createdAppointment.id },
+              appointmentId: createdAppointment.id,
+              tokenHash: managementCapability.tokenHash,
+              expiresAt: capabilityExpiresAt,
             });
-          }
+            if (data.smsConsent?.granted) {
+              await tx.insert(communicationConsentSchema).values({
+                id: crypto.randomUUID(),
+                salonId: salon.id,
+                recipient: lockedSalonClient.phone,
+                channel: 'sms',
+                purpose: 'appointment_transactional',
+                status: 'granted',
+                wordingVersion: data.smsConsent.wordingVersion,
+                source: 'public_booking',
+                grantedAt: new Date(),
+                metadata: { appointmentId: createdAppointment.id },
+              });
+            }
 
-          await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
+            await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
 
-          const insertedServices: AppointmentService[] = [];
-          for (const service of services) {
-            const [apptService] = await tx
-              .insert(appointmentServicesSchema)
-              .values({
-                id: `apptSvc_${crypto.randomUUID()}`,
+            const insertedServices: AppointmentService[] = [];
+            for (const service of services) {
+              const [apptService] = await tx
+                .insert(appointmentServicesSchema)
+                .values({
+                  id: `apptSvc_${crypto.randomUUID()}`,
+                  appointmentId: createdAppointment.id,
+                  serviceId: service.id,
+                  priceAtBooking: service.price,
+                  durationAtBooking: service.durationMinutes,
+                  nameSnapshot: service.name,
+                  categorySnapshot: service.category,
+                  priceCentsSnapshot: service.price,
+                  durationMinutesSnapshot: service.durationMinutes,
+                  priceDisplayTextSnapshot: service.priceDisplayText ?? null,
+                  resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
+                })
+                .returning();
+
+              if (apptService) {
+                insertedServices.push(apptService);
+              }
+            }
+
+            const insertedAddOns: typeof appointmentAddOns = [];
+            for (const addOn of selectedAddOnsForBooking) {
+              await tx.insert(appointmentAddOnSchema).values({
+                id: `apptAddon_${crypto.randomUUID()}`,
                 appointmentId: createdAppointment.id,
-                serviceId: service.id,
-                priceAtBooking: service.price,
-                durationAtBooking: service.durationMinutes,
-                nameSnapshot: service.name,
-                categorySnapshot: service.category,
-                priceCentsSnapshot: service.price,
-                durationMinutesSnapshot: service.durationMinutes,
-                priceDisplayTextSnapshot: service.priceDisplayText ?? null,
-                resolvedIntroPriceLabelSnapshot: services.length === 1 ? resolvedIntroPriceLabel : null,
-              })
-              .returning();
+                addOnId: addOn.addOnId,
+                quantitySnapshot: addOn.quantity,
+                nameSnapshot: addOn.name,
+                categorySnapshot: addOn.category,
+                pricingTypeSnapshot: addOn.pricingType,
+                unitPriceCentsSnapshot: addOn.unitPriceCents,
+                durationMinutesSnapshot: addOn.unitDurationMinutes,
+                lineTotalCentsSnapshot: addOn.lineTotalCents,
+                lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+              });
 
-            if (apptService) {
-              insertedServices.push(apptService);
-            }
-          }
-
-          const insertedAddOns: typeof appointmentAddOns = [];
-          for (const addOn of selectedAddOnsForBooking) {
-            await tx.insert(appointmentAddOnSchema).values({
-              id: `apptAddon_${crypto.randomUUID()}`,
-              appointmentId: createdAppointment.id,
-              addOnId: addOn.addOnId,
-              quantitySnapshot: addOn.quantity,
-              nameSnapshot: addOn.name,
-              categorySnapshot: addOn.category,
-              pricingTypeSnapshot: addOn.pricingType,
-              unitPriceCentsSnapshot: addOn.unitPriceCents,
-              durationMinutesSnapshot: addOn.unitDurationMinutes,
-              lineTotalCentsSnapshot: addOn.lineTotalCents,
-              lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
-            });
-
-            insertedAddOns.push({
-              id: addOn.addOnId,
-              name: addOn.name,
-              quantity: addOn.quantity,
-              lineTotalCents: addOn.lineTotalCents,
-              lineDurationMinutes: addOn.lineDurationMinutes,
-            });
-          }
-
-          if (googleReviewEvent) {
-            const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
-              appointmentId: createdAppointment.id,
-              reviewStatus: 'appointment',
-              reviewedAt: new Date(),
-            }).where(and(
-              eq(googleCalendarEventSchema.id, googleReviewEvent.id),
-              eq(googleCalendarEventSchema.salonId, salon.id),
-              isNull(googleCalendarEventSchema.appointmentId),
-            )).returning();
-            if (!claimedEvent) {
-              throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
-            }
-          }
-
-          if (lockedRetentionCampaign) {
-            const [redeemedCampaign] = await tx
-              .update(retentionCampaignSchema)
-              .set({
-                redeemedAt: new Date(),
-                redeemedAppointmentId: createdAppointment.id,
-                updatedAt: new Date(),
-              })
-              .where(and(
-                eq(retentionCampaignSchema.id, lockedRetentionCampaign.id),
-                eq(retentionCampaignSchema.salonId, salon.id),
-                lockedRetentionCampaign.singleUse
-                  ? isNull(retentionCampaignSchema.redeemedAt)
-                  : undefined,
-              ))
-              .returning();
-            if (!redeemedCampaign) {
-              throw new Error('CAMPAIGN_REDEEMED');
+              insertedAddOns.push({
+                id: addOn.addOnId,
+                name: addOn.name,
+                quantity: addOn.quantity,
+                lineTotalCents: addOn.lineTotalCents,
+                lineDurationMinutes: addOn.lineDurationMinutes,
+              });
             }
 
-            await tx.insert(retentionCampaignRedemptionSchema).values({
-              id: `campaign_redemption_${crypto.randomUUID()}`,
-              salonId: salon.id,
-              campaignId: lockedRetentionCampaign.id,
-              appointmentId: createdAppointment.id,
-              discountAmountCents,
-            });
+            if (googleReviewEvent) {
+              const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
+                appointmentId: createdAppointment.id,
+                reviewStatus: 'appointment',
+                reviewedAt: new Date(),
+              }).where(and(
+                eq(googleCalendarEventSchema.id, googleReviewEvent.id),
+                eq(googleCalendarEventSchema.salonId, salon.id),
+                isNull(googleCalendarEventSchema.appointmentId),
+              )).returning();
+              if (!claimedEvent) {
+                throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
+              }
+            }
 
-            if (lockedRetentionCampaign.communicationId) {
-              await tx
-                .update(clientCommunicationSchema)
+            if (lockedRetentionCampaign) {
+              const [redeemedCampaign] = await tx
+                .update(retentionCampaignSchema)
                 .set({
-                  status: 'converted',
-                  convertedAt: new Date(),
+                  redeemedAt: new Date(),
+                  redeemedAppointmentId: createdAppointment.id,
                   updatedAt: new Date(),
                 })
                 .where(and(
-                  eq(clientCommunicationSchema.id, lockedRetentionCampaign.communicationId),
-                  eq(clientCommunicationSchema.salonId, salon.id),
-                ));
-            }
-          }
+                  eq(retentionCampaignSchema.id, lockedRetentionCampaign.id),
+                  eq(retentionCampaignSchema.salonId, salon.id),
+                  lockedRetentionCampaign.singleUse
+                    ? isNull(retentionCampaignSchema.redeemedAt)
+                    : undefined,
+                ))
+                .returning();
+              if (!redeemedCampaign) {
+                throw new Error('CAMPAIGN_REDEEMED');
+              }
 
-          return {
-            appointment: createdAppointment,
-            appointmentServices: insertedServices,
-            appointmentAddOns: insertedAddOns,
-          };
-        });
+              await tx.insert(retentionCampaignRedemptionSchema).values({
+                id: `campaign_redemption_${crypto.randomUUID()}`,
+                salonId: salon.id,
+                campaignId: lockedRetentionCampaign.id,
+                appointmentId: createdAppointment.id,
+                discountAmountCents,
+              });
+
+              if (lockedRetentionCampaign.communicationId) {
+                await tx
+                  .update(clientCommunicationSchema)
+                  .set({
+                    status: 'converted',
+                    convertedAt: new Date(),
+                    updatedAt: new Date(),
+                  })
+                  .where(and(
+                    eq(clientCommunicationSchema.id, lockedRetentionCampaign.communicationId),
+                    eq(clientCommunicationSchema.salonId, salon.id),
+                  ));
+              }
+            }
+
+            return {
+              appointment: createdAppointment,
+              appointmentServices: insertedServices,
+              appointmentAddOns: insertedAddOns,
+              salonClient: lockedSalonClient,
+            };
+          },
+        );
 
         appointment = transactionalResult.appointment;
         appointmentServices = transactionalResult.appointmentServices;
         appointmentAddOns = transactionalResult.appointmentAddOns;
+        salonClient = transactionalResult.salonClient;
       } catch (error) {
+        if (error instanceof BookingActiveAppointmentError) {
+          return bookingActiveAppointmentResponse(bookingSubjectMode);
+        }
+        if (
+          error instanceof BookingClientConflictError
+          || error instanceof ClientLifecycleStabilizationError
+        ) {
+          return bookingClientConflictResponse();
+        }
         if (error instanceof SmartFitStaleError) {
           return smartFitStaleResponse(error);
         }
@@ -2605,6 +2924,10 @@ export async function POST(request: Request): Promise<Response> {
 
         throw error;
       }
+    }
+
+    if (!appointment || !salonClient) {
+      throw new Error('BOOKING_TRANSACTION_DID_NOT_COMMIT');
     }
 
     if (googleReviewEvent) {

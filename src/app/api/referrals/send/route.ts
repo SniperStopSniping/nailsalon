@@ -5,8 +5,13 @@ import {
   requireClientApiSession,
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
+import {
+  ClientLifecycleStabilizationError,
+  resolveCanonicalSalonClientIdentity,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
+import { normalizePhone } from '@/libs/phone';
 import { sendReferralInvite } from '@/libs/SMS';
 import { appointmentSchema, clientSchema, referralSchema } from '@/models/Schema';
 
@@ -41,6 +46,46 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+async function resolveAuthenticatedReferrer(
+  salonId: string,
+  sessionPhone: string,
+): Promise<string | null> {
+  try {
+    const identity = await resolveCanonicalSalonClientIdentity({
+      salonId,
+      phone: sessionPhone,
+    });
+    if (
+      !identity
+      || identity.externalClientId !== null
+      || normalizePhone(identity.terminal.phone) !== sessionPhone
+    ) {
+      return null;
+    }
+    return sessionPhone;
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function invalidSessionResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'INVALID_SESSION',
+        message: 'Client session is invalid',
+      },
+    } satisfies ErrorResponse,
+    { status: 401 },
+  );
+}
 
 // =============================================================================
 // POST /api/referrals/send - Send a referral to a friend
@@ -86,20 +131,7 @@ export async function POST(request: Request): Promise<Response> {
     const { salonSlug, referrerName, refereePhone } = parsed.data;
     const resolvedReferrerName = auth.session.clientName ?? referrerName ?? 'Your friend';
 
-    // 2. Validate: can't refer yourself
-    if (auth.normalizedPhone === refereePhone) {
-      return Response.json(
-        {
-          error: {
-            code: 'SELF_REFERRAL',
-            message: 'You cannot refer yourself',
-          },
-        } satisfies ErrorResponse,
-        { status: 400 },
-      );
-    }
-
-    // 3. Resolve salon from tenant context
+    // 2. Resolve salon from tenant context
     const salonGuard = await requireClientSalonFromBody(salonSlug);
     if (!salonGuard.ok) {
       return salonGuard.response;
@@ -129,6 +161,27 @@ export async function POST(request: Request): Promise<Response> {
       return referralsGuard;
     }
 
+    const referrerPhone = await resolveAuthenticatedReferrer(
+      salon.id,
+      auth.normalizedPhone,
+    );
+    if (!referrerPhone) {
+      return invalidSessionResponse();
+    }
+
+    // 3. Validate: can't refer yourself
+    if (referrerPhone === refereePhone) {
+      return Response.json(
+        {
+          error: {
+            code: 'SELF_REFERRAL',
+            message: 'You cannot refer yourself',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
     // 4. Check if this referral already exists
     const existingReferral = await db
       .select()
@@ -136,7 +189,7 @@ export async function POST(request: Request): Promise<Response> {
       .where(
         and(
           eq(referralSchema.salonId, salon.id),
-          eq(referralSchema.referrerPhone, auth.normalizedPhone),
+          eq(referralSchema.referrerPhone, referrerPhone),
           eq(referralSchema.refereePhone, refereePhone),
         ),
       )
@@ -211,7 +264,7 @@ export async function POST(request: Request): Promise<Response> {
     await db.insert(referralSchema).values({
       id: referralId,
       salonId: salon.id,
-      referrerPhone: auth.normalizedPhone,
+      referrerPhone,
       referrerName: resolvedReferrerName,
       refereePhone,
       status: 'sent', // Use 'sent' to match schema definition

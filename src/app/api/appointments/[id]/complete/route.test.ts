@@ -7,6 +7,14 @@ const {
   getSalonPolicy,
   getSuperAdminPolicy,
   getSalonById,
+  getActiveAppointmentsForCanonicalClientWithHandle,
+  lockOperationalSalonClientContactWithHandle,
+  lockTechnicianAndAssertSlotFree,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
   const limit = vi.fn(async () => []);
@@ -19,6 +27,14 @@ const {
     getSalonPolicy: vi.fn(),
     getSuperAdminPolicy: vi.fn(),
     getSalonById: vi.fn(),
+    getActiveAppointmentsForCanonicalClientWithHandle: vi.fn(),
+    lockOperationalSalonClientContactWithHandle: vi.fn(),
+    lockTechnicianAndAssertSlotFree: vi.fn(),
+    resolveCanonicalSalonClientIdentity: vi.fn(),
+    resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
+    resolveTerminalSalonClient: vi.fn(),
+    resolveTerminalSalonClientWithHandle: vi.fn(),
+    withClientLifecycleTransactionRetry: vi.fn(),
     db: {
       select,
       transaction: vi.fn(),
@@ -34,6 +50,26 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db,
+}));
+
+vi.mock('@/libs/activeAppointments', () => ({
+  getActiveAppointmentsForCanonicalClientWithHandle,
+}));
+
+vi.mock('@/libs/bookingConflictGuard', () => ({
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError: class SlotConflictError extends Error {},
+}));
+
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError:
+    class ClientLifecycleStabilizationError extends Error {},
+  lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -71,6 +107,15 @@ const STAFF_ACCESS = {
     salonId: 'salon_1',
     status: 'confirmed',
     clientPhone: '+15551234567',
+    clientEmail: 'historical@example.com',
+    salonClientId: 'client_source',
+    technicianId: 'tech_1',
+    startTime: new Date('2026-07-18T15:00:00Z'),
+    endTime: new Date('2026-07-18T16:00:00Z'),
+    totalDurationMinutes: 60,
+    bufferMinutes: 0,
+    blockedDurationMinutes: 60,
+    deletedAt: null,
     totalPrice: 4500,
   },
 };
@@ -97,6 +142,36 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       id: 'salon_1',
       settings: null, // tax off by default — never inferred
     });
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([]);
+    lockOperationalSalonClientContactWithHandle.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      phone: '5559990000',
+      email: 'current@example.com',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
+    lockTechnicianAndAssertSlotFree.mockResolvedValue(undefined);
+    resolveCanonicalSalonClientIdentity.mockResolvedValue(null);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(null);
+    resolveTerminalSalonClient.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
+    resolveTerminalSalonClientWithHandle.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
+    withClientLifecycleTransactionRetry.mockImplementation(
+      async operation => operation(1),
+    );
   });
 
   it('rejects unauthenticated start attempts', async () => {
@@ -135,6 +210,230 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  it('starts through the terminal client with client-first locking and compare-and-set', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue(STAFF_ACCESS);
+    const events: string[] = [];
+    lockOperationalSalonClientContactWithHandle.mockImplementation(async () => {
+      events.push('client');
+      return {
+        id: 'client_primary',
+        salonId: 'salon_1',
+        phone: '5559990000',
+        email: 'current@example.com',
+        archivedAt: null,
+        redirectedFromClientId: 'client_source',
+        lineagePath: ['client_source', 'client_primary'],
+      };
+    });
+    lockTechnicianAndAssertSlotFree.mockImplementation(async () => {
+      events.push('technician');
+    });
+    getActiveAppointmentsForCanonicalClientWithHandle.mockImplementation(
+      async () => {
+        events.push('lineage-active-check');
+        return [];
+      },
+    );
+
+    const lockedAppointment = { ...STAFF_ACCESS.appointment };
+    const startedAt = new Date('2026-07-18T14:55:00Z');
+    const returning = vi.fn(async () => [{
+      id: 'appt_1',
+      startedAt,
+    }]);
+    const updateWhere = vi.fn(() => ({ returning }));
+    const updateSet = vi.fn((values: Record<string, unknown>) => {
+      events.push('compare-and-set');
+
+      expect(values).not.toHaveProperty('clientPhone');
+      expect(values).not.toHaveProperty('clientEmail');
+      expect(values).not.toHaveProperty('salonClientId');
+
+      return { where: updateWhere };
+    });
+    const appointmentLimit = vi.fn(async () => {
+      events.push('appointment');
+      return [lockedAppointment];
+    });
+    const appointmentForUpdate = vi.fn(() => ({ limit: appointmentLimit }));
+    const appointmentWhere = vi.fn(() => ({ for: appointmentForUpdate }));
+    const appointmentFrom = vi.fn(() => ({ where: appointmentWhere }));
+    const tx = {
+      execute: vi.fn(),
+      select: vi.fn(() => ({ from: appointmentFrom })),
+      update: vi.fn(() => ({ set: updateSet })),
+    };
+    db.transaction.mockImplementation(
+      async (operation: (handle: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments/appt_1/complete', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment).toEqual({
+      id: 'appt_1',
+      status: 'in_progress',
+      startedAt: startedAt.toISOString(),
+    });
+    expect(events).toEqual([
+      'client',
+      'technician',
+      'appointment',
+      'lineage-active-check',
+      'compare-and-set',
+    ]);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'client_source',
+      allowArchived: true,
+    });
+    expect(resolveTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      tx,
+      {
+        salonId: 'salon_1',
+        clientId: 'client_source',
+        allowArchived: true,
+      },
+    );
+    expect(
+      lockOperationalSalonClientContactWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      resolveTerminalSalonClientWithHandle.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      resolveTerminalSalonClientWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      lockTechnicianAndAssertSlotFree.mock.invocationCallOrder[0]!,
+    );
+    expect(getActiveAppointmentsForCanonicalClientWithHandle)
+      .toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          salonId: 'salon_1',
+          terminalClientId: 'client_primary',
+          horizon: 'lineage-active',
+          excludeAppointmentId: 'appt_1',
+        }),
+      );
+    expect(updateWhere).toHaveBeenCalledOnce();
+  });
+
+  it('returns a conflict without dependent effects when the start compare-and-set loses', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue(STAFF_ACCESS);
+    const returning = vi.fn(async () => []);
+    const updateWhere = vi.fn(() => ({ returning }));
+    const tx = {
+      execute: vi.fn(),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            for: vi.fn(() => ({
+              limit: vi.fn(async () => [{ ...STAFF_ACCESS.appointment }]),
+            })),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    db.transaction.mockImplementation(
+      async (operation: (handle: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments/appt_1/complete', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('APPOINTMENT_STATE_CHANGED');
+    expect(returning).toHaveBeenCalledOnce();
+  });
+
+  it('rejects blocked-window drift before the start compare-and-set', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue(STAFF_ACCESS);
+    const update = vi.fn();
+    const tx = {
+      execute: vi.fn(),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            for: vi.fn(() => ({
+              limit: vi.fn(async () => [{
+                ...STAFF_ACCESS.appointment,
+                blockedDurationMinutes: 90,
+              }]),
+            })),
+          })),
+        })),
+      })),
+      update,
+    };
+    db.transaction.mockImplementation(
+      async (operation: (handle: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments/appt_1/complete', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('APPOINTMENT_STATE_CHANGED');
+    expect(update).not.toHaveBeenCalled();
+    expect(getActiveAppointmentsForCanonicalClientWithHandle)
+      .not.toHaveBeenCalled();
+  });
+
+  it('rejects a competing lineage appointment before the start compare-and-set', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue(STAFF_ACCESS);
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([{
+      id: 'appt_other',
+    }]);
+    const update = vi.fn();
+    const tx = {
+      execute: vi.fn(),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            for: vi.fn(() => ({
+              limit: vi.fn(async () => [{ ...STAFF_ACCESS.appointment }]),
+            })),
+          })),
+        })),
+      })),
+      update,
+    };
+    db.transaction.mockImplementation(
+      async (operation: (handle: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments/appt_1/complete', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('rejects wrong-tenant completion attempts', async () => {

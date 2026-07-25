@@ -3,6 +3,15 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import {
+  ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  lockTerminalSalonClientWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
 import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
@@ -20,6 +29,7 @@ import {
   appointmentSchema,
   appointmentServicesSchema,
   clientPreferencesSchema,
+  salonClientSchema,
   salonLocationSchema,
   serviceSchema,
   technicianSchema,
@@ -91,6 +101,35 @@ function numberValue(value: unknown): number {
   return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
+async function resolveRequestedClientId(
+  salonId: string,
+  requestedClientId: string,
+): Promise<string | null> {
+  try {
+    const terminal = await resolveTerminalSalonClient({
+      salonId,
+      clientId: requestedClientId,
+      allowArchived: true,
+    });
+    return terminal.id;
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+class ContactIdentityConflictError extends Error {
+  constructor() {
+    super('Client contact identity conflicts with another profile.');
+    this.name = 'ContactIdentityConflictError';
+  }
+}
+
 // =============================================================================
 // GET /api/admin/clients/[id] - Get client profile with appointment history
 // =============================================================================
@@ -131,8 +170,11 @@ export async function GET(
       return withPrivateNoStore(error!);
     }
 
-    // Get client (scoped to salon)
-    const client = await getSalonClientById(salon.id, clientId);
+    // Resolve stale same-salon source IDs without falling back to contact data.
+    const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
+    const client = terminalClientId
+      ? await getSalonClientById(salon.id, terminalClientId)
+      : null;
     if (!client) {
       return privateJson(
         {
@@ -155,7 +197,10 @@ export async function GET(
           avatarUrl: technicianSchema.avatarUrl,
         })
         .from(technicianSchema)
-        .where(eq(technicianSchema.id, client.preferredTechnicianId))
+        .where(and(
+          eq(technicianSchema.salonId, salon.id),
+          eq(technicianSchema.id, client.preferredTechnicianId),
+        ))
         .limit(1);
       preferredTechnician = tech ?? null;
     }
@@ -755,9 +800,12 @@ export async function PATCH(
       return error!;
     }
 
-    // Verify client exists (scoped to salon)
-    const existingClient = await getSalonClientById(salon.id, clientId);
-    if (!existingClient) {
+    // Resolve stale same-salon source IDs without disclosing invalid lineage.
+    const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
+    const existingClient = terminalClientId
+      ? await getSalonClientById(salon.id, terminalClientId)
+      : null;
+    if (!terminalClientId || !existingClient) {
       return Response.json(
         {
           error: {
@@ -799,7 +847,7 @@ export async function PATCH(
     const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
       ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
       : updates.rebookIntervalDays === null ? null : undefined;
-    const updatedClient = await updateSalonClient(salon.id, clientId, {
+    const updateValues = {
       fullName: updates.fullName,
       email: updates.email,
       preferredTechnicianId: updates.preferredTechnicianId,
@@ -809,7 +857,69 @@ export async function PATCH(
       tags: updates.tags ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))] : undefined,
       rebookIntervalDays: updates.rebookIntervalDays,
       nextRebookDueAt,
-    });
+    };
+    const updatedClient = updates.email === undefined
+      ? await updateSalonClient(salon.id, terminalClientId, updateValues)
+      : await withClientLifecycleTransactionRetry(() =>
+        db.transaction(async (tx) => {
+          const handle = tx as LifecycleSqlHandle;
+          const lockedClient = await lockTerminalSalonClientWithHandle(
+            handle,
+            {
+              salonId: salon.id,
+              clientId: terminalClientId,
+              allowArchived: true,
+            },
+          );
+
+          if (updates.email !== null) {
+            await lockSalonClientIdentityKeysWithHandle(handle, {
+              salonId: salon.id,
+              email: updates.email,
+            });
+
+            let emailIdentity;
+            try {
+              emailIdentity
+                  = await resolveCanonicalSalonClientIdentityWithHandle(
+                  handle,
+                  {
+                    salonId: salon.id,
+                    email: updates.email,
+                    allowArchived: true,
+                  },
+                );
+            } catch (error) {
+              if (
+                error instanceof ClientLifecycleStabilizationError
+                || error instanceof TypeError
+              ) {
+                throw new ContactIdentityConflictError();
+              }
+              throw error;
+            }
+
+            if (
+              emailIdentity
+              && emailIdentity.terminal.id !== lockedClient.id
+            ) {
+              throw new ContactIdentityConflictError();
+            }
+          }
+
+          const [updated] = await tx
+            .update(salonClientSchema)
+            .set({
+              ...updateValues,
+              updatedAt: new Date(),
+            })
+            .where(and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, lockedClient.id),
+            ))
+            .returning();
+          return updated ?? null;
+        }));
 
     if (!updatedClient) {
       return Response.json(
@@ -845,6 +955,17 @@ export async function PATCH(
       },
     });
   } catch (error) {
+    if (error instanceof ContactIdentityConflictError) {
+      return privateJson(
+        {
+          error: {
+            code: 'CONTACT_IDENTITY_CONFLICT',
+            message: 'Client contact information conflicts with another profile',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error updating client:', error);
     return Response.json(
       {

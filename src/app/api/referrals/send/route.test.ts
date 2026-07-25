@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   requireClientApiSession,
   requireClientSalonFromBody,
+  ClientLifecycleStabilizationError,
+  resolveCanonicalSalonClientIdentity,
   guardModuleOr403,
   sendReferralInvite,
   selectResults,
@@ -29,6 +31,8 @@ const {
   return {
     requireClientApiSession: vi.fn(),
     requireClientSalonFromBody: vi.fn(),
+    ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
+    resolveCanonicalSalonClientIdentity: vi.fn(),
     guardModuleOr403: vi.fn(),
     sendReferralInvite: vi.fn(),
     selectResults,
@@ -49,6 +53,11 @@ vi.mock('@/libs/featureGating', () => ({
   guardModuleOr403,
 }));
 
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError,
+  resolveCanonicalSalonClientIdentity,
+}));
+
 vi.mock('@/libs/SMS', () => ({
   sendReferralInvite,
 }));
@@ -65,6 +74,10 @@ describe('POST /api/referrals/send', () => {
     selectResults.length = 0;
     guardModuleOr403.mockResolvedValue(null);
     sendReferralInvite.mockResolvedValue(true);
+    resolveCanonicalSalonClientIdentity.mockResolvedValue({
+      terminal: { phone: '1111111111' },
+      externalClientId: null,
+    });
   });
 
   it('rejects unauthenticated referral sends', async () => {
@@ -130,5 +143,119 @@ describe('POST /api/referrals/send', () => {
       referralId: expect.stringMatching(/^ref_/),
     });
     expect(body.data.smsSent).toBe(true);
+  });
+
+  it('rejects an alias-only session before referral or delivery side effects', async () => {
+    requireClientApiSession.mockResolvedValue({
+      ok: true,
+      normalizedPhone: '1111111111',
+      session: { phone: '+11111111111', clientName: 'Ava', sessionId: 'client_session_1' },
+    });
+    requireClientSalonFromBody.mockResolvedValue({
+      ok: true,
+      salon: { id: 'salon_1', name: 'Salon A', customDomain: 'islanailsalon.com' },
+    });
+    resolveCanonicalSalonClientIdentity.mockResolvedValue({
+      terminal: { phone: '3333333333' },
+      externalClientId: null,
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/referrals/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          refereePhone: '2223334444',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toEqual({
+      error: {
+        code: 'INVALID_SESSION',
+        message: 'Client session is invalid',
+      },
+    });
+    expect(values).not.toHaveBeenCalled();
+    expect(sendReferralInvite).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for an unsupported external identity relationship', async () => {
+    requireClientApiSession.mockResolvedValue({
+      ok: true,
+      normalizedPhone: '1111111111',
+      session: { phone: '+11111111111', clientName: 'Ava', sessionId: 'client_session_1' },
+    });
+    requireClientSalonFromBody.mockResolvedValue({
+      ok: true,
+      salon: { id: 'salon_1', name: 'Salon A', customDomain: 'islanailsalon.com' },
+    });
+    resolveCanonicalSalonClientIdentity.mockResolvedValue({
+      terminal: { phone: '1111111111' },
+      externalClientId: 'unsupported_global_client',
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/referrals/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          refereePhone: '2223334444',
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(values).not.toHaveBeenCalled();
+    expect(sendReferralInvite).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing terminal', null],
+    [
+      'invalid same-salon lineage',
+      new ClientLifecycleStabilizationError('Client lifecycle state is unavailable.'),
+    ],
+  ])('uses the same non-disclosing failure for %s', async (_label, result) => {
+    requireClientApiSession.mockResolvedValue({
+      ok: true,
+      normalizedPhone: '1111111111',
+      session: { phone: '+11111111111', clientName: 'Ava', sessionId: 'client_session_1' },
+    });
+    requireClientSalonFromBody.mockResolvedValue({
+      ok: true,
+      salon: { id: 'salon_1', name: 'Salon A', customDomain: 'islanailsalon.com' },
+    });
+    if (result instanceof Error) {
+      resolveCanonicalSalonClientIdentity.mockRejectedValue(result);
+    } else {
+      resolveCanonicalSalonClientIdentity.mockResolvedValue(result);
+    }
+
+    const response = await POST(
+      new Request('http://localhost/api/referrals/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          refereePhone: '2223334444',
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toEqual({
+      error: {
+        code: 'INVALID_SESSION',
+        message: 'Client session is invalid',
+      },
+    });
+    expect(values).not.toHaveBeenCalled();
+    expect(sendReferralInvite).not.toHaveBeenCalled();
   });
 });

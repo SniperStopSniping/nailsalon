@@ -18,8 +18,13 @@ const {
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
   lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
+  getActiveAppointmentsForCanonicalClientWithHandle,
+  lockTechnicianAndAssertSlotFree,
+  transactionExecute,
   transitionReturning,
   appointmentForUpdate,
   transaction,
@@ -36,12 +41,20 @@ const {
     lockedAppointmentRows: [] as Array<{
       id: string;
       salonId: string;
+      salonClientId: string | null;
+      technicianId: string | null;
       clientPhone: string;
+      clientEmail: string | null;
       status: string;
       cancelReason: string | null;
       notes: string | null;
       totalPrice: number;
       discountType: string | null;
+      startTime: Date;
+      endTime: Date;
+      totalDurationMinutes: number;
+      blockedDurationMinutes: number | null;
+      bufferMinutes: number | null;
       updatedAt: Date;
     }>,
     appointmentRows: [] as Array<{
@@ -69,6 +82,7 @@ const {
     transitionAttempts: 0,
     releaseBarrier: null as (() => void) | null,
     barrier: null as Promise<void> | null,
+    lastUpdateValues: {} as Record<string, unknown>,
   };
   const appointmentForUpdate = vi.fn();
   const select = vi.fn((projection?: Record<string, unknown>) => {
@@ -118,31 +132,56 @@ const {
     mockDbState.transitionApplied = true;
     mockDbState.transitionWins += 1;
     const updatedAt = new Date('2026-07-17T16:00:00.000Z');
+    const requestedStatus = typeof mockDbState.lastUpdateValues.status === 'string'
+      ? mockDbState.lastUpdateValues.status
+      : 'cancelled';
+    const requestedCancelReason
+      = mockDbState.lastUpdateValues.cancelReason === undefined
+        ? 'client_request'
+        : mockDbState.lastUpdateValues.cancelReason as string | null;
     mockDbState.currentAppointmentRows = [{
-      status: 'cancelled',
-      cancelReason: 'client_request',
+      status: requestedStatus,
+      cancelReason: requestedCancelReason,
       updatedAt,
     }];
+    mockDbState.appointmentRows = mockDbState.appointmentRows.map(row => ({
+      ...row,
+      status: requestedStatus,
+      cancelReason: requestedCancelReason,
+      updatedAt,
+    }));
+    mockDbState.lockedAppointmentRows = mockDbState.lockedAppointmentRows.map(
+      row => ({
+        ...row,
+        status: requestedStatus,
+        cancelReason: requestedCancelReason,
+        updatedAt,
+      }),
+    );
     return [{
       id: 'appt_1',
-      status: 'cancelled',
-      cancelReason: 'client_request',
+      ...mockDbState.lockedAppointmentRows[0],
+      status: requestedStatus,
+      cancelReason: requestedCancelReason,
       updatedAt,
     }];
   });
   const updateWhere = vi.fn((_condition: unknown) => ({
     returning: transitionReturning,
   }));
-  const updateSet = vi.fn((_values: Record<string, unknown>) => ({
-    where: updateWhere,
-  }));
+  const updateSet = vi.fn((values: Record<string, unknown>) => {
+    mockDbState.lastUpdateValues = values;
+    return { where: updateWhere };
+  });
   const update = vi.fn(() => ({ set: updateSet }));
+  const transactionExecute = vi.fn(async () => ({ rows: [] }));
   const transaction = vi.fn(async (
     callback: (tx: {
       select: typeof select;
       update: typeof update;
+      execute: typeof transactionExecute;
     }) => Promise<unknown>,
-  ) => callback({ select, update }));
+  ) => callback({ select, update, execute: transactionExecute }));
 
   return {
     requireAppointmentAccess: vi.fn(),
@@ -159,10 +198,15 @@ const {
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
     lockOperationalSalonClientContactWithHandle: vi.fn(),
+    resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
     resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
+    resolveTerminalSalonClientWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(async (
       operation: (attempt: number) => Promise<unknown>,
     ) => operation(1)),
+    getActiveAppointmentsForCanonicalClientWithHandle: vi.fn(),
+    lockTechnicianAndAssertSlotFree: vi.fn(),
+    transactionExecute,
     transitionReturning,
     appointmentForUpdate,
     transaction,
@@ -201,9 +245,23 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError:
+    class ClientLifecycleStabilizationError extends Error {},
   lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
+}));
+
+vi.mock('@/libs/activeAppointments', () => ({
+  ACTIVE_APPOINTMENT_STATUSES: ['pending', 'confirmed', 'in_progress'],
+  getActiveAppointmentsForCanonicalClientWithHandle,
+}));
+
+vi.mock('@/libs/bookingConflictGuard', () => ({
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError: class SlotConflictError extends Error {},
 }));
 
 vi.mock('@/libs/SMS', () => ({
@@ -247,12 +305,20 @@ describe('appointment detail route auth', () => {
     mockDbState.lockedAppointmentRows = [{
       id: 'appt_1',
       salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      technicianId: null,
       clientPhone: '+14165551234',
+      clientEmail: 'historical@example.test',
       status: 'confirmed',
       cancelReason: null,
       notes: null,
       totalPrice: 5000,
       discountType: null,
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:00:00.000Z'),
+      totalDurationMinutes: 60,
+      blockedDurationMinutes: 70,
+      bufferMinutes: 10,
       updatedAt: new Date('2026-07-17T15:00:00.000Z'),
     }];
     mockDbState.appointmentRows = [{
@@ -269,7 +335,19 @@ describe('appointment detail route auth', () => {
     mockDbState.transitionAttempts = 0;
     mockDbState.releaseBarrier = null;
     mockDbState.barrier = null;
+    mockDbState.lastUpdateValues = {};
+    transactionExecute.mockResolvedValue({ rows: [] });
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([]);
+    lockTechnicianAndAssertSlotFree.mockResolvedValue(undefined);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(null);
     resolveOperationalSalonClientByPhoneWithHandle.mockResolvedValue(null);
+    resolveTerminalSalonClientWithHandle.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
     lockOperationalSalonClientContactWithHandle.mockResolvedValue({
       id: 'primary_client',
       salonId: 'salon_1',
@@ -393,6 +471,396 @@ describe('appointment detail route auth', () => {
       },
     });
     expect(updateAppointmentStatus).not.toHaveBeenCalled();
+  });
+
+  it('reactivates a terminal appointment in canonical lock order with a CAS', async () => {
+    const historicalAppointment = Object.freeze({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'completed',
+      cancelReason: null,
+      clientPhone: '4165550100',
+      clientEmail: 'historical@example.test',
+      clientName: 'Ava',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:00:00.000Z'),
+      notes: null,
+    });
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: historicalAppointment,
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'completed',
+      cancelReason: null,
+    };
+    mockDbState.appointmentRows = [{
+      ...mockDbState.lockedAppointmentRows[0]!,
+    }];
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment).toMatchObject({
+      id: 'appt_1',
+      status: 'confirmed',
+      cancelReason: null,
+    });
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(resolveCanonicalSalonClientIdentityWithHandle).not.toHaveBeenCalled();
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'merged_source',
+        allowArchived: true,
+      },
+    );
+    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        terminalClientId: 'primary_client',
+        horizon: 'lineage-active',
+        excludeAppointmentId: 'appt_1',
+        allowArchived: true,
+      },
+    );
+    expect(lockTechnicianAndAssertSlotFree).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        excludedAppointmentId: 'appt_1',
+      }),
+    );
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'confirmed',
+      cancelReason: null,
+    }));
+    expect(
+      lockOperationalSalonClientContactWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(transactionExecute.mock.invocationCallOrder[0]!);
+    expect(transactionExecute.mock.invocationCallOrder[0]).toBeLessThan(
+      appointmentForUpdate.mock.invocationCallOrder[0]!,
+    );
+    expect(appointmentForUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      getActiveAppointmentsForCanonicalClientWithHandle.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      getActiveAppointmentsForCanonicalClientWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      lockTechnicianAndAssertSlotFree.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      lockTechnicianAndAssertSlotFree.mock.invocationCallOrder[0],
+    ).toBeLessThan(transitionReturning.mock.invocationCallOrder[0]!);
+  });
+
+  it('uses canonical current/source/alias resolution only for null stable ownership', async () => {
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: null,
+        technicianId: null,
+        status: 'cancelled',
+        cancelReason: 'client_request',
+        clientPhone: '4165550100',
+        clientEmail: 'old-alias@example.test',
+        clientName: 'Ava',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        endTime: new Date('2099-03-13T16:00:00.000Z'),
+        notes: null,
+      },
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: null,
+      technicianId: null,
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    };
+    mockDbState.appointmentRows = [{
+      ...mockDbState.lockedAppointmentRows[0]!,
+    }];
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
+      terminal: {
+        id: 'primary_client',
+        salonId: 'salon_1',
+        mergedIntoClientId: null,
+        archivedAt: null,
+      },
+      clientIds: ['merged_source', 'primary_client'],
+      phones: ['4165550100', '4165550198'],
+      emails: ['old-alias@example.test'],
+      externalClientId: null,
+      matchedBy: [{ kind: 'email', value: 'old-alias@example.test' }],
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'pending' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveCanonicalSalonClientIdentityWithHandle).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        phone: '4165550100',
+        email: 'old-alias@example.test',
+        allowArchived: true,
+      },
+    );
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'primary_client',
+        allowArchived: true,
+      },
+    );
+  });
+
+  it('rejects an active authorization snapshot that became terminal before locking', async () => {
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'primary_client',
+        technicianId: null,
+        status: 'confirmed',
+        cancelReason: null,
+        clientPhone: '4165550198',
+        clientEmail: null,
+        clientName: 'Ava',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        endTime: new Date('2099-03-13T16:00:00.000Z'),
+        notes: null,
+      },
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'primary_client',
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    };
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'pending' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(409);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('rejects locked stable ownership that resolves to another terminal', async () => {
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        technicianId: null,
+        status: 'completed',
+        cancelReason: null,
+        clientPhone: '4165550198',
+        clientEmail: null,
+        clientName: 'Ava',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        endTime: new Date('2099-03-13T16:00:00.000Z'),
+        notes: null,
+      },
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'other_client',
+      technicianId: null,
+      status: 'completed',
+      cancelReason: null,
+    };
+    resolveTerminalSalonClientWithHandle.mockResolvedValue({
+      id: 'other_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'other_client',
+      lineagePath: ['other_client', 'other_primary'],
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(409);
+    expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('rejects reactivation when another lineage appointment is active', async () => {
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        technicianId: 'tech_1',
+        status: 'completed',
+        cancelReason: null,
+        clientPhone: '4165550100',
+        clientEmail: 'historical@example.test',
+        clientName: 'Ava',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        endTime: new Date('2099-03-13T16:00:00.000Z'),
+        notes: null,
+      },
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'completed',
+    };
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([{
+      id: 'appt_other',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      clientPhone: '4165550198',
+      clientEmail: null,
+      status: 'confirmed',
+      startTime: new Date('2099-04-01T15:00:00.000Z'),
+      endTime: new Date('2099-04-01T16:00:00.000Z'),
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in_progress' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('INVALID_STATE');
+    expect(transitionReturning).not.toHaveBeenCalled();
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();
+    expect(sendCancellationConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('allows exactly one of two concurrent generic reactivations to win', async () => {
+    const historicalAppointment = Object.freeze({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'completed',
+      cancelReason: null,
+      clientPhone: '4165550100',
+      clientEmail: 'historical@example.test',
+      clientName: 'Ava',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:00:00.000Z'),
+      notes: null,
+    });
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: historicalAppointment,
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'completed',
+    };
+    mockDbState.appointmentRows = [{
+      ...mockDbState.lockedAppointmentRows[0]!,
+    }];
+    mockDbState.concurrentBarrier = true;
+    mockDbState.barrier = new Promise<void>((resolve) => {
+      mockDbState.releaseBarrier = resolve;
+    });
+
+    const reactivate = () => PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    const responses = await Promise.all([reactivate(), reactivate()]);
+    const statuses = responses.map(response => response.status).sort();
+
+    expect(statuses).toEqual([200, 409]);
+    expect(mockDbState.transitionWins).toBe(1);
+    expect(transitionReturning).toHaveBeenCalledTimes(2);
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();
+    expect(sendCancellationConfirmation).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForAppointmentCancelled).not.toHaveBeenCalled();
+    expect(sendSalonNotificationEmail).not.toHaveBeenCalled();
+
+    const snapshotWrites = updateSet.mock.calls.filter(([values]) => (
+      values
+      && typeof values === 'object'
+      && (
+        'clientPhone' in values
+        || 'clientEmail' in values
+        || 'salonClientId' in values
+      )
+    ));
+
+    expect(snapshotWrites).toHaveLength(0);
+    expect({
+      clientPhone: historicalAppointment.clientPhone,
+      clientEmail: historicalAppointment.clientEmail,
+      clientName: historicalAppointment.clientName,
+    }).toEqual({
+      clientPhone: '4165550100',
+      clientEmail: 'historical@example.test',
+      clientName: 'Ava',
+    });
   });
 
   it('rejects cross-tenant appointment reads', async () => {

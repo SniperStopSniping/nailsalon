@@ -4,16 +4,31 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
+import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import {
   resolveCheckoutActor,
   sumNonVoidedPayments,
 } from '@/libs/appointmentCheckoutServer';
 import {
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
+} from '@/libs/bookingConflictGuard';
+import {
   computeCheckoutTotals,
   derivePaymentStatus,
   type ResolvedTaxConfig,
 } from '@/libs/checkoutTotals';
+import {
+  ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
@@ -111,6 +126,27 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+class StartAppointmentStateConflictError extends Error {
+  constructor() {
+    super('START_APPOINTMENT_STATE_CONFLICT');
+    this.name = 'StartAppointmentStateConflictError';
+  }
+}
+
+class StartAppointmentIdentityConflictError extends Error {
+  constructor() {
+    super('START_APPOINTMENT_IDENTITY_CONFLICT');
+    this.name = 'StartAppointmentIdentityConflictError';
+  }
+}
+
+class StartAppointmentActiveConflictError extends Error {
+  constructor() {
+    super('START_APPOINTMENT_ACTIVE_CONFLICT');
+    this.name = 'StartAppointmentActiveConflictError';
+  }
+}
 
 type CompletionTotals = {
   finalSubtotalCents: number;
@@ -1002,27 +1038,193 @@ export async function POST(
       );
     }
 
-    // 3. Update appointment to in_progress
-    const now = new Date();
+    // Stable appointment ownership is authoritative. Only legacy appointments
+    // without a stable salon_client_id may resolve through their immutable
+    // contact snapshot.
+    let expectedTerminalClientId: string | null = null;
+    if (appointment.salonClientId) {
+      expectedTerminalClientId = (
+        await resolveTerminalSalonClient({
+          salonId: appointment.salonId,
+          clientId: appointment.salonClientId,
+          allowArchived: true,
+        })
+      ).id;
+    } else {
+      let preliminaryIdentity: Awaited<
+        ReturnType<typeof resolveCanonicalSalonClientIdentity>
+      > = null;
+      try {
+        preliminaryIdentity = await resolveCanonicalSalonClientIdentity({
+          salonId: appointment.salonId,
+          phone: appointment.clientPhone,
+          email: appointment.clientEmail,
+          allowArchived: true,
+        });
+      } catch (error) {
+        if (error instanceof TypeError) {
+          throw new StartAppointmentIdentityConflictError();
+        }
+        throw error;
+      }
+      expectedTerminalClientId = preliminaryIdentity?.terminal.id ?? null;
+    }
+    if (!expectedTerminalClientId) {
+      throw new StartAppointmentIdentityConflictError();
+    }
 
-    await db
-      .update(appointmentSchema)
-      .set({
-        status: 'in_progress',
-        canvasState: 'working',
-        canvasStateUpdatedAt: now,
-        startedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(appointmentSchema.id, appointmentId),
-          eq(appointmentSchema.salonId, appointment.salonId),
-          ...(access.actorRole === 'staff'
-            ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
-            : []),
-        ),
-      );
+    // Authoritative start transition. The lock order is terminal client,
+    // technician advisory lock, then appointment row. The final update is a
+    // compare-and-set, so a cancellation or another start that wins while this
+    // request waits cannot be overwritten.
+    const startedAppointment = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx) => {
+        const terminalClient = await lockOperationalSalonClientContactWithHandle(
+          tx as LifecycleSqlHandle,
+          {
+            salonId: appointment.salonId,
+            clientId: expectedTerminalClientId,
+            allowArchived: true,
+          },
+        );
+
+        if (appointment.salonClientId) {
+          const refreshedTerminal = await resolveTerminalSalonClientWithHandle(
+            tx as LifecycleSqlHandle,
+            {
+              salonId: appointment.salonId,
+              clientId: appointment.salonClientId,
+              allowArchived: true,
+            },
+          );
+          if (
+            refreshedTerminal.id !== terminalClient.id
+            || terminalClient.id !== expectedTerminalClientId
+          ) {
+            throw new StartAppointmentIdentityConflictError();
+          }
+        } else {
+          let refreshedIdentity: Awaited<
+            ReturnType<typeof resolveCanonicalSalonClientIdentityWithHandle>
+          >;
+          try {
+            refreshedIdentity = await resolveCanonicalSalonClientIdentityWithHandle(
+              tx as LifecycleSqlHandle,
+              {
+                salonId: appointment.salonId,
+                phone: appointment.clientPhone,
+                email: appointment.clientEmail,
+                allowArchived: true,
+              },
+            );
+          } catch (error) {
+            if (error instanceof TypeError) {
+              throw new StartAppointmentIdentityConflictError();
+            }
+            throw error;
+          }
+          if (
+            !refreshedIdentity
+            || refreshedIdentity.terminal.id !== terminalClient.id
+          ) {
+            throw new StartAppointmentIdentityConflictError();
+          }
+        }
+
+        const expectedStartTime = new Date(appointment.startTime);
+        const expectedEndTime = new Date(appointment.endTime);
+        const blockedMinutes = appointment.blockedDurationMinutes
+          ?? (
+            appointment.totalDurationMinutes
+            + (appointment.bufferMinutes ?? 0)
+          );
+        const expectedBlockedEndTime = new Date(Math.max(
+          expectedEndTime.getTime(),
+          expectedStartTime.getTime() + blockedMinutes * 60_000,
+        ));
+
+        if (appointment.technicianId) {
+          await lockTechnicianAndAssertSlotFree(tx, {
+            salonId: appointment.salonId,
+            technicianId: appointment.technicianId,
+            startTime: expectedStartTime,
+            blockedEndTime: expectedBlockedEndTime,
+            excludedAppointmentId: appointmentId,
+          });
+        }
+
+        const [lockedAppointment] = await tx
+          .select()
+          .from(appointmentSchema)
+          .where(and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, appointment.salonId),
+          ))
+          .for('update')
+          .limit(1);
+        if (
+          !lockedAppointment
+          || lockedAppointment.status !== 'confirmed'
+          || lockedAppointment.deletedAt
+          || lockedAppointment.salonClientId !== appointment.salonClientId
+          || lockedAppointment.clientPhone !== appointment.clientPhone
+          || lockedAppointment.clientEmail !== appointment.clientEmail
+          || lockedAppointment.technicianId !== appointment.technicianId
+          || lockedAppointment.startTime.getTime() !== expectedStartTime.getTime()
+          || lockedAppointment.endTime.getTime() !== expectedEndTime.getTime()
+          || lockedAppointment.totalDurationMinutes
+          !== appointment.totalDurationMinutes
+          || lockedAppointment.bufferMinutes !== appointment.bufferMinutes
+          || lockedAppointment.blockedDurationMinutes
+          !== appointment.blockedDurationMinutes
+        ) {
+          throw new StartAppointmentStateConflictError();
+        }
+
+        const competingAppointments
+          = await getActiveAppointmentsForCanonicalClientWithHandle(
+            tx as LifecycleSqlHandle,
+            {
+              salonId: appointment.salonId,
+              terminalClientId: terminalClient.id,
+              horizon: 'lineage-active',
+              excludeAppointmentId: appointmentId,
+              allowArchived: true,
+            },
+          );
+        if (competingAppointments.length > 0) {
+          throw new StartAppointmentActiveConflictError();
+        }
+
+        const now = new Date();
+        const [updatedAppointment] = await tx
+          .update(appointmentSchema)
+          .set({
+            status: 'in_progress',
+            canvasState: 'working',
+            canvasStateUpdatedAt: now,
+            startedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, appointment.salonId),
+              eq(appointmentSchema.status, 'confirmed'),
+              isNull(appointmentSchema.deletedAt),
+              ...(access.actorRole === 'staff'
+                ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
+                : []),
+            ),
+          )
+          .returning();
+        if (!updatedAppointment) {
+          throw new StartAppointmentStateConflictError();
+        }
+
+        return updatedAppointment;
+      }),
+    );
 
     // 4. Return success response
     return Response.json({
@@ -1030,11 +1232,58 @@ export async function POST(
         appointment: {
           id: appointmentId,
           status: 'in_progress',
-          startedAt: now,
+          startedAt: startedAppointment.startedAt,
         },
       },
     });
   } catch (error) {
+    if (error instanceof StartAppointmentStateConflictError) {
+      return Response.json(
+        {
+          error: {
+            code: 'APPOINTMENT_STATE_CHANGED',
+            message: 'The appointment changed before it could be started.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (error instanceof StartAppointmentActiveConflictError) {
+      return Response.json(
+        {
+          error: {
+            code: 'EXISTING_APPOINTMENT',
+            message: 'This client already has another active appointment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (
+      error instanceof StartAppointmentIdentityConflictError
+      || error instanceof ClientLifecycleStabilizationError
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_IDENTITY_CONFLICT',
+            message: 'The client identity could not be resolved safely.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (error instanceof SlotConflictError) {
+      return Response.json(
+        {
+          error: {
+            code: 'TIME_CONFLICT',
+            message: 'This appointment conflicts with another active appointment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error starting appointment:', error);
     return Response.json(
       {
