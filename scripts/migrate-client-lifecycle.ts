@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 
 import { runClientLifecycleMigrationWithRetry } from '@/libs/clientLifecycleMigrationRetry';
+import { CLIENT_LIFECYCLE_MIGRATION_SHA256 } from '@/libs/clientLifecycleSchemaCore';
 
 const { Client } = pg;
 
@@ -48,11 +49,17 @@ async function verifyRepositoryHistory(): Promise<void> {
     .createHash('sha256')
     .update(migration0061Sql)
     .digest('hex');
+  const migration0062Hash = crypto
+    .createHash('sha256')
+    .update(migration0062Sql)
+    .digest('hex');
   if (migration0061Hash !== EXPECTED_0061_HASH) {
     throw new Error('Repository migration 0061 does not match Production history.');
   }
-  if (!migration0062Sql.trim()) {
-    throw new Error('Repository migration 0062 is empty.');
+  if (migration0062Hash !== CLIENT_LIFECYCLE_MIGRATION_SHA256) {
+    throw new Error(
+      'Repository migration 0062 does not match the stabilization release.',
+    );
   }
 
   const journal = JSON.parse(journalJson) as MigrationJournal;
@@ -184,10 +191,17 @@ async function verifyDatabase0061(handle: QueryHandle): Promise<void> {
 
 async function verifyDatabase0062Ready(handle: QueryHandle): Promise<void> {
   const result = await handle.query<{
+    exact_migration_rows: string;
     migration_rows: string;
     ready_capability_rows: string;
   }>(
     `select
+       (
+         select count(*)::text
+         from drizzle.__drizzle_migrations
+         where created_at = $1
+           and hash = $2
+       ) as exact_migration_rows,
        (
          select count(*)::text
          from drizzle.__drizzle_migrations
@@ -201,10 +215,11 @@ async function verifyDatabase0062Ready(handle: QueryHandle): Promise<void> {
            and state = 'ready'
            and merge_writes_enabled = false
        ) as ready_capability_rows`,
-    [EXPECTED_0062_CREATED_AT],
+    [EXPECTED_0062_CREATED_AT, CLIENT_LIFECYCLE_MIGRATION_SHA256],
   );
   if (
     Number(result.rows[0]?.migration_rows ?? 0) !== 1
+    || Number(result.rows[0]?.exact_migration_rows ?? 0) !== 1
     || Number(result.rows[0]?.ready_capability_rows ?? 0) !== 1
   ) {
     throw new Error('Database stabilization capability is not ready.');

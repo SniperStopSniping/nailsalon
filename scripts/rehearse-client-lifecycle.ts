@@ -1338,12 +1338,18 @@ function isLoopbackHost(hostname: string): boolean {
     || hostname === '[::1]';
 }
 
-function validateRehearsalConfiguration(): string | null {
+function validateRehearsalConfiguration(preflightOnly: boolean): string | null {
   const databaseUrl = process.env.DATABASE_URL;
   const expectedHost = process.env.CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST;
   if (
-    process.env.CLIENT_LIFECYCLE_REHEARSAL_CONFIRMED !== 'true'
-    || process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED !== 'true'
+    (
+      preflightOnly
+        ? process.env.CLIENT_LIFECYCLE_PREFLIGHT_CONFIRMED !== 'true'
+        : (
+            process.env.CLIENT_LIFECYCLE_REHEARSAL_CONFIRMED !== 'true'
+            || process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED !== 'true'
+          )
+    )
     || !databaseUrl
     || !expectedHost
   ) {
@@ -1373,7 +1379,8 @@ function validateRehearsalConfiguration(): string | null {
 
 async function main(): Promise<void> {
   let stage: RehearsalStage = 'configuration';
-  const databaseUrl = validateRehearsalConfiguration();
+  const preflightOnly = process.argv.slice(2).includes('--preflight-only');
+  const databaseUrl = validateRehearsalConfiguration(preflightOnly);
   if (!databaseUrl) {
     writeJson({ status: 'failed', stage }, true);
     process.exitCode = 1;
@@ -1388,7 +1395,15 @@ async function main(): Promise<void> {
   try {
     stage = 'preflight';
     await preflightClient.connect();
-    const preflight = await collectPreflight(preflightClient);
+    await preflightClient.query('begin transaction read only');
+    let preflight: PreflightResult;
+    try {
+      preflight = await collectPreflight(preflightClient);
+      await preflightClient.query('commit');
+    } catch (error) {
+      await preflightClient.query('rollback').catch(() => undefined);
+      throw error;
+    }
     await preflightClient.end();
     if (preflight.rowsPreventing0062 > 0) {
       writeJson({
@@ -1397,6 +1412,14 @@ async function main(): Promise<void> {
         preflight,
       });
       process.exitCode = 1;
+      return;
+    }
+    if (preflightOnly) {
+      writeJson({
+        status: 'ok',
+        stage,
+        preflight,
+      });
       return;
     }
 

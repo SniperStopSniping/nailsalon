@@ -7,6 +7,8 @@ export type LifecycleReadinessSqlHandle = {
 };
 
 export const CLIENT_LIFECYCLE_MIGRATION_CREATED_AT = 1784950000007;
+export const CLIENT_LIFECYCLE_MIGRATION_SHA256
+  = 'da07fadc9bcbc173f848495e82a97b5b43b1aa9d994dba06629b01b748e40ec9';
 export const CLIENT_LIFECYCLE_CAPABILITY_VERSION = 2;
 
 export type ClientLifecycleReadinessCategory =
@@ -64,6 +66,12 @@ export async function isClientLifecycleCapabilityReady(
       ) = 1
       and (
         select count(*)
+        from drizzle.__drizzle_migrations
+        where created_at = ${CLIENT_LIFECYCLE_MIGRATION_CREATED_AT}
+          and hash = ${CLIENT_LIFECYCLE_MIGRATION_SHA256}
+      ) = 1
+      and (
+        select count(*)
         from app_schema_capability
         where capability = 'client_lifecycle'
           and version = ${CLIENT_LIFECYCLE_CAPABILITY_VERSION}
@@ -85,6 +93,12 @@ export async function getClientLifecycleSchemaReadiness(
           select count(*)
           from drizzle.__drizzle_migrations
           where created_at = ${CLIENT_LIFECYCLE_MIGRATION_CREATED_AT}
+        ) = 1
+        and (
+          select count(*)
+          from drizzle.__drizzle_migrations
+          where created_at = ${CLIENT_LIFECYCLE_MIGRATION_CREATED_AT}
+            and hash = ${CLIENT_LIFECYCLE_MIGRATION_SHA256}
         ) = 1
       ) as ok
     `),
@@ -378,62 +392,72 @@ export async function getClientLifecycleSchemaReadiness(
         trigger_name,
         relation_name,
         function_signature,
-        trigger_type
+        trigger_type,
+        update_columns
       ) as (
         values
           (
             'salon_client_enforce_merge_transition',
             'salon_client',
             'public.enforce_salon_client_merge_transition()',
-            23
+            23,
+            array['merged_into_client_id', 'salon_id']::text[]
           ),
           (
             'salon_client_prevent_merged_source_update',
             'salon_client',
             'public.prevent_merged_salon_client_mutation()',
-            19
+            19,
+            array[]::text[]
           ),
           (
             'appointment_resolve_merged_client',
             'appointment',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'review_resolve_merged_client',
             'review',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'client_communication_resolve_merged_client',
             'client_communication',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'retention_campaign_resolve_merged_client',
             'retention_campaign',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'fraud_signal_resolve_merged_client',
             'fraud_signal',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'salon_client_note_resolve_merged_client',
             'salon_client_note',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           ),
           (
             'salon_client_alias_resolve_merged_client',
             'salon_client_contact_alias',
             'public.resolve_merged_salon_client_reference()',
-            23
+            23,
+            array['salon_client_id', 'salon_id']::text[]
           )
       )
       select count(*) = 9 as ok
@@ -443,6 +467,16 @@ export async function getClientLifecycleSchemaReadiness(
        and not triggers.tgisinternal
        and triggers.tgenabled = 'O'
        and triggers.tgtype = expected.trigger_type
+       and triggers.tgqual is null
+       and array(
+         select attributes.attname::text
+         from unnest(triggers.tgattr)
+           as keys(attribute_number)
+         inner join pg_attribute as attributes
+           on attributes.attrelid = triggers.tgrelid
+          and attributes.attnum = keys.attribute_number
+         order by attributes.attname
+       ) = expected.update_columns
       inner join pg_class as relations
         on relations.oid = triggers.tgrelid
        and relations.relname = expected.relation_name

@@ -465,62 +465,72 @@ BEGIN
       trigger_name,
       relation_name,
       function_signature,
-      trigger_type
+      trigger_type,
+      update_columns
     ) AS (
       VALUES
         (
           'salon_client_enforce_merge_transition',
           'salon_client',
           'public.enforce_salon_client_merge_transition()',
-          23
+          23,
+          ARRAY['merged_into_client_id', 'salon_id']::text[]
         ),
         (
           'salon_client_prevent_merged_source_update',
           'salon_client',
           'public.prevent_merged_salon_client_mutation()',
-          19
+          19,
+          ARRAY[]::text[]
         ),
         (
           'appointment_resolve_merged_client',
           'appointment',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'review_resolve_merged_client',
           'review',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'client_communication_resolve_merged_client',
           'client_communication',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'retention_campaign_resolve_merged_client',
           'retention_campaign',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'fraud_signal_resolve_merged_client',
           'fraud_signal',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'salon_client_note_resolve_merged_client',
           'salon_client_note',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         ),
         (
           'salon_client_alias_resolve_merged_client',
           'salon_client_contact_alias',
           'public.resolve_merged_salon_client_reference()',
-          23
+          23,
+          ARRAY['salon_client_id', 'salon_id']::text[]
         )
     )
     SELECT count(*)
@@ -530,6 +540,16 @@ BEGIN
      AND NOT triggers.tgisinternal
      AND triggers.tgenabled = 'O'
      AND triggers.tgtype = expected.trigger_type
+     AND triggers.tgqual IS NULL
+     AND ARRAY(
+       SELECT attributes.attname::text
+       FROM unnest(triggers.tgattr)
+         AS keys(attribute_number)
+       INNER JOIN pg_attribute AS attributes
+         ON attributes.attrelid = triggers.tgrelid
+        AND attributes.attnum = keys.attribute_number
+       ORDER BY attributes.attname
+     ) = expected.update_columns
     INNER JOIN pg_class AS relations
       ON relations.oid = triggers.tgrelid
      AND relations.relname = expected.relation_name

@@ -9,7 +9,11 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { getClientLifecycleSchemaReadiness } from './clientLifecycleSchemaCore';
+import {
+  CLIENT_LIFECYCLE_MIGRATION_SHA256,
+  getClientLifecycleSchemaReadiness,
+  isClientLifecycleCapabilityReady,
+} from './clientLifecycleSchemaCore';
 
 const { Client, Pool } = pg;
 const databaseUrl = process.env.CLIENT_LIFECYCLE_TEST_DATABASE_URL;
@@ -185,6 +189,39 @@ function runLifecycleRehearsal(
           overrides.disposableConfirmed === false ? 'false' : 'true',
         CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST:
           overrides.expectedHost ?? new URL(rehearsalDatabaseUrl!).hostname,
+      },
+      encoding: 'utf8',
+      timeout: 120_000,
+    },
+  );
+}
+
+function runLifecyclePreflight(
+  overrides: {
+    databaseUrl?: string;
+    expectedHost?: string;
+    confirmed?: boolean;
+  } = {},
+): ReturnType<typeof spawnSync> {
+  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const preflightDatabaseUrl = overrides.databaseUrl ?? databaseUrl;
+  return spawnSync(
+    executable,
+    [
+      'tsx',
+      'scripts/rehearse-client-lifecycle.ts',
+      '--preflight-only',
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: preflightDatabaseUrl,
+        CLIENT_LIFECYCLE_PREFLIGHT_CONFIRMED:
+          overrides.confirmed === false ? 'false' : 'true',
+        CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST:
+          overrides.expectedHost
+          ?? new URL(preflightDatabaseUrl!).hostname,
       },
       encoding: 'utf8',
       timeout: 120_000,
@@ -661,6 +698,67 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     ).toBe(true);
   });
 
+  it('rejects a lifecycle trigger with a predicate before publishing readiness', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_id, salon_client_id
+        on appointment
+        for each row
+        when (false)
+        execute function public.resolve_merged_salon_client_reference()
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('required client lifecycle triggers are unavailable');
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+    expect(
+      await pool.query(
+        `select to_regclass('public.app_schema_capability') is null as missing`,
+      ),
+    ).toMatchObject({ rows: [{ missing: true }] });
+  });
+
+  it('rejects a lifecycle trigger with the wrong update-of set before publishing readiness', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_client_id
+        on appointment
+        for each row
+        execute function public.resolve_merged_salon_client_reference()
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('required client lifecycle triggers are unavailable');
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+    expect(
+      await pool.query(
+        `select to_regclass('public.app_schema_capability') is null as missing`,
+      ),
+    ).toMatchObject({ rows: [{ missing: true }] });
+  });
+
   it('serializes 0062 with a pooled-safe transaction lock, then applies and no-ops', async () => {
     await resetDatabase(pool);
     const database = drizzle(pool);
@@ -806,6 +904,59 @@ describePostgres.sequential('client lifecycle migration chain', () => {
       'ec2ea523735b0a45b964ed78f6f56327c9019678c29e6e994f161a8b2a4f7731',
     );
   });
+
+  it('authenticates exact repository and database 0062 bytes', async () => {
+    const migration = await fs.readFile(
+      path.join(
+        process.cwd(),
+        'migrations',
+        '0062_client_lifecycle_stabilization.sql',
+      ),
+    );
+
+    expect(crypto.createHash('sha256').update(migration).digest('hex')).toBe(
+      CLIENT_LIFECYCLE_MIGRATION_SHA256,
+    );
+
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(fullFolder);
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    const applied0062 = (await appliedMigrationRows(pool)).filter(
+      row => row.created_at === '1784950000007',
+    );
+
+    expect(applied0062).toEqual([{
+      created_at: '1784950000007',
+      hash: CLIENT_LIFECYCLE_MIGRATION_SHA256,
+    }]);
+    await expect(
+      isClientLifecycleCapabilityReady(database),
+    ).resolves.toBe(true);
+
+    await pool.query(
+      `update drizzle.__drizzle_migrations
+       set hash = repeat('0', 64)
+       where created_at = 1784950000007`,
+    );
+
+    const readiness = await getClientLifecycleSchemaReadiness(database);
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.categories.migration).toBe(false);
+    await expect(
+      isClientLifecycleCapabilityReady(database),
+    ).resolves.toBe(false);
+
+    const protectedMigration = runProtectedLifecycleMigration();
+
+    expect(protectedMigration.status).toBe(1);
+    expect(protectedMigration.stderr).toContain(
+      'Database stabilization capability is not ready.',
+    );
+  }, 120_000);
 
   it('rehearses exact 0061 through ready 0062 with aggregate-only output', async () => {
     await resetDatabase(pool);
@@ -970,6 +1121,70 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     ).toBe(true);
   }, 120_000);
 
+  it('runs an independent count-only preflight without changing data or migration state', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    temporaryFolders.push(through0061);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      insert into salon (id, name, slug, theme_key)
+      values (
+        'preflight-salon',
+        'Preflight fixture',
+        'preflight-fixture',
+        'minimal'
+      )
+    `);
+    await pool.query(`
+      insert into salon_client (
+        id, salon_id, phone, full_name, created_at, updated_at
+      )
+      values (
+        'preflight-client',
+        'preflight-salon',
+        '4165550133',
+        'Preflight fixture',
+        now(),
+        now()
+      )
+    `);
+
+    const beforeJournal = await appliedMigrationRows(pool);
+    const beforeClients = await pool.query<{ count: string }>(
+      'select count(*)::text as count from salon_client',
+    );
+    const preflight = runLifecyclePreflight();
+
+    expect(preflight.status).toBe(0);
+    expect(preflight.stderr).toBe('');
+    expect(String(preflight.stdout)).not.toContain(String(databaseUrl));
+    expect(String(preflight.stdout)).not.toContain('4165550133');
+    expect(String(preflight.stdout)).not.toContain('preflight-client');
+    expect(JSON.parse(String(preflight.stdout))).toMatchObject({
+      status: 'ok',
+      stage: 'preflight',
+      preflight: {
+        exact0061Applied: true,
+        rowsPreventing0062: 0,
+      },
+    });
+    expect(await appliedMigrationRows(pool)).toEqual(beforeJournal);
+
+    const afterClients = await pool.query<{ count: string }>(
+      'select count(*)::text as count from salon_client',
+    );
+
+    expect(afterClients.rows).toEqual(beforeClients.rows);
+    expect(
+      await pool.query<{ table_name: string | null }>(
+        `select to_regclass('public.app_schema_capability')::text
+           as table_name`,
+      ),
+    ).toMatchObject({ rows: [{ table_name: null }] });
+  }, 120_000);
+
   it('blocks rehearsal before 0062 when active contact data is incompatible', async () => {
     await resetDatabase(pool);
     const database = drizzle(pool);
@@ -999,6 +1214,28 @@ describePostgres.sequential('client lifecycle migration chain', () => {
         now()
       )
     `);
+
+    const preflight = runLifecyclePreflight();
+    const preflightOutput = JSON.parse(String(preflight.stdout)) as {
+      status: string;
+      stage: string;
+      preflight: {
+        rowsPreventing0062: number;
+        contacts: { invalidActivePhoneRows: number };
+      };
+    };
+
+    expect(preflight.status).toBe(1);
+    expect(preflight.stderr).toBe('');
+    expect(preflightOutput).toMatchObject({
+      status: 'blocked',
+      stage: 'preflight',
+      preflight: {
+        contacts: { invalidActivePhoneRows: 1 },
+      },
+    });
+    expect(preflightOutput.preflight.rowsPreventing0062)
+      .toBeGreaterThanOrEqual(1);
 
     const rehearsal = runLifecycleRehearsal();
     const stdout = String(rehearsal.stdout);
@@ -1037,6 +1274,15 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(rehearsal.status).toBe(1);
     expect(rehearsal.stdout).toBe('');
     expect(JSON.parse(String(rehearsal.stderr))).toEqual({
+      status: 'failed',
+      stage: 'configuration',
+    });
+
+    const preflight = runLifecyclePreflight({ confirmed: false });
+
+    expect(preflight.status).toBe(1);
+    expect(preflight.stdout).toBe('');
+    expect(JSON.parse(String(preflight.stderr))).toEqual({
       status: 'failed',
       stage: 'configuration',
     });

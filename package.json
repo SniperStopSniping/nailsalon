@@ -29,6 +29,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "dotenv -c production -- drizzle-kit migrate",
     "db:migrate:client-lifecycle": "tsx scripts/migrate-client-lifecycle.ts",
+    "db:preflight:client-lifecycle": "tsx scripts/rehearse-client-lifecycle.ts --preflight-only",
     "db:verify:client-lifecycle": "tsx scripts/verify-client-lifecycle-schema.ts",
     "db:migrate:dev:drizzle": "dotenv -c development -- drizzle-kit migrate",
     "db:migrate:dev": "run-s db:migrate:dev:drizzle db:verify:appointment-discount-schema",

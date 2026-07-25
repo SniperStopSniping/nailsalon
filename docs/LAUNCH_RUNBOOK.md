@@ -73,14 +73,19 @@ deployment path:
 
 1. Keep the application PR unmerged and all client lifecycle feature flags
    disabled.
-2. Run the approved count-only Production preflight from the immutable commit.
-3. Run `npm run db:migrate:client-lifecycle`.
-4. Run `npm run db:verify:client-lifecycle`; a nonzero result blocks promotion.
-5. Verify current v1.33 remains operational under the documented emergency
+2. Set `CLIENT_LIFECYCLE_PREFLIGHT_CONFIRMED=true` and the exact approved
+   endpoint hostname in `CLIENT_LIFECYCLE_REHEARSAL_EXPECTED_HOST`, without
+   printing the connection string.
+3. Run `npm run db:preflight:client-lifecycle` from the immutable commit
+   against the approved read-only endpoint. It opens a read-only transaction,
+   performs no migration, and prints aggregate counts only.
+4. Run `npm run db:migrate:client-lifecycle`.
+5. Run `npm run db:verify:client-lifecycle`; a nonzero result blocks promotion.
+6. Verify current v1.33 remains operational under the documented emergency
    compatibility limits.
-6. Only then merge the same immutable commit so the existing Vercel integration
+7. Only then merge the same immutable commit so the existing Vercel integration
    can deploy it.
-7. Verify `/api/health` returns `200`,
+8. Verify `/api/health` returns `200`,
    `clientLifecycleSchema: "ready"`, and the expected deployed SHA.
 
 Do not create a competing deployment pipeline and do not promote application
@@ -145,7 +150,9 @@ If you want live autopost processing, add:
 
 1. Set production environment variables in Vercel.
 2. Run `npm run ops:verify:launch`.
-3. Run the approved count-only client-lifecycle preflight.
+3. Set `CLIENT_LIFECYCLE_PREFLIGHT_CONFIRMED=true` and the exact approved
+   endpoint hostname, then run `npm run db:preflight:client-lifecycle` for the
+   count-only, read-only client-lifecycle preflight.
 4. Run `npm run db:migrate:client-lifecycle`.
 5. Run `npm run db:verify:client-lifecycle`.
 6. Deploy or redeploy Vercel only after readiness succeeds.
