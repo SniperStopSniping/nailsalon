@@ -1,3 +1,22 @@
+## [1.33.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.0...v1.33.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **cancellation:** make client cancellation idempotent ([48bf9c7](https://github.com/SniperStopSniping/nailsalon/commit/48bf9c765401b9fbf4b4b7984b81bfea65967446))
+* canonicalize retention queue clients ([c88a709](https://github.com/SniperStopSniping/nailsalon/commit/c88a709c05c14da8a9584684d9b6b336cdc23edb))
+* **clients:** stabilize terminal cached totals ([a51d49d](https://github.com/SniperStopSniping/nailsalon/commit/a51d49dd276012abe0b463a5de57141bde1f35a5))
+* **clients:** stabilize terminal contact writers ([dc1a805](https://github.com/SniperStopSniping/nailsalon/commit/dc1a8057d5b40008a39420cdf8883f5514ee5563))
+* deduplicate lifecycle client reporting ([fb4f205](https://github.com/SniperStopSniping/nailsalon/commit/fb4f2053f108e4865da1da4ea2784bb3f71028c6))
+* gate client lifecycle schema readiness ([b662d59](https://github.com/SniperStopSniping/nailsalon/commit/b662d59a3862f3457c8064ba2bde6a453fd51fd7))
+* **migrations:** harden lifecycle readiness gate ([4e329a7](https://github.com/SniperStopSniping/nailsalon/commit/4e329a7b2b49a6189a3f721808762df45aa5c2e0))
+* **migrations:** serialize lifecycle journal reads ([d58fc64](https://github.com/SniperStopSniping/nailsalon/commit/d58fc641eecb01e4a890a262ae49118733ae3dc5))
+* **reminders:** preserve historical email snapshots ([903e0d0](https://github.com/SniperStopSniping/nailsalon/commit/903e0d0f961d2223259159310090b2828ccbefcb))
+* resolve merged clients in operational writers ([0a32c78](https://github.com/SniperStopSniping/nailsalon/commit/0a32c7852234bfb6c1b8c60019c79cdce23f8d08))
+* **rewards:** serialize redemption with cancellation ([fcba853](https://github.com/SniperStopSniping/nailsalon/commit/fcba853be1718acb9332d709f65640b5a91f52b3))
+* **schema:** harden lifecycle readiness validation ([30158e4](https://github.com/SniperStopSniping/nailsalon/commit/30158e416052576b0c68559f7531568d36c8c1c7))
+* stabilize client lifecycle migration ([2d9f356](https://github.com/SniperStopSniping/nailsalon/commit/2d9f35669f9bb72cb69027eec8fabeb460948eca))
+
 # [1.33.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.32.0...v1.33.0) (2026-07-24)
 
 
