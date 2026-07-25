@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { mintAppointmentManageLink } from '@/libs/appointmentManageLink';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveOperationalSalonClientContact } from '@/libs/clientLifecycleStabilization';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -78,11 +79,18 @@ export async function POST(
   }
 
   try {
-    const [salon, services, technician] = await Promise.all([
+    const [salon, services, technician, operationalClient] = await Promise.all([
       getSalonById(appointment.salonId),
       getAppointmentServiceNames(appointment.id),
       appointment.technicianId
         ? getTechnicianById(appointment.technicianId, appointment.salonId)
+        : Promise.resolve(null),
+      appointment.salonClientId
+        ? resolveOperationalSalonClientContact({
+          salonId: appointment.salonId,
+          clientId: appointment.salonClientId,
+          allowArchived: true,
+        })
         : Promise.resolve(null),
     ]);
 
@@ -118,7 +126,7 @@ export async function POST(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
     const result = await sendSmartAppointmentReminder(appointment.salonId, {
-      phone: appointment.clientPhone,
+      phone: operationalClient?.phone ?? appointment.clientPhone,
       clientName: appointment.clientName ?? undefined,
       appointmentId: appointment.id,
       salonName: salon.name,

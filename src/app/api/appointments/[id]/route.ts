@@ -1,7 +1,12 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
+import {
+  lockOperationalSalonClientContactWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
 import {
@@ -16,6 +21,7 @@ import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
   APPOINTMENT_STATUSES,
+  appointmentSchema,
   CANCEL_REASONS,
   referralSchema,
   rewardSchema,
@@ -33,6 +39,12 @@ const updateAppointmentSchema = z.object({
   cancelReason: z.enum(CANCEL_REASONS).optional(),
 });
 
+const CANCELLABLE_STATUSES: Array<(typeof APPOINTMENT_STATUSES)[number]> = [
+  'pending',
+  'confirmed',
+  'in_progress',
+];
+
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
@@ -44,6 +56,29 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+type AppointmentRecord = NonNullable<
+  Awaited<ReturnType<typeof updateAppointmentStatus>>
+>;
+
+type CancellationTransition = {
+  applied: boolean;
+  appointment: AppointmentRecord;
+  conflictStatus: string | null;
+  operationalClientPhone: string;
+};
+
+function cancellationConflictResponse(status: string): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'INVALID_STATE',
+        message: `Appointment is already in "${status}" status.`,
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
 
 // =============================================================================
 // PATCH /api/appointments/[id] - Update appointment status
@@ -132,154 +167,285 @@ export async function PATCH(
       );
     }
 
-    // 5. Update the appointment
-    const updatedAppointment = await updateAppointmentStatus(
-      appointmentId,
-      existingAppointment.salonId,
-      data.status ?? existingAppointment.status,
-      data.cancelReason,
-    );
-
-    if (!updatedAppointment) {
-      throw new Error('Failed to update appointment');
-    }
-
-    // 6. If status changed to 'cancelled', handle refunds
+    // 5. Cancellation is a compare-and-set transaction. Two requests may both
+    // authorize against the same snapshot, but only one may transition the
+    // appointment and perform dependent economic mutations.
+    let cancellationApplied = false;
+    let operationalClientPhone = existingAppointment.clientPhone;
+    let updatedAppointment: AppointmentRecord;
     if (data.status === 'cancelled') {
-      // 6a. Unlink any rewards that were pending use with this appointment
-      const linkedReward = await db
-        .select()
-        .from(rewardSchema)
-        .where(
-          and(
-            eq(rewardSchema.usedInAppointmentId, appointmentId),
-            eq(rewardSchema.salonId, existingAppointment.salonId),
-          ),
-        )
-        .limit(1);
-
-      if (linkedReward.length > 0) {
-        const reward = linkedReward[0]!;
-        // Only restore if it wasn't already used
-        if (reward.status !== 'used') {
-          await db
-            .update(rewardSchema)
-            .set({
-              usedInAppointmentId: null,
-              status: 'active',
-            })
-            .where(eq(rewardSchema.id, reward.id));
-        }
-      }
-
-      // 6b. Refund any points that were redeemed on this appointment
+      const requestedReason
+        = data.cancelReason ?? existingAppointment.cancelReason ?? null;
       const notesText = existingAppointment.notes || '';
       const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
+      const pointsToRefund = pointsRedeemedMatch
+        ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
+        : 0;
 
-      if (pointsRedeemedMatch) {
-        const pointsToRefund = Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10);
+      if (existingAppointment.status === 'cancelled') {
+        if (existingAppointment.cancelReason !== requestedReason) {
+          return cancellationConflictResponse(existingAppointment.status);
+        }
+        updatedAppointment = existingAppointment;
+      } else if (
+        !CANCELLABLE_STATUSES.includes(
+          existingAppointment.status as (typeof APPOINTMENT_STATUSES)[number],
+        )
+      ) {
+        return cancellationConflictResponse(existingAppointment.status);
+      } else {
+        const transition = await withClientLifecycleTransactionRetry(() =>
+          db.transaction(async (tx): Promise<CancellationTransition> => {
+            // Global order: terminal client before the appointment and every
+            // other dependent row. Legacy appointments without a stable client
+            // retain the existing salon-scoped phone fallback.
+            let operationalClient = existingAppointment.salonClientId
+              ? await lockOperationalSalonClientContactWithHandle(tx, {
+                salonId: existingAppointment.salonId,
+                clientId: existingAppointment.salonClientId,
+                allowArchived: true,
+              })
+              : null;
+            if (!operationalClient) {
+              const terminalClient
+                = await resolveOperationalSalonClientByPhoneWithHandle(tx, {
+                  salonId: existingAppointment.salonId,
+                  phone: existingAppointment.clientPhone,
+                  allowArchived: true,
+                });
+              operationalClient = terminalClient
+                ? await lockOperationalSalonClientContactWithHandle(tx, {
+                  salonId: existingAppointment.salonId,
+                  clientId: terminalClient.id,
+                  allowArchived: true,
+                })
+                : null;
+            }
+            const currentPhone
+              = operationalClient?.phone ?? existingAppointment.clientPhone;
+            const now = new Date();
+            const [cancelledAppointment] = await tx
+              .update(appointmentSchema)
+              .set({
+                status: 'cancelled',
+                cancelReason: requestedReason,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(appointmentSchema.id, appointmentId),
+                  eq(appointmentSchema.salonId, existingAppointment.salonId),
+                  eq(appointmentSchema.status, existingAppointment.status),
+                  inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
+                ),
+              )
+              .returning();
 
-        if (pointsToRefund > 0) {
-          const normalizedPhone = existingAppointment.clientPhone.replace(/\D/g, '');
-          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-            ? normalizedPhone.slice(1)
-            : normalizedPhone;
+            if (!cancelledAppointment) {
+              const [currentAppointment] = await tx
+                .select({
+                  status: appointmentSchema.status,
+                  cancelReason: appointmentSchema.cancelReason,
+                  updatedAt: appointmentSchema.updatedAt,
+                })
+                .from(appointmentSchema)
+                .where(
+                  and(
+                    eq(appointmentSchema.id, appointmentId),
+                    eq(appointmentSchema.salonId, existingAppointment.salonId),
+                  ),
+                )
+                .limit(1);
 
-          const phoneVariants = [
-            tenDigitPhone,
-            `+1${tenDigitPhone}`,
-            existingAppointment.clientPhone,
-          ];
+              if (
+                currentAppointment?.status === 'cancelled'
+                && currentAppointment.cancelReason === requestedReason
+              ) {
+                return {
+                  applied: false,
+                  appointment: {
+                    ...existingAppointment,
+                    ...currentAppointment,
+                  },
+                  conflictStatus: null,
+                  operationalClientPhone: currentPhone,
+                };
+              }
 
-          await db
-            .update(salonClientSchema)
-            .set({
-              loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
-            })
-            .where(
-              and(
-                eq(salonClientSchema.salonId, existingAppointment.salonId),
-                inArray(salonClientSchema.phone, phoneVariants),
-              ),
-            );
+              return {
+                applied: false,
+                appointment: existingAppointment,
+                conflictStatus: currentAppointment?.status ?? 'missing',
+                operationalClientPhone: currentPhone,
+              };
+            }
+
+            const [linkedReward] = await tx
+              .select()
+              .from(rewardSchema)
+              .where(
+                and(
+                  eq(rewardSchema.usedInAppointmentId, appointmentId),
+                  eq(rewardSchema.salonId, existingAppointment.salonId),
+                ),
+              )
+              .limit(1);
+
+            if (linkedReward && linkedReward.status !== 'used') {
+              await tx
+                .update(rewardSchema)
+                .set({
+                  usedInAppointmentId: null,
+                  status: 'active',
+                })
+                .where(
+                  and(
+                    eq(rewardSchema.id, linkedReward.id),
+                    eq(rewardSchema.salonId, existingAppointment.salonId),
+                    eq(rewardSchema.usedInAppointmentId, appointmentId),
+                    ne(rewardSchema.status, 'used'),
+                  ),
+                );
+            }
+
+            if (pointsToRefund > 0 && operationalClient) {
+              await tx
+                .update(salonClientSchema)
+                .set({
+                  loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+                })
+                .where(
+                  and(
+                    eq(salonClientSchema.salonId, existingAppointment.salonId),
+                    eq(salonClientSchema.id, operationalClient.id),
+                  ),
+                );
+            }
+
+            return {
+              applied: true,
+              appointment: cancelledAppointment,
+              conflictStatus: null,
+              operationalClientPhone: currentPhone,
+            };
+          }),
+        );
+
+        if (transition.conflictStatus) {
+          return cancellationConflictResponse(transition.conflictStatus);
+        }
+
+        cancellationApplied = transition.applied;
+        operationalClientPhone = transition.operationalClientPhone;
+        updatedAppointment = transition.appointment;
+      }
+
+      if (cancellationApplied) {
+        try {
+          await enqueueGoogleCalendarDelete({
+            appointmentId,
+            salonId: existingAppointment.salonId,
+            googleCalendarEventId: existingAppointment.googleCalendarEventId,
+          });
+        } catch (calendarError) {
+          console.error('Failed to enqueue Google Calendar deletion after cancellation:', {
+            salonId: existingAppointment.salonId,
+            appointmentId,
+            error: calendarError,
+          });
         }
       }
-
-      await enqueueGoogleCalendarDelete({
+    } else {
+      const result = await updateAppointmentStatus(
         appointmentId,
-        salonId: existingAppointment.salonId,
-        googleCalendarEventId: existingAppointment.googleCalendarEventId,
-      });
+        existingAppointment.salonId,
+        data.status ?? existingAppointment.status,
+        data.cancelReason,
+      );
+      if (!result) {
+        throw new Error('Failed to update appointment');
+      }
+      updatedAppointment = result;
     }
 
-    // 7. If status changed to 'cancelled', send cancellation notifications after data updates succeed
-    if (data.status === 'cancelled' && data.cancelReason !== 'rescheduled') {
-      const [salon, technician, serviceNames] = await Promise.all([
-        getSalonById(existingAppointment.salonId),
-        existingAppointment.technicianId
-          ? getTechnicianById(existingAppointment.technicianId, existingAppointment.salonId)
-          : Promise.resolve(null),
-        getAppointmentServiceNames(appointmentId),
-      ]);
-
-      await sendCancellationConfirmation(existingAppointment.salonId, {
-        phone: existingAppointment.clientPhone,
-        clientName: existingAppointment.clientName || undefined,
-        appointmentId,
-        salonName: salon?.name || 'the salon',
-      });
-
-      if (salon) {
-        await sendBookingNotificationsForAppointmentCancelled({
-          salon: {
-            id: salon.id,
-            name: salon.name,
-            ownerName: salon.ownerName,
-            ownerPhone: salon.ownerPhone,
-            ownerEmail: salon.ownerEmail,
-            features: (salon.features as SalonFeatures | null | undefined) ?? null,
-            settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-          },
-          technician: technician
-            ? {
-                id: technician.id,
-                name: technician.name,
-                phone: technician.phone,
-                email: technician.email,
-              }
-            : null,
-          appointmentId,
-          clientName: existingAppointment.clientName || 'Guest',
-          clientPhone: existingAppointment.clientPhone,
-          services: serviceNames,
-          startTime: existingAppointment.startTime.toISOString(),
-          cancelReason: data.cancelReason ?? 'cancelled',
-        });
-      }
-
-      // A repeat PATCH on an already-cancelled appointment reaches here again;
-      // the notification dedupe key stops it from emailing twice.
+    // 6. Only the request that committed the cancellation transition may
+    // trigger customer or salon notifications.
+    if (
+      cancellationApplied
+      && data.cancelReason !== 'rescheduled'
+    ) {
       try {
-        await sendSalonNotificationEmail({
+        const [salon, technician, serviceNames] = await Promise.all([
+          getSalonById(existingAppointment.salonId),
+          existingAppointment.technicianId
+            ? getTechnicianById(existingAppointment.technicianId, existingAppointment.salonId)
+            : Promise.resolve(null),
+          getAppointmentServiceNames(appointmentId),
+        ]);
+        const notificationResults = await Promise.allSettled([
+          sendCancellationConfirmation(existingAppointment.salonId, {
+            phone: operationalClientPhone,
+            clientName: existingAppointment.clientName || undefined,
+            appointmentId,
+            salonName: salon?.name || 'the salon',
+          }),
+          salon
+            ? sendBookingNotificationsForAppointmentCancelled({
+              salon: {
+                id: salon.id,
+                name: salon.name,
+                ownerName: salon.ownerName,
+                ownerPhone: salon.ownerPhone,
+                ownerEmail: salon.ownerEmail,
+                features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+              },
+              technician: technician
+                ? {
+                    id: technician.id,
+                    name: technician.name,
+                    phone: technician.phone,
+                    email: technician.email,
+                  }
+                : null,
+              appointmentId,
+              clientName: existingAppointment.clientName || 'Guest',
+              clientPhone: existingAppointment.clientPhone,
+              services: serviceNames,
+              startTime: existingAppointment.startTime.toISOString(),
+              cancelReason: data.cancelReason ?? 'cancelled',
+            })
+            : Promise.resolve(null),
+          sendSalonNotificationEmail({
+            salonId: existingAppointment.salonId,
+            appointmentId,
+            event: 'cancelled',
+            source: 'dashboard',
+            cancellation: {
+              reason: data.cancelReason ?? null,
+              cancelledAt: new Date().toISOString(),
+            },
+          }),
+        ]);
+        for (const notificationResult of notificationResults) {
+          if (notificationResult.status === 'rejected') {
+            console.error('Cancellation notification failed after commit:', {
+              salonId: existingAppointment.salonId,
+              appointmentId,
+              error: notificationResult.reason,
+            });
+          }
+        }
+      } catch (notificationPreparationError) {
+        console.error('Failed to prepare cancellation notifications after commit:', {
           salonId: existingAppointment.salonId,
           appointmentId,
-          event: 'cancelled',
-          source: 'dashboard',
-          cancellation: {
-            reason: data.cancelReason ?? null,
-            cancelledAt: new Date().toISOString(),
-          },
-        });
-      } catch (notificationError) {
-        console.error('[SALON NOTIFICATION] Cancellation alert failed after the cancellation committed:', {
-          salonId: existingAppointment.salonId,
-          appointmentId,
-          error: notificationError,
+          error: notificationPreparationError,
         });
       }
     }
 
-    // 8. If status changed to 'completed', handle reward completion
+    // 7. If status changed to 'completed', handle reward completion
     if (data.status === 'completed') {
       // Mark any reward linked to this appointment as 'used'
       const linkedReward = await db

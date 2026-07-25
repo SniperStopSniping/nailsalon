@@ -38,6 +38,11 @@ export type TerminalSalonClient = {
   lineagePath: string[];
 };
 
+export type OperationalSalonClientContact = TerminalSalonClient & {
+  phone: string;
+  email: string | null;
+};
+
 export type SalonClientLifecycleLink = {
   id: string;
   archivedAt: Date | null;
@@ -209,6 +214,63 @@ export function resolveTerminalSalonClient(input: {
   return resolveTerminalSalonClientWithHandle(db as LifecycleSqlHandle, input);
 }
 
+async function loadOperationalSalonClientContact(
+  handle: LifecycleSqlHandle,
+  terminal: TerminalSalonClient,
+): Promise<OperationalSalonClientContact> {
+  const result = await handle.execute(sql`
+    select phone, email
+    from salon_client
+    where salon_id = ${terminal.salonId}
+      and id = ${terminal.id}
+    limit 1
+  `);
+  const row = readRows(result)[0];
+  if (!row || typeof row.phone !== 'string') {
+    throw new ClientLifecycleStabilizationError('CLIENT_NOT_FOUND');
+  }
+  return {
+    ...terminal,
+    phone: row.phone,
+    email: typeof row.email === 'string' ? row.email : null,
+  };
+}
+
+export async function resolveOperationalSalonClientContactWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    clientId: string;
+    allowArchived?: boolean;
+  },
+): Promise<OperationalSalonClientContact> {
+  const terminal = await resolveTerminalSalonClientWithHandle(handle, input);
+  return loadOperationalSalonClientContact(handle, terminal);
+}
+
+export function resolveOperationalSalonClientContact(input: {
+  salonId: string;
+  clientId: string;
+  allowArchived?: boolean;
+}): Promise<OperationalSalonClientContact> {
+  return resolveOperationalSalonClientContactWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+export async function lockOperationalSalonClientContactWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    clientId: string;
+    allowArchived?: boolean;
+  },
+): Promise<OperationalSalonClientContact> {
+  const terminal = await lockTerminalSalonClientWithHandle(handle, input);
+  return loadOperationalSalonClientContact(handle, terminal);
+}
+
 /**
  * Resolves a phone snapshot for an authenticated operational writer. This
  * deliberately remains separate from customer authentication: historical
@@ -220,6 +282,7 @@ export async function resolveOperationalSalonClientByPhoneWithHandle(
   input: {
     salonId: string;
     phone: string;
+    allowArchived?: boolean;
   },
 ): Promise<TerminalSalonClient | null> {
   const salonId = requireInput(input.salonId, 'salonId');
@@ -259,6 +322,7 @@ export async function resolveOperationalSalonClientByPhoneWithHandle(
     resolveTerminalSalonClientWithHandle(handle, {
       salonId,
       clientId,
+      allowArchived: input.allowArchived,
     })));
   const terminalIds = new Set(terminals.map(terminal => terminal.id));
   if (terminalIds.size !== 1) {

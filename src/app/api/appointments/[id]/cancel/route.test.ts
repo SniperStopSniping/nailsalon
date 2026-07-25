@@ -10,6 +10,8 @@ const {
   sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
+  lockOperationalSalonClientContactWithHandle,
+  withClientLifecycleTransactionRetry,
   updateWhere,
   updateSet,
   transitionReturning,
@@ -69,6 +71,10 @@ const {
     sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
+    lockOperationalSalonClientContactWithHandle: vi.fn(),
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
     updateWhere,
     updateSet,
     transitionReturning,
@@ -89,6 +95,11 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db,
+}));
+
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  lockOperationalSalonClientContactWithHandle,
+  withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -147,6 +158,15 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
     updateSalonClientStats.mockResolvedValue(undefined);
+    lockOperationalSalonClientContactWithHandle.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: null,
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
   });
 
   it('rejects wrong-role access', async () => {
@@ -385,6 +405,57 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     expect(rewardRestores).toHaveLength(1);
     expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledTimes(1);
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks the terminal before cancellation, refunds it, and messages its current phone', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        cancelReason: null,
+        notes: '[Points redeemed: 100 pts]',
+        clientName: 'Ava',
+        clientPhone: '4165550100',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: null,
+        updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'merged_source',
+        allowArchived: true,
+      },
+    );
+    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+
+    const loyaltyRefund = updateSet.mock.calls.find(([values]) => (
+      values && typeof values === 'object' && 'loyaltyPoints' in values
+    ));
+
+    expect(loyaltyRefund).toBeTruthy();
+    expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(1);
   });
 
   it('returns success after commit when calendar or notification delivery fails', async () => {

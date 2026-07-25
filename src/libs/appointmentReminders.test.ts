@@ -10,6 +10,7 @@ vi.mock('server-only', () => ({}));
 
 const {
   mintAppointmentManageLink,
+  resolveOperationalSalonClientContact,
   sendTransactionalEmail,
   getAppointmentServiceNames,
   getClientByPhone,
@@ -37,6 +38,7 @@ const {
 
   return {
     mintAppointmentManageLink: vi.fn(),
+    resolveOperationalSalonClientContact: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
     getClientByPhone: vi.fn(),
@@ -56,6 +58,10 @@ const {
 
 vi.mock('@/libs/email', () => ({
   sendTransactionalEmail,
+}));
+
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveOperationalSalonClientContact,
 }));
 
 vi.mock('@/libs/appointmentManageLink', () => ({
@@ -89,6 +95,15 @@ describe('appointment reminders', () => {
     mintAppointmentManageLink.mockResolvedValue(
       'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
     );
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
   });
 
   it('detects the day-before 6 PM local reminder window', () => {
@@ -181,6 +196,74 @@ describe('appointment reminders', () => {
     }));
     expect(result.dayBeforeSms).toBe(1);
     expect(result.failures).toBe(0);
+  });
+
+  it('uses terminal current contact for a merged-source automatic reminder', async () => {
+    queueSelectResults([{
+      appointmentId: 'appt_merged',
+      salonId: 'salon_1',
+      salonClientId: 'merged_source',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '4165550100',
+      appointmentEmail: 'historical@example.test',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: 'source@example.test',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(resolveOperationalSalonClientContact).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'merged_source',
+      allowArchived: true,
+    });
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'current@example.test' }),
+    );
+    expect(sendAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+    expect(result.dayBeforeSent).toBe(1);
+  });
+
+  it('fails closed without marking a reminder when terminal contact is invalid', async () => {
+    resolveOperationalSalonClientContact.mockRejectedValueOnce(
+      new Error('invalid lifecycle state'),
+    );
+    queueSelectResults([{
+      appointmentId: 'appt_invalid',
+      salonId: 'salon_1',
+      salonClientId: 'merged_source',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '4165550100',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      salonClientEmail: null,
+      appointmentEmail: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(updateWhere).not.toHaveBeenCalled();
+    expect(result.failures).toBe(1);
   });
 
   it('sends the 2-hour reminder by email and attempts consent-gated SMS', async () => {
