@@ -17,11 +17,11 @@ const {
   getLocationById,
   getPrimaryLocation,
   getActiveAppointmentsForClient,
+  getActiveAppointmentsForCanonicalClientWithHandle,
   getActiveAppointmentsForContact,
   getAppointmentById,
   getAppointmentServiceNames,
   getClientByPhone,
-  getOrCreateSalonClient,
   getTechniciansBySalonId,
   normalizePhone,
   updateAppointmentStatus,
@@ -41,6 +41,12 @@ const {
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
   sendCustomerBookingConfirmationEmail,
+  lockOperationalSalonClientContactWithHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveOperationalSalonClientContact,
+  withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => ({
   canTechnicianTakeAppointment: vi.fn(),
@@ -56,11 +62,11 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getActiveAppointmentsForClient: vi.fn(),
+  getActiveAppointmentsForCanonicalClientWithHandle: vi.fn(),
   getActiveAppointmentsForContact: vi.fn(),
   getAppointmentById: vi.fn(),
   getAppointmentServiceNames: vi.fn(async () => ['BIAB']),
   getClientByPhone: vi.fn(),
-  getOrCreateSalonClient: vi.fn(),
   getTechniciansBySalonId: vi.fn(),
   normalizePhone: vi.fn((phone: string) => phone),
   updateAppointmentStatus: vi.fn(),
@@ -87,6 +93,12 @@ const {
   enqueueGoogleCalendarUpsert: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
   sendCustomerBookingConfirmationEmail: vi.fn(),
+  lockOperationalSalonClientContactWithHandle: vi.fn(),
+  lockSalonClientIdentityKeysWithHandle: vi.fn(),
+  resolveCanonicalSalonClientIdentity: vi.fn(),
+  resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
+  resolveOperationalSalonClientContact: vi.fn(),
+  withClientLifecycleTransactionRetry: vi.fn(),
   db: {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -121,7 +133,18 @@ vi.mock('@/core/redis/redisClient', () => ({
 
 vi.mock('@/libs/activeAppointments', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/activeAppointments')>()),
+  getActiveAppointmentsForCanonicalClientWithHandle,
   getActiveAppointmentsForContact,
+}));
+
+vi.mock('@/libs/clientLifecycleStabilization', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/clientLifecycleStabilization')>()),
+  lockOperationalSalonClientContactWithHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  resolveCanonicalSalonClientIdentity,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveOperationalSalonClientContact,
+  withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -135,7 +158,6 @@ vi.mock('@/libs/queries', () => ({
   getAppointmentById,
   getAppointmentServiceNames,
   getClientByPhone,
-  getOrCreateSalonClient,
   getTechniciansBySalonId,
   normalizePhone,
   updateAppointmentStatus,
@@ -269,10 +291,67 @@ describe('POST /api/appointments booking policy', () => {
     getLocationById.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue(null);
     getActiveAppointmentsForClient.mockResolvedValue([]);
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([]);
     getActiveAppointmentsForContact.mockResolvedValue([]);
     getAppointmentById.mockResolvedValue(null);
     getClientByPhone.mockResolvedValue(null);
-    getOrCreateSalonClient.mockResolvedValue({ id: 'client_1', phone: '1111111111' });
+    const canonicalIdentityFor = (input: {
+      salonId: string;
+      phone?: string | null;
+      email?: string | null;
+    }) => {
+      const phone = input.phone ?? '1111111111';
+      const email = input.email ?? null;
+      const id = phone === '1111111111' ? 'client_1' : `client_${phone}`;
+      return {
+        terminal: {
+          id,
+          salonId: input.salonId,
+          archivedAt: null,
+          redirectedFromClientId: null,
+          lineagePath: [id],
+          phone,
+          email,
+        },
+        clientIds: [id],
+        phones: [phone],
+        emails: email ? [email] : [],
+        externalClientId: null,
+        matchedBy: [
+          ...(input.phone ? [{ kind: 'phone' as const, value: phone }] : []),
+          ...(email ? [{ kind: 'email' as const, value: email }] : []),
+        ],
+      };
+    };
+    resolveCanonicalSalonClientIdentity.mockImplementation(async input =>
+      canonicalIdentityFor(input));
+    resolveCanonicalSalonClientIdentityWithHandle.mockImplementation(async (_handle, input) =>
+      canonicalIdentityFor(input));
+    lockOperationalSalonClientContactWithHandle.mockImplementation(async (_handle, input) => ({
+      id: input.clientId,
+      salonId: input.salonId,
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: [input.clientId],
+      phone: input.clientId === 'client_1'
+        ? '1111111111'
+        : input.clientId.replace(/^client_/, ''),
+      email: null,
+    }));
+    resolveOperationalSalonClientContact.mockImplementation(async input => ({
+      id: input.clientId,
+      salonId: input.salonId,
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: [input.clientId],
+      phone: '1111111111',
+      email: null,
+    }));
+    lockSalonClientIdentityKeysWithHandle.mockResolvedValue({
+      phone: '1111111111',
+      email: null,
+    });
+    withClientLifecycleTransactionRetry.mockImplementation(async callback => callback());
     getTechniciansBySalonId.mockResolvedValue([{
       id: 'tech_1',
       salonId: 'salon_1',
@@ -308,6 +387,321 @@ describe('POST /api/appointments booking policy', () => {
       reason: 'outside_schedule',
     });
     db.transaction.mockImplementation(async (callback: (tx: typeof db) => Promise<unknown>) => callback(db));
+  });
+
+  function canonicalIdentityFixture(options: {
+    inputPhone: string;
+    inputEmail?: string | null;
+    terminalId?: string;
+    terminalPhone?: string;
+    terminalEmail?: string | null;
+    clientIds?: string[];
+    matchedBy?: Array<{ kind: 'phone' | 'email'; value: string }>;
+  }) {
+    const terminalId = options.terminalId ?? 'client_1';
+    const terminalPhone = options.terminalPhone ?? options.inputPhone;
+    const terminalEmail = options.terminalEmail ?? options.inputEmail ?? null;
+    return {
+      terminal: {
+        id: terminalId,
+        salonId: 'salon_1',
+        archivedAt: null,
+        redirectedFromClientId: null,
+        lineagePath: options.clientIds ?? [terminalId],
+        phone: terminalPhone,
+        email: terminalEmail,
+      },
+      clientIds: options.clientIds ?? [terminalId],
+      phones: [...new Set([terminalPhone, options.inputPhone])],
+      emails: [...new Set([
+        ...(terminalEmail ? [terminalEmail] : []),
+        ...(options.inputEmail ? [options.inputEmail] : []),
+      ])],
+      externalClientId: null,
+      matchedBy: options.matchedBy ?? [
+        { kind: 'phone' as const, value: options.inputPhone },
+      ],
+    };
+  }
+
+  function mockSuccessfulAppointmentInserts(options: {
+    appointmentId: string;
+    salonClientId: string;
+    clientPhone: string;
+  }) {
+    let appointmentValues: Record<string, unknown> | null = null;
+    db.insert
+      .mockImplementationOnce(() => ({
+        values: vi.fn((values: Record<string, unknown>) => {
+          appointmentValues = values;
+          return {
+            returning: vi.fn(async () => [{
+              ...values,
+              id: options.appointmentId,
+              salonId: 'salon_1',
+              technicianId: 'tech_1',
+              locationId: null,
+              clientPhone: options.clientPhone,
+              clientName: null,
+              salonClientId: options.salonClientId,
+              startTime: new Date(String(values.startTime)),
+              endTime: new Date(String(values.endTime)),
+              status: 'pending',
+              totalPrice: 6500,
+              totalDurationMinutes: 90,
+            }]),
+          };
+        }),
+      }))
+      .mockImplementationOnce(() => ({
+        values: vi.fn(async () => undefined),
+      }))
+      .mockImplementationOnce(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{
+            id: `apptSvc_${options.appointmentId}`,
+            appointmentId: options.appointmentId,
+            serviceId: 'srv_1',
+            priceAtBooking: 6500,
+            durationAtBooking: 90,
+          }]),
+        })),
+      }));
+    return {
+      get appointmentValues() {
+        return appointmentValues;
+      },
+    };
+  }
+
+  function postBooking(body: Record<string, unknown> = {}) {
+    return POST(new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        serviceIds: ['srv_1'],
+        technicianId: 'tech_1',
+        startTime: '2099-03-13T15:00:00.000Z',
+        ...body,
+      }),
+    }));
+  }
+
+  it('locks and books against an existing terminal client inside the authoritative transaction', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    const insertState = mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_terminal',
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+    });
+
+    const response = await postBooking();
+
+    expect(response.status).toBe(201);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      db,
+      { salonId: 'salon_1', clientId: 'client_1' },
+    );
+    expect(resolveCanonicalSalonClientIdentityWithHandle).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        salonId: 'salon_1',
+        phone: '1111111111',
+      }),
+    );
+    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
+      db,
+      {
+        salonId: 'salon_1',
+        terminalClientId: 'client_1',
+        horizon: 'lineage-active',
+      },
+    );
+    expect(insertState.appointmentValues).toEqual(expect.objectContaining({
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+    }));
+    expect(lockSalonClientIdentityKeysWithHandle).not.toHaveBeenCalled();
+  });
+
+  it('uses the terminal primary and current phone when a guest books through a source alias', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    const aliasIdentity = canonicalIdentityFixture({
+      inputPhone: '9999999999',
+      inputEmail: 'old@example.com',
+      terminalId: 'client_primary',
+      terminalPhone: '2222222222',
+      terminalEmail: 'current@example.com',
+      clientIds: ['client_primary', 'client_source'],
+      matchedBy: [
+        { kind: 'phone', value: '9999999999' },
+        { kind: 'email', value: 'old@example.com' },
+      ],
+    });
+    resolveCanonicalSalonClientIdentity.mockResolvedValue(aliasIdentity);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(aliasIdentity);
+    lockOperationalSalonClientContactWithHandle.mockResolvedValue(aliasIdentity.terminal);
+    const insertState = mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_alias',
+      salonClientId: 'client_primary',
+      clientPhone: '2222222222',
+    });
+
+    const response = await postBooking({
+      bookingSubject: 'guest',
+      clientName: 'Alias Guest',
+      clientPhone: '9999999999',
+      clientEmail: 'old@example.com',
+    });
+
+    expect(response.status).toBe(201);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      db,
+      { salonId: 'salon_1', clientId: 'client_primary' },
+    );
+    expect(insertState.appointmentValues).toEqual(expect.objectContaining({
+      salonClientId: 'client_primary',
+      clientPhone: '2222222222',
+    }));
+    expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ clientPhone: '2222222222' }),
+    );
+  });
+
+  it('rejects a lineage-wide active conflict before any appointment-side insert', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([{
+      id: 'appt_source_active',
+      salonId: 'salon_1',
+      salonClientId: 'client_source',
+      clientPhone: '9999999999',
+      clientEmail: 'old@example.com',
+      status: 'confirmed',
+      startTime: new Date('2099-03-14T15:00:00.000Z'),
+      endTime: new Date('2099-03-14T16:30:00.000Z'),
+    }]);
+
+    const response = await postBooking();
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();
+  });
+
+  it('serializes a genuinely new phone and email before creating the client in-transaction', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    resolveCanonicalSalonClientIdentity.mockResolvedValue(null);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(null);
+    const createdClient = {
+      id: 'client_new',
+      salonId: 'salon_1',
+      phone: '9999999999',
+      email: 'new@example.com',
+      archivedAt: null,
+    };
+    let newClientValues: Record<string, unknown> | null = null;
+    db.insert.mockImplementationOnce(() => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        newClientValues = values;
+        return {
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn(async () => [createdClient]),
+          })),
+        };
+      }),
+    }));
+    const insertState = mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_new_identity',
+      salonClientId: 'client_new',
+      clientPhone: '9999999999',
+    });
+
+    const response = await postBooking({
+      bookingSubject: 'guest',
+      clientName: 'New Guest',
+      clientPhone: '9999999999',
+      clientEmail: 'new@example.com',
+    });
+
+    expect(response.status).toBe(201);
+    expect(lockSalonClientIdentityKeysWithHandle).toHaveBeenCalledWith(
+      db,
+      {
+        salonId: 'salon_1',
+        phone: '9999999999',
+        email: 'new@example.com',
+      },
+    );
+    expect(
+      resolveCanonicalSalonClientIdentityWithHandle.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(
+      lockSalonClientIdentityKeysWithHandle.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(newClientValues).toEqual(expect.objectContaining({
+      salonId: 'salon_1',
+      phone: '9999999999',
+      email: 'new@example.com',
+    }));
+    expect(insertState.appointmentValues).toEqual(expect.objectContaining({
+      salonClientId: 'client_new',
+      clientPhone: '9999999999',
+    }));
+    expect(lockOperationalSalonClientContactWithHandle).not.toHaveBeenCalled();
+  });
+
+  it('restarts with the terminal lock when an identity appears during new-client serialization', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    const appearedIdentity = canonicalIdentityFixture({
+      inputPhone: '9999999999',
+      inputEmail: 'new@example.com',
+      terminalId: 'client_appeared',
+    });
+    resolveCanonicalSalonClientIdentity
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(appearedIdentity);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(appearedIdentity);
+    lockOperationalSalonClientContactWithHandle.mockResolvedValue(appearedIdentity.terminal);
+    const insertState = mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_appeared',
+      salonClientId: 'client_appeared',
+      clientPhone: '9999999999',
+    });
+
+    const response = await postBooking({
+      bookingSubject: 'guest',
+      clientName: 'Serialized Guest',
+      clientPhone: '9999999999',
+      clientEmail: 'new@example.com',
+    });
+
+    expect(response.status).toBe(201);
+    expect(db.transaction).toHaveBeenCalledTimes(2);
+    expect(lockSalonClientIdentityKeysWithHandle).toHaveBeenCalledTimes(1);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      db,
+      { salonId: 'salon_1', clientId: 'client_appeared' },
+    );
+    expect(insertState.appointmentValues).toEqual(expect.objectContaining({
+      salonClientId: 'client_appeared',
+    }));
   });
 
   it('rejects booking writes when the shared booking policy says the slot is not bookable', async () => {
@@ -428,7 +822,6 @@ describe('POST /api/appointments booking policy', () => {
       ok: false,
       response: new Response(null, { status: 401 }),
     });
-    getOrCreateSalonClient.mockResolvedValue({ id: 'client_1', phone: '9999999999' });
     getTechnicianById.mockResolvedValue(null);
     getLocationById.mockResolvedValue({
       id: 'loc_1',
@@ -1004,7 +1397,7 @@ describe('POST /api/appointments booking policy', () => {
       },
     });
     expect(getActiveAppointmentsForContact).not.toHaveBeenCalled();
-    expect(getOrCreateSalonClient).not.toHaveBeenCalled();
+    expect(resolveCanonicalSalonClientIdentity).not.toHaveBeenCalled();
   });
 
   it('books under the account phone when the signed-in customer declares self mode', async () => {
@@ -1060,8 +1453,12 @@ describe('POST /api/appointments booking policy', () => {
     expect(getActiveAppointmentsForContact).toHaveBeenCalledWith(
       expect.objectContaining({ phone: '1111111111', salonId: 'salon_1' }),
     );
-    expect(getOrCreateSalonClient).toHaveBeenCalledWith('salon_1', '1111111111', undefined);
-    expect(getOrCreateSalonClient).not.toHaveBeenCalledWith('salon_1', '9999999999', undefined);
+    expect(resolveCanonicalSalonClientIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ salonId: 'salon_1', phone: '1111111111' }),
+    );
+    expect(resolveCanonicalSalonClientIdentity).not.toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '9999999999' }),
+    );
   });
 
   it('reschedules atomically by creating the new appointment and cancelling the original in one transaction', async () => {
@@ -1155,13 +1552,28 @@ describe('POST /api/appointments booking policy', () => {
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
         execute: vi.fn(async () => undefined),
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(async () => []),
+        select: vi.fn()
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({
+                  limit: vi.fn(async () => [{
+                    id: 'appt_original',
+                    salonId: 'salon_1',
+                    salonClientId: undefined,
+                    status: 'confirmed',
+                  }]),
+                })),
+              })),
             })),
           })),
-        })),
       };
 
       const result = await callback(tx as never);
@@ -1203,6 +1615,19 @@ describe('POST /api/appointments booking policy', () => {
     });
     expect((cancelOriginalSetPayload as Record<string, unknown> | null)?.canvasStateUpdatedAt)
       .toBeInstanceOf(Date);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      { salonId: 'salon_1', clientId: 'client_1' },
+    );
+    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        terminalClientId: 'client_1',
+        horizon: 'lineage-active',
+        excludeAppointmentId: 'appt_original',
+      },
+    );
   });
 
   it('rolls back a reschedule when cancelling the original appointment fails', async () => {
@@ -1284,13 +1709,28 @@ describe('POST /api/appointments booking policy', () => {
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
         execute: vi.fn(async () => undefined),
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(async () => []),
+        select: vi.fn()
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({
+                  limit: vi.fn(async () => [{
+                    id: 'appt_original',
+                    salonId: 'salon_1',
+                    salonClientId: undefined,
+                    status: 'confirmed',
+                  }]),
+                })),
+              })),
             })),
           })),
-        })),
       };
 
       const result = await callback(tx as never);
@@ -1388,7 +1828,43 @@ describe('POST /api/appointments booking policy', () => {
               }),
             })),
           })),
-        update: vi.fn(),
+        update: vi.fn()
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => [{
+                  id: 'appt_original',
+                  status: 'cancelled',
+                }]),
+              })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+          })),
+        execute: vi.fn(async () => undefined),
+        select: vi.fn()
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({
+                  limit: vi.fn(async () => [{
+                    id: 'appt_original',
+                    salonId: 'salon_1',
+                    salonClientId: undefined,
+                    status: 'confirmed',
+                  }]),
+                })),
+              })),
+            })),
+          })),
       };
 
       const result = await callback(tx as never);
@@ -1589,7 +2065,17 @@ describe('POST /api/appointments booking policy', () => {
       from: vi.fn(() => ({
         where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
       })),
-    }));
+    })).mockImplementationOnce(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+      })),
+    })).mockImplementationOnce((() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          for: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
+        })),
+      })),
+    })) as never);
 
     const response = await POST(new Request('http://localhost/api/appointments', {
       method: 'POST',
@@ -1606,7 +2092,7 @@ describe('POST /api/appointments booking policy', () => {
 
     expect(response.status).toBe(403);
     expect(body.error.code).toBe('CLIENT_MISMATCH');
-    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -1889,7 +2375,9 @@ describe('POST /api/appointments booking policy', () => {
       expect(getActiveAppointmentsForContact).not.toHaveBeenCalledWith(
         expect.objectContaining({ phone: '1111111111' }),
       );
-      expect(getOrCreateSalonClient).not.toHaveBeenCalledWith('salon_1', '1111111111', undefined);
+      expect(resolveCanonicalSalonClientIdentity).not.toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '1111111111' }),
+      );
     });
 
     it('does not demand a booking subject from a browser with a dead cookie', async () => {

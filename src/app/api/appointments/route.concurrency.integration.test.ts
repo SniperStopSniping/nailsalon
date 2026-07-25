@@ -76,6 +76,7 @@ vi.mock('@/libs/googleCalendar', async importOriginal => ({
 
 const SALON_ID = 'salon_conc';
 const TECH_ID = 'tech_conc';
+const SECOND_TECH_ID = 'tech_conc_2';
 const SERVICE_ID = 'svc_conc';
 const START_TIME = '2099-09-01T15:00:00.000Z';
 
@@ -110,16 +111,28 @@ suite('POST /api/appointments — genuine concurrency', () => {
       publicationStatus: 'published',
       settings: { booking: { timezone: 'America/Toronto', slotIntervalMinutes: 15, bufferMinutes: 10 } },
     });
-    await db.insert(schema.technicianSchema).values({
-      id: TECH_ID,
-      salonId: SALON_ID,
-      name: 'Concurrency Tech',
-      isActive: true,
-      weeklySchedule: Object.fromEntries(
-        ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-          .map(day => [day, { start: '00:00', end: '23:45' }]),
-      ),
-    });
+    await db.insert(schema.technicianSchema).values([
+      {
+        id: TECH_ID,
+        salonId: SALON_ID,
+        name: 'Concurrency Tech',
+        isActive: true,
+        weeklySchedule: Object.fromEntries(
+          ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            .map(day => [day, { start: '00:00', end: '23:45' }]),
+        ),
+      },
+      {
+        id: SECOND_TECH_ID,
+        salonId: SALON_ID,
+        name: 'Concurrency Tech 2',
+        isActive: true,
+        weeklySchedule: Object.fromEntries(
+          ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            .map(day => [day, { start: '00:00', end: '23:45' }]),
+        ),
+      },
+    ]);
     await db.insert(schema.serviceSchema).values({
       id: SERVICE_ID,
       salonId: SALON_ID,
@@ -131,11 +144,18 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
     // The technician must be assigned the service, or the route rejects the
     // selection long before the race is reached.
-    await db.insert(schema.technicianServicesSchema).values({
-      technicianId: TECH_ID,
-      serviceId: SERVICE_ID,
-      enabled: true,
-    });
+    await db.insert(schema.technicianServicesSchema).values([
+      {
+        technicianId: TECH_ID,
+        serviceId: SERVICE_ID,
+        enabled: true,
+      },
+      {
+        technicianId: SECOND_TECH_ID,
+        serviceId: SERVICE_ID,
+        enabled: true,
+      },
+    ]);
   });
 
   beforeEach(async () => {
@@ -150,7 +170,11 @@ suite('POST /api/appointments — genuine concurrency', () => {
     sendTransactionalEmail.mockResolvedValue(true);
     sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, errorCode: null, providerMessageId: 'm' });
 
-    await pool.query('TRUNCATE TABLE appointment_access_token, appointment_add_on, appointment_services, notification_delivery, integration_outbox, appointment RESTART IDENTITY CASCADE');
+    await pool.query(`TRUNCATE TABLE
+      appointment_access_token, appointment_add_on, appointment_services,
+      notification_delivery, integration_outbox, appointment,
+      salon_client_contact_alias, salon_client
+      RESTART IDENTITY CASCADE`);
   });
 
   afterAll(async () => {
@@ -177,6 +201,182 @@ suite('POST /api/appointments — genuine concurrency', () => {
   async function activeAppointments() {
     return db.select().from(schema.appointmentSchema);
   }
+
+  async function waitForBlockedSessions(expectedCount: number): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const result = await pool.query<{ count: number }>(`
+        SELECT count(*)::int AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+      `);
+      if ((result.rows[0]?.count ?? 0) >= expectedCount) {
+        return;
+      }
+      // Polling observes PostgreSQL's lock barrier; correctness never depends
+      // on one request happening to win within a fixed sleep window.
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error(`Expected ${expectedCount} blocked PostgreSQL sessions`);
+  }
+
+  async function holdAdvisoryIdentityKey(advisoryKey: string) {
+    const connection = await pool.connect();
+    await connection.query('BEGIN');
+    await connection.query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [advisoryKey],
+    );
+    return async () => {
+      try {
+        await connection.query('COMMIT');
+      } finally {
+        connection.release();
+      }
+    };
+  }
+
+  async function holdTerminalClient(clientId: string) {
+    const connection = await pool.connect();
+    await connection.query('BEGIN');
+    await connection.query(
+      'SELECT id FROM salon_client WHERE salon_id = $1 AND id = $2 FOR UPDATE',
+      [SALON_ID, clientId],
+    );
+    return async () => {
+      try {
+        await connection.query('COMMIT');
+      } finally {
+        connection.release();
+      }
+    };
+  }
+
+  async function seedMergedLineage() {
+    await db.insert(schema.salonClientSchema).values([
+      {
+        id: 'client_terminal',
+        salonId: SALON_ID,
+        phone: '4165553000',
+        email: 'terminal@example.invalid',
+      },
+      {
+        id: 'client_source',
+        salonId: SALON_ID,
+        phone: '4165553001',
+        email: 'source@example.invalid',
+      },
+    ]);
+    await pool.query(
+      'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+    );
+    try {
+      await db.update(schema.salonClientSchema).set({
+        archivedAt: new Date('2099-01-01T00:00:00Z'),
+        archivedBy: 'concurrency-test',
+        mergedIntoClientId: 'client_terminal',
+        mergedAt: new Date('2099-01-01T00:00:00Z'),
+        mergedBy: 'concurrency-test',
+      }).where(eq(schema.salonClientSchema.id, 'client_source'));
+    } finally {
+      await pool.query(
+        'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+      );
+    }
+    await db.insert(schema.salonClientContactAliasSchema).values([
+      {
+        salonId: SALON_ID,
+        salonClientId: 'client_source',
+        kind: 'phone',
+        normalizedValue: '4165553002',
+      },
+      {
+        salonId: SALON_ID,
+        salonClientId: 'client_source',
+        kind: 'email',
+        normalizedValue: 'alias@example.invalid',
+      },
+    ]);
+  }
+
+  it('serializes phone-versus-email inputs before creating one new profile', async () => {
+    const { POST } = await import('./route');
+    const release = await holdAdvisoryIdentityKey(JSON.stringify([
+      SALON_ID,
+      'email',
+      'new.identity@example.invalid',
+    ]));
+    const requests = [
+      POST(bookingRequest({
+        clientPhone: '4165554000',
+        clientEmail: 'NEW.IDENTITY@example.invalid',
+        technicianId: TECH_ID,
+        startTime: '2099-09-01T15:00:00.000Z',
+      })),
+      POST(bookingRequest({
+        clientPhone: '4165554001',
+        clientEmail: 'new.identity@example.invalid',
+        technicianId: SECOND_TECH_ID,
+        startTime: '2099-09-02T18:00:00.000Z',
+      })),
+    ];
+    await waitForBlockedSessions(2);
+    await release();
+
+    const responses = await Promise.all(requests);
+
+    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+    expect(await db.select().from(schema.salonClientSchema)).toHaveLength(1);
+    expect(await activeAppointments()).toHaveLength(1);
+  });
+
+  it('serializes terminal, source, phone-alias, and email-alias bookings', async () => {
+    await seedMergedLineage();
+    const { POST } = await import('./route');
+    const release = await holdTerminalClient('client_terminal');
+    const requests = [
+      POST(bookingRequest({
+        clientPhone: '4165553000',
+        clientEmail: 'terminal@example.invalid',
+        technicianId: TECH_ID,
+        startTime: '2099-09-03T15:00:00.000Z',
+      })),
+      POST(bookingRequest({
+        clientPhone: '4165553001',
+        clientEmail: 'source@example.invalid',
+        technicianId: SECOND_TECH_ID,
+        startTime: '2099-09-04T18:00:00.000Z',
+      })),
+      POST(bookingRequest({
+        clientPhone: '4165553002',
+        clientEmail: 'terminal@example.invalid',
+        technicianId: TECH_ID,
+        startTime: '2099-09-05T15:00:00.000Z',
+      })),
+      POST(bookingRequest({
+        clientPhone: '4165553000',
+        clientEmail: 'alias@example.invalid',
+        technicianId: SECOND_TECH_ID,
+        startTime: '2099-09-06T18:00:00.000Z',
+      })),
+    ];
+    await waitForBlockedSessions(4);
+    await release();
+
+    const responses = await Promise.all(requests);
+
+    expect(responses.filter(response => response.status === 201)).toHaveLength(1);
+    expect(responses.filter(response => response.status === 409)).toHaveLength(3);
+
+    const clients = await db.select().from(schema.salonClientSchema);
+    const appointments = await activeAppointments();
+
+    expect(clients).toHaveLength(2);
+    expect(appointments).toHaveLength(1);
+    expect(appointments[0]?.salonClientId).toBe('client_terminal');
+  });
 
   it('lets exactly one of two simultaneous identical bookings win', async () => {
     const { POST } = await import('./route');
@@ -254,7 +454,11 @@ suite('POST /api/appointments — genuine concurrency', () => {
     const winners = new Set<string>();
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      await pool.query('TRUNCATE TABLE appointment_access_token, appointment_add_on, appointment_services, notification_delivery, integration_outbox, appointment RESTART IDENTITY CASCADE');
+      await pool.query(`TRUNCATE TABLE
+        appointment_access_token, appointment_add_on, appointment_services,
+        notification_delivery, integration_outbox, appointment,
+        salon_client_contact_alias, salon_client
+        RESTART IDENTITY CASCADE`);
 
       const requests = [
         POST(bookingRequest({ clientName: 'Racer A', clientPhone: '4165551111', clientEmail: 'a@example.invalid' })),
