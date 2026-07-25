@@ -198,7 +198,7 @@ describe('appointment reminders', () => {
     expect(result.failures).toBe(0);
   });
 
-  it('uses terminal current contact for a merged-source automatic reminder', async () => {
+  it('uses terminal current phone without rewriting historical reminder email', async () => {
     queueSelectResults([{
       appointmentId: 'appt_merged',
       salonId: 'salon_1',
@@ -226,7 +226,7 @@ describe('appointment reminders', () => {
       allowArchived: true,
     });
     expect(sendTransactionalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'current@example.test' }),
+      expect.objectContaining({ to: 'historical@example.test' }),
     );
     expect(sendAppointmentReminder).toHaveBeenCalledWith(
       'salon_1',

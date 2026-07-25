@@ -260,8 +260,6 @@ async function resolveReminderOperationalContact(
   return {
     ...candidate,
     clientPhone: contact.phone,
-    salonClientEmail: contact.email,
-    appointmentEmail: contact.email,
   };
 }
 
