@@ -4,13 +4,14 @@ import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
+  resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { normalizePhone } from '@/libs/phone';
-import { getAppointmentServiceNames, getClientByPhone } from '@/libs/queries';
+import { getAppointmentServiceNames } from '@/libs/queries';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
@@ -361,18 +362,15 @@ async function sendSameDayReminder(
 }
 
 async function resolveClientEmail(candidate: ReminderCandidate): Promise<string | null> {
-  const appointmentEmail = candidate.appointmentEmail?.trim().toLowerCase() ?? '';
-  if (appointmentEmail) {
-    return appointmentEmail;
+  try {
+    const recipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId: candidate.salonId,
+      appointmentId: candidate.appointmentId,
+    });
+    return recipient.status === 'unavailable' ? null : recipient.email;
+  } catch {
+    return null;
   }
-  const salonClientEmail = candidate.salonClientEmail?.trim().toLowerCase() ?? '';
-  if (salonClientEmail) {
-    return salonClientEmail;
-  }
-
-  const globalClient = await getClientByPhone(candidate.clientPhone);
-  const globalEmail = globalClient?.email?.trim().toLowerCase() ?? '';
-  return globalEmail || null;
 }
 
 /**

@@ -10,11 +10,11 @@ vi.mock('server-only', () => ({}));
 
 const {
   mintAppointmentManageLink,
+  resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
   sendTransactionalEmail,
   getAppointmentServiceNames,
-  getClientByPhone,
   sendAppointmentReminder,
   select,
   updateSet,
@@ -39,11 +39,11 @@ const {
 
   return {
     mintAppointmentManageLink: vi.fn(),
+    resolveAppointmentOperationalEmailRecipient: vi.fn(),
     resolveOperationalSalonClientContact: vi.fn(),
     resolveOperationalSalonClientContactByPhone: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
-    getClientByPhone: vi.fn(),
     sendAppointmentReminder: vi.fn(),
     select,
     updateSet,
@@ -63,6 +63,7 @@ vi.mock('@/libs/email', () => ({
 }));
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
 }));
@@ -73,7 +74,6 @@ vi.mock('@/libs/appointmentManageLink', () => ({
 
 vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
-  getClientByPhone,
 }));
 
 vi.mock('@/libs/SMS', () => ({
@@ -92,7 +92,11 @@ describe('appointment reminders', () => {
     vi.clearAllMocks();
     queueSelectResults();
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
-    getClientByPhone.mockResolvedValue(null);
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.test',
+      terminalClientId: 'primary_client',
+    });
     sendTransactionalEmail.mockResolvedValue(true);
     sendAppointmentReminder.mockResolvedValue(true);
     mintAppointmentManageLink.mockResolvedValue(
@@ -149,7 +153,7 @@ describe('appointment reminders', () => {
     });
 
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'ava@example.com',
+      to: 'current@example.test',
       subject: 'Reminder: Your appointment tomorrow at Isla Nail Studio',
     }));
     expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
@@ -230,7 +234,7 @@ describe('appointment reminders', () => {
       allowArchived: true,
     });
     expect(sendTransactionalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'historical@example.test' }),
+      expect.objectContaining({ to: 'current@example.test' }),
     );
     expect(sendAppointmentReminder).toHaveBeenCalledWith(
       'salon_1',
@@ -280,7 +284,7 @@ describe('appointment reminders', () => {
       expect.objectContaining({ phone: '4165550198' }),
     );
     expect(sendTransactionalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'historical@example.test' }),
+      expect.objectContaining({ to: 'current@example.test' }),
     );
     expect(result.dayBeforeSent).toBe(1);
   });
@@ -367,7 +371,7 @@ describe('appointment reminders', () => {
     });
 
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'ava@example.com',
+      to: 'current@example.test',
       subject: 'Your Isla Nail Studio appointment is today',
     }));
     expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
@@ -380,8 +384,11 @@ describe('appointment reminders', () => {
     expect(result.sameDaySent).toBe(1);
   });
 
-  it('uses the global client email fallback when the salon client email is missing', async () => {
-    getClientByPhone.mockResolvedValue({ email: 'fallback@example.com' });
+  it('never uses a global identity fallback when canonical email is unavailable', async () => {
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'unsupported_client_identity',
+    });
     queueSelectResults([{
       appointmentId: 'appt_4',
       salonId: 'salon_1',
@@ -400,10 +407,11 @@ describe('appointment reminders', () => {
       now: new Date('2026-03-31T22:05:00.000Z'),
     });
 
-    expect(getClientByPhone).toHaveBeenCalledWith('+14165551234');
-    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'fallback@example.com',
-    }));
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165551234' }),
+    );
   });
 
   it('puts the canonical management link in both reminder emails', async () => {
@@ -448,6 +456,8 @@ describe('appointment reminders', () => {
         manageUrl: 'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
       }));
     }
+
+    expect(resolveAppointmentOperationalEmailRecipient).toHaveBeenCalledTimes(2);
   });
 
   it('still sends the reminder when the management link cannot be minted', async () => {
@@ -495,6 +505,7 @@ describe('appointment reminders', () => {
 
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
     expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
     expect(updateWhere).not.toHaveBeenCalled();
     expect(result.skipped).toBe(1);
   });

@@ -8,6 +8,7 @@ import {
   getAppointmentCalendarEventForSync,
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
+import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon } from '@/libs/googleCalendar';
@@ -77,14 +78,19 @@ async function enqueueCurrentAppointmentState(appointmentId: string, salonId: st
 }
 
 async function sendCalendarChangeEmail(args: {
-  clientEmail: string | null;
+  salonId: string;
+  appointmentId: string;
   clientName: string | null;
   salonName: string;
   timeZone: string;
   startTime: Date;
   operation: 'rescheduled' | 'cancelled';
 }) {
-  if (!args.clientEmail) {
+  const recipient = await resolveAppointmentOperationalEmailRecipient({
+    salonId: args.salonId,
+    appointmentId: args.appointmentId,
+  }).catch(() => null);
+  if (!recipient || recipient.status === 'unavailable') {
     return;
   }
   const greeting = args.clientName?.trim() ? `Hi ${args.clientName.trim()},` : 'Hello,';
@@ -96,7 +102,7 @@ async function sendCalendarChangeEmail(args: {
   const safeAction = escapeHtml(action);
   const safeSalonName = escapeHtml(args.salonName);
   await sendTransactionalEmail({
-    to: args.clientEmail,
+    to: recipient.email,
     subject: `${args.salonName} appointment ${args.operation}`,
     text: `${greeting}\n\n${action}\n\nPlease contact ${args.salonName} if this change was unexpected.`,
     html: `<p>${safeGreeting}</p><p>${safeAction}</p><p>Please contact ${safeSalonName} if this change was unexpected.</p>`,
@@ -313,7 +319,8 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             reason: 'The connected Google Calendar event was deleted by the salon owner.',
           });
           await sendCalendarChangeEmail({
-            clientEmail: appointment.clientEmail,
+            salonId: appointment.salonId,
+            appointmentId: appointment.id,
             clientName: appointment.clientName,
             salonName: salon.name,
             timeZone,
@@ -373,7 +380,8 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             reason: 'The connected Google Calendar event was changed by the salon owner.',
           });
           await sendCalendarChangeEmail({
-            clientEmail: appointment.clientEmail,
+            salonId: appointment.salonId,
+            appointmentId: appointment.id,
             clientName: appointment.clientName,
             salonName: salon.name,
             timeZone,

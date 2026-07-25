@@ -13,6 +13,7 @@ const {
   runAppointmentManageMutation,
   getAppointmentCalendarEventForSync,
   enqueueGoogleCalendarUpsert,
+  resolveAppointmentOperationalEmailRecipient,
   sendTransactionalEmail,
   logAppointmentChange,
 } = vi.hoisted(() => {
@@ -38,6 +39,7 @@ const {
     runAppointmentManageMutation: vi.fn(),
     getAppointmentCalendarEventForSync: vi.fn(),
     enqueueGoogleCalendarUpsert: vi.fn(),
+    resolveAppointmentOperationalEmailRecipient: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     logAppointmentChange: vi.fn(),
   };
@@ -58,6 +60,9 @@ vi.mock('@/libs/appointmentManage', () => ({
   runAppointmentManageMutation,
 }));
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarUpsert }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveAppointmentOperationalEmailRecipient,
+}));
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail }));
 vi.mock('@/libs/appointmentAudit', () => ({ logAppointmentChange }));
 
@@ -93,6 +98,11 @@ describe('processGoogleCalendarInboundSync', () => {
     listGoogleCalendarEventsForSalon.mockResolvedValue([]);
     listGoogleCalendarsForSalon.mockResolvedValue([{ id: 'calendar_1', accessRole: 'owner' }]);
     runAppointmentManageMutation.mockResolvedValue({ appointment: {}, warnings: [] });
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.com',
+      terminalClientId: 'client_1',
+    });
     sendTransactionalEmail.mockResolvedValue(true);
   });
 
@@ -149,7 +159,7 @@ describe('processGoogleCalendarInboundSync', () => {
       performedBy: 'google-calendar-sync',
     }));
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'client@example.com',
+      to: 'current@example.com',
       subject: 'Best Nails appointment rescheduled',
     }));
   });
@@ -221,6 +231,73 @@ describe('processGoogleCalendarInboundSync', () => {
       action: 'cancelled',
       salonId: 'salon_1',
     }));
+  });
+
+  it('keeps a Google move committed when current-recipient delivery fails', async () => {
+    selectResults.push([connection], [salon], [], [appointment]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:45:00.000Z'),
+    }]);
+    resolveAppointmentOperationalEmailRecipient.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.movedAppointments).toBe(1);
+    expect(result.conflicts).toBe(0);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Google cancellation committed when recipient state is unsupported', async () => {
+    selectResults.push(
+      [connection],
+      [salon],
+      [{
+        id: 'gce_1',
+        appointmentId: 'appt_1',
+        reviewStatus: 'appointment',
+      }],
+      [appointment],
+    );
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'cancelled',
+      summary: null,
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date(),
+      startTime: null,
+      endTime: null,
+    }]);
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'unsupported_client_identity',
+    });
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.cancelledAppointments).toBe(1);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
   });
 
   it('ignores an event whose private salon marker does not match the connection', async () => {
