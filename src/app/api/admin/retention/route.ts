@@ -2,7 +2,16 @@ import { and, desc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
+import {
+  buildActiveTerminalSalonClientMap,
+  ClientLifecycleStabilizationError,
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { normalizePhone } from '@/libs/phone';
 import {
   buildAppointmentReminderQueue,
   buildCommunicationStatusTimestamps,
@@ -19,6 +28,7 @@ import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   appointmentSchema,
   clientCommunicationSchema,
+  salonClientContactAliasSchema,
   salonClientSchema,
 } from '@/models/Schema';
 import type { ClientCommunicationKind, ClientCommunicationStatus, RetentionStage } from '@/types/retention';
@@ -35,10 +45,13 @@ const ACTIVE_RETENTION_STATUSES: ClientCommunicationStatus[] = ['prepared', 'sno
 
 type CommunicationRow = typeof clientCommunicationSchema.$inferSelect;
 
-function serializeCommunication(row: CommunicationRow) {
+function serializeCommunication(
+  row: CommunicationRow,
+  clientId = row.salonClientId,
+) {
   return {
     id: row.id,
-    clientId: row.salonClientId,
+    clientId,
     appointmentId: row.appointmentId,
     kind: row.kind,
     status: row.status,
@@ -95,7 +108,13 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const now = new Date();
-  const [settings, clientRows, appointmentRows, communicationRows] = await Promise.all([
+  const [
+    settings,
+    clientRows,
+    aliasRows,
+    appointmentRows,
+    communicationRows,
+  ] = await Promise.all([
     getRetentionSettingsForSalon(salon.id),
     db
       .select({
@@ -105,10 +124,20 @@ export async function GET(request: Request): Promise<Response> {
         lastVisitAt: salonClientSchema.lastVisitAt,
         rebookIntervalDays: salonClientSchema.rebookIntervalDays,
         isBlocked: salonClientSchema.isBlocked,
+        archivedAt: salonClientSchema.archivedAt,
+        mergedIntoClientId: salonClientSchema.mergedIntoClientId,
       })
       .from(salonClientSchema)
       .where(eq(salonClientSchema.salonId, salon.id))
       .limit(5000),
+    db
+      .select({
+        salonClientId: salonClientContactAliasSchema.salonClientId,
+        kind: salonClientContactAliasSchema.kind,
+        normalizedValue: salonClientContactAliasSchema.normalizedValue,
+      })
+      .from(salonClientContactAliasSchema)
+      .where(eq(salonClientContactAliasSchema.salonId, salon.id)),
     db
       .select({
         id: appointmentSchema.id,
@@ -145,18 +174,97 @@ export async function GET(request: Request): Promise<Response> {
       .limit(10000),
   ]);
 
-  const clients: RetentionClientSnapshot[] = clientRows;
-  const appointments: RetentionAppointmentSnapshot[] = appointmentRows.map(appointment => ({
-    id: appointment.id,
-    salonClientId: appointment.salonClientId,
-    clientName: appointment.clientName,
-    clientPhone: appointment.clientPhone,
-    startTime: appointment.startTime,
-    endTime: appointment.endTime,
-    status: appointment.status,
-    reminderSentAt: appointment.sameDayReminderSentAt ?? appointment.dayBeforeReminderSentAt,
-  }));
-  const communications = toCommunicationSnapshots(communicationRows);
+  const terminalBySource = buildActiveTerminalSalonClientMap(
+    clientRows.map(client => ({
+      id: client.id,
+      archivedAt: client.archivedAt,
+      mergedIntoClientId: client.mergedIntoClientId,
+    })),
+  );
+  const activeClientRows = clientRows.filter(
+    client => terminalBySource.get(client.id) === client.id,
+  );
+  const activeClientById = new Map(
+    activeClientRows.map(client => [client.id, client]),
+  );
+  const terminalIdsByPhone = new Map<string, Set<string>>();
+  const addPhoneIdentity = (value: string, terminalClientId: string) => {
+    const normalizedPhone = normalizePhone(value);
+    if (normalizedPhone.length !== 10) {
+      return;
+    }
+    const terminalIds = terminalIdsByPhone.get(normalizedPhone)
+      ?? new Set<string>();
+    terminalIds.add(terminalClientId);
+    terminalIdsByPhone.set(normalizedPhone, terminalIds);
+  };
+  for (const client of clientRows) {
+    const terminalClientId = terminalBySource.get(client.id);
+    if (terminalClientId) {
+      addPhoneIdentity(client.phone, terminalClientId);
+    }
+  }
+  for (const alias of aliasRows) {
+    if (alias.kind !== 'phone') {
+      continue;
+    }
+    const terminalClientId = terminalBySource.get(alias.salonClientId);
+    if (terminalClientId) {
+      addPhoneIdentity(alias.normalizedValue, terminalClientId);
+    }
+  }
+  const uniqueTerminalByPhone = new Map<string, string>();
+  for (const [normalizedPhone, terminalIds] of terminalIdsByPhone) {
+    if (terminalIds.size === 1) {
+      uniqueTerminalByPhone.set(normalizedPhone, [...terminalIds][0]!);
+    }
+  }
+  const resolveAppointmentClientId = (appointment: {
+    salonClientId: string | null;
+    clientPhone: string;
+  }): string | null => {
+    if (appointment.salonClientId !== null) {
+      return terminalBySource.get(appointment.salonClientId) ?? null;
+    }
+    return uniqueTerminalByPhone.get(normalizePhone(
+      appointment.clientPhone,
+    )) ?? null;
+  };
+
+  const clients: RetentionClientSnapshot[] = activeClientRows;
+  const appointments: RetentionAppointmentSnapshot[] = appointmentRows.flatMap(
+    (appointment) => {
+      const terminalClientId = resolveAppointmentClientId(appointment);
+      const terminalClient = terminalClientId
+        ? activeClientById.get(terminalClientId)
+        : null;
+      return terminalClientId && terminalClient
+        ? [{
+            id: appointment.id,
+            salonClientId: terminalClientId,
+            clientName: appointment.clientName,
+            // This is an operational destination only. The stored appointment
+            // snapshot remains unchanged.
+            clientPhone: terminalClient.phone,
+            startTime: appointment.startTime,
+            endTime: appointment.endTime,
+            status: appointment.status,
+            reminderSentAt:
+              appointment.sameDayReminderSentAt
+              ?? appointment.dayBeforeReminderSentAt,
+          }]
+        : [];
+    },
+  );
+  const communications = toCommunicationSnapshots(communicationRows)
+    .flatMap((communication) => {
+      const terminalClientId = terminalBySource.get(
+        communication.salonClientId,
+      );
+      return terminalClientId
+        ? [{ ...communication, salonClientId: terminalClientId }]
+        : [];
+    });
 
   const retention = buildRetentionQueue({
     clients,
@@ -173,11 +281,15 @@ export async function GET(request: Request): Promise<Response> {
     now,
   });
 
-  const history = parsed.data.clientId
+  const historyClientId = parsed.data.clientId
+    ? terminalBySource.get(parsed.data.clientId) ?? null
+    : null;
+  const history = historyClientId
     ? communicationRows
-      .filter(row => row.salonClientId === parsed.data.clientId)
+      .filter(row =>
+        terminalBySource.get(row.salonClientId) === historyClientId)
       .slice(0, 100)
-      .map(serializeCommunication)
+      .map(row => serializeCommunication(row, historyClientId))
     : [];
 
   return Response.json({
@@ -222,194 +334,253 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated.' } }, { status: 401 });
   }
 
-  const [client] = await db
-    .select({
-      id: salonClientSchema.id,
-      phone: salonClientSchema.phone,
-      lastVisitAt: salonClientSchema.lastVisitAt,
-    })
-    .from(salonClientSchema)
-    .where(and(
-      eq(salonClientSchema.id, parsed.data.clientId),
-      eq(salonClientSchema.salonId, salon.id),
-    ))
-    .limit(1);
-  if (!client) {
-    return Response.json({ error: { code: 'CLIENT_NOT_FOUND', message: 'Client not found.' } }, { status: 404 });
-  }
-
-  let appointment: {
-    id: string;
-    startTime: Date;
-    salonClientId: string | null;
-    clientPhone: string;
-  } | null = null;
-  if (parsed.data.appointmentId) {
-    const appointmentRows = await db
-      .select({
-        id: appointmentSchema.id,
-        startTime: appointmentSchema.startTime,
-        salonClientId: appointmentSchema.salonClientId,
-        clientPhone: appointmentSchema.clientPhone,
-      })
-      .from(appointmentSchema)
-      .where(and(
-        eq(appointmentSchema.id, parsed.data.appointmentId),
-        eq(appointmentSchema.salonId, salon.id),
-        isNull(appointmentSchema.deletedAt),
-      ))
-      .limit(1);
-    appointment = appointmentRows[0] ?? null;
-    const belongsToClient = appointment && (
-      appointment.salonClientId === client.id
-      || (
-        appointment.salonClientId === null
-        && normalizeRetentionPhone(appointment.clientPhone) === normalizeRetentionPhone(client.phone)
-      )
-    );
-    if (!appointment || !belongsToClient) {
-      return Response.json({ error: { code: 'APPOINTMENT_NOT_FOUND', message: 'Appointment not found for this client.' } }, { status: 404 });
-    }
-  }
-
   const now = new Date();
   const safeMessageSnapshot = sanitizeCommunicationMessageSnapshot(parsed.data.messageSnapshot);
   const settings = await getRetentionSettingsForSalon(salon.id);
-  const dueAt = parsed.data.kind === 'reminder' && appointment
-    ? new Date(appointment.startTime.getTime() - settings.reminderLeadHours * 3_600_000)
-    : client.lastVisitAt && RETENTION_KINDS.includes(parsed.data.kind)
-      ? new Date(client.lastVisitAt.getTime() + (
-        parsed.data.kind === 'promo_8w'
-          ? 56
-          : parsed.data.kind === 'promo_6w'
-            ? 42
-            : settings.defaultRebookDays
-      ) * 86_400_000)
-      : null;
+  const communicationId = `comm_${crypto.randomUUID()}`;
+  let result:
+    | { ok: true; communication: CommunicationRow | undefined }
+    | { ok: false; response: Response };
 
-  const [latest] = await db
-    .select()
-    .from(clientCommunicationSchema)
-    .where(and(
-      eq(clientCommunicationSchema.salonId, salon.id),
-      eq(clientCommunicationSchema.salonClientId, client.id),
-      eq(clientCommunicationSchema.kind, parsed.data.kind),
-      parsed.data.appointmentId
-        ? eq(clientCommunicationSchema.appointmentId, parsed.data.appointmentId)
-        : isNull(clientCommunicationSchema.appointmentId),
-    ))
-    .orderBy(desc(clientCommunicationSchema.createdAt))
-    .limit(1);
+  try {
+    result = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx) => {
+        const terminal = await lockTerminalSalonClientWithHandle(tx, {
+          salonId: salon.id,
+          clientId: parsed.data.clientId,
+        });
+        const [client] = await tx
+          .select({
+            id: salonClientSchema.id,
+            phone: salonClientSchema.phone,
+            lastVisitAt: salonClientSchema.lastVisitAt,
+          })
+          .from(salonClientSchema)
+          .where(and(
+            eq(salonClientSchema.id, terminal.id),
+            eq(salonClientSchema.salonId, salon.id),
+          ))
+          .limit(1);
+        if (!client) {
+          return {
+            ok: false as const,
+            response: Response.json(
+              { error: { code: 'CLIENT_NOT_FOUND', message: 'Client not found.' } },
+              { status: 404 },
+            ),
+          };
+        }
+        const lineageIds = await getSalonClientLineageIdsWithHandle(tx, {
+          salonId: salon.id,
+          terminalClientId: terminal.id,
+        });
+        const aliasPhones = await getSalonClientPhoneAliasesWithHandle(tx, {
+          salonId: salon.id,
+          clientIds: lineageIds,
+        });
+        const ownedPhones = new Set(
+          [client.phone, ...aliasPhones]
+            .map(normalizeRetentionPhone)
+            .filter(Boolean),
+        );
 
-  // A manually completed follow-up after a not-sent or expired snooze is a
-  // new outcome, not a rewrite of the earlier honest state. Other existing
-  // consumers retain the shared transition rules unchanged.
-  const shouldCreateConvertedOutcome = Boolean(
-    latest
-    && parsed.data.status === 'converted'
-    && ['not_sent', 'snoozed'].includes(latest.status),
-  );
-  const shouldUpdateLatest = Boolean(latest && !shouldCreateConvertedOutcome && (
-    ['prepared', 'not_sent', 'snoozed'].includes(latest.status)
-    || (latest.status === 'marked_sent' && parsed.data.status === 'converted')
-    || latest.status === parsed.data.status
-  ));
+        let appointment: {
+          id: string;
+          startTime: Date;
+          salonClientId: string | null;
+          clientPhone: string;
+        } | null = null;
+        if (parsed.data.appointmentId) {
+          const appointmentRows = await tx
+            .select({
+              id: appointmentSchema.id,
+              startTime: appointmentSchema.startTime,
+              salonClientId: appointmentSchema.salonClientId,
+              clientPhone: appointmentSchema.clientPhone,
+            })
+            .from(appointmentSchema)
+            .where(and(
+              eq(appointmentSchema.id, parsed.data.appointmentId),
+              eq(appointmentSchema.salonId, salon.id),
+              isNull(appointmentSchema.deletedAt),
+            ))
+            .limit(1);
+          appointment = appointmentRows[0] ?? null;
+          const belongsToClient = appointment && (
+            (
+              appointment.salonClientId !== null
+              && lineageIds.includes(appointment.salonClientId)
+            )
+            || (
+              appointment.salonClientId === null
+              && ownedPhones.has(normalizeRetentionPhone(appointment.clientPhone))
+            )
+          );
+          if (!appointment || !belongsToClient) {
+            return {
+              ok: false as const,
+              response: Response.json(
+                { error: { code: 'APPOINTMENT_NOT_FOUND', message: 'Appointment not found for this client.' } },
+                { status: 404 },
+              ),
+            };
+          }
+        }
 
-  if (
-    shouldUpdateLatest
-    && latest
-    && !canTransitionCommunicationStatus(
-      latest.status as ClientCommunicationStatus,
-      parsed.data.status,
-    )
-  ) {
-    return Response.json({
-      error: {
-        code: 'INVALID_STATUS_TRANSITION',
-        message: `Cannot change communication from ${latest.status} to ${parsed.data.status}.`,
-      },
-    }, { status: 409 });
+        const dueAt = parsed.data.kind === 'reminder' && appointment
+          ? new Date(appointment.startTime.getTime() - settings.reminderLeadHours * 3_600_000)
+          : client.lastVisitAt && RETENTION_KINDS.includes(parsed.data.kind)
+            ? new Date(client.lastVisitAt.getTime() + (
+              parsed.data.kind === 'promo_8w'
+                ? 56
+                : parsed.data.kind === 'promo_6w'
+                  ? 42
+                  : settings.defaultRebookDays
+            ) * 86_400_000)
+            : null;
+
+        const [latest] = await tx
+          .select()
+          .from(clientCommunicationSchema)
+          .where(and(
+            eq(clientCommunicationSchema.salonId, salon.id),
+            eq(clientCommunicationSchema.salonClientId, terminal.id),
+            eq(clientCommunicationSchema.kind, parsed.data.kind),
+            parsed.data.appointmentId
+              ? eq(clientCommunicationSchema.appointmentId, parsed.data.appointmentId)
+              : isNull(clientCommunicationSchema.appointmentId),
+          ))
+          .orderBy(desc(clientCommunicationSchema.createdAt))
+          .limit(1);
+
+        // A manually completed follow-up after a not-sent or expired snooze is a
+        // new outcome, not a rewrite of the earlier honest state. Other existing
+        // consumers retain the shared transition rules unchanged.
+        const shouldCreateConvertedOutcome = Boolean(
+          latest
+          && parsed.data.status === 'converted'
+          && ['not_sent', 'snoozed'].includes(latest.status),
+        );
+        const shouldUpdateLatest = Boolean(latest && !shouldCreateConvertedOutcome && (
+          ['prepared', 'not_sent', 'snoozed'].includes(latest.status)
+          || (latest.status === 'marked_sent' && parsed.data.status === 'converted')
+          || latest.status === parsed.data.status
+        ));
+
+        if (
+          shouldUpdateLatest
+          && latest
+          && !canTransitionCommunicationStatus(
+            latest.status as ClientCommunicationStatus,
+            parsed.data.status,
+          )
+        ) {
+          return {
+            ok: false as const,
+            response: Response.json({
+              error: {
+                code: 'INVALID_STATUS_TRANSITION',
+                message: `Cannot change communication from ${latest.status} to ${parsed.data.status}.`,
+              },
+            }, { status: 409 }),
+          };
+        }
+
+        const timestamps = buildCommunicationStatusTimestamps(parsed.data.status, now, {
+          kind: parsed.data.kind,
+          appointmentStartTime: appointment?.startTime,
+        });
+
+        if (RETENTION_KINDS.includes(parsed.data.kind)) {
+          await tx
+            .update(clientCommunicationSchema)
+            .set({
+              status: 'dismissed',
+              dismissedAt: now,
+              snoozedUntil: null,
+              metadata: {
+                reason: 'superseded_by_retention_stage',
+                campaignStage: parsed.data.kind as RetentionStage,
+              },
+              updatedAt: now,
+            })
+            .where(and(
+              eq(clientCommunicationSchema.salonId, salon.id),
+              eq(clientCommunicationSchema.salonClientId, terminal.id),
+              inArray(clientCommunicationSchema.kind, RETENTION_KINDS),
+              inArray(clientCommunicationSchema.status, ACTIVE_RETENTION_STATUSES),
+              shouldUpdateLatest && latest
+                ? ne(clientCommunicationSchema.id, latest.id)
+                : ne(clientCommunicationSchema.kind, parsed.data.kind),
+            ));
+        }
+
+        let savedCommunication: CommunicationRow | undefined;
+        if (shouldUpdateLatest && latest) {
+          const [updated] = await tx
+            .update(clientCommunicationSchema)
+            .set({
+              status: parsed.data.status,
+              dueAt,
+              messageSnapshot: safeMessageSnapshot === undefined
+                ? latest.messageSnapshot
+                : safeMessageSnapshot,
+              ...timestamps,
+              updatedAt: now,
+            })
+            .where(and(
+              eq(clientCommunicationSchema.id, latest.id),
+              eq(clientCommunicationSchema.salonId, salon.id),
+              eq(clientCommunicationSchema.salonClientId, terminal.id),
+            ))
+            .returning();
+          savedCommunication = updated;
+        } else {
+          const [created] = await tx
+            .insert(clientCommunicationSchema)
+            .values({
+              id: communicationId,
+              salonId: salon.id,
+              salonClientId: terminal.id,
+              appointmentId: appointment?.id ?? null,
+              kind: parsed.data.kind,
+              status: parsed.data.status,
+              dueAt,
+              messageSnapshot: safeMessageSnapshot ?? null,
+              actorAdminId: admin.id,
+              ...timestamps,
+            })
+            .returning();
+          savedCommunication = created;
+        }
+
+        if (parsed.data.status === 'marked_sent') {
+          await tx
+            .update(salonClientSchema)
+            .set({ lastContactAt: now, updatedAt: now })
+            .where(and(
+              eq(salonClientSchema.id, terminal.id),
+              eq(salonClientSchema.salonId, salon.id),
+            ));
+        }
+
+        return { ok: true as const, communication: savedCommunication };
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ClientLifecycleStabilizationError) {
+      return Response.json(
+        { error: { code: 'CLIENT_NOT_FOUND', message: 'Client not found.' } },
+        { status: 404 },
+      );
+    }
+    throw error;
   }
 
-  const timestamps = buildCommunicationStatusTimestamps(parsed.data.status, now, {
-    kind: parsed.data.kind,
-    appointmentStartTime: appointment?.startTime,
-  });
-  const communication = await db.transaction(async (tx) => {
-    if (RETENTION_KINDS.includes(parsed.data.kind)) {
-      await tx
-        .update(clientCommunicationSchema)
-        .set({
-          status: 'dismissed',
-          dismissedAt: now,
-          snoozedUntil: null,
-          metadata: {
-            reason: 'superseded_by_retention_stage',
-            campaignStage: parsed.data.kind as RetentionStage,
-          },
-          updatedAt: now,
-        })
-        .where(and(
-          eq(clientCommunicationSchema.salonId, salon.id),
-          eq(clientCommunicationSchema.salonClientId, client.id),
-          inArray(clientCommunicationSchema.kind, RETENTION_KINDS),
-          inArray(clientCommunicationSchema.status, ACTIVE_RETENTION_STATUSES),
-          shouldUpdateLatest && latest
-            ? ne(clientCommunicationSchema.id, latest.id)
-            : ne(clientCommunicationSchema.kind, parsed.data.kind),
-        ));
-    }
-
-    let savedCommunication: CommunicationRow | undefined;
-    if (shouldUpdateLatest && latest) {
-      const [updated] = await tx
-        .update(clientCommunicationSchema)
-        .set({
-          status: parsed.data.status,
-          dueAt,
-          messageSnapshot: safeMessageSnapshot === undefined
-            ? latest.messageSnapshot
-            : safeMessageSnapshot,
-          ...timestamps,
-          updatedAt: now,
-        })
-        .where(and(
-          eq(clientCommunicationSchema.id, latest.id),
-          eq(clientCommunicationSchema.salonId, salon.id),
-        ))
-        .returning();
-      savedCommunication = updated;
-    } else {
-      const [created] = await tx
-        .insert(clientCommunicationSchema)
-        .values({
-          id: `comm_${crypto.randomUUID()}`,
-          salonId: salon.id,
-          salonClientId: client.id,
-          appointmentId: appointment?.id ?? null,
-          kind: parsed.data.kind,
-          status: parsed.data.status,
-          dueAt,
-          messageSnapshot: safeMessageSnapshot ?? null,
-          actorAdminId: admin.id,
-          ...timestamps,
-        })
-        .returning();
-      savedCommunication = created;
-    }
-
-    if (parsed.data.status === 'marked_sent') {
-      await tx
-        .update(salonClientSchema)
-        .set({ lastContactAt: now, updatedAt: now })
-        .where(and(
-          eq(salonClientSchema.id, client.id),
-          eq(salonClientSchema.salonId, salon.id),
-        ));
-    }
-
-    return savedCommunication;
-  });
+  if (!result.ok) {
+    return result.response;
+  }
+  const communication = result.communication;
 
   if (!communication) {
     return Response.json({ error: { code: 'UPDATE_FAILED', message: 'Communication could not be saved.' } }, { status: 500 });

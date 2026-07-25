@@ -2,6 +2,9 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
+  date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -909,6 +912,7 @@ export const salonClientSchema = pgTable(
     phone: text('phone').notNull(), // normalized 10-digit
     fullName: text('full_name'),
     email: text('email'),
+    birthday: date('birthday'),
 
     // Preferences
     preferredTechnicianId: text('preferred_technician_id').references(
@@ -957,6 +961,12 @@ export const salonClientSchema = pgTable(
     isBlocked: boolean('is_blocked').default(false),
     blockedReason: text('blocked_reason'),
 
+    archivedAt: timestamp('archived_at', { mode: 'date', withTimezone: true }),
+    archivedBy: text('archived_by'),
+    mergedIntoClientId: text('merged_into_client_id'),
+    mergedAt: timestamp('merged_at', { mode: 'date', withTimezone: true }),
+    mergedBy: text('merged_by'),
+
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -975,6 +985,15 @@ export const salonClientSchema = pgTable(
       table.salonId,
       table.phone,
     ),
+    sameSalonMergeTarget: foreignKey({
+      columns: [table.salonId, table.mergedIntoClientId],
+      foreignColumns: [table.salonId, table.id],
+      name: 'salon_client_merged_into_client_id_fkey',
+    }).onDelete('restrict'),
+    salonIdIdIdx: uniqueIndex('salon_client_salon_id_id_idx').on(
+      table.salonId,
+      table.id,
+    ),
     // Search indexes
     salonIdx: index('salon_client_salon_idx').on(table.salonId),
     phoneIdx: index('salon_client_phone_idx').on(table.phone),
@@ -982,6 +1001,112 @@ export const salonClientSchema = pgTable(
     lastVisitIdx: index('salon_client_last_visit_idx').on(
       table.salonId,
       table.lastVisitAt,
+    ),
+    lifecycleIdx: index('salon_client_lifecycle_idx').on(
+      table.salonId,
+      table.archivedAt,
+      table.mergedIntoClientId,
+    ),
+    mergedIntoIdx: index('salon_client_merged_into_idx').on(
+      table.salonId,
+      table.mergedIntoClientId,
+    ),
+  }),
+);
+
+export const salonClientContactAliasSchema = pgTable(
+  'salon_client_contact_alias',
+  {
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'phone' | 'email'>().notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  table => ({
+    kindValid: check(
+      'salon_client_contact_alias_kind_valid',
+      sql`${table.kind} IN ('phone', 'email')`,
+    ),
+    valueNonempty: check(
+      'salon_client_contact_alias_value_nonempty',
+      sql`length(${table.normalizedValue}) > 0`,
+    ),
+    uniqueSalonContact: uniqueIndex('salon_client_contact_alias_unique').on(
+      table.salonId,
+      table.kind,
+      table.normalizedValue,
+    ),
+    clientIdx: index('salon_client_contact_alias_client_idx').on(
+      table.salonId,
+      table.salonClientId,
+    ),
+  }),
+);
+
+export const salonClientNoteSchema = pgTable(
+  'salon_client_note',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    salonClientId: text('salon_client_id')
+      .notNull()
+      .references(() => salonClientSchema.id, { onDelete: 'cascade' }),
+    sourceClientId: text('source_client_id'),
+    body: text('body').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  table => ({
+    bodyNonempty: check(
+      'salon_client_note_body_nonempty',
+      sql`length(btrim(${table.body})) > 0`,
+    ),
+    clientCreatedIdx: index('salon_client_note_client_created_idx').on(
+      table.salonId,
+      table.salonClientId,
+      table.createdAt,
+    ),
+    sourceIdx: index('salon_client_note_source_idx').on(
+      table.salonId,
+      table.sourceClientId,
+    ),
+  }),
+);
+
+export const appSchemaCapabilitySchema = pgTable(
+  'app_schema_capability',
+  {
+    capability: text('capability').primaryKey(),
+    version: integer('version').notNull(),
+    state: text('state').$type<'ready'>().notNull(),
+    mergeWritesEnabled: boolean('merge_writes_enabled').notNull().default(false),
+    installedAt: timestamp('installed_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  table => ({
+    stateValid: check(
+      'app_schema_capability_state_valid',
+      sql`${table.state} = 'ready'`,
+    ),
+    versionPositive: check(
+      'app_schema_capability_version_positive',
+      sql`${table.version} > 0`,
+    ),
+    mergeWritesDisabled: check(
+      'app_schema_capability_merge_writes_disabled',
+      sql`${table.mergeWritesEnabled} = false`,
     ),
   }),
 );
@@ -1054,6 +1179,7 @@ export const clientCommunicationSchema = pgTable(
     dueAt: timestamp('due_at', { mode: 'date', withTimezone: true }),
     snoozedUntil: timestamp('snoozed_until', { mode: 'date', withTimezone: true }),
     messageSnapshot: text('message_snapshot'),
+    destinationSnapshot: text('destination_snapshot'),
     metadata: jsonb('metadata').$type<import('@/types/retention').ClientCommunicationMetadata>().default({}),
     preparedAt: timestamp('prepared_at', { mode: 'date', withTimezone: true }),
     markedSentAt: timestamp('marked_sent_at', { mode: 'date', withTimezone: true }),
@@ -2027,6 +2153,10 @@ export type NewClient = typeof clientSchema.$inferInsert;
 
 export type SalonClient = typeof salonClientSchema.$inferSelect;
 export type NewSalonClient = typeof salonClientSchema.$inferInsert;
+export type SalonClientContactAlias = typeof salonClientContactAliasSchema.$inferSelect;
+export type NewSalonClientContactAlias = typeof salonClientContactAliasSchema.$inferInsert;
+export type SalonClientNote = typeof salonClientNoteSchema.$inferSelect;
+export type NewSalonClientNote = typeof salonClientNoteSchema.$inferInsert;
 
 export type SalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferSelect;
 export type NewSalonRetentionSettings = typeof salonRetentionSettingsSchema.$inferInsert;

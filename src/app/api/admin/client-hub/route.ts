@@ -2,7 +2,9 @@ import { and, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { buildActiveTerminalSalonClientMap } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { normalizePhone } from '@/libs/phone';
 import {
   buildRetentionQueue,
   type RetentionClientSnapshot,
@@ -14,6 +16,7 @@ import {
   appointmentServicesSchema,
   communicationConsentSchema,
   retentionCampaignSchema,
+  salonClientContactAliasSchema,
   salonClientSchema,
 } from '@/models/Schema';
 
@@ -67,6 +70,7 @@ export async function GET(request: Request): Promise<Response> {
     const [
       settings,
       clientRows,
+      aliasRows,
       futureRows,
       apptStats,
       moneyStats,
@@ -89,10 +93,19 @@ export async function GET(request: Request): Promise<Response> {
           noShowCount: salonClientSchema.noShowCount,
           createdAt: salonClientSchema.createdAt,
           preferredTechnicianId: salonClientSchema.preferredTechnicianId,
+          archivedAt: salonClientSchema.archivedAt,
+          mergedIntoClientId: salonClientSchema.mergedIntoClientId,
         })
         .from(salonClientSchema)
-        .where(eq(salonClientSchema.salonId, salon.id))
-        .limit(5000),
+        .where(eq(salonClientSchema.salonId, salon.id)),
+      db
+        .select({
+          salonClientId: salonClientContactAliasSchema.salonClientId,
+          kind: salonClientContactAliasSchema.kind,
+          normalizedValue: salonClientContactAliasSchema.normalizedValue,
+        })
+        .from(salonClientContactAliasSchema)
+        .where(eq(salonClientContactAliasSchema.salonId, salon.id)),
       db
         .select({
           salonClientId: appointmentSchema.salonClientId,
@@ -208,6 +221,7 @@ export async function GET(request: Request): Promise<Response> {
       db
         .select({
           salonClientId: appointmentSchema.salonClientId,
+          clientPhone: appointmentSchema.clientPhone,
           category: appointmentServicesSchema.categorySnapshot,
         })
         .from(appointmentServicesSchema)
@@ -240,7 +254,10 @@ export async function GET(request: Request): Promise<Response> {
         .from(retentionCampaignSchema)
         .where(eq(retentionCampaignSchema.salonId, salon.id)),
       db
-        .select({ salonClientId: appointmentSchema.salonClientId })
+        .select({
+          salonClientId: appointmentSchema.salonClientId,
+          clientPhone: appointmentSchema.clientPhone,
+        })
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
@@ -250,10 +267,75 @@ export async function GET(request: Request): Promise<Response> {
         .limit(5000),
     ]);
 
-    const clients: RetentionClientSnapshot[] = clientRows;
+    const terminalBySource = buildActiveTerminalSalonClientMap(
+      clientRows.map(client => ({
+        id: client.id,
+        archivedAt: client.archivedAt,
+        mergedIntoClientId: client.mergedIntoClientId,
+      })),
+    );
+    const activeClientRows = clientRows.filter(
+      client => terminalBySource.get(client.id) === client.id,
+    );
+    const resolveStableClientId = (clientId: string | null): string | null =>
+      clientId === null ? null : terminalBySource.get(clientId) ?? null;
+    const terminalIdsByPhone = new Map<string, Set<string>>();
+    const addPhoneIdentity = (value: string, terminalClientId: string) => {
+      const normalizedPhone = normalizePhone(value);
+      if (normalizedPhone.length !== 10) {
+        return;
+      }
+      const terminalIds = terminalIdsByPhone.get(normalizedPhone)
+        ?? new Set<string>();
+      terminalIds.add(terminalClientId);
+      terminalIdsByPhone.set(normalizedPhone, terminalIds);
+    };
+    for (const client of clientRows) {
+      const terminalClientId = resolveStableClientId(client.id);
+      if (terminalClientId) {
+        addPhoneIdentity(client.phone, terminalClientId);
+      }
+    }
+    for (const alias of aliasRows) {
+      if (alias.kind !== 'phone') {
+        continue;
+      }
+      const terminalClientId = resolveStableClientId(alias.salonClientId);
+      if (terminalClientId) {
+        addPhoneIdentity(alias.normalizedValue, terminalClientId);
+      }
+    }
+    const uniqueTerminalByPhone = new Map<string, string>();
+    for (const [normalizedPhone, terminalIds] of terminalIdsByPhone) {
+      if (terminalIds.size === 1) {
+        uniqueTerminalByPhone.set(
+          normalizedPhone,
+          [...terminalIds][0]!,
+        );
+      }
+    }
+    const resolveAppointmentClientId = (appointment: {
+      salonClientId: string | null;
+      clientPhone: string;
+    }): string | null => {
+      if (appointment.salonClientId !== null) {
+        return resolveStableClientId(appointment.salonClientId);
+      }
+      return uniqueTerminalByPhone.get(normalizePhone(
+        appointment.clientPhone,
+      )) ?? null;
+    };
+    const mappedFutureRows = futureRows.flatMap((appointment) => {
+      const terminalClientId = resolveAppointmentClientId(appointment);
+      return terminalClientId
+        ? [{ ...appointment, salonClientId: terminalClientId }]
+        : [];
+    });
+
+    const clients: RetentionClientSnapshot[] = activeClientRows;
     const retention = buildRetentionQueue({
       clients,
-      futureAppointments: futureRows,
+      futureAppointments: mappedFutureRows,
       communications: [],
       defaultRebookDays: settings.defaultRebookDays,
       now,
@@ -262,24 +344,30 @@ export async function GET(request: Request): Promise<Response> {
     const overdueCount = retention.filter(item => item.stage !== 'rebook').length;
 
     const clientsWithFuture = new Set(
-      futureRows.map(row => row.salonClientId).filter(Boolean),
+      mappedFutureRows
+        .map(row => row.salonClientId)
+        .filter((clientId): clientId is string => clientId !== null),
     );
-    const noFutureCount = clientRows.filter(
+    const noFutureCount = activeClientRows.filter(
       client => !clientsWithFuture.has(client.id),
     ).length;
-    const notSeen = (days: number) => clientRows.filter(client =>
+    const notSeen = (days: number) => activeClientRows.filter(client =>
       client.lastVisitAt
       && now.getTime() - client.lastVisitAt.getTime() >= days * DAY).length;
 
     const categoryClients = new Map<string, Set<string>>();
     for (const row of categoryRows) {
-      if (!row.salonClientId || !row.category) {
+      if (!row.category) {
+        continue;
+      }
+      const terminalClientId = resolveAppointmentClientId(row);
+      if (!terminalClientId) {
         continue;
       }
       if (!categoryClients.has(row.category)) {
         categoryClients.set(row.category, new Set());
       }
-      categoryClients.get(row.category)!.add(row.salonClientId);
+      categoryClients.get(row.category)!.add(terminalClientId);
     }
     const categoryCount = (categories: string[]) =>
       new Set(categories.flatMap(
@@ -294,20 +382,25 @@ export async function GET(request: Request): Promise<Response> {
     const stats = apptStats[0]!;
     const money = moneyStats[0]!;
     const finishedTotal = stats.completed + stats.cancelled + stats.noShows;
-    const returningCount = clientRows.filter(
+    const returningCount = activeClientRows.filter(
       client => (client.totalVisits ?? 0) >= 2,
     ).length;
-    const visitedCount = clientRows.filter(
+    const visitedCount = activeClientRows.filter(
       client => (client.totalVisits ?? 0) >= 1,
     ).length;
+    const recentlyCancelledClientIds = new Set(
+      recentCancelledRows
+        .map(resolveAppointmentClientId)
+        .filter((clientId): clientId is string => clientId !== null),
+    );
     const rate = (numerator: number, denominator: number) =>
       denominator > 0 ? Math.round((numerator / denominator) * 100) : null;
 
     return Response.json({
       data: {
         overview: {
-          totalClients: clientRows.length,
-          newClientsThisMonth: clientRows.filter(
+          totalClients: activeClientRows.length,
+          newClientsThisMonth: activeClientRows.filter(
             client => client.createdAt >= monthStart,
           ).length,
           returningClients: returningCount,
@@ -323,15 +416,15 @@ export async function GET(request: Request): Promise<Response> {
           outstandingCents: money.outstandingCents,
         },
         segments: [
-          { id: 'new_this_month', label: 'New this month', count: clientRows.filter(client => client.createdAt >= monthStart).length },
+          { id: 'new_this_month', label: 'New this month', count: activeClientRows.filter(client => client.createdAt >= monthStart).length },
           { id: 'returning', label: 'Returning', count: returningCount },
           { id: 'due_to_return', label: 'Due to return', count: dueCount },
           { id: 'overdue', label: 'Overdue', count: overdueCount },
           { id: 'no_future_appointment', label: 'No future appointment', count: noFutureCount },
           { id: 'not_seen_60d', label: 'Not seen in 60 days', count: notSeen(60) },
           { id: 'not_seen_90d', label: 'Not seen in 90 days', count: notSeen(90) },
-          { id: 'recently_cancelled', label: 'Cancelled in the last 30 days', count: new Set(recentCancelledRows.map(row => row.salonClientId).filter(Boolean)).size },
-          { id: 'previous_no_shows', label: 'Previous no-shows', count: clientRows.filter(client => (client.noShowCount ?? 0) > 0).length },
+          { id: 'recently_cancelled', label: 'Cancelled in the last 30 days', count: recentlyCancelledClientIds.size },
+          { id: 'previous_no_shows', label: 'Previous no-shows', count: activeClientRows.filter(client => (client.noShowCount ?? 0) > 0).length },
           { id: 'builder_gel', label: 'Builder gel clients', count: categoryCount(['builder_gel']) },
           { id: 'manicure', label: 'Manicure clients', count: categoryCount(['manicure', 'hands']) },
           { id: 'pedicure', label: 'Pedicure clients', count: categoryCount(['pedicure', 'feet']) },

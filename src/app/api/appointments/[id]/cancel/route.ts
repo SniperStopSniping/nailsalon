@@ -2,6 +2,11 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
+import {
+  lockOperationalSalonClientContactWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
 import {
@@ -76,6 +81,13 @@ function invalidStateResponse(status: string): Response {
   );
 }
 
+function pointsRedeemedFromNotes(notes: string | null): number {
+  const match = (notes ?? '').match(
+    /\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/,
+  );
+  return match ? Number.parseInt(match[1]!.replace(/,/g, ''), 10) : 0;
+}
+
 // =============================================================================
 // PATCH /api/appointments/[id]/cancel - Cancel an appointment
 // =============================================================================
@@ -135,17 +147,12 @@ export async function PATCH(
       return invalidStateResponse(appointment.status);
     }
 
-    const notesText = appointment.notes || '';
-    const pointsRedeemedMatch = notesText.match(/\[Points redeemed:.*?(\d{1,3}(?:,\d{3})*)\s*pts/);
-    const pointsToRefund = pointsRedeemedMatch
-      ? Number.parseInt(pointsRedeemedMatch[1]!.replace(/,/g, ''), 10)
-      : 0;
-
     // The terminal transition and every balance mutation are one atomic unit.
     // The status predicate is the compare-and-set: concurrent requests may both
     // authenticate against the old snapshot, but exactly one can transition the
     // row and therefore exactly one can restore rewards/refund points.
     let transition: CancellationTransition;
+    let operationalClientPhone = appointment.clientPhone;
     if (alreadyCancelled) {
       transition = {
         applied: false,
@@ -153,114 +160,168 @@ export async function PATCH(
         cancelledAt: appointment.updatedAt ?? now,
       };
     } else {
-      transition = await db.transaction(async (tx): Promise<CancellationTransition> => {
-        const [cancelledAppointment] = await tx
-          .update(appointmentSchema)
-          .set({
-            status: resolvedStatus,
-            canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
-            canvasStateUpdatedAt: now,
-            cancelReason: validated.data.cancelReason,
-            notes: validated.data.notes || appointment.notes,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(appointmentSchema.id, appointmentId),
-              eq(appointmentSchema.salonId, appointment.salonId),
-              inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
-            ),
-          )
-          .returning();
-
-        if (!cancelledAppointment) {
-          const [currentAppointment] = await tx
-            .select({
-              status: appointmentSchema.status,
-              cancelReason: appointmentSchema.cancelReason,
-              updatedAt: appointmentSchema.updatedAt,
+      transition = await withClientLifecycleTransactionRetry(() =>
+        db.transaction(async (tx): Promise<CancellationTransition> => {
+          let operationalClient = appointment.salonClientId
+            ? await lockOperationalSalonClientContactWithHandle(tx, {
+              salonId: appointment.salonId,
+              clientId: appointment.salonClientId,
+              allowArchived: true,
             })
+            : null;
+          if (!operationalClient) {
+            const terminalClient
+              = await resolveOperationalSalonClientByPhoneWithHandle(tx, {
+                salonId: appointment.salonId,
+                phone: appointment.clientPhone,
+                allowArchived: true,
+              });
+            operationalClient = terminalClient
+              ? await lockOperationalSalonClientContactWithHandle(tx, {
+                salonId: appointment.salonId,
+                clientId: terminalClient.id,
+                allowArchived: true,
+              })
+              : null;
+          }
+          operationalClientPhone
+            = operationalClient?.phone ?? appointment.clientPhone;
+          const [lockedAppointment] = await tx
+            .select()
             .from(appointmentSchema)
             .where(and(
               eq(appointmentSchema.id, appointmentId),
               eq(appointmentSchema.salonId, appointment.salonId),
             ))
+            .for('update')
             .limit(1);
 
-          if (currentAppointment && isSameCancellation(
-            currentAppointment,
+          if (!lockedAppointment) {
+            return {
+              applied: false,
+              conflictStatus: 'missing',
+              cancelledAt: now,
+            };
+          }
+
+          if (isSameCancellation(
+            lockedAppointment,
             resolvedStatus,
             validated.data.cancelReason,
           )) {
             return {
               applied: false,
               conflictStatus: null,
-              cancelledAt: currentAppointment.updatedAt,
+              cancelledAt: lockedAppointment.updatedAt,
             };
           }
 
-          return {
-            applied: false,
-            conflictStatus: currentAppointment?.status ?? 'missing',
-            cancelledAt: now,
-          };
-        }
+          if (!CANCELLABLE_STATUSES.includes(lockedAppointment.status)) {
+            return {
+              applied: false,
+              conflictStatus: lockedAppointment.status,
+              cancelledAt: now,
+            };
+          }
 
-        // Return pending rewards to active inside the same transaction.
-        const [linkedReward] = await tx
-          .select()
-          .from(rewardSchema)
-          .where(and(
-            eq(rewardSchema.usedInAppointmentId, appointmentId),
-            eq(rewardSchema.salonId, appointment.salonId),
-          ))
-          .limit(1);
-
-        if (linkedReward && linkedReward.status !== 'used') {
-          await tx
-            .update(rewardSchema)
+          const pointsToRefund = pointsRedeemedFromNotes(
+            lockedAppointment.notes,
+          );
+          const [cancelledAppointment] = await tx
+            .update(appointmentSchema)
             .set({
-              usedInAppointmentId: null,
-              status: 'active',
+              status: resolvedStatus,
+              canvasState: resolvedStatus === 'no_show' ? 'no_show' : 'cancelled',
+              canvasStateUpdatedAt: now,
+              cancelReason: validated.data.cancelReason,
+              notes: validated.data.notes || lockedAppointment.notes,
+              updatedAt: now,
             })
+            .where(
+              and(
+                eq(appointmentSchema.id, appointmentId),
+                eq(appointmentSchema.salonId, appointment.salonId),
+                inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
+              ),
+            )
+            .returning();
+
+          if (!cancelledAppointment) {
+            const [currentAppointment] = await tx
+              .select({
+                status: appointmentSchema.status,
+                cancelReason: appointmentSchema.cancelReason,
+                updatedAt: appointmentSchema.updatedAt,
+              })
+              .from(appointmentSchema)
+              .where(and(
+                eq(appointmentSchema.id, appointmentId),
+                eq(appointmentSchema.salonId, appointment.salonId),
+              ))
+              .limit(1);
+
+            if (currentAppointment && isSameCancellation(
+              currentAppointment,
+              resolvedStatus,
+              validated.data.cancelReason,
+            )) {
+              return {
+                applied: false,
+                conflictStatus: null,
+                cancelledAt: currentAppointment.updatedAt,
+              };
+            }
+
+            return {
+              applied: false,
+              conflictStatus: currentAppointment?.status ?? 'missing',
+              cancelledAt: now,
+            };
+          }
+
+          // Return pending rewards to active inside the same transaction.
+          const [linkedReward] = await tx
+            .select()
+            .from(rewardSchema)
             .where(and(
-              eq(rewardSchema.id, linkedReward.id),
-              eq(rewardSchema.salonId, appointment.salonId),
               eq(rewardSchema.usedInAppointmentId, appointmentId),
-            ));
-        }
+              eq(rewardSchema.salonId, appointment.salonId),
+            ))
+            .limit(1);
 
-        if (pointsToRefund > 0) {
-          const normalizedPhone = appointment.clientPhone.replace(/\D/g, '');
-          const tenDigitPhone = normalizedPhone.length === 11 && normalizedPhone.startsWith('1')
-            ? normalizedPhone.slice(1)
-            : normalizedPhone;
-          const phoneVariants = [
-            tenDigitPhone,
-            `+1${tenDigitPhone}`,
-            appointment.clientPhone,
-          ];
-          const clientIdentity = appointment.salonClientId
-            ? eq(salonClientSchema.id, appointment.salonClientId)
-            : inArray(salonClientSchema.phone, phoneVariants);
+          if (linkedReward && linkedReward.status !== 'used') {
+            await tx
+              .update(rewardSchema)
+              .set({
+                usedInAppointmentId: null,
+                status: 'active',
+              })
+              .where(and(
+                eq(rewardSchema.id, linkedReward.id),
+                eq(rewardSchema.salonId, appointment.salonId),
+                eq(rewardSchema.usedInAppointmentId, appointmentId),
+              ));
+          }
 
-          await tx
-            .update(salonClientSchema)
-            .set({
-              loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
-            })
-            .where(and(
-              eq(salonClientSchema.salonId, appointment.salonId),
-              clientIdentity,
-            ));
-        }
+          if (pointsToRefund > 0 && operationalClient) {
+            await tx
+              .update(salonClientSchema)
+              .set({
+                loyaltyPoints: sql`COALESCE(${salonClientSchema.loyaltyPoints}, 0) + ${pointsToRefund}`,
+              })
+              .where(and(
+                eq(salonClientSchema.salonId, appointment.salonId),
+                eq(salonClientSchema.id, operationalClient.id),
+              ));
+          }
 
-        return {
-          applied: true,
-          conflictStatus: null,
-          cancelledAt: cancelledAppointment.updatedAt,
-        };
-      });
+          return {
+            applied: true,
+            conflictStatus: null,
+            cancelledAt: cancelledAppointment.updatedAt,
+          };
+        }),
+      );
     }
 
     if (transition.conflictStatus) {
@@ -283,7 +344,7 @@ export async function PATCH(
     // that won the state transition. Retried/idempotent requests do not repeat
     // either side effect.
     if (transition.applied && validated.data.cancelReason === 'no_show') {
-      updateSalonClientStats(appointment.salonId, appointment.clientPhone).catch((statsError) => {
+      updateSalonClientStats(appointment.salonId, operationalClientPhone).catch((statsError) => {
         console.error('Failed to update salon client stats:', statsError);
       });
     }
@@ -306,7 +367,7 @@ export async function PATCH(
         ]);
         const notificationResults = await Promise.allSettled([
           sendCancellationConfirmation(appointment.salonId, {
-            phone: appointment.clientPhone,
+            phone: operationalClientPhone,
             clientName: appointment.clientName || undefined,
             appointmentId,
             salonName: salon?.name || 'the salon',

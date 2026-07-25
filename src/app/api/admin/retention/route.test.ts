@@ -13,11 +13,19 @@ const {
   selectQueue,
   insertedValues,
   updateSets,
+  lifecycleState,
+  lifecycleOperations,
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
+  const lifecycleState: { terminalClientId: string | null } = { terminalClientId: null };
+  const lifecycleOperations: string[] = [];
 
   const query = (result: unknown) => {
     const chain = {
@@ -32,6 +40,10 @@ const {
   };
 
   const tx = {
+    select: vi.fn(() => {
+      lifecycleOperations.push('dependent-read');
+      return query(selectQueue.shift() ?? []);
+    }),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateSets.push(values);
@@ -73,6 +85,33 @@ const {
     selectQueue,
     insertedValues,
     updateSets,
+    lifecycleState,
+    lifecycleOperations,
+    getSalonClientLineageIdsWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { terminalClientId: string },
+    ) => [input.terminalClientId]),
+    getSalonClientPhoneAliasesWithHandle: vi.fn(async () => []),
+    lockTerminalSalonClientWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { salonId: string; clientId: string },
+    ) => {
+      lifecycleOperations.push('terminal-lock');
+      return {
+        id: lifecycleState.terminalClientId ?? input.clientId,
+        salonId: input.salonId,
+        archivedAt: null,
+        redirectedFromClientId: lifecycleState.terminalClientId
+          ? input.clientId
+          : null,
+        lineagePath: lifecycleState.terminalClientId
+          ? [input.clientId, lifecycleState.terminalClientId]
+          : [input.clientId],
+      };
+    }),
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
     db: {
       select: vi.fn(() => query(selectQueue.shift() ?? [])),
       transaction: vi.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
@@ -81,6 +120,20 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon, getAdminSession }));
+vi.mock('@/libs/clientLifecycleStabilization', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@/libs/clientLifecycleStabilization')
+  >();
+  return {
+    ...actual,
+    ClientLifecycleStabilizationError:
+      class ClientLifecycleStabilizationError extends Error {},
+    getSalonClientLineageIdsWithHandle,
+    getSalonClientPhoneAliasesWithHandle,
+    lockTerminalSalonClientWithHandle,
+    withClientLifecycleTransactionRetry,
+  };
+});
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
 
@@ -94,6 +147,8 @@ describe('/api/admin/retention', () => {
     selectQueue.length = 0;
     insertedValues.length = 0;
     updateSets.length = 0;
+    lifecycleState.terminalClientId = null;
+    lifecycleOperations.length = 0;
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
     getAdminSession.mockResolvedValue({ id: 'admin_1' });
     getRetentionSettingsForSalon.mockResolvedValue(DEFAULT_RETENTION_SETTINGS);
@@ -123,6 +178,7 @@ describe('/api/admin/retention', () => {
           isBlocked: false,
         },
       ],
+      [],
       [{
         id: 'appointment_1',
         salonClientId: 'new_client',
@@ -150,6 +206,93 @@ describe('/api/admin/retention', () => {
     expect(body.data.history).toEqual([]);
   });
 
+  it('collapses a merged source into its active terminal before building reminder destinations', async () => {
+    selectQueue.push(
+      [{ id: 'merged_source' }],
+      [
+        {
+          id: 'primary_client',
+          fullName: 'Primary fixture',
+          phone: '4165550100',
+          lastVisitAt: new Date('2026-06-01T16:00:00.000Z'),
+          rebookIntervalDays: null,
+          isBlocked: false,
+          archivedAt: null,
+          mergedIntoClientId: null,
+        },
+        {
+          id: 'merged_source',
+          fullName: 'Source fixture',
+          phone: '4165550199',
+          lastVisitAt: new Date('2026-05-01T16:00:00.000Z'),
+          rebookIntervalDays: null,
+          isBlocked: false,
+          archivedAt: new Date('2026-07-01T16:00:00.000Z'),
+          mergedIntoClientId: 'primary_client',
+        },
+      ],
+      [{
+        salonClientId: 'merged_source',
+        kind: 'phone',
+        normalizedValue: '4165550199',
+      }],
+      [{
+        id: 'appointment_merged_source',
+        salonClientId: 'merged_source',
+        clientName: 'Historical fixture',
+        clientPhone: '4165550199',
+        startTime: new Date('2026-07-18T15:00:00.000Z'),
+        endTime: new Date('2026-07-18T16:00:00.000Z'),
+        status: 'confirmed',
+        dayBeforeReminderSentAt: null,
+        sameDayReminderSentAt: null,
+      }],
+      [{
+        id: 'communication_merged_source',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        appointmentId: null,
+        kind: 'promo_6w',
+        status: 'prepared',
+        dueAt: null,
+        snoozedUntil: null,
+        messageSnapshot: null,
+        metadata: {},
+        actorAdminId: 'admin_1',
+        destinationSnapshot: '4165550199',
+        preparedAt: NOW,
+        markedSentAt: null,
+        dismissedAt: null,
+        convertedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+    );
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=merged_source',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.retention).toEqual([]);
+    expect(body.data.appointmentReminders).toEqual([
+      expect.objectContaining({
+        appointmentId: 'appointment_merged_source',
+        clientId: 'primary_client',
+        phone: '4165550100',
+      }),
+    ]);
+    expect(body.data.history).toEqual([
+      expect.objectContaining({
+        id: 'communication_merged_source',
+        clientId: 'primary_client',
+      }),
+    ]);
+    expect(JSON.stringify(body.data)).not.toContain('4165550199');
+    expect(JSON.stringify(body.data)).not.toContain('"merged_source"');
+  });
+
   it('returns 404 instead of leaking a client from another salon', async () => {
     selectQueue.push([]);
 
@@ -163,7 +306,11 @@ describe('/api/admin/retention', () => {
 
   it('persists an exact seven-day snooze with an honest status', async () => {
     selectQueue.push(
-      [{ id: 'client_1', lastVisitAt: new Date('2026-06-26T16:00:00.000Z') }],
+      [{
+        id: 'client_1',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-26T16:00:00.000Z'),
+      }],
       [],
     );
 
@@ -233,6 +380,44 @@ describe('/api/admin/retention', () => {
       kind: 'reminder',
       status: 'snoozed',
       snoozedUntil: '2026-07-17T17:59:59.999Z',
+    });
+  });
+
+  it('locks and writes the terminal client when a merged source is submitted', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    selectQueue.push(
+      [{ id: 'primary_client', phone: '4165551212', lastVisitAt: null }],
+      [{
+        id: 'appointment_1',
+        startTime: new Date('2026-07-17T18:00:00.000Z'),
+        salonClientId: 'primary_client',
+        clientPhone: 'historical-snapshot',
+      }],
+      [],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'merged_source',
+        appointmentId: 'appointment_1',
+        kind: 'reminder',
+        status: 'prepared',
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      { salonId: 'salon_1', clientId: 'merged_source' },
+    );
+    expect(lifecycleOperations.slice(0, 2)).toEqual(['terminal-lock', 'dependent-read']);
+    expect(insertedValues[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      appointmentId: 'appointment_1',
+      kind: 'reminder',
     });
   });
 

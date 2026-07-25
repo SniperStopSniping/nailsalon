@@ -6,6 +6,8 @@ const {
   getSalonById,
   getTechnicianById,
   mintAppointmentManageLink,
+  resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
   requireAppointmentManagerAccess,
   sendSmartAppointmentReminder,
 } = vi.hoisted(() => ({
@@ -13,11 +15,17 @@ const {
   getSalonById: vi.fn(),
   getTechnicianById: vi.fn(),
   mintAppointmentManageLink: vi.fn(),
+  resolveOperationalSalonClientContact: vi.fn(),
+  resolveOperationalSalonClientContactByPhone: vi.fn(),
   requireAppointmentManagerAccess: vi.fn(),
   sendSmartAppointmentReminder: vi.fn(),
 }));
 
 vi.mock('@/libs/appointmentManageLink', () => ({ mintAppointmentManageLink }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
+}));
 vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
   getSalonById,
@@ -56,6 +64,16 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     getTechnicianById.mockResolvedValue({ id: 'tech_1', name: 'Daniela' });
     mintAppointmentManageLink.mockResolvedValue('https://islanailsalon.com/en/isla/manage/token');
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: null,
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
+    resolveOperationalSalonClientContactByPhone.mockResolvedValue(null);
     sendSmartAppointmentReminder.mockResolvedValue({
       outcome: 'sent',
       phone: '4165551234',
@@ -118,6 +136,106 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
         body: 'Reminder body with secure link',
       },
     });
+  });
+
+  it('uses the terminal client current phone without rewriting the appointment snapshot', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      appointment: {
+        ...appointment,
+        salonClientId: 'merged_source',
+        clientPhone: '4165550100',
+      },
+      actorRole: 'admin',
+    });
+
+    const response = await POST(
+      new Request('https://app.test/api/appointments/appt_1/send-reminder', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveOperationalSalonClientContact).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'merged_source',
+      allowArchived: true,
+    });
+    expect(sendSmartAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+    expect(appointment.clientPhone).toBe('(416) 555-1234');
+  });
+
+  it('uses a unique same-salon alias for a null-ID appointment', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      appointment: {
+        ...appointment,
+        salonClientId: null,
+        clientPhone: '4165550100',
+      },
+      actorRole: 'admin',
+    });
+    resolveOperationalSalonClientContactByPhone.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: null,
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
+
+    const response = await POST(
+      new Request('https://app.test/api/appointments/appt_1/send-reminder', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveOperationalSalonClientContactByPhone).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      phone: '4165550100',
+      allowArchived: true,
+    });
+    expect(sendSmartAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+  });
+
+  it('fails closed when a null-ID lifecycle phone is ambiguous', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      appointment: {
+        ...appointment,
+        salonClientId: null,
+        clientPhone: '4165550100',
+      },
+      actorRole: 'admin',
+    });
+    resolveOperationalSalonClientContactByPhone.mockRejectedValue(
+      new Error('ambiguous lifecycle state'),
+    );
+
+    const response = await POST(
+      new Request('https://app.test/api/appointments/appt_1/send-reminder', {
+        method: 'POST',
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(500);
+    expect(sendSmartAppointmentReminder).not.toHaveBeenCalled();
+    expect(errorLog).toHaveBeenCalledWith(
+      '[AppointmentReminder] failed to prepare reminder',
+      expect.any(Error),
+    );
   });
 
   it('requires an explicit fallback after an ambiguous provider failure', async () => {

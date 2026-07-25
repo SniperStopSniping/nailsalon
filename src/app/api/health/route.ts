@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
+import { isClientLifecycleSchemaReady } from '@/libs/clientLifecycleSchema';
+import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCore';
 import { db } from '@/libs/DB';
 import { isResendSenderVerified } from '@/libs/resendHealth';
 
@@ -45,6 +47,7 @@ type HealthCheck = {
 type HealthResponse = {
   status: 'ok' | 'degraded';
   checks: HealthCheck;
+  clientLifecycleSchema: 'ready' | 'not_ready' | 'unavailable';
   timestamp: string;
   gitSha?: string;
 };
@@ -76,6 +79,22 @@ export async function GET(): Promise<Response> {
     checks.db = true;
   } catch {
     checks.db = false;
+  }
+
+  // Full lifecycle readiness remains private. Public health exposes only the
+  // aggregate result and never includes catalog objects, migration metadata,
+  // database errors, or client counts.
+  let clientLifecycleSchema: HealthResponse['clientLifecycleSchema']
+    = 'unavailable';
+  if (checks.db) {
+    try {
+      const schemaReady = await isClientLifecycleSchemaReady(
+        db as LifecycleReadinessSqlHandle,
+      );
+      clientLifecycleSchema = schemaReady ? 'ready' : 'not_ready';
+    } catch {
+      clientLifecycleSchema = 'unavailable';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -190,8 +209,12 @@ export async function GET(): Promise<Response> {
     = Boolean(process.env.VERCEL_ENV)
     || process.env.APP_ENV === 'staging'
     || process.env.APP_ENV === 'production';
+  const productionHosted
+    = process.env.VERCEL_ENV === 'production'
+    || process.env.APP_ENV === 'production';
   const criticalChecksPass
     = checks.db
+    && (!productionHosted || clientLifecycleSchema === 'ready')
     && checks.clerkEnv
     && checks.passwordAuthEnv
     && (!hosted
@@ -201,6 +224,7 @@ export async function GET(): Promise<Response> {
   const response: HealthResponse = {
     status,
     checks,
+    clientLifecycleSchema,
     timestamp: new Date().toISOString(),
   };
 

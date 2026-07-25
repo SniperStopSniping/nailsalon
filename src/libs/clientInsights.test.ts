@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,6 +65,7 @@ async function addAppointment(args: {
   status?: string;
   salonId?: string;
   overrides?: Partial<AppointmentSeed>;
+  bypassLifecycleTrigger?: boolean;
 }): Promise<AppointmentSeed> {
   const start = new Date(args.start);
   const row: AppointmentSeed = {
@@ -81,8 +83,75 @@ async function addAppointment(args: {
     paymentStatus: 'paid',
     ...args.overrides,
   };
-  await db.insert(schema.appointmentSchema).values(row);
+  if (!args.bypassLifecycleTrigger) {
+    await db.insert(schema.appointmentSchema).values(row);
+    return row;
+  }
+
+  await db.execute(
+    sql.raw(
+      'ALTER TABLE appointment DISABLE TRIGGER "appointment_resolve_merged_client"',
+    ),
+  );
+  try {
+    await db.insert(schema.appointmentSchema).values(row);
+  } finally {
+    await db.execute(
+      sql.raw(
+        'ALTER TABLE appointment ENABLE TRIGGER "appointment_resolve_merged_client"',
+      ),
+    );
+  }
   return row;
+}
+
+async function setClientLifecycleLinks(
+  links: Array<{
+    id: string;
+    salonId?: string;
+    mergedIntoClientId: string;
+  }>,
+): Promise<void> {
+  await db.execute(
+    sql.raw(
+      'ALTER TABLE salon_client DISABLE TRIGGER "salon_client_enforce_merge_transition"',
+    ),
+  );
+  await db.execute(
+    sql.raw(
+      'ALTER TABLE salon_client DISABLE TRIGGER "salon_client_prevent_merged_source_update"',
+    ),
+  );
+
+  try {
+    for (const link of links) {
+      await db
+        .update(schema.salonClientSchema)
+        .set({
+          archivedAt: new Date('2026-07-14T16:00:00.000Z'),
+          mergedIntoClientId: link.mergedIntoClientId,
+          mergedAt: new Date('2026-07-14T16:00:00.000Z'),
+          mergedBy: 'test-admin',
+        })
+        .where(
+          and(
+            eq(schema.salonClientSchema.salonId, link.salonId ?? SALON_ID),
+            eq(schema.salonClientSchema.id, link.id),
+          ),
+        );
+    }
+  } finally {
+    await db.execute(
+      sql.raw(
+        'ALTER TABLE salon_client ENABLE TRIGGER "salon_client_prevent_merged_source_update"',
+      ),
+    );
+    await db.execute(
+      sql.raw(
+        'ALTER TABLE salon_client ENABLE TRIGGER "salon_client_enforce_merge_transition"',
+      ),
+    );
+  }
 }
 
 async function snapshot(now: Date = NOW) {
@@ -542,6 +611,7 @@ describe('canonical Client Insights SQL projection', () => {
       clientId: foreign.id,
       phone: unique.phone,
       start: '2026-07-10T16:00:00.000Z',
+      bypassLifecycleTrigger: true,
     });
     await addAppointment({
       id: 'cross-salon-phone',
@@ -559,6 +629,7 @@ describe('canonical Client Insights SQL projection', () => {
         clientId: stableId,
         phone,
         start: '2026-07-09T16:00:00.000Z',
+        bypassLifecycleTrigger: stableId !== null,
         overrides: {
           finalPriceCents: 1000,
           totalPrice: 1000,
@@ -576,6 +647,182 @@ describe('canonical Client Insights SQL projection', () => {
     expect((await segmentIds('completed_outstanding')).ids).toEqual(['unique']);
     expect((await segmentIds('active')).ids).not.toContain('duplicate-a');
     expect((await segmentIds('active')).ids).not.toContain('duplicate-b');
+  });
+
+  it('projects a same-salon merge chain once across stable IDs, aliases, communications, and balances', async () => {
+    const primary = await addClient('chain-primary', {
+      phone: '4165551101',
+      email: 'primary@example.test',
+      fullName: 'Chain Primary',
+      rebookIntervalDays: 7,
+    });
+    const middle = await addClient('chain-middle', {
+      phone: '4165551102',
+      email: 'middle@example.test',
+      fullName: 'Chain Middle',
+    });
+    const source = await addClient('chain-source', {
+      phone: '4165551103',
+      email: 'source@example.test',
+      fullName: 'Chain Source',
+    });
+    const archived = await addClient('archived-standalone', {
+      phone: '4165551104',
+    });
+    const other = await addClient('other-chain-client', {
+      salonId: OTHER_SALON_ID,
+      phone: '6475551200',
+    });
+
+    await db.insert(schema.salonClientContactAliasSchema).values([
+      {
+        salonId: SALON_ID,
+        salonClientId: source.id,
+        kind: 'phone',
+        normalizedValue: '6475551199',
+      },
+      {
+        salonId: SALON_ID,
+        salonClientId: source.id,
+        kind: 'email',
+        normalizedValue: 'legacy-source@example.test',
+      },
+      {
+        salonId: SALON_ID,
+        salonClientId: archived.id,
+        kind: 'phone',
+        normalizedValue: '6475551198',
+      },
+      {
+        salonId: OTHER_SALON_ID,
+        salonClientId: other.id,
+        kind: 'phone',
+        normalizedValue: '6475551299',
+      },
+    ]);
+
+    await addAppointment({
+      id: 'chain-primary-visit',
+      clientId: primary.id,
+      phone: primary.phone,
+      start: '2026-06-20T16:00:00.000Z',
+    });
+    await addAppointment({
+      id: 'chain-middle-visit',
+      clientId: middle.id,
+      phone: middle.phone,
+      start: '2026-06-25T16:00:00.000Z',
+    });
+    await addAppointment({
+      id: 'chain-source-outstanding',
+      clientId: source.id,
+      phone: source.phone,
+      start: '2026-07-01T16:00:00.000Z',
+      overrides: {
+        finalPriceCents: 10_000,
+        totalPrice: 10_000,
+        amountPaidCents: 0,
+        paymentStatus: 'partially_paid',
+      },
+    });
+    await addAppointment({
+      id: 'chain-legacy-alias-visit',
+      phone: '+1 (647) 555-1199',
+      start: '2026-06-30T16:00:00.000Z',
+      overrides: {
+        finalPriceCents: 3000,
+        totalPrice: 3000,
+        amountPaidCents: 0,
+        paymentStatus: 'partially_paid',
+      },
+    });
+    await addAppointment({
+      id: 'archived-standalone-visit',
+      clientId: archived.id,
+      phone: archived.phone,
+      start: '2026-07-02T16:00:00.000Z',
+    });
+
+    await db.insert(schema.appointmentPaymentSchema).values([
+      {
+        id: 'chain-payment-one',
+        appointmentId: 'chain-source-outstanding',
+        salonId: SALON_ID,
+        amountCents: 2500,
+        recordedByType: 'admin',
+        recordedAt: new Date('2026-07-01T17:00:00.000Z'),
+      },
+      {
+        id: 'chain-payment-two',
+        appointmentId: 'chain-source-outstanding',
+        salonId: SALON_ID,
+        amountCents: 1500,
+        recordedByType: 'admin',
+        recordedAt: new Date('2026-07-01T17:05:00.000Z'),
+      },
+    ]);
+    await db.insert(schema.clientCommunicationSchema).values({
+      id: 'chain-source-communication',
+      salonId: SALON_ID,
+      salonClientId: source.id,
+      kind: 'rebook',
+      status: 'dismissed',
+      createdAt: new Date('2026-07-10T16:00:00.000Z'),
+    });
+
+    await setClientLifecycleLinks([
+      {
+        id: middle.id,
+        mergedIntoClientId: primary.id,
+      },
+      {
+        id: source.id,
+        mergedIntoClientId: middle.id,
+      },
+    ]);
+    await db
+      .update(schema.salonClientSchema)
+      .set({ archivedAt: new Date('2026-07-14T16:00:00.000Z') })
+      .where(
+        and(
+          eq(schema.salonClientSchema.salonId, SALON_ID),
+          eq(schema.salonClientSchema.id, archived.id),
+        ),
+      );
+
+    const result = await snapshot();
+    const active = await segmentIds('active');
+    const outstanding = await segmentIds('completed_outstanding');
+    const attention = result.data.attention.items.find(
+      item => item.clientId === primary.id,
+    );
+
+    expect(active).toEqual({ ids: [primary.id], total: 1 });
+    expect(segmentCount(result, 'active')).toBe(active.total);
+    expect(outstanding).toEqual({ ids: [primary.id], total: 1 });
+    expect(attention?.completedOutstandingCents).toBe(9000);
+    expect((await segmentIds('needs_rebooking')).ids).not.toContain(primary.id);
+    expect(active.ids).not.toEqual(expect.arrayContaining([
+      middle.id,
+      source.id,
+      archived.id,
+    ]));
+
+    expect(await segmentIds('active', {
+      search: '+1 (647) 555-1199',
+    })).toEqual({ ids: [primary.id], total: 1 });
+    expect(await segmentIds('active', {
+      search: 'legacy-source@example.test',
+    })).toEqual({ ids: [primary.id], total: 1 });
+    expect(await segmentIds('active', {
+      search: '416-555-1102',
+    })).toEqual({ ids: [primary.id], total: 1 });
+    expect(await segmentIds('active', {
+      search: '6475551198',
+    })).toEqual({ ids: [], total: 0 });
+    expect(await segmentIds('active', {
+      search: '6475551299',
+    })).toEqual({ ids: [], total: 0 });
   });
 
   it('calculates completed outstanding per eligible appointment and never nets overpayments', async () => {

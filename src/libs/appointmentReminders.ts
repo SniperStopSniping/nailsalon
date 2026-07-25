@@ -3,6 +3,10 @@ import 'server-only';
 import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import {
+  resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { normalizePhone } from '@/libs/phone';
@@ -27,6 +31,7 @@ type ReminderChannel = 'email' | 'sms';
 type ReminderCandidate = {
   appointmentId: string;
   salonId: string;
+  salonClientId: string | null;
   salonName: string;
   salonSettings: unknown;
   clientName: string | null;
@@ -77,19 +82,37 @@ export async function processAppointmentReminders(args?: {
     );
     const timeZone = bookingConfig.timezone;
     const dueDayBefore = candidate.dayBeforeReminderSentAt == null
-      && isDayBeforeReminderDue({ now, startTime: candidate.startTime, timeZone });
+      && isDayBeforeReminderDue({
+        now,
+        startTime: candidate.startTime,
+        timeZone,
+      });
     const dueSameDay = candidate.sameDayReminderSentAt == null
-      && isSameDayReminderDue({ now, startTime: candidate.startTime });
+      && isSameDayReminderDue({
+        now,
+        startTime: candidate.startTime,
+      });
 
     if (!dueDayBefore && !dueSameDay) {
       result.skipped += 1;
       continue;
     }
 
-    const services = await getAppointmentServiceNames(candidate.appointmentId);
+    let operationalCandidate: ReminderCandidate;
+    try {
+      operationalCandidate = await resolveReminderOperationalContact(
+        candidate,
+      );
+    } catch {
+      result.failures += 1;
+      continue;
+    }
+    const services = await getAppointmentServiceNames(
+      operationalCandidate.appointmentId,
+    );
 
     if (dueDayBefore) {
-      const sendResult = await sendDayBeforeReminder(candidate, {
+      const sendResult = await sendDayBeforeReminder(operationalCandidate, {
         services,
         timeZone,
         now,
@@ -97,8 +120,8 @@ export async function processAppointmentReminders(args?: {
 
       if (sendResult.channel) {
         await markReminderSent({
-          appointmentId: candidate.appointmentId,
-          salonId: candidate.salonId,
+          appointmentId: operationalCandidate.appointmentId,
+          salonId: operationalCandidate.salonId,
           reminderType: 'day_before',
           channel: sendResult.channel,
           now,
@@ -119,15 +142,15 @@ export async function processAppointmentReminders(args?: {
     }
 
     if (dueSameDay) {
-      const sendResult = await sendSameDayReminder(candidate, {
+      const sendResult = await sendSameDayReminder(operationalCandidate, {
         services,
         timeZone,
       });
 
       if (sendResult.channel) {
         await markReminderSent({
-          appointmentId: candidate.appointmentId,
-          salonId: candidate.salonId,
+          appointmentId: operationalCandidate.appointmentId,
+          salonId: operationalCandidate.salonId,
           reminderType: 'same_day',
           channel: sendResult.channel,
           now,
@@ -173,6 +196,7 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
     .select({
       appointmentId: appointmentSchema.id,
       salonId: appointmentSchema.salonId,
+      salonClientId: appointmentSchema.salonClientId,
       salonName: salonSchema.name,
       salonSettings: salonSchema.settings,
       clientName: appointmentSchema.clientName,
@@ -223,6 +247,29 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
     .limit(MAX_CANDIDATES_PER_RUN);
 
   return rows;
+}
+
+async function resolveReminderOperationalContact(
+  candidate: ReminderCandidate,
+): Promise<ReminderCandidate> {
+  const contact = candidate.salonClientId
+    ? await resolveOperationalSalonClientContact({
+      salonId: candidate.salonId,
+      clientId: candidate.salonClientId,
+      allowArchived: true,
+    })
+    : await resolveOperationalSalonClientContactByPhone({
+      salonId: candidate.salonId,
+      phone: candidate.clientPhone,
+      allowArchived: true,
+    });
+  return {
+    ...candidate,
+    // A legacy appointment with no stable or alias match retains its immutable
+    // destination snapshot. Ambiguous or invalid lifecycle state throws above,
+    // so no management capability is sent until the state is resolved.
+    clientPhone: contact?.phone ?? candidate.clientPhone,
+  };
 }
 
 async function sendDayBeforeReminder(

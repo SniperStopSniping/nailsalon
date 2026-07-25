@@ -1,7 +1,13 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
+import {
+  CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH,
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+} from '@/libs/clientLifecycleStabilization';
 import {
   type AddOn,
   addOnSchema,
@@ -965,16 +971,76 @@ export async function getSalonClients(
   } = options;
 
   // Build where conditions
-  const conditions = [eq(salonClientSchema.salonId, salonId)];
+  const conditions = [
+    eq(salonClientSchema.salonId, salonId),
+    isNull(salonClientSchema.archivedAt),
+    isNull(salonClientSchema.mergedIntoClientId),
+  ];
 
   // Add search filter
   if (search) {
     const searchPattern = `%${search}%`;
+    const normalizedPhoneSearch = /^[+\d().\-\s]+$/.test(search)
+      ? normalizePhone(search)
+      : '';
+    const phoneSearchPattern = `%${normalizedPhoneSearch}%`;
+    const lineageContactMatch = sql<boolean>`
+      exists (
+        with recursive directory_lineage(id, path, depth) as (
+          select
+            ${salonClientSchema.id},
+            array[${salonClientSchema.id}]::text[],
+            0
+
+          union all
+
+          select
+            source.id,
+            directory_lineage.path || source.id,
+            directory_lineage.depth + 1
+          from directory_lineage
+          inner join salon_client as source
+            on source.salon_id = ${salonId}
+           and source.merged_into_client_id = directory_lineage.id
+           and source.archived_at is not null
+          where directory_lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+            and not source.id = any(directory_lineage.path)
+        )
+        select 1
+        from directory_lineage
+        inner join salon_client as lineage_client
+          on lineage_client.salon_id = ${salonId}
+         and lineage_client.id = directory_lineage.id
+        where (
+          ${normalizedPhoneSearch !== ''
+            ? sql`lineage_client.phone ilike ${phoneSearchPattern}`
+            : sql`false`}
+        )
+           or lineage_client.email ilike ${searchPattern}
+           or exists (
+             select 1
+             from salon_client_contact_alias as contact_alias
+             where contact_alias.salon_id = ${salonId}
+               and contact_alias.salon_client_id = directory_lineage.id
+               and (
+                 (
+                   contact_alias.kind = 'phone'
+                   and ${normalizedPhoneSearch !== ''
+                      ? sql`contact_alias.normalized_value ilike ${phoneSearchPattern}`
+                      : sql`false`}
+                 )
+                 or (
+                   contact_alias.kind = 'email'
+                   and contact_alias.normalized_value ilike ${searchPattern}
+                 )
+               )
+           )
+      )
+    `;
     conditions.push(
       or(
         ilike(salonClientSchema.fullName, searchPattern),
-        ilike(salonClientSchema.phone, searchPattern),
-        ilike(salonClientSchema.email, searchPattern),
+        lineageContactMatch,
       ) ?? sql`1=0`,
     );
   }
@@ -1084,7 +1150,8 @@ export async function updateSalonClient(
  *
  * Stats are SALON-SCOPED - only appointments from this salon are counted.
  *
- * Loyalty points rule: 1 point per $1 spent (100 cents = 1 point)
+ * Single-profile loyalty uses the existing configured spend reconciliation.
+ * Merged-lineage loyalty remains unchanged pending ledger-backed reconciliation.
  *
  * @param salonId - The salon's unique ID
  * @param phone - The client's phone number (any format)
@@ -1093,27 +1160,61 @@ export async function updateSalonClientStats(
   salonId: string,
   phone: string,
 ): Promise<void> {
-  const normalizedPhone = normalizePhone(phone);
-
-  // Get the salon client (scoped to this salon)
-  const salonClient = await getSalonClientByPhone(salonId, normalizedPhone);
-  if (!salonClient) {
+  const terminal = await resolveOperationalSalonClientByPhoneWithHandle(db, {
+    salonId,
+    phone,
+  });
+  if (!terminal) {
     // No salon client record exists - nothing to update
     // This can happen if booking was created before the salon_client feature
     return;
   }
 
-  // Build comprehensive phone variants for matching appointments
-  // Appointments may store phone in various formats
-  const phoneVariants = [
-    normalizedPhone, // "4165551234"
-    `+1${normalizedPhone}`, // "+14165551234"
-    `1${normalizedPhone}`, // "14165551234"
-    phone, // original format passed in
-    phone.replace(/\D/g, ''), // digits only from original
+  const lineageIds = await getSalonClientLineageIdsWithHandle(db, {
+    salonId,
+    terminalClientId: terminal.id,
+  });
+  const lineageClients = await db
+    .select({
+      id: salonClientSchema.id,
+      phone: salonClientSchema.phone,
+      loyaltyPoints: salonClientSchema.loyaltyPoints,
+      totalSpent: salonClientSchema.totalSpent,
+      rebookIntervalDays: salonClientSchema.rebookIntervalDays,
+    })
+    .from(salonClientSchema)
+    .where(and(
+      eq(salonClientSchema.salonId, salonId),
+      inArray(salonClientSchema.id, lineageIds),
+    ));
+  const terminalClient = lineageClients.find(client => client.id === terminal.id);
+  if (!terminalClient) {
+    return;
+  }
+
+  const aliasPhones = await getSalonClientPhoneAliasesWithHandle(db, {
+    salonId,
+    clientIds: lineageIds,
+  });
+  const ownedPhoneSnapshots = [
+    ...lineageClients.map(client => client.phone),
+    ...aliasPhones,
+    phone,
   ];
-  // Deduplicate
-  const uniquePhoneVariants = [...new Set(phoneVariants)];
+  const normalizedPhones = [...new Set(
+    ownedPhoneSnapshots
+      .map(normalizePhone)
+      .filter(value => value.length === 10),
+  )];
+  const phoneVariants = [...new Set([
+    ...ownedPhoneSnapshots,
+    ...ownedPhoneSnapshots.map(value => value.replace(/\D/g, '')),
+    ...normalizedPhones.flatMap(value => [
+      value,
+      `1${value}`,
+      `+1${value}`,
+    ]),
+  ].filter(Boolean))];
 
   // Calculate stats from appointments - SCOPED TO THIS SALON ONLY
   // Using FILTER clause for conditional aggregation (Postgres 9.4+)
@@ -1133,7 +1234,13 @@ export async function updateSalonClientStats(
     .where(
       and(
         eq(appointmentSchema.salonId, salonId),
-        inArray(appointmentSchema.clientPhone, uniquePhoneVariants),
+        or(
+          inArray(appointmentSchema.salonClientId, lineageIds),
+          and(
+            isNull(appointmentSchema.salonClientId),
+            inArray(appointmentSchema.clientPhone, phoneVariants),
+          ),
+        ),
       ),
     );
 
@@ -1142,17 +1249,23 @@ export async function updateSalonClientStats(
   // Calculate loyalty points using centralized formula (totalSpent is in cents)
   // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
   const totalSpentCents = clientStats?.totalSpent ?? 0;
-  const loyaltyPoints = reconcileLoyaltyPointsBalance({
-    currentBalance: salonClient.loyaltyPoints,
-    previousCompletedSpendCents: salonClient.totalSpent,
-    nextCompletedSpendCents: totalSpentCents,
-  });
+  // A merged lineage can contain independent loyalty histories that cannot be
+  // reconstructed from cached spend. Keep every balance unchanged until the
+  // ledger-backed PR 0B design exists; ordinary single-profile reconciliation
+  // retains the established behavior.
+  const reconciledLoyaltyPoints = lineageIds.length === 1
+    ? reconcileLoyaltyPointsBalance({
+      currentBalance: terminalClient.loyaltyPoints,
+      previousCompletedSpendCents: terminalClient.totalSpent,
+      nextCompletedSpendCents: totalSpentCents,
+    })
+    : null;
   // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
   // others (pg) — normalize before doing Date math or writing back.
   const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
   const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
-  const nextRebookDueAt = lastVisitAt && salonClient.rebookIntervalDays
-    ? new Date(lastVisitAt.getTime() + salonClient.rebookIntervalDays * 86_400_000)
+  const nextRebookDueAt = lastVisitAt && terminalClient.rebookIntervalDays
+    ? new Date(lastVisitAt.getTime() + terminalClient.rebookIntervalDays * 86_400_000)
     : null;
 
   // Update the salon client with computed stats
@@ -1165,12 +1278,14 @@ export async function updateSalonClientStats(
       noShowCount: clientStats?.noShowCount ?? 0,
       lastVisitAt,
       nextRebookDueAt,
-      loyaltyPoints,
+      ...(reconciledLoyaltyPoints === null
+        ? {}
+        : { loyaltyPoints: reconciledLoyaltyPoints }),
       updatedAt: new Date(),
     })
     .where(
       and(
-        eq(salonClientSchema.id, salonClient.id),
+        eq(salonClientSchema.id, terminal.id),
         eq(salonClientSchema.salonId, salonId),
       ),
     );

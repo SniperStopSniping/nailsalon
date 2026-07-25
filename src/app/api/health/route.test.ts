@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
 
-const { executeMock, isRedisAvailableMock } = vi.hoisted(() => ({
+const {
+  executeMock,
+  isRedisAvailableMock,
+  schemaReadyMock,
+} = vi.hoisted(() => ({
   executeMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
+  schemaReadyMock: vi.fn(),
 }));
 
 const { isResendSenderVerifiedMock } = vi.hoisted(() => ({
@@ -26,12 +31,17 @@ vi.mock('@/libs/resendHealth', () => ({
   isResendSenderVerified: isResendSenderVerifiedMock,
 }));
 
+vi.mock('@/libs/clientLifecycleSchema', () => ({
+  isClientLifecycleSchemaReady: schemaReadyMock,
+}));
+
 describe('GET /api/health', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
     isResendSenderVerifiedMock.mockResolvedValue(false);
+    schemaReadyMock.mockResolvedValue(true);
     process.env = { ...originalEnv };
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
@@ -58,7 +68,14 @@ describe('GET /api/health', () => {
     delete process.env.GOOGLE_CALENDAR_ID;
     delete process.env.GOOGLE_CALENDAR_CLIENT_EMAIL;
     delete process.env.GOOGLE_CALENDAR_PRIVATE_KEY;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+    delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
+    delete process.env.INTEGRATION_ENCRYPTION_KEY;
+    delete process.env.OAUTH_STATE_SECRET;
     delete process.env.VERCEL_GIT_COMMIT_SHA;
+    delete process.env.VERCEL_ENV;
+    delete process.env.APP_ENV;
     delete process.env.CLERK_SECRET_KEY;
     delete process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
     delete process.env.SUPER_ADMIN_AUTH_MODE;
@@ -132,6 +149,7 @@ describe('GET /api/health', () => {
         sentryEnv: true,
         googleCalendarEnv: true,
       },
+      clientLifecycleSchema: 'ready',
       timestamp: expect.any(String),
       gitSha: 'abcdef1',
     });
@@ -147,5 +165,59 @@ describe('GET /api/health', () => {
     expect(response.status).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.checks.db).toBe(false);
+    expect(body.clientLifecycleSchema).toBe('unavailable');
+  });
+
+  it('returns 503 in hosted Production when lifecycle schema is not ready', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    schemaReadyMock.mockResolvedValue(false);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.checks.db).toBe(true);
+    expect(body.clientLifecycleSchema).toBe('not_ready');
+    expect(serializedBody).not.toContain('migration');
+    expect(serializedBody).not.toContain('trigger');
+    expect(serializedBody).not.toContain('capability');
+  });
+
+  it('keeps database health separate from a private readiness error', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    schemaReadyMock.mockRejectedValue(
+      new Error('private catalog detail must not escape'),
+    );
+    process.env.VERCEL_ENV = 'production';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.checks.db).toBe(true);
+    expect(body.clientLifecycleSchema).toBe('unavailable');
+    expect(JSON.stringify(body)).not.toContain(
+      'private catalog detail must not escape',
+    );
   });
 });

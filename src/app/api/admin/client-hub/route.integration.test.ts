@@ -2,6 +2,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -453,5 +454,345 @@ describe('GET /api/admin/client-insights', () => {
     expect(clientsResponse.status).toBe(401);
     expect(insightsResponse.headers.get('cache-control')).toContain('no-store');
     expect(clientsResponse.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('counts only active terminal profiles while preserving raw appointment reports', async () => {
+    const before = legacyClientHubContract.parse((await legacyHub()).body);
+    const beforeSegments = new Map(
+      before.data.segments.map(segment => [segment.id, segment.count]),
+    );
+
+    await db.insert(schema.salonSchema).values({
+      id: 'salon_lifecycle_foreign',
+      name: 'Lifecycle Foreign Salon',
+      slug: 'lifecycle-foreign-salon',
+    });
+    await db.insert(schema.salonClientSchema).values([
+      {
+        id: 'hub_lifecycle_primary',
+        salonId: SALON_ID,
+        phone: '4165550901',
+        fullName: 'Lifecycle Primary',
+        lastVisitAt: new Date('2026-06-20T16:00:00.000Z'),
+        totalVisits: 2,
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_middle',
+        salonId: SALON_ID,
+        phone: '4165550902',
+        fullName: 'Lifecycle Middle',
+        totalVisits: 50,
+        noShowCount: 50,
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_source',
+        salonId: SALON_ID,
+        phone: '4165550903',
+        fullName: 'Lifecycle Source',
+        totalVisits: 50,
+        noShowCount: 50,
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_archived',
+        salonId: SALON_ID,
+        phone: '4165550904',
+        fullName: 'Lifecycle Archived',
+        archivedAt: new Date('2026-07-10T16:00:00.000Z'),
+        totalVisits: 50,
+        noShowCount: 50,
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_no_future',
+        salonId: SALON_ID,
+        phone: '4165550905',
+        fullName: 'Lifecycle No Future',
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_alias_future',
+        salonId: SALON_ID,
+        phone: '4165550906',
+        fullName: 'Lifecycle Alias Future',
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_ambiguous_a',
+        salonId: SALON_ID,
+        phone: '4165550997',
+        fullName: 'Lifecycle Ambiguous A',
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_ambiguous_b',
+        salonId: SALON_ID,
+        phone: '4165550996',
+        fullName: 'Lifecycle Ambiguous B',
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+      {
+        id: 'hub_lifecycle_foreign',
+        salonId: 'salon_lifecycle_foreign',
+        phone: '4165550999',
+        fullName: 'Lifecycle Foreign',
+        createdAt: new Date('2026-07-01T16:00:00.000Z'),
+      },
+    ]);
+    await db.insert(schema.salonClientContactAliasSchema).values([
+      {
+        salonId: SALON_ID,
+        salonClientId: 'hub_lifecycle_alias_future',
+        kind: 'phone',
+        normalizedValue: '4165550998',
+      },
+      {
+        salonId: SALON_ID,
+        salonClientId: 'hub_lifecycle_ambiguous_b',
+        kind: 'phone',
+        normalizedValue: '4165550997',
+      },
+    ]);
+
+    await db.insert(schema.serviceSchema).values({
+      id: 'hub_lifecycle_service',
+      salonId: SALON_ID,
+      name: 'Lifecycle Manicure',
+      price: 10000,
+      durationMinutes: 60,
+      category: 'manicure',
+    });
+
+    await db.insert(schema.appointmentSchema).values([
+      completed(
+        'hub_lifecycle_completed_source',
+        'hub_lifecycle_source',
+        '2026-06-10T16:00:00.000Z',
+        {
+          clientPhone: '4165550903',
+          totalPrice: 10000,
+          amountPaidCents: 10000,
+        },
+      ),
+      completed(
+        'hub_lifecycle_completed_middle',
+        'hub_lifecycle_middle',
+        '2026-06-11T16:00:00.000Z',
+        {
+          clientPhone: '4165550902',
+          totalPrice: 12000,
+          amountPaidCents: 12000,
+        },
+      ),
+      {
+        id: 'hub_lifecycle_future_source',
+        salonId: SALON_ID,
+        salonClientId: 'hub_lifecycle_source',
+        clientPhone: '4165550903',
+        clientName: 'Lifecycle Source',
+        startTime: new Date('2026-07-25T16:00:00.000Z'),
+        endTime: new Date('2026-07-25T17:00:00.000Z'),
+        status: 'confirmed',
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      },
+      {
+        id: 'hub_lifecycle_cancelled_middle',
+        salonId: SALON_ID,
+        salonClientId: 'hub_lifecycle_middle',
+        clientPhone: '4165550902',
+        clientName: 'Lifecycle Middle',
+        startTime: new Date('2026-07-18T16:00:00.000Z'),
+        endTime: new Date('2026-07-18T17:00:00.000Z'),
+        status: 'cancelled',
+        updatedAt: new Date('2026-07-10T16:00:00.000Z'),
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      },
+      {
+        id: 'hub_lifecycle_future_alias',
+        salonId: SALON_ID,
+        salonClientId: null,
+        clientPhone: '+1 (416) 555-0998',
+        clientName: 'Lifecycle Alias Future',
+        startTime: new Date('2026-07-27T16:00:00.000Z'),
+        endTime: new Date('2026-07-27T17:00:00.000Z'),
+        status: 'confirmed',
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      },
+      {
+        ...completed(
+          'hub_lifecycle_completed_alias',
+          'hub_lifecycle_alias_future',
+          '2026-06-12T16:00:00.000Z',
+          {
+            salonClientId: null,
+            clientPhone: '+1 (416) 555-0998',
+            totalPrice: 5000,
+            amountPaidCents: 5000,
+          },
+        ),
+      },
+      {
+        id: 'hub_lifecycle_cancelled_alias',
+        salonId: SALON_ID,
+        salonClientId: null,
+        clientPhone: '+1 (416) 555-0998',
+        clientName: 'Lifecycle Alias Future',
+        startTime: new Date('2026-07-19T16:00:00.000Z'),
+        endTime: new Date('2026-07-19T17:00:00.000Z'),
+        status: 'cancelled',
+        updatedAt: new Date('2026-07-11T16:00:00.000Z'),
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      },
+      {
+        id: 'hub_lifecycle_future_ambiguous',
+        salonId: SALON_ID,
+        salonClientId: null,
+        clientPhone: '4165550997',
+        clientName: 'Lifecycle Ambiguous',
+        startTime: new Date('2026-07-28T16:00:00.000Z'),
+        endTime: new Date('2026-07-28T17:00:00.000Z'),
+        status: 'confirmed',
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      },
+    ]);
+    await db.insert(schema.appointmentServicesSchema).values([
+      {
+        id: 'hub_lifecycle_service_source',
+        appointmentId: 'hub_lifecycle_completed_source',
+        serviceId: 'hub_lifecycle_service',
+        priceAtBooking: 10000,
+        durationAtBooking: 60,
+        nameSnapshot: 'Lifecycle Manicure',
+        categorySnapshot: 'manicure',
+      },
+      {
+        id: 'hub_lifecycle_service_middle',
+        appointmentId: 'hub_lifecycle_completed_middle',
+        serviceId: 'hub_lifecycle_service',
+        priceAtBooking: 12000,
+        durationAtBooking: 60,
+        nameSnapshot: 'Lifecycle Manicure',
+        categorySnapshot: 'manicure',
+      },
+      {
+        id: 'hub_lifecycle_service_alias',
+        appointmentId: 'hub_lifecycle_completed_alias',
+        serviceId: 'hub_lifecycle_service',
+        priceAtBooking: 5000,
+        durationAtBooking: 60,
+        nameSnapshot: 'Lifecycle Pedicure',
+        categorySnapshot: 'pedicure',
+      },
+    ]);
+
+    await db.execute(sql.raw(
+      'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+    ));
+    try {
+      await db.execute(sql.raw(`
+        UPDATE salon_client
+        SET archived_at = '2026-07-10T16:00:00.000Z',
+            archived_by = 'lifecycle-test',
+            merged_into_client_id = 'hub_lifecycle_primary',
+            merged_at = '2026-07-10T16:00:00.000Z',
+            merged_by = 'lifecycle-test'
+        WHERE id = 'hub_lifecycle_middle'
+      `));
+      await db.execute(sql.raw(`
+        UPDATE salon_client
+        SET archived_at = '2026-07-10T16:00:00.000Z',
+            archived_by = 'lifecycle-test',
+            merged_into_client_id = 'hub_lifecycle_middle',
+            merged_at = '2026-07-10T16:00:00.000Z',
+            merged_by = 'lifecycle-test'
+        WHERE id = 'hub_lifecycle_source'
+      `));
+    } finally {
+      await db.execute(sql.raw(
+        'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+      ));
+    }
+
+    // This deliberately inconsistent stable reference proves that a non-null
+    // foreign-salon ID is dropped rather than converted into a legacy
+    // phone-fallback appointment for hub_lifecycle_no_future.
+    await db.execute(sql.raw(
+      'ALTER TABLE appointment DISABLE TRIGGER appointment_resolve_merged_client',
+    ));
+    try {
+      await db.insert(schema.appointmentSchema).values({
+        id: 'hub_lifecycle_invalid_future',
+        salonId: SALON_ID,
+        salonClientId: 'hub_lifecycle_foreign',
+        clientPhone: '4165550905',
+        clientName: 'Lifecycle No Future',
+        startTime: new Date('2026-07-26T16:00:00.000Z'),
+        endTime: new Date('2026-07-26T17:00:00.000Z'),
+        status: 'confirmed',
+        totalPrice: 9000,
+        totalDurationMinutes: 60,
+      });
+    } finally {
+      await db.execute(sql.raw(
+        'ALTER TABLE appointment ENABLE TRIGGER appointment_resolve_merged_client',
+      ));
+    }
+
+    const afterResult = await legacyHub();
+    const after = legacyClientHubContract.parse(afterResult.body);
+    const afterSegments = new Map(
+      after.data.segments.map(segment => [segment.id, segment.count]),
+    );
+
+    expect(afterResult.response.status).toBe(200);
+    expect(after.data.overview.totalClients).toBe(
+      before.data.overview.totalClients + 5,
+    );
+    expect(after.data.overview.newClientsThisMonth).toBe(
+      before.data.overview.newClientsThisMonth + 5,
+    );
+    expect(after.data.overview.returningClients).toBe(
+      before.data.overview.returningClients + 1,
+    );
+    expect(afterSegments.get('previous_no_shows')).toBe(
+      beforeSegments.get('previous_no_shows'),
+    );
+    expect(afterSegments.get('no_future_appointment')).toBe(
+      (beforeSegments.get('no_future_appointment') ?? 0) + 3,
+    );
+    expect(afterSegments.get('recently_cancelled')).toBe(
+      (beforeSegments.get('recently_cancelled') ?? 0) + 2,
+    );
+    expect(afterSegments.get('manicure')).toBe(
+      (beforeSegments.get('manicure') ?? 0) + 1,
+    );
+    expect(afterSegments.get('pedicure')).toBe(
+      (beforeSegments.get('pedicure') ?? 0) + 1,
+    );
+
+    // Report totals remain appointment-based: both historical source
+    // appointments and the cancellation remain present exactly once.
+    expect(after.data.reports.completed).toBe(
+      before.data.reports.completed + 3,
+    );
+    expect(after.data.reports.cancelled).toBe(
+      before.data.reports.cancelled + 2,
+    );
+    expect(after.data.reports.finishedAppointments).toBe(
+      before.data.reports.finishedAppointments + 5,
+    );
+    expect(after.data.reports.serviceRevenueCents).toBe(
+      before.data.reports.serviceRevenueCents + 27000,
+    );
+    expect(after.data.reports.outstandingCents).toBe(
+      before.data.reports.outstandingCents,
+    );
   });
 });

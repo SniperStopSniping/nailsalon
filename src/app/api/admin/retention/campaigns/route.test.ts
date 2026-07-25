@@ -13,10 +13,20 @@ const {
   buildSalonTenantPublicUrl,
   selectQueue,
   insertedCampaigns,
+  updatedCommunications,
+  lifecycleState,
+  lifecycleOperations,
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const insertedCampaigns: Array<Record<string, unknown>> = [];
+  const updatedCommunications: Array<Record<string, unknown>> = [];
+  const lifecycleState: { terminalClientId: string | null } = { terminalClientId: null };
+  const lifecycleOperations: string[] = [];
   const query = (result: unknown) => {
     const chain = {
       from: vi.fn(() => chain),
@@ -27,12 +37,21 @@ const {
     return chain;
   };
   const tx = {
+    select: vi.fn(() => {
+      lifecycleOperations.push('dependent-read');
+      return query(selectQueue.shift() ?? []);
+    }),
     insert: vi.fn(() => ({
       values: vi.fn(async (values: Record<string, unknown>) => {
         insertedCampaigns.push(values);
       }),
     })),
-    update: vi.fn(),
+    update: vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updatedCommunications.push(values);
+        return { where: vi.fn(async () => []) };
+      }),
+    })),
   };
   return {
     requireAdminSalon: vi.fn(),
@@ -41,6 +60,34 @@ const {
     buildSalonTenantPublicUrl: vi.fn((_path: string) => 'https://example.com/en/salon-a/book?campaign=opaque'),
     selectQueue,
     insertedCampaigns,
+    updatedCommunications,
+    lifecycleState,
+    lifecycleOperations,
+    getSalonClientLineageIdsWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { terminalClientId: string },
+    ) => [input.terminalClientId]),
+    getSalonClientPhoneAliasesWithHandle: vi.fn(async () => []),
+    lockTerminalSalonClientWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { salonId: string; clientId: string },
+    ) => {
+      lifecycleOperations.push('terminal-lock');
+      return {
+        id: lifecycleState.terminalClientId ?? input.clientId,
+        salonId: input.salonId,
+        archivedAt: null,
+        redirectedFromClientId: lifecycleState.terminalClientId
+          ? input.clientId
+          : null,
+        lineagePath: lifecycleState.terminalClientId
+          ? [input.clientId, lifecycleState.terminalClientId]
+          : [input.clientId],
+      };
+    }),
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
     db: {
       select: vi.fn(() => query(selectQueue.shift() ?? [])),
       transaction: vi.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
@@ -49,6 +96,13 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon, getAdminSession }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+}));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/publicUrl', () => ({ buildSalonTenantPublicUrl }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
@@ -62,6 +116,9 @@ describe('POST /api/admin/retention/campaigns', () => {
     vi.clearAllMocks();
     selectQueue.length = 0;
     insertedCampaigns.length = 0;
+    updatedCommunications.length = 0;
+    lifecycleState.terminalClientId = null;
+    lifecycleOperations.length = 0;
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
     getAdminSession.mockResolvedValue({ id: 'admin_1' });
     getRetentionSettingsForSalon.mockResolvedValue({
@@ -121,5 +178,139 @@ describe('POST /api/admin/retention/campaigns', () => {
       singleUse: true,
     });
     expect(body.data.campaign.bookingUrl).toContain('/book?campaign=');
+  });
+
+  it('locks and writes the terminal client for a merged-source campaign request', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    selectQueue.push(
+      [{
+        id: 'primary_client',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-05T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+      }],
+      [],
+      [{
+        id: 'communication_1',
+        salonId: 'salon_1',
+        salonClientId: 'primary_client',
+        kind: 'promo_6w',
+        metadata: {},
+      }],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'merged_source',
+        stage: 'promo_6w',
+        communicationId: 'communication_1',
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      { salonId: 'salon_1', clientId: 'merged_source' },
+    );
+    expect(lifecycleOperations.slice(0, 2)).toEqual(['terminal-lock', 'dependent-read']);
+    expect(insertedCampaigns[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      communicationId: 'communication_1',
+    });
+    expect(updatedCommunications).toHaveLength(1);
+  });
+
+  it('accepts a surfaced source communication without mutating its history row', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientLineageIdsWithHandle.mockResolvedValueOnce([
+      'merged_source',
+      'primary_client',
+    ]);
+    selectQueue.push(
+      [{
+        id: 'primary_client',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-05T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+      }],
+      [],
+      [{
+        id: 'communication_source',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        kind: 'promo_6w',
+        metadata: { historical: true },
+      }],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'primary_client',
+        stage: 'promo_6w',
+        communicationId: 'communication_source',
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(insertedCampaigns[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      communicationId: 'communication_source',
+    });
+    expect(updatedCommunications).toHaveLength(0);
+  });
+
+  it('checks the terminal client block before preparing campaign state', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    selectQueue.push([{
+      id: 'primary_client',
+      phone: '4165551212',
+      lastVisitAt: new Date('2026-06-05T16:00:00.000Z'),
+      rebookIntervalDays: null,
+      isBlocked: true,
+    }]);
+
+    const response = await POST(new Request('http://localhost/api/admin/retention/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'salon-a', clientId: 'merged_source', stage: 'promo_6w' }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_BLOCKED');
+    expect(insertedCampaigns).toHaveLength(0);
+  });
+
+  it('checks future appointments on the terminal client before preparing campaign state', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    selectQueue.push(
+      [{
+        id: 'primary_client',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-05T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+      }],
+      [{ id: 'future_appointment' }],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'salon-a', clientId: 'merged_source', stage: 'promo_6w' }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_ALREADY_BOOKED');
+    expect(insertedCampaigns).toHaveLength(0);
   });
 });

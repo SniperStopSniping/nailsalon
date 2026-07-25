@@ -1,8 +1,16 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  lockTerminalSalonClientWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { getOrCreateSalonClient, getSalonById } from '@/libs/queries';
+import {
+  getOrCreateSalonClient,
+  getSalonById,
+} from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   buildGoogleReviewMessage,
@@ -64,33 +72,86 @@ export async function POST(
     const technicianId = access.actorRole === 'staff' ? access.session.technicianId : null;
     const now = new Date();
 
-    // Record the per-visit follow-up action on the appointment.
-    await db
-      .update(appointmentSchema)
-      .set({
-        reviewFollowupAction: action,
-        reviewFollowupSentAt: now,
-        reviewFollowupSentBy: technicianId,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(appointmentSchema.id, appointmentId),
-        eq(appointmentSchema.salonId, appointment.salonId),
-      ));
-
     // 'already_reviewed' is client-level truth — mark it so we never ask again.
     let clientHasGoogleReview = false;
     if (action === 'already_reviewed') {
       const salonClient = appointment.salonClientId
         ? { id: appointment.salonClientId }
-        : await getOrCreateSalonClient(appointment.salonId, appointment.clientPhone, appointment.clientName ?? undefined);
+        : await resolveOperationalSalonClientByPhoneWithHandle(db, {
+          salonId: appointment.salonId,
+          phone: appointment.clientPhone,
+        }) ?? await getOrCreateSalonClient(
+          appointment.salonId,
+          appointment.clientPhone,
+          appointment.clientName ?? undefined,
+        );
+
       if (salonClient?.id) {
-        await db
-          .update(salonClientSchema)
-          .set({ hasGoogleReview: true, googleReviewMarkedAt: now, googleReviewMarkedBy: technicianId, updatedAt: now })
-          .where(eq(salonClientSchema.id, salonClient.id));
+        await withClientLifecycleTransactionRetry(() =>
+          db.transaction(async (tx) => {
+            const terminalClient = await lockTerminalSalonClientWithHandle(tx, {
+              salonId: appointment.salonId,
+              clientId: salonClient.id,
+            });
+
+            await tx
+              .update(appointmentSchema)
+              .set({
+                reviewFollowupAction: action,
+                reviewFollowupSentAt: now,
+                reviewFollowupSentBy: technicianId,
+                updatedAt: now,
+              })
+              .where(and(
+                eq(appointmentSchema.id, appointmentId),
+                eq(appointmentSchema.salonId, appointment.salonId),
+              ));
+
+            await tx
+              .update(salonClientSchema)
+              .set({
+                hasGoogleReview: true,
+                googleReviewMarkedAt: now,
+                googleReviewMarkedBy: technicianId,
+                updatedAt: now,
+              })
+              .where(and(
+                eq(salonClientSchema.id, terminalClient.id),
+                eq(salonClientSchema.salonId, appointment.salonId),
+              ));
+          }),
+        );
         clientHasGoogleReview = true;
+      } else {
+        // Preserve the v1.33 fallback for an invalid legacy phone: record the
+        // appointment action without fabricating a client identity.
+        await db
+          .update(appointmentSchema)
+          .set({
+            reviewFollowupAction: action,
+            reviewFollowupSentAt: now,
+            reviewFollowupSentBy: technicianId,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, appointment.salonId),
+          ));
       }
+    } else {
+      // Message-only actions retain the existing per-appointment write path.
+      await db
+        .update(appointmentSchema)
+        .set({
+          reviewFollowupAction: action,
+          reviewFollowupSentAt: now,
+          reviewFollowupSentBy: technicianId,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, appointment.salonId),
+        ));
     }
 
     // Build the copyable message for the "send" actions.

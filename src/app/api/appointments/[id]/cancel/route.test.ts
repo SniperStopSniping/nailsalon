@@ -10,6 +10,9 @@ const {
   sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
+  lockOperationalSalonClientContactWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  withClientLifecycleTransactionRetry,
   updateWhere,
   updateSet,
   transitionReturning,
@@ -22,6 +25,14 @@ const {
     currentAppointmentRows: [] as Array<{
       status: string;
       cancelReason: string | null;
+      updatedAt: Date;
+    }>,
+    lockedAppointmentRows: [] as Array<{
+      id: string;
+      salonId: string;
+      status: string;
+      cancelReason: string | null;
+      notes: string | null;
       updatedAt: Date;
     }>,
     rewardRows: [] as Array<{
@@ -37,13 +48,19 @@ const {
       && 'cancelReason' in projection
       && 'updatedAt' in projection,
     );
-    const limit = vi.fn(async () => (
-      readsCurrentAppointment
-        ? mockDbState.currentAppointmentRows
-        : mockDbState.rewardRows
-    ));
-    const whereSelect = vi.fn(() => ({ limit }));
-    const from = vi.fn(() => ({ where: whereSelect }));
+    const from = vi.fn((table: Record<string, unknown>) => {
+      const readsAppointmentTable = 'startTime' in table;
+      const limit = vi.fn(async () => (
+        readsCurrentAppointment
+          ? mockDbState.currentAppointmentRows
+          : readsAppointmentTable
+            ? mockDbState.lockedAppointmentRows
+            : mockDbState.rewardRows
+      ));
+      const forLock = vi.fn(() => ({ limit }));
+      const whereSelect = vi.fn(() => ({ for: forLock, limit }));
+      return { where: whereSelect };
+    });
     return { from };
   });
   const transitionReturning = vi.fn(async () => {
@@ -69,6 +86,11 @@ const {
     sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
+    lockOperationalSalonClientContactWithHandle: vi.fn(),
+    resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
     updateWhere,
     updateSet,
     transitionReturning,
@@ -89,6 +111,12 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db,
+}));
+
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  lockOperationalSalonClientContactWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -126,6 +154,14 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       cancelReason: 'client_request',
       updatedAt: new Date('2026-07-17T16:00:00.000Z'),
     }];
+    mockDbState.lockedAppointmentRows = [{
+      id: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      cancelReason: null,
+      notes: null,
+      updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+    }];
     mockDbState.rewardRows = [];
     mockDbState.transitionApplied = false;
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
@@ -147,6 +183,16 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
     updateSalonClientStats.mockResolvedValue(undefined);
+    resolveOperationalSalonClientByPhoneWithHandle.mockResolvedValue(null);
+    lockOperationalSalonClientContactWithHandle.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: null,
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
   });
 
   it('rejects wrong-role access', async () => {
@@ -326,6 +372,8 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
   });
 
   it('applies a concurrent double-cancel once and refunds loyalty points only once', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes
+      = '[Points redeemed: 1,000 pts]';
     const appointment = {
       id: 'appt_1',
       salonId: 'salon_1',
@@ -385,6 +433,124 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     expect(rewardRestores).toHaveLength(1);
     expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledTimes(1);
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves a legacy phone or alias to one terminal before refunding points', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes = '[Points redeemed: 100 pts]';
+    resolveOperationalSalonClientByPhoneWithHandle.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: null,
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        cancelReason: null,
+        notes: '[Points redeemed: 100 pts]',
+        clientName: 'Ava',
+        clientPhone: '4165550100',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: null,
+        updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveOperationalSalonClientByPhoneWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        phone: '4165550100',
+        allowArchived: true,
+      },
+    );
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'primary_client',
+        allowArchived: true,
+      },
+    );
+
+    const loyaltyRefunds = updateSet.mock.calls.filter(([values]) => (
+      values && typeof values === 'object' && 'loyaltyPoints' in values
+    ));
+
+    expect(loyaltyRefunds).toHaveLength(1);
+    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+  });
+
+  it('locks the terminal before cancellation, refunds it, and messages its current phone', async () => {
+    mockDbState.lockedAppointmentRows[0]!.notes = '[Points redeemed: 100 pts]';
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        technicianId: 'tech_1',
+        status: 'confirmed',
+        cancelReason: null,
+        notes: '[Points redeemed: 100 pts]',
+        clientName: 'Ava',
+        clientPhone: '4165550100',
+        startTime: new Date('2099-03-13T15:00:00.000Z'),
+        googleCalendarEventId: null,
+        updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/cancel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancelReason: 'client_request' }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'merged_source',
+        allowArchived: true,
+      },
+    );
+    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+
+    const loyaltyRefund = updateSet.mock.calls.find(([values]) => (
+      values && typeof values === 'object' && 'loyaltyPoints' in values
+    ));
+
+    expect(loyaltyRefund).toBeTruthy();
+    expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(1);
   });
 
   it('returns success after commit when calendar or notification delivery fails', async () => {

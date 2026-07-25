@@ -1,8 +1,14 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  lockTerminalSalonClientWithHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
+  resolveTerminalSalonClient,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { getSalonClientById, getSalonClientByPhone } from '@/libs/queries';
+import { getSalonClientById } from '@/libs/queries';
 import {
   buildAppointmentReminderQueue,
   buildCommunicationStatusTimestamps,
@@ -61,6 +67,8 @@ const mutationSchema = z.object({
 type CommunicationRow = typeof clientCommunicationSchema.$inferSelect;
 type AppointmentClient = typeof salonClientSchema.$inferSelect;
 
+class InvalidCommunicationStatusTransitionError extends Error {}
+
 function serializeCommunication(row: CommunicationRow) {
   return {
     id: row.id,
@@ -99,16 +107,26 @@ async function resolveAppointmentClient(appointment: {
   clientPhone: string;
 }): Promise<AppointmentClient | null> {
   if (appointment.salonClientId) {
+    const terminal = await resolveTerminalSalonClient({
+      salonId: appointment.salonId,
+      clientId: appointment.salonClientId,
+      allowArchived: true,
+    });
     const linkedClient = await getSalonClientById(
       appointment.salonId,
-      appointment.salonClientId,
+      terminal.id,
     );
-    if (linkedClient) {
-      return linkedClient;
-    }
+    return linkedClient;
   }
 
-  return getSalonClientByPhone(appointment.salonId, appointment.clientPhone);
+  const terminal = await resolveOperationalSalonClientByPhoneWithHandle(db, {
+    salonId: appointment.salonId,
+    phone: appointment.clientPhone,
+    allowArchived: true,
+  });
+  return terminal
+    ? getSalonClientById(appointment.salonId, terminal.id)
+    : null;
 }
 
 function accessOptions(request: Request) {
@@ -280,100 +298,102 @@ export async function POST(
       );
     }
 
-    const [latest] = await db
-      .select()
-      .from(clientCommunicationSchema)
-      .where(and(
-        eq(clientCommunicationSchema.salonId, appointment.salonId),
-        eq(clientCommunicationSchema.salonClientId, client.id),
-        eq(clientCommunicationSchema.appointmentId, appointment.id),
-        eq(clientCommunicationSchema.kind, parsed.data.kind),
-      ))
-      .orderBy(desc(clientCommunicationSchema.createdAt))
-      .limit(1);
-
-    const shouldUpdateLatest = Boolean(latest && (
-      ['prepared', 'not_sent', 'snoozed'].includes(latest.status)
-      || (latest.status === 'marked_sent' && parsed.data.status === 'converted')
-      || latest.status === parsed.data.status
-    ));
-
-    if (
-      shouldUpdateLatest
-      && latest
-      && !canTransitionCommunicationStatus(
-        latest.status as ClientCommunicationStatus,
-        parsed.data.status,
-      )
-    ) {
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_STATUS_TRANSITION',
-            message: `Cannot change communication from ${latest.status} to ${parsed.data.status}.`,
-          },
-        },
-        { status: 409 },
-      );
-    }
-
     const timestamps = buildCommunicationStatusTimestamps(parsed.data.status, now, {
       kind: parsed.data.kind,
       appointmentStartTime: appointment.startTime,
     });
-    const communication = await db.transaction(async (tx) => {
-      let savedCommunication: CommunicationRow | undefined;
-      if (shouldUpdateLatest && latest) {
-        const [updated] = await tx
-          .update(clientCommunicationSchema)
-          .set({
-            status: parsed.data.status,
-            dueAt,
-            messageSnapshot: safeMessageSnapshot === undefined
-              ? latest.messageSnapshot
-              : safeMessageSnapshot,
-            ...timestamps,
-            updatedAt: now,
-          })
+    const communicationId = `comm_${crypto.randomUUID()}`;
+    const communication = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx) => {
+        const terminal = await lockTerminalSalonClientWithHandle(tx, {
+          salonId: appointment.salonId,
+          clientId: client.id,
+          allowArchived: true,
+        });
+        const [latest] = await tx
+          .select()
+          .from(clientCommunicationSchema)
           .where(and(
-            eq(clientCommunicationSchema.id, latest.id),
             eq(clientCommunicationSchema.salonId, appointment.salonId),
-            eq(clientCommunicationSchema.salonClientId, client.id),
+            eq(clientCommunicationSchema.salonClientId, terminal.id),
             eq(clientCommunicationSchema.appointmentId, appointment.id),
+            eq(clientCommunicationSchema.kind, parsed.data.kind),
           ))
-          .returning();
-        savedCommunication = updated;
-      } else {
-        const [created] = await tx
-          .insert(clientCommunicationSchema)
-          .values({
-            id: `comm_${crypto.randomUUID()}`,
-            salonId: appointment.salonId,
-            salonClientId: client.id,
-            appointmentId: appointment.id,
-            kind: parsed.data.kind,
-            status: parsed.data.status,
-            dueAt,
-            messageSnapshot: safeMessageSnapshot ?? null,
-            actorAdminId: access.actorRole === 'admin' ? access.admin.id : null,
-            ...timestamps,
-          })
-          .returning();
-        savedCommunication = created;
-      }
+          .orderBy(desc(clientCommunicationSchema.createdAt))
+          .limit(1);
 
-      if (parsed.data.status === 'marked_sent') {
-        await tx
-          .update(salonClientSchema)
-          .set({ lastContactAt: now, updatedAt: now })
-          .where(and(
-            eq(salonClientSchema.id, client.id),
-            eq(salonClientSchema.salonId, appointment.salonId),
-          ));
-      }
+        const shouldUpdateLatest = Boolean(latest && (
+          ['prepared', 'not_sent', 'snoozed'].includes(latest.status)
+          || (latest.status === 'marked_sent' && parsed.data.status === 'converted')
+          || latest.status === parsed.data.status
+        ));
 
-      return savedCommunication;
-    });
+        if (
+          shouldUpdateLatest
+          && latest
+          && !canTransitionCommunicationStatus(
+            latest.status as ClientCommunicationStatus,
+            parsed.data.status,
+          )
+        ) {
+          throw new InvalidCommunicationStatusTransitionError(
+            `Cannot change communication from ${latest.status} to ${parsed.data.status}.`,
+          );
+        }
+
+        let savedCommunication: CommunicationRow | undefined;
+        if (shouldUpdateLatest && latest) {
+          const [updated] = await tx
+            .update(clientCommunicationSchema)
+            .set({
+              status: parsed.data.status,
+              dueAt,
+              messageSnapshot: safeMessageSnapshot === undefined
+                ? latest.messageSnapshot
+                : safeMessageSnapshot,
+              ...timestamps,
+              updatedAt: now,
+            })
+            .where(and(
+              eq(clientCommunicationSchema.id, latest.id),
+              eq(clientCommunicationSchema.salonId, appointment.salonId),
+              eq(clientCommunicationSchema.salonClientId, terminal.id),
+              eq(clientCommunicationSchema.appointmentId, appointment.id),
+            ))
+            .returning();
+          savedCommunication = updated;
+        } else {
+          const [created] = await tx
+            .insert(clientCommunicationSchema)
+            .values({
+              id: communicationId,
+              salonId: appointment.salonId,
+              salonClientId: terminal.id,
+              appointmentId: appointment.id,
+              kind: parsed.data.kind,
+              status: parsed.data.status,
+              dueAt,
+              messageSnapshot: safeMessageSnapshot ?? null,
+              actorAdminId: access.actorRole === 'admin' ? access.admin.id : null,
+              ...timestamps,
+            })
+            .returning();
+          savedCommunication = created;
+        }
+
+        if (parsed.data.status === 'marked_sent') {
+          await tx
+            .update(salonClientSchema)
+            .set({ lastContactAt: now, updatedAt: now })
+            .where(and(
+              eq(salonClientSchema.id, terminal.id),
+              eq(salonClientSchema.salonId, appointment.salonId),
+            ));
+        }
+
+        return savedCommunication;
+      }),
+    );
 
     if (!communication) {
       return Response.json(
@@ -389,6 +409,17 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof InvalidCommunicationStatusTransitionError) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_STATUS_TRANSITION',
+            message: error.message,
+          },
+        },
+        { status: 409 },
+      );
+    }
     console.error('[AppointmentCommunication] failed to save communication state', error);
     return Response.json(
       {
