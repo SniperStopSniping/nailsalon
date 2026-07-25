@@ -546,7 +546,7 @@ export async function PATCH(request: Request, context: { params: { token: string
       prepare: () => ({
         subject: `${managed.details.salonName} appointment cancelled`,
         text,
-        html: `<p>${text}</p>`,
+        html: `<p>${escapeHtml(text)}</p>`,
       }),
     });
   } catch {

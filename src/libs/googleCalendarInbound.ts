@@ -99,7 +99,6 @@ async function sendCalendarChangeEmail(args: {
     appointmentId: args.appointmentId,
     purpose: `google_calendar_appointment_${args.operation}`,
     eventVersion: args.eventVersion,
-    retryFailed: true,
     prepare: () => ({
       subject: `${args.salonName} appointment ${args.operation}`,
       text: `${greeting}\n\n${action}\n\nPlease contact ${args.salonName} if this change was unexpected.`,

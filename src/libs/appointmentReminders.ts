@@ -303,6 +303,12 @@ async function sendDayBeforeReminder(
       }),
   });
   const emailSent = emailDelivery.status === 'sent';
+  if (!emailDelivery.claimed) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: false,
+    };
+  }
 
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
@@ -362,6 +368,12 @@ async function sendSameDayReminder(
       }),
   });
   const emailSent = emailDelivery.status === 'sent';
+  if (!emailDelivery.claimed) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: false,
+    };
+  }
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
     return {

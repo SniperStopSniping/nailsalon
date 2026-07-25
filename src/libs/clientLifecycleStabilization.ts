@@ -84,6 +84,7 @@ export type OperationalEmailRecipientResolution =
 export type OperationalEmailDeliveryResult = {
   status: 'sent' | 'failed' | 'unavailable' | 'duplicate';
   deliveryId: string | null;
+  claimed: boolean;
 };
 
 type OperationalEmailContent = {
@@ -993,8 +994,12 @@ export async function sendAppointmentOperationalEmailOnce(input: {
         eq(notificationDeliverySchema.dedupeKey, dedupeKey),
       )).limit(1);
       return existing?.status === 'sent'
-        ? { status: 'sent', deliveryId: existing.id }
-        : { status: 'duplicate', deliveryId: existing?.id ?? null };
+        ? { status: 'sent', deliveryId: existing.id, claimed: false }
+        : {
+            status: 'duplicate',
+            deliveryId: existing?.id ?? null,
+            claimed: false,
+          };
     }
   } else if (!inserted.length) {
     const [existing] = await db.select({
@@ -1006,8 +1011,12 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.dedupeKey, dedupeKey),
     )).limit(1);
     return existing?.status === 'sent'
-      ? { status: 'sent', deliveryId: existing.id }
-      : { status: 'duplicate', deliveryId: existing?.id ?? null };
+      ? { status: 'sent', deliveryId: existing.id, claimed: false }
+      : {
+          status: 'duplicate',
+          deliveryId: existing?.id ?? null,
+          claimed: false,
+        };
   }
 
   let content: OperationalEmailContent;
@@ -1017,13 +1026,13 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
       errorCode: 'OPERATIONAL_EMAIL_PREPARATION_FAILED',
-      retryable: true,
+      retryable: input.retryFailed === true,
     }).where(and(
       eq(notificationDeliverySchema.id, deliveryId),
       eq(notificationDeliverySchema.salonId, salonId),
       eq(notificationDeliverySchema.status, 'queued'),
     ));
-    return { status: 'failed', deliveryId };
+    return { status: 'failed', deliveryId, claimed: true };
   }
 
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
@@ -1043,7 +1052,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.salonId, salonId),
       eq(notificationDeliverySchema.status, 'queued'),
     ));
-    return { status: 'failed', deliveryId };
+    return { status: 'failed', deliveryId, claimed: true };
   }
   if (recipient.status === 'unavailable') {
     await db.update(notificationDeliverySchema).set({
@@ -1055,7 +1064,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.salonId, salonId),
       eq(notificationDeliverySchema.status, 'queued'),
     ));
-    return { status: 'unavailable', deliveryId };
+    return { status: 'unavailable', deliveryId, claimed: true };
   }
 
   let providerResult;
@@ -1076,7 +1085,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.salonId, salonId),
       eq(notificationDeliverySchema.status, 'queued'),
     ));
-    return { status: 'failed', deliveryId };
+    return { status: 'failed', deliveryId, claimed: true };
   }
 
   const providerOutcomeIsAmbiguous
@@ -1086,7 +1095,10 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       status: providerResult.ok ? 'sent' : 'failed',
       providerMessageId: providerResult.providerMessageId,
       errorCode: providerResult.errorCode,
-      retryable: !providerResult.ok && !providerOutcomeIsAmbiguous,
+      retryable:
+        input.retryFailed === true
+        && !providerResult.ok
+        && !providerOutcomeIsAmbiguous,
     }).where(and(
       eq(notificationDeliverySchema.id, deliveryId),
       eq(notificationDeliverySchema.salonId, salonId),
@@ -1100,6 +1112,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   return {
     status: providerResult.ok ? 'sent' : 'failed',
     deliveryId,
+    claimed: true,
   };
 }
 

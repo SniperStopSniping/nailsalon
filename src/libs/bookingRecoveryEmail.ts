@@ -265,6 +265,46 @@ async function markRecoveryAmbiguousFailure(input: {
   ));
 }
 
+async function restoreRecoveryRetryAfterCapabilityCleanup(input: {
+  salonId: string;
+  deliveryId: string;
+  tokenHashes: string[];
+  errorCode: string;
+}) {
+  try {
+    await revokeRecoveryTokens(input.salonId, input.tokenHashes);
+  } catch {
+    await markRecoveryAmbiguousFailure({
+      salonId: input.salonId,
+      deliveryId: input.deliveryId,
+      errorCode: 'RECOVERY_CAPABILITY_CLEANUP_FAILED',
+    }).catch(() => undefined);
+    throw new Error('RECOVERY_CAPABILITY_CLEANUP_FAILED');
+  }
+  await markRecoveryRetryableFailure({
+    salonId: input.salonId,
+    deliveryId: input.deliveryId,
+    errorCode: input.errorCode,
+  });
+}
+
+async function claimRecoveryRetry(input: {
+  salonId: string;
+  deliveryId: string;
+}): Promise<boolean> {
+  const claimed = await db.update(notificationDeliverySchema).set({
+    status: 'queued',
+    errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.status, 'failed'),
+    eq(notificationDeliverySchema.retryable, true),
+  )).returning();
+  return claimed.length === 1;
+}
+
 async function enqueueRecoveryRetry(input: {
   salonId: string;
   deliveryId: string;
@@ -348,8 +388,11 @@ export async function sendBookingRecoveryEmail(input: {
     const serviceNames = await loadServiceNames(appointmentIds);
     const timezone = await resolveTimezone(salon.settings);
     ({ sendTransactionalEmailDetailed } = await import('./email'));
-    const finalRecipient = await resolveRecoveryRecipient(salon.id, appointments);
-    if (!finalRecipient) {
+    const finalRecipientBeforeTokens = await resolveRecoveryRecipient(
+      salon.id,
+      appointments,
+    );
+    if (!finalRecipientBeforeTokens) {
       await markRecoveryRecipientUnavailable({ salonId: salon.id, deliveryId });
       return {
         ok: false,
@@ -358,8 +401,6 @@ export async function sendBookingRecoveryEmail(input: {
         errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
       };
     }
-    recipientEmail = finalRecipient.email;
-
     // Recovery capabilities are created only after the final supported
     // destination has been resolved. They are still committed before the
     // provider call, so no database locks are held during external delivery.
@@ -375,11 +416,27 @@ export async function sendBookingRecoveryEmail(input: {
       });
     }
     content = buildEmailContent({ salonName: salon.name, timezone, entries });
+    const finalRecipient = await resolveRecoveryRecipient(
+      salon.id,
+      appointments,
+    );
+    if (!finalRecipient) {
+      await revokeRecoveryTokens(salon.id, issuedTokenHashes);
+      issuedTokenHashes.length = 0;
+      await markRecoveryRecipientUnavailable({ salonId: salon.id, deliveryId });
+      return {
+        ok: false,
+        deduped: false,
+        deliveryId,
+        errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      };
+    }
+    recipientEmail = finalRecipient.email;
   } catch {
-    await revokeRecoveryTokens(salon.id, issuedTokenHashes).catch(() => undefined);
-    await markRecoveryRetryableFailure({
+    await restoreRecoveryRetryAfterCapabilityCleanup({
       salonId: salon.id,
       deliveryId,
+      tokenHashes: issuedTokenHashes,
       errorCode: 'RECOVERY_EMAIL_PREPARATION_FAILED',
     });
     await enqueueRecoveryRetry({ salonId: salon.id, deliveryId, appointmentIds });
@@ -454,12 +511,12 @@ export async function sendBookingRecoveryEmail(input: {
     };
   }
 
-  await markRecoveryRetryableFailure({
+  await restoreRecoveryRetryAfterCapabilityCleanup({
     salonId: salon.id,
     deliveryId,
+    tokenHashes: issuedTokenHashes,
     errorCode: result.errorCode ?? 'RECOVERY_EMAIL_FAILED',
-  }).catch(() => undefined);
-  await revokeRecoveryTokens(salon.id, issuedTokenHashes).catch(() => undefined);
+  });
   await enqueueRecoveryRetry({ salonId: salon.id, deliveryId, appointmentIds })
     .catch(() => undefined);
   return {
@@ -483,6 +540,8 @@ export async function retryBookingRecoveryEmail(input: {
 }): Promise<{ ok: boolean; errorCode?: string }> {
   const [delivery] = await db.select({
     status: notificationDeliverySchema.status,
+    errorCode: notificationDeliverySchema.errorCode,
+    retryable: notificationDeliverySchema.retryable,
   }).from(notificationDeliverySchema).where(and(
     eq(notificationDeliverySchema.id, input.deliveryId),
     eq(notificationDeliverySchema.salonId, input.salonId),
@@ -493,35 +552,58 @@ export async function retryBookingRecoveryEmail(input: {
   if (delivery.status === 'sent') {
     return { ok: true };
   }
-
-  const [salon] = await db.select({
-    id: salonSchema.id,
-    slug: salonSchema.slug,
-    name: salonSchema.name,
-    customDomain: salonSchema.customDomain,
-    settings: salonSchema.settings,
-  }).from(salonSchema).where(eq(salonSchema.id, input.salonId)).limit(1);
-  if (!salon) {
-    throw new Error('RECOVERY_SALON_UNAVAILABLE');
+  if (
+    delivery.status !== 'failed'
+    || delivery.retryable !== true
+    || !await claimRecoveryRetry(input)
+  ) {
+    return {
+      ok: false,
+      errorCode: delivery.errorCode ?? 'RECOVERY_EMAIL_NOT_RETRYABLE',
+    };
   }
 
   const appointmentIds = [...new Set(input.appointmentIds)].sort();
-  const appointments = await loadExactRecoveryAppointments(
-    input.salonId,
-    appointmentIds,
-  );
-  if (!appointments) {
-    await markRecoveryRecipientUnavailable(input);
-    return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
-  }
+  let salon: RecoverySalon;
+  let appointments: RecoveryAppointment[];
+  try {
+    const [loadedSalon] = await db.select({
+      id: salonSchema.id,
+      slug: salonSchema.slug,
+      name: salonSchema.name,
+      customDomain: salonSchema.customDomain,
+      settings: salonSchema.settings,
+    }).from(salonSchema).where(eq(salonSchema.id, input.salonId)).limit(1);
+    if (!loadedSalon) {
+      throw new Error('RECOVERY_SALON_UNAVAILABLE');
+    }
+    salon = loadedSalon;
 
-  const initialRecipient = await resolveRecoveryRecipient(
-    input.salonId,
-    appointments,
-  );
-  if (!initialRecipient) {
-    await markRecoveryRecipientUnavailable(input);
-    return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
+    const loadedAppointments = await loadExactRecoveryAppointments(
+      input.salonId,
+      appointmentIds,
+    );
+    if (!loadedAppointments) {
+      await markRecoveryRecipientUnavailable(input);
+      return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
+    }
+    appointments = loadedAppointments;
+
+    const initialRecipient = await resolveRecoveryRecipient(
+      input.salonId,
+      appointments,
+    );
+    if (!initialRecipient) {
+      await markRecoveryRecipientUnavailable(input);
+      return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
+    }
+  } catch (error) {
+    await markRecoveryRetryableFailure({
+      salonId: input.salonId,
+      deliveryId: input.deliveryId,
+      errorCode: 'RECOVERY_EMAIL_PREPARATION_FAILED',
+    });
+    throw error;
   }
 
   const issuedTokenHashes: string[] = [];
@@ -532,15 +614,14 @@ export async function retryBookingRecoveryEmail(input: {
     const serviceNames = await loadServiceNames(appointmentIds);
     const timezone = await resolveTimezone(salon.settings);
     ({ sendTransactionalEmailDetailed } = await import('./email'));
-    const finalRecipient = await resolveRecoveryRecipient(
+    const finalRecipientBeforeTokens = await resolveRecoveryRecipient(
       input.salonId,
       appointments,
     );
-    if (!finalRecipient) {
+    if (!finalRecipientBeforeTokens) {
       await markRecoveryRecipientUnavailable(input);
       return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
     }
-    recipientEmail = finalRecipient.email;
 
     const entries: Array<{ serviceNames: string[]; startTime: Date; url: string }> = [];
     for (const appointment of appointments) {
@@ -554,11 +635,22 @@ export async function retryBookingRecoveryEmail(input: {
       });
     }
     content = buildEmailContent({ salonName: salon.name, timezone, entries });
+    const finalRecipient = await resolveRecoveryRecipient(
+      input.salonId,
+      appointments,
+    );
+    if (!finalRecipient) {
+      await revokeRecoveryTokens(input.salonId, issuedTokenHashes);
+      issuedTokenHashes.length = 0;
+      await markRecoveryRecipientUnavailable(input);
+      return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
+    }
+    recipientEmail = finalRecipient.email;
   } catch (error) {
-    await revokeRecoveryTokens(input.salonId, issuedTokenHashes).catch(() => undefined);
-    await markRecoveryRetryableFailure({
+    await restoreRecoveryRetryAfterCapabilityCleanup({
       salonId: input.salonId,
       deliveryId: input.deliveryId,
+      tokenHashes: issuedTokenHashes,
       errorCode: 'RECOVERY_EMAIL_PREPARATION_FAILED',
     });
     throw error;
@@ -609,13 +701,12 @@ export async function retryBookingRecoveryEmail(input: {
     return { ok: false, errorCode: result.errorCode! };
   }
 
-  await markRecoveryRetryableFailure({
+  await restoreRecoveryRetryAfterCapabilityCleanup({
     salonId: input.salonId,
     deliveryId: input.deliveryId,
+    tokenHashes: issuedTokenHashes,
     errorCode: result.errorCode ?? 'RECOVERY_EMAIL_RETRY_FAILED',
-  }).catch(() => undefined);
-  await revokeRecoveryTokens(input.salonId, issuedTokenHashes)
-    .catch(() => undefined);
+  });
   throw new RecoveryProviderError(
     result.errorCode || 'RECOVERY_EMAIL_RETRY_FAILED',
   );

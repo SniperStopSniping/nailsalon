@@ -192,9 +192,6 @@ describe('processGoogleCalendarInboundSync', () => {
       to: 'current@example.com',
       subject: 'Best Nails appointment rescheduled',
     }));
-    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledWith(
-      expect.objectContaining({ retryFailed: true }),
-    );
     expect(runAppointmentManageMutation.mock.invocationCallOrder[0])
       .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
     expect(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0])

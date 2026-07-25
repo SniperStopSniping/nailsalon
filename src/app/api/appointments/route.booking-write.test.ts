@@ -585,6 +585,30 @@ describe('POST /api/appointments booking policy', () => {
     });
   });
 
+  it('keeps the committed booking successful when customer email setup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_email_failure',
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+    });
+    sendCustomerBookingConfirmationEmail.mockRejectedValueOnce(
+      new Error('delivery ledger unavailable'),
+    );
+
+    const response = await postBooking();
+
+    expect(response.status).toBe(201);
+    expect(sendCustomerBookingConfirmationEmail).toHaveBeenCalledOnce();
+    expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledOnce();
+
+    vi.restoreAllMocks();
+  });
+
   it('rejects a lineage-wide active conflict before any appointment-side insert', async () => {
     canTechnicianTakeAppointment.mockReturnValue({
       available: true,

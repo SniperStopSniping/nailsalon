@@ -108,7 +108,11 @@ describe('appointment reminders', () => {
         appointmentId: input.appointmentId,
       });
       if (recipient.status === 'unavailable') {
-        return { status: 'unavailable', deliveryId: 'delivery_1' };
+        return {
+          status: 'unavailable',
+          deliveryId: 'delivery_1',
+          claimed: true,
+        };
       }
       const sent = await sendTransactionalEmail({
         to: recipient.email,
@@ -117,6 +121,7 @@ describe('appointment reminders', () => {
       return {
         status: sent ? 'sent' : 'failed',
         deliveryId: 'delivery_1',
+        claimed: true,
       };
     });
     sendAppointmentReminder.mockResolvedValue(true);
@@ -607,7 +612,11 @@ describe('appointment reminders', () => {
     const firstSend = sendAppointmentOperationalEmailOnce.getMockImplementation()!;
     sendAppointmentOperationalEmailOnce
       .mockImplementationOnce(firstSend)
-      .mockResolvedValueOnce({ status: 'sent', deliveryId: 'delivery_1' });
+      .mockResolvedValueOnce({
+        status: 'sent',
+        deliveryId: 'delivery_1',
+        claimed: false,
+      });
     queueSelectResults([candidate], [candidate]);
 
     await processAppointmentReminders({
@@ -664,7 +673,7 @@ describe('appointment reminders', () => {
       salonName: 'Isla Nail Studio',
       salonSettings: { booking: { timezone: 'America/Toronto' } },
       clientName: 'Ava',
-      clientPhone: '',
+      clientPhone: '+14165551234',
       startTime: new Date('2026-04-01T19:00:00.000Z'),
       endTime: new Date('2026-04-01T20:00:00.000Z'),
       technicianName: null,
@@ -674,7 +683,7 @@ describe('appointment reminders', () => {
     resolveOperationalSalonClientContact.mockResolvedValue({
       id: 'primary_client',
       salonId: 'salon_1',
-      phone: '',
+      phone: '4165551234',
       email: 'current@example.test',
       archivedAt: null,
       redirectedFromClientId: null,
@@ -691,7 +700,11 @@ describe('appointment reminders', () => {
     });
     sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
       if (claimed) {
-        return { status: 'duplicate', deliveryId: 'delivery_1' };
+        return {
+          status: 'duplicate',
+          deliveryId: 'delivery_1',
+          claimed: false,
+        };
       }
       claimed = true;
       signalClaimed();
@@ -701,7 +714,11 @@ describe('appointment reminders', () => {
         to: 'current@example.test',
         ...content,
       });
-      return { status: 'sent', deliveryId: 'delivery_1' };
+      return {
+        status: 'sent',
+        deliveryId: 'delivery_1',
+        claimed: true,
+      };
     });
     queueSelectResults([candidate], [candidate]);
 
@@ -717,5 +734,6 @@ describe('appointment reminders', () => {
     await winner;
 
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
   });
 });

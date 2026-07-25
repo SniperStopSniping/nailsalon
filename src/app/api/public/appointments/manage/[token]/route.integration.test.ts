@@ -11,7 +11,9 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { retryBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
+import { retryCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import * as schema from '@/models/Schema';
 
@@ -121,7 +123,12 @@ async function customerDeliveriesFor(appointmentId: string) {
 
 function detailedEmailsTo(address: string) {
   return sendTransactionalEmailDetailed.mock.calls
-    .map(call => call[0] as { to: string; subject: string; text: string })
+    .map(call => call[0] as {
+      to: string;
+      subject: string;
+      text: string;
+      html: string;
+    })
     .filter(message => message.to === address);
 }
 
@@ -195,6 +202,8 @@ describe('customer manage-link cancellation', () => {
 
     expect(results.map(result => result.status).sort())
       .toEqual(['duplicate', 'sent']);
+    expect(results.map(result => result.claimed).sort())
+      .toEqual([false, true]);
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
 
     await db
@@ -291,6 +300,50 @@ describe('customer manage-link cancellation', () => {
 
     expect(delivery).toMatchObject({
       errorCode: 'RESEND_NETWORK_ERROR',
+      retryable: false,
+      status: 'failed',
+    });
+  });
+
+  it('marks a definitive failure terminal when the caller has no replay path', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose: 'test_operational_email_without_replay',
+      eventVersion: 'event_1',
+      prepare: () => ({
+        subject: 'Best-effort customer event',
+        text: 'Best-effort customer event',
+        html: '<p>Best-effort customer event</p>',
+      }),
+    };
+    sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      errorCode: 'RESEND_HTTP_503',
+      providerMessageId: null,
+    });
+
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'failed' });
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'duplicate' });
+
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+
+    const [delivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+        eq(
+          schema.notificationDeliverySchema.purpose,
+          'test_operational_email_without_replay',
+        ),
+      ));
+
+    expect(delivery).toMatchObject({
+      errorCode: 'RESEND_HTTP_503',
       retryable: false,
       status: 'failed',
     });
@@ -401,6 +454,116 @@ describe('customer manage-link cancellation', () => {
     expect(delivery?.status).toBe('queued');
   });
 
+  it('lets one real delivery-row claim invoke a booking retry provider', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const deliveryId = `delivery_booking_retry_${appointmentId}`;
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: deliveryId,
+      salonId: SALON_ID,
+      appointmentId,
+      channel: 'email',
+      purpose: 'booking_confirmation',
+      dedupeKey: `test:booking-retry:${appointmentId}`,
+      status: 'failed',
+      errorCode: 'RESEND_HTTP_503',
+      retryable: true,
+    });
+    let providerCalls = 0;
+    let signalProviderEntered!: () => void;
+    let releaseProvider!: () => void;
+    const providerEntered = new Promise<void>((resolve) => {
+      signalProviderEntered = resolve;
+    });
+    const providerRelease = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    sendTransactionalEmailDetailed.mockImplementation(async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        signalProviderEntered();
+        await providerRelease;
+      }
+      return {
+        ok: true,
+        errorCode: null,
+        providerMessageId: 'msg_booking_retry',
+      };
+    });
+
+    const winner = retryCustomerBookingConfirmationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      deliveryId,
+    });
+    await providerEntered;
+    const loser = await retryCustomerBookingConfirmationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      deliveryId,
+    });
+    releaseProvider();
+    const winningResult = await winner;
+
+    expect(winningResult.ok).toBe(true);
+    expect(loser.ok).toBe(false);
+    expect(providerCalls).toBe(1);
+  });
+
+  it('lets one real delivery-row claim invoke a recovery retry provider', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const deliveryId = `delivery_recovery_retry_${appointmentId}`;
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: deliveryId,
+      salonId: SALON_ID,
+      appointmentId,
+      channel: 'email',
+      purpose: 'booking_recovery',
+      dedupeKey: `test:recovery-retry:${appointmentId}`,
+      status: 'failed',
+      errorCode: 'RESEND_HTTP_503',
+      retryable: true,
+    });
+    let providerCalls = 0;
+    let signalProviderEntered!: () => void;
+    let releaseProvider!: () => void;
+    const providerEntered = new Promise<void>((resolve) => {
+      signalProviderEntered = resolve;
+    });
+    const providerRelease = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    sendTransactionalEmailDetailed.mockImplementation(async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        signalProviderEntered();
+        await providerRelease;
+      }
+      return {
+        ok: true,
+        errorCode: null,
+        providerMessageId: 'msg_recovery_retry',
+      };
+    });
+
+    const winner = retryBookingRecoveryEmail({
+      salonId: SALON_ID,
+      deliveryId,
+      appointmentIds: [appointmentId],
+    });
+    await providerEntered;
+    const loser = await retryBookingRecoveryEmail({
+      salonId: SALON_ID,
+      deliveryId,
+      appointmentIds: [appointmentId],
+    });
+    releaseProvider();
+    const winningResult = await winner;
+
+    expect(winningResult.ok).toBe(true);
+    expect(loser.ok).toBe(false);
+    expect(providerCalls).toBe(1);
+  });
+
   it('cancels the appointment and queues exactly one salon alert', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
@@ -453,6 +616,33 @@ describe('customer manage-link cancellation', () => {
     expect(appointment!.clientEmail).toBe('daniel@example.com');
   });
 
+  it('escapes salon markup in the cancellation email body', async () => {
+    await db
+      .update(schema.salonSchema)
+      .set({ name: 'Isla <script>alert(1)</script>' })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    const { token } = await seedAppointmentWithToken();
+
+    try {
+      const response = await PATCH(cancelRequest(), { params: { token } });
+
+      expect(response.status).toBe(200);
+
+      const [message] = detailedEmailsTo('current@example.com');
+
+      expect(message?.text).toContain('Isla <script>alert(1)</script>');
+      expect(message?.html).toContain(
+        'Isla &lt;script&gt;alert(1)&lt;/script&gt;',
+      );
+      expect(message?.html).not.toContain('<script>');
+    } finally {
+      await db
+        .update(schema.salonSchema)
+        .set({ name: 'Isla Nail Studio' })
+        .where(eq(schema.salonSchema.id, SALON_ID));
+    }
+  });
+
   it('does not notify again when the cancellation is repeated', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
@@ -469,17 +659,67 @@ describe('customer manage-link cancellation', () => {
 
   it('allows only one concurrent cancellation to notify the customer', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
+    let updateArrivals = 0;
+    let markBothArrived!: () => void;
+    let releaseUpdates!: () => void;
+    const bothArrived = new Promise<void>((resolve) => {
+      markBothArrived = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseUpdates = resolve;
+    });
+    const originalUpdate = db.update.bind(db);
+    const updateSpy = vi.spyOn(db, 'update').mockImplementation(((
+      table: Parameters<typeof db.update>[0],
+    ) => {
+      const builder = originalUpdate(table);
+      if (table !== schema.appointmentSchema) {
+        return builder;
+      }
+      const originalSet = builder.set.bind(builder);
+      builder.set = ((values: Parameters<typeof builder.set>[0]) => {
+        const statement = originalSet(values);
+        const originalReturning = statement.returning.bind(statement);
+        statement.returning = ((
+          ...args: Parameters<typeof statement.returning>
+        ) => {
+          const query = originalReturning(...args);
+          const originalThen = query.then.bind(query);
+          query.then = (async (
+            ...thenArgs: Parameters<typeof query.then>
+          ) => {
+            updateArrivals += 1;
+            if (updateArrivals === 2) {
+              markBothArrived();
+            }
+            await release;
+            return originalThen(...thenArgs);
+          }) as typeof query.then;
+          return query;
+        }) as typeof statement.returning;
+        return statement;
+      }) as typeof builder.set;
+      return builder;
+    }) as typeof db.update);
 
-    const responses = await Promise.all([
-      PATCH(cancelRequest(), { params: { token } }),
-      PATCH(cancelRequest(), { params: { token } }),
-    ]);
+    try {
+      const pendingResponses = Promise.all([
+        PATCH(cancelRequest(), { params: { token } }),
+        PATCH(cancelRequest(), { params: { token } }),
+      ]);
+      await bothArrived;
+      releaseUpdates();
+      const responses = await pendingResponses;
 
-    expect(responses.map(response => response.status).sort())
-      .toEqual([200, 409]);
-    expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
-    expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
-    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+      expect(updateArrivals).toBe(2);
+      expect(responses.map(response => response.status).sort())
+        .toEqual([200, 409]);
+      expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
+      expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
+      expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+    } finally {
+      updateSpy.mockRestore();
+    }
   });
 
   it('sends nothing for an appointment that was already cancelled', async () => {
