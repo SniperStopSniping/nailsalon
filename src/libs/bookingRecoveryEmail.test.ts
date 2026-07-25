@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type QueuedResult = unknown[];
 type QueuedInsertResult = QueuedResult | Error;
+type QueuedUpdateResult = QueuedResult | Error;
 
 const state = vi.hoisted(() => ({
   selectQueue: [] as QueuedResult[],
   insertQueue: [] as QueuedInsertResult[],
   insertedValues: [] as Array<{ table: unknown; values: unknown }>,
   resolveAppointmentOperationalEmailRecipient: vi.fn(),
+  updateQueue: [] as QueuedUpdateResult[],
   updates: [] as Array<{ table: unknown; set: Record<string, unknown> }>,
   sendTransactionalEmailDetailed: vi.fn(),
 }));
@@ -46,7 +48,11 @@ const { dbMock } = vi.hoisted(() => {
       return chain;
     });
     chain.where = vi.fn(() => chain);
-    chain.then = (resolve: any, reject: any) => Promise.resolve([]).then(resolve, reject);
+    chain.then = (resolve: any, reject: any) => {
+      const next = s.updateQueue.shift() ?? [];
+      return (next instanceof Error ? Promise.reject(next) : Promise.resolve(next))
+        .then(resolve, reject);
+    };
     return chain;
   }
   return {
@@ -130,6 +136,7 @@ describe('sendBookingRecoveryEmail', () => {
     state.selectQueue.length = 0;
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
+    state.updateQueue.length = 0;
     state.updates.length = 0;
     state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
       status: 'terminal_current',
@@ -223,6 +230,59 @@ describe('sendBookingRecoveryEmail', () => {
     expect(serialized).not.toContain('current@example.com');
     expect(serialized).not.toContain('opaque-token-value');
     expect(dbMock.select).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps fresh capabilities and does not enqueue a retry for an ambiguous network result', async () => {
+    state.selectQueue.push(
+      [APPOINTMENT],
+      [{ appointmentId: 'appt_1', name: 'Gel Manicure' }],
+    );
+    state.insertQueue.push([{ id: 'delivery_1' }], [{}]);
+    state.sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      providerMessageId: null,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    await expect(sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT],
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        retryable: false,
+      }),
+    });
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
+  });
+
+  it('does not revoke or enqueue after provider success when the sent-state write fails', async () => {
+    queueHappyPathDb();
+    state.updateQueue.push(new Error('delivery ledger unavailable'));
+
+    await expect(sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT],
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
   });
 
   it('sends nothing and mints no capability when destinations differ', async () => {
@@ -337,14 +397,23 @@ describe('sendBookingRecoveryEmail', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'new@example.com' }),
     );
+
+    const tokenInsertIndex = dbMock.insert.mock.calls.findIndex(
+      ([table]) => table === appointmentAccessTokenSchema,
+    );
+
+    expect(tokenInsertIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      state.resolveAppointmentOperationalEmailRecipient.mock.invocationCallOrder[1],
+    ).toBeLessThan(dbMock.insert.mock.invocationCallOrder[tokenInsertIndex]!);
   });
 
-  it('revokes every fresh capability when final resolution is unavailable', async () => {
+  it('mints no capability when final resolution is unavailable', async () => {
     state.selectQueue.push(
       [APPOINTMENT],
       [{ appointmentId: 'appt_1', name: 'Gel Manicure' }],
     );
-    state.insertQueue.push([{ id: 'delivery_1' }], [{}]);
+    state.insertQueue.push([{ id: 'delivery_1' }]);
     state.resolveAppointmentOperationalEmailRecipient
       .mockResolvedValueOnce({
         status: 'terminal_current',
@@ -365,10 +434,12 @@ describe('sendBookingRecoveryEmail', () => {
     });
 
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
-    expect(state.updates).toContainEqual({
-      table: appointmentAccessTokenSchema,
-      set: { revokedAt: expect.any(Date) },
-    });
+    expect(state.insertedValues.filter(
+      entry => entry.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
   });
 
   it('cleans planned capabilities and queues IDs only when preparation fails partway through', async () => {
@@ -421,6 +492,7 @@ describe('retryBookingRecoveryEmail', () => {
     state.selectQueue.length = 0;
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
+    state.updateQueue.length = 0;
     state.updates.length = 0;
     state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
       status: 'terminal_current',
@@ -492,6 +564,64 @@ describe('retryBookingRecoveryEmail', () => {
 
     expect(tokenUpdates).toHaveLength(1);
     expect(dbMock.select).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not revoke or throw for an ambiguous network result', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [SALON],
+      [APPOINTMENT],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      providerMessageId: null,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({
+      ok: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        retryable: false,
+      }),
+    });
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+  });
+
+  it('does not revoke or throw after provider success when the sent-state write fails', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [SALON],
+      [APPOINTMENT],
+      [],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.updateQueue.push(new Error('delivery ledger unavailable'));
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
   });
 
   it('does not resend a recovery event already recorded as sent', async () => {

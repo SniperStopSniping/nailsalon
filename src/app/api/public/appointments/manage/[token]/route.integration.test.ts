@@ -251,6 +251,156 @@ describe('customer manage-link cancellation', () => {
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
   });
 
+  it('does not retry an ambiguous provider network outcome', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose: 'test_operational_email_ambiguous',
+      eventVersion: 'event_1',
+      retryFailed: true,
+      prepare: () => ({
+        subject: 'Ambiguous customer event',
+        text: 'Ambiguous customer event',
+        html: '<p>Ambiguous customer event</p>',
+      }),
+    };
+    sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+      providerMessageId: null,
+    });
+
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'failed' });
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'duplicate' });
+
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+
+    const [delivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+        eq(
+          schema.notificationDeliverySchema.purpose,
+          'test_operational_email_ambiguous',
+        ),
+      ));
+
+    expect(delivery).toMatchObject({
+      errorCode: 'RESEND_NETWORK_ERROR',
+      retryable: false,
+      status: 'failed',
+    });
+  });
+
+  it('records recipient infrastructure failures separately and retries safely', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose: 'test_operational_email_resolution_failure',
+      eventVersion: 'event_1',
+      retryFailed: true,
+      prepare: () => ({
+        subject: 'Resolved customer event',
+        text: 'Resolved customer event',
+        html: '<p>Resolved customer event</p>',
+      }),
+    };
+
+    await client.exec('alter table appointment rename to appointment_resolution_unavailable');
+    try {
+      await expect(sendAppointmentOperationalEmailOnce(input))
+        .resolves.toMatchObject({ status: 'failed' });
+    } finally {
+      await client.exec('alter table appointment_resolution_unavailable rename to appointment');
+    }
+
+    const [failedDelivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+        eq(
+          schema.notificationDeliverySchema.purpose,
+          'test_operational_email_resolution_failure',
+        ),
+      ));
+
+    expect(failedDelivery).toMatchObject({
+      errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
+      retryable: true,
+      status: 'failed',
+    });
+
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'sent' });
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
+  it('never resends after provider success when sent-state persistence fails', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose: 'test_operational_email_sent_state_failure',
+      eventVersion: 'event_1',
+      retryFailed: true,
+      prepare: () => ({
+        subject: 'Committed customer event',
+        text: 'Committed customer event',
+        html: '<p>Committed customer event</p>',
+      }),
+    };
+    await client.exec(`
+      create function fail_test_operational_sent_state()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.status = 'sent'
+          and new.purpose = 'test_operational_email_sent_state_failure'
+        then
+          raise exception 'forced sent-state failure';
+        end if;
+        return new;
+      end
+      $$;
+      create trigger fail_test_operational_sent_state
+      before update on notification_delivery
+      for each row execute function fail_test_operational_sent_state();
+    `);
+    try {
+      await expect(sendAppointmentOperationalEmailOnce(input))
+        .resolves.toMatchObject({ status: 'sent' });
+    } finally {
+      await client.exec(`
+        drop trigger fail_test_operational_sent_state on notification_delivery;
+        drop function fail_test_operational_sent_state();
+      `);
+    }
+
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'duplicate' });
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+
+    const [delivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+        eq(
+          schema.notificationDeliverySchema.purpose,
+          'test_operational_email_sent_state_failure',
+        ),
+      ));
+
+    expect(delivery?.status).toBe('queued');
+  });
+
   it('cancels the appointment and queues exactly one salon alert', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 

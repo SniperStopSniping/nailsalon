@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type QueuedResult = unknown[];
+type QueuedUpdateResult = QueuedResult | Error;
 
 const state = vi.hoisted(() => ({
   insertQueue: [] as QueuedResult[],
@@ -23,6 +24,7 @@ const state = vi.hoisted(() => ({
   resolveAppointmentOperationalEmailRecipient: vi.fn(),
   selectQueue: [] as QueuedResult[],
   sendTransactionalEmailDetailed: vi.fn(),
+  updateQueue: [] as QueuedUpdateResult[],
   updates: [] as Array<{ table: unknown; set: Record<string, unknown> }>,
 }));
 
@@ -55,8 +57,11 @@ const { dbMock } = vi.hoisted(() => {
       return chain;
     });
     chain.where = vi.fn(() => chain);
-    chain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-      Promise.resolve([]).then(resolve, reject);
+    chain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+      const next = state.updateQueue.shift() ?? [];
+      return (next instanceof Error ? Promise.reject(next) : Promise.resolve(next))
+        .then(resolve, reject);
+    };
     return chain;
   }
   return {
@@ -134,6 +139,7 @@ describe('customer booking operational email', () => {
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
     state.selectQueue.length = 0;
+    state.updateQueue.length = 0;
     state.updates.length = 0;
     state.recipient = {
       status: 'terminal_current',
@@ -183,6 +189,70 @@ describe('customer booking operational email', () => {
         retryable: false,
       }),
     });
+  });
+
+  it('queues an ID-only retry when initial recipient resolution fails transiently', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }], [{}]);
+    state.resolveAppointmentOperationalEmailRecipient.mockRejectedValueOnce(
+      new Error('transient database failure'),
+    );
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(false);
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
+        retryable: true,
+      }),
+    });
+
+    const outbox = state.insertedValues.find(
+      entry => entry.table === integrationOutboxSchema,
+    )!.values as { payload: unknown };
+
+    expect(outbox.payload).toEqual({ deliveryId: expect.any(String) });
+    expect(JSON.stringify(outbox)).not.toContain('@');
+  });
+
+  it('does not retry an ambiguous initial network result', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      providerMessageId: null,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(false);
+
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        errorCode: 'RESEND_NETWORK_ERROR',
+        retryable: false,
+      }),
+    });
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
+  });
+
+  it('does not enqueue a duplicate after an accepted initial send when the ledger write fails', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.updateQueue.push(new Error('delivery ledger unavailable'));
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
   });
 
   it('does not retry a business event already recorded as sent', async () => {
@@ -278,6 +348,65 @@ describe('customer booking operational email', () => {
       table: appointmentAccessTokenSchema,
       set: { revokedAt: expect.any(Date) },
     });
+  });
+
+  it('keeps the fresh token and stops retrying on an ambiguous network result', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [appointmentRow],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: false,
+      providerMessageId: null,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        retryable: false,
+      }),
+    });
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+  });
+
+  it('does not revoke or retry after provider success when the sent-state write fails', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [appointmentRow],
+      [],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.updateQueue.push(new Error('delivery ledger unavailable'));
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(state.updates.filter(
+      update => update.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
   });
 
   it('sends to the current recipient when it changes during retry preparation', async () => {

@@ -1027,11 +1027,25 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   }
 
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
-  const recipient = await resolveAppointmentOperationalEmailRecipient({
-    salonId,
-    appointmentId,
-  }).catch(() => null);
-  if (!recipient || recipient.status === 'unavailable') {
+  let recipient: OperationalEmailRecipientResolution;
+  try {
+    recipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId,
+      appointmentId,
+    });
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
+      retryable: input.retryFailed === true,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId };
+  }
+  if (recipient.status === 'unavailable') {
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
       errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
@@ -1065,16 +1079,24 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     return { status: 'failed', deliveryId };
   }
 
-  await db.update(notificationDeliverySchema).set({
-    status: providerResult.ok ? 'sent' : 'failed',
-    providerMessageId: providerResult.providerMessageId,
-    errorCode: providerResult.errorCode,
-    retryable: !providerResult.ok,
-  }).where(and(
-    eq(notificationDeliverySchema.id, deliveryId),
-    eq(notificationDeliverySchema.salonId, salonId),
-    eq(notificationDeliverySchema.status, 'queued'),
-  ));
+  const providerOutcomeIsAmbiguous
+    = !providerResult.ok && providerResult.errorCode === 'RESEND_NETWORK_ERROR';
+  try {
+    await db.update(notificationDeliverySchema).set({
+      status: providerResult.ok ? 'sent' : 'failed',
+      providerMessageId: providerResult.providerMessageId,
+      errorCode: providerResult.errorCode,
+      retryable: !providerResult.ok && !providerOutcomeIsAmbiguous,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+  } catch {
+    // Once the provider may have accepted a message, never turn a local
+    // bookkeeping failure into another provider attempt. The queued claim
+    // continues to block the same business event from being sent again.
+  }
   return {
     status: providerResult.ok ? 'sent' : 'failed',
     deliveryId,

@@ -99,6 +99,7 @@ async function sendCalendarChangeEmail(args: {
     appointmentId: args.appointmentId,
     purpose: `google_calendar_appointment_${args.operation}`,
     eventVersion: args.eventVersion,
+    retryFailed: true,
     prepare: () => ({
       subject: `${args.salonName} appointment ${args.operation}`,
       text: `${greeting}\n\n${action}\n\nPlease contact ${args.salonName} if this change was unexpected.`,
@@ -310,17 +311,9 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
           if (!cancelled) {
             continue;
           }
-          await logAppointmentChange({
-            appointmentId: appointment.id,
-            salonId: appointment.salonId,
-            action: 'cancelled',
-            performedBy: 'google-calendar-sync',
-            performedByRole: 'system',
-            performedByName: 'Google Calendar',
-            previousValue: { status: appointment.status },
-            newValue: { status: 'cancelled' },
-            reason: 'The connected Google Calendar event was deleted by the salon owner.',
-          });
+          // The appointment transition is committed. Claim the customer notice
+          // before audit or other bookkeeping so an independent failure cannot
+          // leave the cancellation with no durable delivery event.
           await sendCalendarChangeEmail({
             salonId: appointment.salonId,
             appointmentId: appointment.id,
@@ -335,6 +328,24 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
               'cancelled',
             ].join(':'),
           });
+          try {
+            await logAppointmentChange({
+              appointmentId: appointment.id,
+              salonId: appointment.salonId,
+              action: 'cancelled',
+              performedBy: 'google-calendar-sync',
+              performedByRole: 'system',
+              performedByName: 'Google Calendar',
+              previousValue: { status: appointment.status },
+              newValue: { status: 'cancelled' },
+              reason: 'The connected Google Calendar event was deleted by the salon owner.',
+            });
+          } catch {
+            console.error('[Google Calendar inbound] Cancellation audit failed after the transition committed:', {
+              salonId: appointment.salonId,
+              appointmentId: appointment.id,
+            });
+          }
           summary.cancelledAppointments += 1;
           continue;
         }
@@ -360,6 +371,40 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             durationMinutes,
             canReassignTechnician: false,
           });
+        } catch (error) {
+          const message = safeError(error);
+          await db.update(appointmentSchema).set({
+            googleCalendarSyncStatus: 'failed',
+            googleCalendarSyncError: message,
+            googleCalendarSyncedAt: new Date(),
+          }).where(and(
+            eq(appointmentSchema.id, appointment.id),
+            eq(appointmentSchema.salonId, connection.salonId),
+          ));
+          await enqueueCurrentAppointmentState(appointment.id, appointment.salonId).catch(() => undefined);
+          summary.conflicts += 1;
+          continue;
+        }
+
+        // The move has committed. Claim and deliver its customer notice before
+        // sync bookkeeping and audit work, neither of which may suppress it.
+        await sendCalendarChangeEmail({
+          salonId: appointment.salonId,
+          appointmentId: appointment.id,
+          clientName: appointment.clientName,
+          salonName: salon.name,
+          timeZone,
+          startTime: remoteEvent.startTime,
+          operation: 'rescheduled',
+          eventVersion: [
+            remoteEvent.id,
+            remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
+            appointment.startTime.toISOString(),
+            remoteEvent.startTime.toISOString(),
+          ].join(':'),
+        });
+
+        try {
           await db.update(appointmentSchema).set({
             googleCalendarEventId: remoteEvent.id,
             googleCalendarSyncStatus: 'synced',
@@ -369,6 +414,14 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             eq(appointmentSchema.id, appointment.id),
             eq(appointmentSchema.salonId, connection.salonId),
           ));
+        } catch {
+          console.error('[Google Calendar inbound] Sync bookkeeping failed after the move committed:', {
+            salonId: appointment.salonId,
+            appointmentId: appointment.id,
+          });
+        }
+
+        try {
           await logAppointmentChange({
             appointmentId: appointment.id,
             salonId: appointment.salonId,
@@ -387,35 +440,13 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             },
             reason: 'The connected Google Calendar event was changed by the salon owner.',
           });
-          await sendCalendarChangeEmail({
+        } catch {
+          console.error('[Google Calendar inbound] Move audit failed after the transition committed:', {
             salonId: appointment.salonId,
             appointmentId: appointment.id,
-            clientName: appointment.clientName,
-            salonName: salon.name,
-            timeZone,
-            startTime: remoteEvent.startTime,
-            operation: 'rescheduled',
-            eventVersion: [
-              remoteEvent.id,
-              remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
-              appointment.startTime.toISOString(),
-              remoteEvent.startTime.toISOString(),
-            ].join(':'),
           });
-          summary.movedAppointments += 1;
-        } catch (error) {
-          const message = safeError(error);
-          await db.update(appointmentSchema).set({
-            googleCalendarSyncStatus: 'failed',
-            googleCalendarSyncError: message,
-            googleCalendarSyncedAt: new Date(),
-          }).where(and(
-            eq(appointmentSchema.id, appointment.id),
-            eq(appointmentSchema.salonId, connection.salonId),
-          ));
-          await enqueueCurrentAppointmentState(appointment.id, appointment.salonId).catch(() => undefined);
-          summary.conflicts += 1;
         }
+        summary.movedAppointments += 1;
       }
 
       await db.update(salonGoogleCalendarConnectionSchema).set({

@@ -204,6 +204,8 @@ beforeEach(async () => {
     providerMessageId: 'msg_resched',
   });
   getGoogleCalendarBusyWindows.mockResolvedValue([]);
+  enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
+  enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
   await db.delete(schema.appointmentAccessTokenSchema);
   await db.delete(schema.appointmentServicesSchema);
   await db.delete(schema.notificationDeliverySchema);
@@ -328,13 +330,34 @@ describe('customer manage-link reschedule', () => {
 
   it('claims one customer email for concurrent identical reschedules', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
+    let arrivals = 0;
+    let releaseBoth!: () => void;
+    let markBothArrived!: () => void;
+    const bothArrived = new Promise<void>((resolve) => {
+      markBothArrived = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseBoth = resolve;
+    });
+    getGoogleCalendarBusyWindows.mockImplementation(async () => {
+      arrivals += 1;
+      if (arrivals === 2) {
+        markBothArrived();
+      }
+      await release;
+      return [];
+    });
 
-    const responses = await Promise.all([
+    const pendingResponses = Promise.all([
       POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
       POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
     ]);
+    await bothArrived;
+    releaseBoth();
+    const responses = await pendingResponses;
 
     expect(responses.every(response => response.status === 200)).toBe(true);
+    expect(arrivals).toBe(2);
     expect(await deliveriesFor(
       appointmentId,
       'client_appointment_rescheduled',
@@ -342,19 +365,13 @@ describe('customer manage-link reschedule', () => {
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
   });
 
-  it('resolves the customer email after the committed move and preparation', async () => {
-    sendTransactionalEmailDetailed.mockImplementation(async (message) => {
-      if (message.to === 'owner@example.com') {
-        await db
-          .update(schema.salonClientSchema)
-          .set({ email: 'changed@example.com' })
-          .where(eq(schema.salonClientSchema.id, CLIENT_ID));
-      }
-      return {
-        ok: true,
-        errorCode: null,
-        providerMessageId: 'msg_resched',
-      };
+  it('uses the current email when contact changes before the committed move', async () => {
+    getGoogleCalendarBusyWindows.mockImplementationOnce(async () => {
+      await db
+        .update(schema.salonClientSchema)
+        .set({ email: 'changed@example.com' })
+        .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+      return [];
     });
     const { token } = await seedAppointmentWithToken();
 
@@ -367,6 +384,30 @@ describe('customer manage-link reschedule', () => {
       .update(schema.salonClientSchema)
       .set({ email: 'current@example.com' })
       .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+  });
+
+  it('keeps the customer notice when calendar queueing fails after the move', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    enqueueGoogleCalendarUpsert.mockRejectedValueOnce(
+      new Error('calendar queue unavailable'),
+    );
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const response = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await deliveriesFor(
+      appointmentId,
+      'client_appointment_rescheduled',
+    )).toEqual([
+      expect.objectContaining({ status: 'sent' }),
+    ]);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+
+    vi.restoreAllMocks();
   });
 
   it('keeps a moved appointment committed when customer email delivery fails', async () => {

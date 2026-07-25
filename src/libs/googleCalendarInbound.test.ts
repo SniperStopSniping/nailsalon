@@ -192,6 +192,13 @@ describe('processGoogleCalendarInboundSync', () => {
       to: 'current@example.com',
       subject: 'Best Nails appointment rescheduled',
     }));
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledWith(
+      expect.objectContaining({ retryFailed: true }),
+    );
+    expect(runAppointmentManageMutation.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+    expect(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0])
+      .toBeLessThan(logAppointmentChange.mock.invocationCallOrder[0]!);
   });
 
   it('deduplicates repeated customer email delivery for the same inbound move', async () => {
@@ -311,6 +318,41 @@ describe('processGoogleCalendarInboundSync', () => {
       action: 'cancelled',
       salonId: 'salon_1',
     }));
+    expect(updateReturning.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+    expect(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0])
+      .toBeLessThan(logAppointmentChange.mock.invocationCallOrder[0]!);
+  });
+
+  it('keeps a moved appointment successful when its audit fails afterward', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    selectResults.push([connection], [salon], [], [appointment]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:45:00.000Z'),
+    }]);
+    logAppointmentChange.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.movedAppointments).toBe(1);
+    expect(result.conflicts).toBe(0);
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks();
   });
 
   it('keeps a Google move committed when current-recipient delivery fails', async () => {
