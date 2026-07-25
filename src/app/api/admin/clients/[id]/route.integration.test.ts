@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,6 +28,8 @@ vi.mock('@/libs/adminAuth', () => ({
 const NOW = new Date('2026-07-23T16:00:00.000Z');
 const SALON_ID = 'salon_client_profile_financial';
 const CLIENT_ID = 'client_profile_financial';
+const SOURCE_CLIENT_ID = 'client_profile_merged_source';
+const OTHER_CLIENT_ID = 'client_profile_other_owner';
 const PHONE = '4165550188';
 
 let client: PGlite;
@@ -59,12 +62,44 @@ beforeAll(async () => {
     fullName: 'Partial Payment Client',
     totalSpent: 4000,
   });
+  await testDb.insert(schema.salonClientSchema).values({
+    id: SOURCE_CLIENT_ID,
+    salonId: SALON_ID,
+    phone: '4165550199',
+    fullName: 'Preserved Source',
+  });
+  await testDb.insert(schema.salonClientSchema).values({
+    id: OTHER_CLIENT_ID,
+    salonId: SALON_ID,
+    phone: '4165550166',
+    fullName: 'Other Stable Owner',
+  });
+  await testDb.execute(sql.raw(
+    'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+  ));
+  try {
+    await testDb
+      .update(schema.salonClientSchema)
+      .set({
+        archivedAt: new Date('2026-07-22T12:00:00.000Z'),
+        archivedBy: 'integration-test',
+        mergedIntoClientId: CLIENT_ID,
+        mergedAt: new Date('2026-07-22T12:00:00.000Z'),
+        mergedBy: 'integration-test',
+      })
+      .where(eq(schema.salonClientSchema.id, SOURCE_CLIENT_ID));
+  } finally {
+    await testDb.execute(sql.raw(
+      'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+    ));
+  }
 
   await testDb.insert(schema.appointmentSchema).values([
     {
       id: 'client_profile_partial',
       salonId: SALON_ID,
-      clientPhone: PHONE,
+      salonClientId: CLIENT_ID,
+      clientPhone: '4165550177',
       clientName: 'Partial Payment Client',
       startTime: new Date('2026-07-20T14:00:00.000Z'),
       endTime: new Date('2026-07-20T15:00:00.000Z'),
@@ -91,6 +126,22 @@ beforeAll(async () => {
       amountPaidCents: 0,
       paymentStatus: 'pending',
       status: 'confirmed',
+    },
+    {
+      id: 'client_profile_other_stable',
+      salonId: SALON_ID,
+      salonClientId: OTHER_CLIENT_ID,
+      clientPhone: PHONE,
+      clientName: 'Historical Snapshot Reuse',
+      startTime: new Date('2026-07-21T14:00:00.000Z'),
+      endTime: new Date('2026-07-21T15:00:00.000Z'),
+      totalDurationMinutes: 60,
+      totalPrice: 90000,
+      finalPriceCents: 90000,
+      amountPaidCents: 0,
+      paymentStatus: 'pending',
+      status: 'completed',
+      completedAt: new Date('2026-07-21T15:00:00.000Z'),
     },
   ]);
   await testDb.insert(schema.appointmentPaymentSchema).values({
@@ -161,5 +212,36 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
         method: 'cash',
       }),
     ]);
+  });
+
+  it('resolves a stale same-salon source ID to the terminal primary without changing snapshots', async () => {
+    const appointmentsBefore = await testDb
+      .select({
+        id: schema.appointmentSchema.id,
+        salonClientId: schema.appointmentSchema.salonClientId,
+        clientPhone: schema.appointmentSchema.clientPhone,
+      })
+      .from(schema.appointmentSchema);
+
+    const response = await GET(
+      new Request(`http://localhost/api/admin/clients/${SOURCE_CLIENT_ID}?salonSlug=client-profile-financial`),
+      { params: Promise.resolve({ id: SOURCE_CLIENT_ID }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.id).toBe(CLIENT_ID);
+    expect(body.data.client.phone).toBe(PHONE);
+    expect(body.data.summary.completedOutstandingCents).toBe(6000);
+
+    const appointmentsAfter = await testDb
+      .select({
+        id: schema.appointmentSchema.id,
+        salonClientId: schema.appointmentSchema.salonClientId,
+        clientPhone: schema.appointmentSchema.clientPhone,
+      })
+      .from(schema.appointmentSchema);
+
+    expect(appointmentsAfter).toEqual(appointmentsBefore);
   });
 });

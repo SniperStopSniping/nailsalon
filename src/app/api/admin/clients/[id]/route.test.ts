@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   requireAdminSalon,
+  ClientLifecycleStabilizationError,
+  resolveTerminalSalonClient,
   getSalonClientById,
   normalizePhone,
   updateSalonClient,
@@ -33,6 +35,8 @@ const {
 
   return {
     requireAdminSalon: vi.fn(),
+    ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
+    resolveTerminalSalonClient: vi.fn(),
     getSalonClientById: vi.fn(),
     normalizePhone: vi.fn((phone: string) => phone.replace(/\D/g, '')),
     updateSalonClient: vi.fn(),
@@ -47,6 +51,11 @@ vi.mock('@/libs/adminAuth', () => ({
   requireAdminSalon,
 }));
 
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError,
+  resolveTerminalSalonClient,
+}));
+
 vi.mock('@/libs/queries', () => ({
   getSalonClientById,
   normalizePhone,
@@ -59,12 +68,19 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('server-only', () => ({}));
 
-import { GET } from './route';
+import { GET, PATCH } from './route';
 
 describe('GET /api/admin/clients/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectQueue.length = 0;
+    resolveTerminalSalonClient.mockImplementation(async ({ salonId, clientId }) => ({
+      id: clientId,
+      salonId,
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: [clientId],
+    }));
   });
 
   it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
@@ -86,6 +102,7 @@ describe('GET /api/admin/clients/[id]', () => {
     expect(response.headers.get('cache-control')).toContain('private');
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(body).toEqual({ error: 'Forbidden' });
+    expect(resolveTerminalSalonClient).not.toHaveBeenCalled();
     expect(getSalonClientById).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toMatch(
       /client|phone|email|currency|timezone|financial|preference|record/i,
@@ -118,6 +135,41 @@ describe('GET /api/admin/clients/[id]', () => {
       'salon_fixture_owned',
       'client_fixture_unknown',
     );
+    expect(JSON.stringify(body)).not.toMatch(
+      /phone|email|currency|timezone|financial|preference|record/i,
+    );
+  });
+
+  it.each([
+    'missing target',
+    'cyclic lineage',
+    'excessive lineage depth',
+    'foreign-salon target',
+  ])('returns the same private 404 for invalid lifecycle state: %s', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_fixture_owned' },
+    });
+    resolveTerminalSalonClient.mockRejectedValue(
+      new ClientLifecycleStabilizationError('Client lifecycle state is unavailable.'),
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/clients/client_fixture_source?salonSlug=salon-fixture-owned'),
+      { params: Promise.resolve({ id: 'client_fixture_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('cache-control')).toContain('private');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toEqual({
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    });
+    expect(getSalonClientById).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toMatch(
       /phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -288,5 +340,109 @@ describe('GET /api/admin/clients/[id]', () => {
         count: 1,
       },
     });
+  });
+});
+
+describe('PATCH /api/admin/clients/[id]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    selectQueue.length = 0;
+    resolveTerminalSalonClient.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
+  });
+
+  it('updates the same-salon terminal primary for a stale source profile ID', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    getSalonClientById.mockResolvedValue({
+      id: 'client_primary',
+      lastVisitAt: null,
+    });
+    updateSalonClient.mockResolvedValue({
+      id: 'client_primary',
+      phone: '1111111111',
+      fullName: 'Ava Primary',
+      email: null,
+      preferredTechnicianId: null,
+      notes: null,
+      sensitivities: null,
+      nailPreferences: {},
+      tags: [],
+      rebookIntervalDays: null,
+      nextRebookDueAt: null,
+      updatedAt: new Date('2026-07-25T12:00:00.000Z'),
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          notes: 'Updated operational note',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'client_source',
+      allowArchived: true,
+    });
+    expect(getSalonClientById).toHaveBeenCalledWith('salon_1', 'client_primary');
+    expect(updateSalonClient).toHaveBeenCalledWith(
+      'salon_1',
+      'client_primary',
+      expect.objectContaining({ notes: 'Updated operational note' }),
+    );
+    expect(updateSalonClient).not.toHaveBeenCalledWith(
+      'salon_1',
+      'client_source',
+      expect.anything(),
+    );
+    expect(body.data.client.id).toBe('client_primary');
+  });
+
+  it('does not update when the requested profile lineage is invalid', async () => {
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    resolveTerminalSalonClient.mockRejectedValue(
+      new ClientLifecycleStabilizationError('Client lifecycle state is unavailable.'),
+    );
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          notes: 'Must not write',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body).toEqual({
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    });
+    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(updateSalonClient).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,18 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import {
+  ClientLifecycleStabilizationError,
+  resolveTerminalSalonClient,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
-import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
+import {
+  buildFinancialBalanceSql,
+  getCurrentFinancialReportingRanges,
+} from '@/libs/financialReportingServer';
 import {
   getSalonClientById,
   normalizePhone,
@@ -91,6 +98,91 @@ function numberValue(value: unknown): number {
   return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
+function clientAppointmentOwnership(
+  salonClientId: string,
+  phoneVariants: string[],
+) {
+  return or(
+    eq(appointmentSchema.salonClientId, salonClientId),
+    and(
+      isNull(appointmentSchema.salonClientId),
+      inArray(appointmentSchema.clientPhone, phoneVariants),
+    ),
+  );
+}
+
+async function getClientCompletedOutstanding(input: {
+  salonId: string;
+  salonClientId: string;
+  phoneVariants: string[];
+  asOf: Date;
+}) {
+  const {
+    completedUnresolved,
+    finalizedDueCents,
+    finalizedResolved,
+    legacyDueCents,
+    legacyResolved,
+  } = buildFinancialBalanceSql(input.asOf);
+  const rows = await db
+    .select({
+      finalizedAppointmentCount:
+        sql<number>`COUNT(*) FILTER (WHERE ${finalizedResolved})::int`,
+      legacyAppointmentCount:
+        sql<number>`COUNT(*) FILTER (WHERE ${legacyResolved})::int`,
+      unresolvedAppointmentCount:
+        sql<number>`COUNT(*) FILTER (WHERE ${completedUnresolved})::int`,
+      finalizedAmountCents: sql<number>`COALESCE(SUM(
+        CASE WHEN ${finalizedResolved} THEN ${finalizedDueCents} ELSE 0 END
+      ), 0)::int`,
+      legacyFallbackAmountCents: sql<number>`COALESCE(SUM(
+        CASE WHEN ${legacyResolved} THEN ${legacyDueCents} ELSE 0 END
+      ), 0)::int`,
+    })
+    .from(appointmentSchema)
+    .where(and(
+      eq(appointmentSchema.salonId, input.salonId),
+      clientAppointmentOwnership(input.salonClientId, input.phoneVariants),
+    ));
+  const aggregate = rows[0];
+  const completedOutstandingProvenance = buildReportingProvenance({
+    finalizedAppointmentCount: numberValue(aggregate?.finalizedAppointmentCount),
+    legacyAppointmentCount: numberValue(aggregate?.legacyAppointmentCount),
+    unresolvedAppointmentCount: numberValue(aggregate?.unresolvedAppointmentCount),
+    finalizedAmountCents: numberValue(aggregate?.finalizedAmountCents),
+    legacyFallbackAmountCents: numberValue(aggregate?.legacyFallbackAmountCents),
+  });
+
+  return {
+    completedOutstandingCents:
+      completedOutstandingProvenance.finalizedAmountCents
+      + completedOutstandingProvenance.legacyFallbackAmountCents,
+    completedOutstandingProvenance,
+  };
+}
+
+async function resolveRequestedClientId(
+  salonId: string,
+  requestedClientId: string,
+): Promise<string | null> {
+  try {
+    const terminal = await resolveTerminalSalonClient({
+      salonId,
+      clientId: requestedClientId,
+      allowArchived: true,
+    });
+    return terminal.id;
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // =============================================================================
 // GET /api/admin/clients/[id] - Get client profile with appointment history
 // =============================================================================
@@ -131,8 +223,11 @@ export async function GET(
       return withPrivateNoStore(error!);
     }
 
-    // Get client (scoped to salon)
-    const client = await getSalonClientById(salon.id, clientId);
+    // Resolve stale same-salon source IDs without falling back to contact data.
+    const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
+    const client = terminalClientId
+      ? await getSalonClientById(salon.id, terminalClientId)
+      : null;
     if (!client) {
       return privateJson(
         {
@@ -155,7 +250,10 @@ export async function GET(
           avatarUrl: technicianSchema.avatarUrl,
         })
         .from(technicianSchema)
-        .where(eq(technicianSchema.id, client.preferredTechnicianId))
+        .where(and(
+          eq(technicianSchema.salonId, salon.id),
+          eq(technicianSchema.id, client.preferredTechnicianId),
+        ))
         .limit(1);
       preferredTechnician = tech ?? null;
     }
@@ -163,6 +261,7 @@ export async function GET(
     // Build phone variants for matching appointments
     const normalizedPhone = normalizePhone(client.phone);
     const phoneVariants = [normalizedPhone, `+1${normalizedPhone}`, client.phone];
+    const appointmentOwnership = clientAppointmentOwnership(client.id, phoneVariants);
 
     const now = new Date();
 
@@ -188,7 +287,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
           isNull(appointmentSchema.deletedAt),
           gte(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['pending', 'confirmed']),
@@ -219,7 +318,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           eq(appointmentSchema.status, 'completed'),
@@ -250,7 +349,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['cancelled', 'no_show']),
@@ -521,21 +620,22 @@ export async function GET(
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
         )),
       db
         .select(revenueAggregate)
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
           gte(appointmentSchema.startTime, monthToDate.start),
           lt(appointmentSchema.startTime, monthToDate.end),
         )),
-      getFinancialBalanceSummary({
+      getClientCompletedOutstanding({
         salonId: salon.id,
+        salonClientId: client.id,
         asOf: now,
-        clientPhoneVariants: phoneVariants,
+        phoneVariants,
       }),
       db
         .select()
@@ -560,7 +660,7 @@ export async function GET(
         .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          inArray(appointmentSchema.clientPhone, phoneVariants),
+          appointmentOwnership,
           eq(appointmentSchema.status, 'completed'),
           isNull(appointmentSchema.deletedAt),
         ))
@@ -626,10 +726,21 @@ export async function GET(
       photoType: appointmentPhotoSchema.photoType,
       caption: appointmentPhotoSchema.caption,
       createdAt: appointmentPhotoSchema.createdAt,
-    }).from(appointmentPhotoSchema).where(and(
-      eq(appointmentPhotoSchema.salonId, salon.id),
-      eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
-    )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
+    })
+      .from(appointmentPhotoSchema)
+      .innerJoin(
+        appointmentSchema,
+        and(
+          eq(appointmentPhotoSchema.salonId, appointmentSchema.salonId),
+          eq(appointmentPhotoSchema.appointmentId, appointmentSchema.id),
+        ),
+      )
+      .where(and(
+        eq(appointmentPhotoSchema.salonId, salon.id),
+        appointmentOwnership,
+      ))
+      .orderBy(desc(appointmentPhotoSchema.createdAt))
+      .limit(24);
 
     return privateJson({
       data: {
@@ -755,9 +866,12 @@ export async function PATCH(
       return error!;
     }
 
-    // Verify client exists (scoped to salon)
-    const existingClient = await getSalonClientById(salon.id, clientId);
-    if (!existingClient) {
+    // Resolve stale same-salon source IDs without disclosing invalid lineage.
+    const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
+    const existingClient = terminalClientId
+      ? await getSalonClientById(salon.id, terminalClientId)
+      : null;
+    if (!terminalClientId || !existingClient) {
       return Response.json(
         {
           error: {
@@ -799,7 +913,7 @@ export async function PATCH(
     const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
       ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
       : updates.rebookIntervalDays === null ? null : undefined;
-    const updatedClient = await updateSalonClient(salon.id, clientId, {
+    const updatedClient = await updateSalonClient(salon.id, terminalClientId, {
       fullName: updates.fullName,
       email: updates.email,
       preferredTechnicianId: updates.preferredTechnicianId,
