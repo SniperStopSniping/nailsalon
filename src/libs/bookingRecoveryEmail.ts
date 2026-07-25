@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 
 import {
   appointmentAccessTokenSchema,
@@ -11,6 +11,7 @@ import {
 
 import { ACTIVE_APPOINTMENT_STATUSES } from './activeAppointments';
 import { buildAppointmentManageUrl } from './appointmentManageUrl';
+import { resolveAppointmentOperationalEmailRecipient } from './clientLifecycleStabilization';
 import { db } from './DB';
 import { createOpaqueToken, hashOpaqueToken } from './lusterSecurity';
 import { formatDateInTimeZone, formatTimeInTimeZone } from './timeZone';
@@ -40,12 +41,18 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * One recovery email per recipient per 10-minute window. The recipient is
- * hashed so no PII lands in the delivery ledger's dedupe key.
+ * One recovery email per exact appointment set per 10-minute window. Recipient
+ * changes do not create a new business event, and appointment IDs are hashed
+ * so the delivery ledger contains no customer-facing values.
  */
-export function buildRecoveryDedupeKey(salonId: string, recipientEmail: string, now: Date = new Date()): string {
+export function buildRecoveryDedupeKey(
+  salonId: string,
+  appointmentIds: string[],
+  now: Date = new Date(),
+): string {
   const bucketStart = now.getTime() - (now.getTime() % RECOVERY_DEDUPE_BUCKET_MS);
-  return `email:booking-recovery:${salonId}:${hashOpaqueToken(recipientEmail.trim().toLowerCase())}:${bucketStart}`;
+  const appointmentSet = [...new Set(appointmentIds)].sort().join(':');
+  return `email:booking-recovery:${salonId}:${hashOpaqueToken(appointmentSet)}:${bucketStart}`;
 }
 
 async function mintManageLink(salon: RecoverySalon, appointment: RecoveryAppointment): Promise<{ url: string; tokenHash: string }> {
@@ -123,30 +130,80 @@ function buildEmailContent(args: {
   return { subject: `${salonName} booking access`, text, html };
 }
 
+async function resolveRecoveryRecipient(
+  salonId: string,
+  appointments: RecoveryAppointment[],
+): Promise<string | null> {
+  const destinations = new Set<string>();
+  const terminalClientIds = new Set<string>();
+  for (const appointment of appointments) {
+    const recipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId,
+      appointmentId: appointment.id,
+    });
+    if (recipient.status === 'unavailable') {
+      return null;
+    }
+    destinations.add(recipient.email);
+    terminalClientIds.add(recipient.terminalClientId);
+  }
+  if (destinations.size !== 1 || terminalClientIds.size !== 1) {
+    return null;
+  }
+  return [...destinations][0] ?? null;
+}
+
+async function markRecoveryRecipientUnavailable(input: {
+  salonId: string;
+  deliveryId: string;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    ne(notificationDeliverySchema.status, 'sent'),
+  ));
+}
+
 /**
- * Send the booking-recovery email to the ON-FILE address. The caller is
- * responsible for ensuring recipientEmail came from the appointment record,
- * never from user input. Deduped per recipient per 10-minute window; provider
- * failures are recorded as retryable and enqueued on the integration outbox.
+ * Resolve one current operational destination for the complete appointment
+ * set, then mint capabilities and deliver. Lookup input never supplies the
+ * destination. Provider failures are recorded as retryable and enqueued using
+ * IDs only.
  */
 export async function sendBookingRecoveryEmail(input: {
   salon: RecoverySalon;
   appointments: RecoveryAppointment[];
-  recipientEmail: string;
 }): Promise<{ ok: boolean; deduped: boolean; deliveryId: string | null; errorCode?: string | null }> {
-  const { salon, appointments, recipientEmail } = input;
+  const { salon, appointments } = input;
   if (!appointments.length) {
     return { ok: true, deduped: false, deliveryId: null };
   }
 
+  const recipientEmail = await resolveRecoveryRecipient(salon.id, appointments);
+  if (!recipientEmail) {
+    return {
+      ok: false,
+      deduped: false,
+      deliveryId: null,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    };
+  }
+
   const deliveryId = crypto.randomUUID();
+  const appointmentIds = [...new Set(
+    appointments.map(appointment => appointment.id),
+  )].sort();
   const inserted = await db.insert(notificationDeliverySchema).values({
     id: deliveryId,
     salonId: salon.id,
     appointmentId: appointments[0]!.id,
     channel: 'email',
     purpose: 'booking_recovery',
-    dedupeKey: buildRecoveryDedupeKey(salon.id, recipientEmail),
+    dedupeKey: buildRecoveryDedupeKey(salon.id, appointmentIds),
     status: 'queued',
   }).onConflictDoNothing().returning();
   if (!inserted.length) {
@@ -198,7 +255,7 @@ export async function sendBookingRecoveryEmail(input: {
       operation: 'retry_booking_recovery',
       dedupeKey: `email:booking-recovery-retry:${deliveryId}`,
       // IDs only — never email addresses or tokens.
-      payload: { deliveryId, appointmentIds: appointments.map(appointment => appointment.id) },
+      payload: { deliveryId, appointmentIds },
     }).onConflictDoNothing();
   }
 
@@ -215,7 +272,20 @@ export async function retryBookingRecoveryEmail(input: {
   salonId: string;
   deliveryId: string;
   appointmentIds: string[];
-}): Promise<{ ok: true }> {
+}): Promise<{ ok: boolean; errorCode?: string }> {
+  const [delivery] = await db.select({
+    status: notificationDeliverySchema.status,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+  )).limit(1);
+  if (!delivery) {
+    throw new Error('RECOVERY_EMAIL_DELIVERY_NOT_FOUND');
+  }
+  if (delivery.status === 'sent') {
+    return { ok: true };
+  }
+
   const [salon] = await db.select({
     id: salonSchema.id,
     slug: salonSchema.slug,
@@ -227,6 +297,7 @@ export async function retryBookingRecoveryEmail(input: {
     throw new Error('RECOVERY_SALON_UNAVAILABLE');
   }
 
+  const appointmentIds = [...new Set(input.appointmentIds)].sort();
   const appointments = await db.select({
     id: appointmentSchema.id,
     startTime: appointmentSchema.startTime,
@@ -234,15 +305,31 @@ export async function retryBookingRecoveryEmail(input: {
     clientEmail: appointmentSchema.clientEmail,
   }).from(appointmentSchema).where(and(
     eq(appointmentSchema.salonId, input.salonId),
-    inArray(appointmentSchema.id, input.appointmentIds),
+    inArray(appointmentSchema.id, appointmentIds),
     inArray(appointmentSchema.status, [...ACTIVE_APPOINTMENT_STATUSES]),
     gt(appointmentSchema.endTime, new Date()),
     isNull(appointmentSchema.deletedAt),
   )).orderBy(asc(appointmentSchema.startTime));
 
-  const recipientEmail = appointments.find(appointment => appointment.clientEmail)?.clientEmail;
-  if (!appointments.length || !recipientEmail) {
-    throw new Error('RECOVERY_EMAIL_RECIPIENT_UNAVAILABLE');
+  const loadedAppointmentIds = new Set(
+    appointments.map(appointment => appointment.id),
+  );
+  if (
+    !appointmentIds.length
+    || appointments.length !== appointmentIds.length
+    || appointmentIds.some(id => !loadedAppointmentIds.has(id))
+  ) {
+    await markRecoveryRecipientUnavailable(input);
+    return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
+  }
+
+  const recipientEmail = await resolveRecoveryRecipient(
+    input.salonId,
+    appointments,
+  );
+  if (!recipientEmail) {
+    await markRecoveryRecipientUnavailable(input);
+    return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
   }
 
   const issuedTokenHashes: string[] = [];

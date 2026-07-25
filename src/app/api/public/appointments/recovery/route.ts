@@ -68,18 +68,6 @@ export async function POST(request: Request) {
       return genericResponse();
     }
 
-    // Send only to the address stored on the appointment — never to an
-    // entered address that merely phone-matched. (When matched by email the
-    // two are equal by definition.)
-    const recipientEmail = appointments.find(appointment => appointment.clientEmail)?.clientEmail;
-    if (!recipientEmail) {
-      logger.warn({ event: 'booking_recovery_no_email_on_file', salonId: salon.id, appointmentId: appointments[0]!.id });
-      return genericResponse();
-    }
-    const recipientAppointments = appointments.filter(
-      appointment => !appointment.clientEmail || appointment.clientEmail.toLowerCase() === recipientEmail.toLowerCase(),
-    );
-
     const result = await sendBookingRecoveryEmail({
       salon: {
         id: salon.id,
@@ -88,12 +76,11 @@ export async function POST(request: Request) {
         customDomain: salon.customDomain,
         settings: salon.settings,
       },
-      appointments: recipientAppointments.map(appointment => ({
+      appointments: appointments.map(appointment => ({
         id: appointment.id,
         startTime: appointment.startTime,
         endTime: appointment.endTime,
       })),
-      recipientEmail,
     });
     if (!result.ok) {
       logger.warn({

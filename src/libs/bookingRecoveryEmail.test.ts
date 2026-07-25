@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   selectQueue: [] as QueuedResult[],
   insertQueue: [] as QueuedResult[],
   insertedValues: [] as Array<{ table: unknown; values: unknown }>,
+  resolveAppointmentOperationalEmailRecipient: vi.fn(),
   updates: [] as Array<{ table: unknown; set: Record<string, unknown> }>,
   sendTransactionalEmailDetailed: vi.fn(),
 }));
@@ -55,6 +56,10 @@ const { dbMock } = vi.hoisted(() => {
 
 vi.mock('server-only', () => ({}));
 vi.mock('./DB', () => ({ db: dbMock }));
+vi.mock('./clientLifecycleStabilization', () => ({
+  resolveAppointmentOperationalEmailRecipient:
+    state.resolveAppointmentOperationalEmailRecipient,
+}));
 vi.mock('./email', () => ({ sendTransactionalEmailDetailed: state.sendTransactionalEmailDetailed }));
 vi.mock('./bookingConfig', () => ({ resolveBookingConfigFromSettings: () => ({ timezone: 'America/Toronto' }) }));
 vi.mock('./lusterSecurity', () => ({
@@ -94,17 +99,22 @@ describe('buildRecoveryDedupeKey', () => {
     const sameBucket = new Date('2099-07-01T12:08:00Z');
     const nextBucket = new Date('2099-07-01T12:11:00Z');
 
-    expect(buildRecoveryDedupeKey('salon_1', 'x@example.com', early))
-      .toBe(buildRecoveryDedupeKey('salon_1', 'X@Example.com ', sameBucket));
-    expect(buildRecoveryDedupeKey('salon_1', 'x@example.com', early))
-      .not.toBe(buildRecoveryDedupeKey('salon_1', 'x@example.com', nextBucket));
+    expect(buildRecoveryDedupeKey('salon_1', ['appt_2', 'appt_1'], early))
+      .toBe(buildRecoveryDedupeKey('salon_1', ['appt_1', 'appt_2'], sameBucket));
+    expect(buildRecoveryDedupeKey('salon_1', ['appt_1'], early))
+      .not.toBe(buildRecoveryDedupeKey('salon_1', ['appt_1'], nextBucket));
   });
 
-  it('never embeds the raw email address', () => {
-    const key = buildRecoveryDedupeKey('salon_1', 'x@example.com', new Date('2099-07-01T12:00:00Z'));
+  it('never embeds raw appointment IDs or recipient data', () => {
+    const key = buildRecoveryDedupeKey(
+      'salon_1',
+      ['private-appointment-id'],
+      new Date('2099-07-01T12:00:00Z'),
+    );
 
     expect(key).not.toContain('x@example.com');
-    expect(key).toContain(`hash_${Buffer.from('x@example.com').toString('hex')}`);
+    expect(key).not.toContain('private-appointment-id');
+    expect(key).toContain('hash_');
   });
 });
 
@@ -115,13 +125,21 @@ describe('sendBookingRecoveryEmail', () => {
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
     state.updates.length = 0;
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.com',
+      terminalClientId: 'client_1',
+    });
     state.sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, providerMessageId: 'msg_1', errorCode: null });
   });
 
   it('skips the send entirely on a dedupe conflict', async () => {
     state.insertQueue.push([]); // onConflictDoNothing found an existing row
 
-    const result = await sendBookingRecoveryEmail({ salon: SALON, appointments: [APPOINTMENT], recipientEmail: 'onfile@example.com' });
+    const result = await sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT],
+    });
 
     expect(result).toEqual({ ok: true, deduped: true, deliveryId: null });
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
@@ -134,14 +152,17 @@ describe('sendBookingRecoveryEmail', () => {
   it('sends an email containing salon, service, date, time, timezone, and manage link', async () => {
     queueHappyPathDb();
 
-    const result = await sendBookingRecoveryEmail({ salon: SALON, appointments: [APPOINTMENT], recipientEmail: 'onfile@example.com' });
+    const result = await sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT],
+    });
 
     expect(result.ok).toBe(true);
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
 
     const message = state.sendTransactionalEmailDetailed.mock.calls[0]![0] as { to: string; subject: string; text: string; html: string };
 
-    expect(message.to).toBe('onfile@example.com');
+    expect(message.to).toBe('current@example.com');
     expect(message.subject).toContain('Test Salon');
     expect(message.text).toContain('Gel Manicure');
     expect(message.text).toContain('July 1');
@@ -160,7 +181,10 @@ describe('sendBookingRecoveryEmail', () => {
     queueHappyPathDb();
     state.sendTransactionalEmailDetailed.mockResolvedValue({ ok: false, providerMessageId: null, errorCode: 'RESEND_HTTP_500' });
 
-    const result = await sendBookingRecoveryEmail({ salon: SALON, appointments: [APPOINTMENT], recipientEmail: 'onfile@example.com' });
+    const result = await sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT],
+    });
 
     expect(result.ok).toBe(false);
     expect(result.errorCode).toBe('RESEND_HTTP_500');
@@ -185,8 +209,39 @@ describe('sendBookingRecoveryEmail', () => {
 
     const serialized = JSON.stringify(outboxRow);
 
-    expect(serialized).not.toContain('onfile@example.com');
+    expect(serialized).not.toContain('current@example.com');
     expect(serialized).not.toContain('opaque-token-value');
+  });
+
+  it('sends nothing and mints no capability when destinations differ', async () => {
+    state.resolveAppointmentOperationalEmailRecipient
+      .mockResolvedValueOnce({
+        status: 'terminal_current',
+        email: 'first@example.com',
+        terminalClientId: 'client_1',
+      })
+      .mockResolvedValueOnce({
+        status: 'terminal_current',
+        email: 'second@example.com',
+        terminalClientId: 'client_1',
+      });
+
+    await expect(sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [
+        APPOINTMENT,
+        {
+          ...APPOINTMENT,
+          id: 'appt_2',
+        },
+      ],
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.insertedValues).toHaveLength(0);
   });
 });
 
@@ -197,19 +252,43 @@ describe('retryBookingRecoveryEmail', () => {
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
     state.updates.length = 0;
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'fresh@example.com',
+      terminalClientId: 'client_1',
+    });
     state.sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, providerMessageId: 'msg_2', errorCode: null });
   });
 
-  it('throws when no appointment still has an email on file', async () => {
+  it('marks the delivery terminal when canonical resolution is unavailable', async () => {
+    state.selectQueue.push([{ status: 'failed' }]); // delivery lookup
     state.selectQueue.push([SALON]); // salon lookup
     state.selectQueue.push([{ ...APPOINTMENT, clientEmail: null }]); // appointments reload
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'email_unavailable',
+    });
 
-    await expect(retryBookingRecoveryEmail({ salonId: 'salon_1', deliveryId: 'delivery_1', appointmentIds: ['appt_1'] }))
-      .rejects.toThrow('RECOVERY_EMAIL_RECIPIENT_UNAVAILABLE');
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    });
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        retryable: false,
+      }),
+    });
   });
 
   it('resolves the recipient from the database at retry time and updates the original delivery row', async () => {
+    state.selectQueue.push([{ status: 'failed' }]); // delivery lookup
     state.selectQueue.push([SALON]); // salon lookup
     state.selectQueue.push([{ ...APPOINTMENT, clientEmail: 'fresh@example.com' }]); // appointments reload
     state.selectQueue.push([{ appointmentId: 'appt_1', name: 'Pedicure' }]); // service names
@@ -219,7 +298,9 @@ describe('retryBookingRecoveryEmail', () => {
     const result = await retryBookingRecoveryEmail({ salonId: 'salon_1', deliveryId: 'delivery_1', appointmentIds: ['appt_1'] });
 
     expect(result).toEqual({ ok: true });
-    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({ to: 'fresh@example.com' }));
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'fresh@example.com' }),
+    );
 
     const deliveryUpdates = state.updates.filter(update => update.table === notificationDeliverySchema);
 
@@ -227,6 +308,7 @@ describe('retryBookingRecoveryEmail', () => {
   });
 
   it('throws on provider failure so the outbox applies backoff', async () => {
+    state.selectQueue.push([{ status: 'failed' }]);
     state.selectQueue.push([SALON]);
     state.selectQueue.push([{ ...APPOINTMENT, clientEmail: 'fresh@example.com' }]);
     state.selectQueue.push([]);
@@ -240,5 +322,18 @@ describe('retryBookingRecoveryEmail', () => {
     const tokenUpdates = state.updates.filter(update => update.table === appointmentAccessTokenSchema);
 
     expect(tokenUpdates).toHaveLength(1);
+  });
+
+  it('does not resend a recovery event already recorded as sent', async () => {
+    state.selectQueue.push([{ status: 'sent' }]);
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({ ok: true });
+
+    expect(state.resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
   });
 });
