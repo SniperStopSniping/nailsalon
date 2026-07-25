@@ -1,18 +1,20 @@
-import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  lockTerminalSalonClientWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
+  withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
-import {
-  buildFinancialBalanceSql,
-  getCurrentFinancialReportingRanges,
-} from '@/libs/financialReportingServer';
+import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
 import {
   getSalonClientById,
   normalizePhone,
@@ -27,6 +29,7 @@ import {
   appointmentSchema,
   appointmentServicesSchema,
   clientPreferencesSchema,
+  salonClientSchema,
   salonLocationSchema,
   serviceSchema,
   technicianSchema,
@@ -98,69 +101,6 @@ function numberValue(value: unknown): number {
   return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
-function clientAppointmentOwnership(
-  salonClientId: string,
-  phoneVariants: string[],
-) {
-  return or(
-    eq(appointmentSchema.salonClientId, salonClientId),
-    and(
-      isNull(appointmentSchema.salonClientId),
-      inArray(appointmentSchema.clientPhone, phoneVariants),
-    ),
-  );
-}
-
-async function getClientCompletedOutstanding(input: {
-  salonId: string;
-  salonClientId: string;
-  phoneVariants: string[];
-  asOf: Date;
-}) {
-  const {
-    completedUnresolved,
-    finalizedDueCents,
-    finalizedResolved,
-    legacyDueCents,
-    legacyResolved,
-  } = buildFinancialBalanceSql(input.asOf);
-  const rows = await db
-    .select({
-      finalizedAppointmentCount:
-        sql<number>`COUNT(*) FILTER (WHERE ${finalizedResolved})::int`,
-      legacyAppointmentCount:
-        sql<number>`COUNT(*) FILTER (WHERE ${legacyResolved})::int`,
-      unresolvedAppointmentCount:
-        sql<number>`COUNT(*) FILTER (WHERE ${completedUnresolved})::int`,
-      finalizedAmountCents: sql<number>`COALESCE(SUM(
-        CASE WHEN ${finalizedResolved} THEN ${finalizedDueCents} ELSE 0 END
-      ), 0)::int`,
-      legacyFallbackAmountCents: sql<number>`COALESCE(SUM(
-        CASE WHEN ${legacyResolved} THEN ${legacyDueCents} ELSE 0 END
-      ), 0)::int`,
-    })
-    .from(appointmentSchema)
-    .where(and(
-      eq(appointmentSchema.salonId, input.salonId),
-      clientAppointmentOwnership(input.salonClientId, input.phoneVariants),
-    ));
-  const aggregate = rows[0];
-  const completedOutstandingProvenance = buildReportingProvenance({
-    finalizedAppointmentCount: numberValue(aggregate?.finalizedAppointmentCount),
-    legacyAppointmentCount: numberValue(aggregate?.legacyAppointmentCount),
-    unresolvedAppointmentCount: numberValue(aggregate?.unresolvedAppointmentCount),
-    finalizedAmountCents: numberValue(aggregate?.finalizedAmountCents),
-    legacyFallbackAmountCents: numberValue(aggregate?.legacyFallbackAmountCents),
-  });
-
-  return {
-    completedOutstandingCents:
-      completedOutstandingProvenance.finalizedAmountCents
-      + completedOutstandingProvenance.legacyFallbackAmountCents,
-    completedOutstandingProvenance,
-  };
-}
-
 async function resolveRequestedClientId(
   salonId: string,
   requestedClientId: string,
@@ -180,6 +120,13 @@ async function resolveRequestedClientId(
       return null;
     }
     throw error;
+  }
+}
+
+class ContactIdentityConflictError extends Error {
+  constructor() {
+    super('Client contact identity conflicts with another profile.');
+    this.name = 'ContactIdentityConflictError';
   }
 }
 
@@ -261,7 +208,6 @@ export async function GET(
     // Build phone variants for matching appointments
     const normalizedPhone = normalizePhone(client.phone);
     const phoneVariants = [normalizedPhone, `+1${normalizedPhone}`, client.phone];
-    const appointmentOwnership = clientAppointmentOwnership(client.id, phoneVariants);
 
     const now = new Date();
 
@@ -287,7 +233,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
           gte(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['pending', 'confirmed']),
@@ -318,7 +264,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           eq(appointmentSchema.status, 'completed'),
@@ -349,7 +295,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
           lt(appointmentSchema.startTime, now),
           inArray(appointmentSchema.status, ['cancelled', 'no_show']),
@@ -620,22 +566,21 @@ export async function GET(
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
         )),
       db
         .select(revenueAggregate)
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
           gte(appointmentSchema.startTime, monthToDate.start),
           lt(appointmentSchema.startTime, monthToDate.end),
         )),
-      getClientCompletedOutstanding({
+      getFinancialBalanceSummary({
         salonId: salon.id,
-        salonClientId: client.id,
         asOf: now,
-        phoneVariants,
+        clientPhoneVariants: phoneVariants,
       }),
       db
         .select()
@@ -660,7 +605,7 @@ export async function GET(
         .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
-          appointmentOwnership,
+          inArray(appointmentSchema.clientPhone, phoneVariants),
           eq(appointmentSchema.status, 'completed'),
           isNull(appointmentSchema.deletedAt),
         ))
@@ -726,21 +671,10 @@ export async function GET(
       photoType: appointmentPhotoSchema.photoType,
       caption: appointmentPhotoSchema.caption,
       createdAt: appointmentPhotoSchema.createdAt,
-    })
-      .from(appointmentPhotoSchema)
-      .innerJoin(
-        appointmentSchema,
-        and(
-          eq(appointmentPhotoSchema.salonId, appointmentSchema.salonId),
-          eq(appointmentPhotoSchema.appointmentId, appointmentSchema.id),
-        ),
-      )
-      .where(and(
-        eq(appointmentPhotoSchema.salonId, salon.id),
-        appointmentOwnership,
-      ))
-      .orderBy(desc(appointmentPhotoSchema.createdAt))
-      .limit(24);
+    }).from(appointmentPhotoSchema).where(and(
+      eq(appointmentPhotoSchema.salonId, salon.id),
+      eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
+    )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
 
     return privateJson({
       data: {
@@ -913,7 +847,7 @@ export async function PATCH(
     const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
       ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
       : updates.rebookIntervalDays === null ? null : undefined;
-    const updatedClient = await updateSalonClient(salon.id, terminalClientId, {
+    const updateValues = {
       fullName: updates.fullName,
       email: updates.email,
       preferredTechnicianId: updates.preferredTechnicianId,
@@ -923,7 +857,69 @@ export async function PATCH(
       tags: updates.tags ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))] : undefined,
       rebookIntervalDays: updates.rebookIntervalDays,
       nextRebookDueAt,
-    });
+    };
+    const updatedClient = updates.email === undefined
+      ? await updateSalonClient(salon.id, terminalClientId, updateValues)
+      : await withClientLifecycleTransactionRetry(() =>
+        db.transaction(async (tx) => {
+          const handle = tx as LifecycleSqlHandle;
+          const lockedClient = await lockTerminalSalonClientWithHandle(
+            handle,
+            {
+              salonId: salon.id,
+              clientId: terminalClientId,
+              allowArchived: true,
+            },
+          );
+
+          if (updates.email !== null) {
+            await lockSalonClientIdentityKeysWithHandle(handle, {
+              salonId: salon.id,
+              email: updates.email,
+            });
+
+            let emailIdentity;
+            try {
+              emailIdentity
+                  = await resolveCanonicalSalonClientIdentityWithHandle(
+                  handle,
+                  {
+                    salonId: salon.id,
+                    email: updates.email,
+                    allowArchived: true,
+                  },
+                );
+            } catch (error) {
+              if (
+                error instanceof ClientLifecycleStabilizationError
+                || error instanceof TypeError
+              ) {
+                throw new ContactIdentityConflictError();
+              }
+              throw error;
+            }
+
+            if (
+              emailIdentity
+              && emailIdentity.terminal.id !== lockedClient.id
+            ) {
+              throw new ContactIdentityConflictError();
+            }
+          }
+
+          const [updated] = await tx
+            .update(salonClientSchema)
+            .set({
+              ...updateValues,
+              updatedAt: new Date(),
+            })
+            .where(and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, lockedClient.id),
+            ))
+            .returning();
+          return updated ?? null;
+        }));
 
     if (!updatedClient) {
       return Response.json(
@@ -959,6 +955,17 @@ export async function PATCH(
       },
     });
   } catch (error) {
+    if (error instanceof ContactIdentityConflictError) {
+      return privateJson(
+        {
+          error: {
+            code: 'CONTACT_IDENTITY_CONFLICT',
+            message: 'Client contact information conflicts with another profile',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error updating client:', error);
     return Response.json(
       {

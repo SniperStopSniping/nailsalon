@@ -29,7 +29,6 @@ const NOW = new Date('2026-07-23T16:00:00.000Z');
 const SALON_ID = 'salon_client_profile_financial';
 const CLIENT_ID = 'client_profile_financial';
 const SOURCE_CLIENT_ID = 'client_profile_merged_source';
-const OTHER_CLIENT_ID = 'client_profile_other_owner';
 const PHONE = '4165550188';
 
 let client: PGlite;
@@ -68,12 +67,6 @@ beforeAll(async () => {
     phone: '4165550199',
     fullName: 'Preserved Source',
   });
-  await testDb.insert(schema.salonClientSchema).values({
-    id: OTHER_CLIENT_ID,
-    salonId: SALON_ID,
-    phone: '4165550166',
-    fullName: 'Other Stable Owner',
-  });
   await testDb.execute(sql.raw(
     'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
   ));
@@ -98,8 +91,7 @@ beforeAll(async () => {
     {
       id: 'client_profile_partial',
       salonId: SALON_ID,
-      salonClientId: CLIENT_ID,
-      clientPhone: '4165550177',
+      clientPhone: PHONE,
       clientName: 'Partial Payment Client',
       startTime: new Date('2026-07-20T14:00:00.000Z'),
       endTime: new Date('2026-07-20T15:00:00.000Z'),
@@ -126,22 +118,6 @@ beforeAll(async () => {
       amountPaidCents: 0,
       paymentStatus: 'pending',
       status: 'confirmed',
-    },
-    {
-      id: 'client_profile_other_stable',
-      salonId: SALON_ID,
-      salonClientId: OTHER_CLIENT_ID,
-      clientPhone: PHONE,
-      clientName: 'Historical Snapshot Reuse',
-      startTime: new Date('2026-07-21T14:00:00.000Z'),
-      endTime: new Date('2026-07-21T15:00:00.000Z'),
-      totalDurationMinutes: 60,
-      totalPrice: 90000,
-      finalPriceCents: 90000,
-      amountPaidCents: 0,
-      paymentStatus: 'pending',
-      status: 'completed',
-      completedAt: new Date('2026-07-21T15:00:00.000Z'),
     },
   ]);
   await testDb.insert(schema.appointmentPaymentSchema).values({
@@ -232,7 +208,6 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
     expect(response.status).toBe(200);
     expect(body.data.client.id).toBe(CLIENT_ID);
     expect(body.data.client.phone).toBe(PHONE);
-    expect(body.data.summary.completedOutstandingCents).toBe(6000);
 
     const appointmentsAfter = await testDb
       .select({

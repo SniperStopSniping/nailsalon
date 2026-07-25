@@ -64,6 +64,7 @@ const {
   sendTransactionalEmailDetailed,
   requireStaffSession,
   requireAdmin,
+  requireAdminSalon,
   requireClientApiSession,
   requireAppointmentAccess,
   requireAppointmentManagerAccess,
@@ -73,6 +74,7 @@ const {
   sendTransactionalEmailDetailed: vi.fn(),
   requireStaffSession: vi.fn(),
   requireAdmin: vi.fn(),
+  requireAdminSalon: vi.fn(),
   requireClientApiSession: vi.fn(),
   requireAppointmentAccess: vi.fn(),
   requireAppointmentManagerAccess: vi.fn(),
@@ -89,7 +91,7 @@ vi.mock('@/libs/email', () => ({ sendTransactionalEmail, sendTransactionalEmailD
 vi.mock('@/libs/staffAuth', () => ({ requireStaffSession }));
 vi.mock('@/libs/adminAuth', () => ({
   requireAdmin,
-  requireAdminSalon: vi.fn(async () => ({ ok: false, response: new Response(null, { status: 401 }) })),
+  requireAdminSalon,
 }));
 vi.mock('@/libs/clientApiGuards', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/clientApiGuards')>()),
@@ -226,6 +228,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     requireStaffSession.mockResolvedValue({ ok: false });
     requireAdmin.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+    requireAdminSalon.mockResolvedValue({
+      error: new Response(null, { status: 401 }),
+      salon: null,
+    });
     requireClientApiSession.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
     requireAppointmentAccess.mockResolvedValue({
       ok: false,
@@ -327,6 +333,31 @@ suite('POST /api/appointments — genuine concurrency', () => {
     throw new Error(`Expected ${expectedCount} blocked PostgreSQL sessions`);
   }
 
+  async function waitForBlockedSessionPids(
+    expectedCount: number,
+    blockerPid: number,
+  ): Promise<number[]> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const result = await pool.query<{ pid: number }>(`
+        SELECT activity.pid::int AS pid
+        FROM pg_stat_activity AS activity
+        WHERE activity.datname = current_database()
+          AND activity.pid <> pg_backend_pid()
+          AND activity.state = 'active'
+          AND activity.wait_event_type = 'Lock'
+          AND $1 = ANY(pg_blocking_pids(activity.pid))
+        ORDER BY activity.pid
+      `, [blockerPid]);
+      if (result.rows.length >= expectedCount) {
+        return result.rows.map(row => row.pid);
+      }
+      // This observes a real PostgreSQL lock barrier; the race outcome does
+      // not depend on how quickly either request reaches the barrier.
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error(`Expected ${expectedCount} blocked PostgreSQL sessions`);
+  }
+
   async function releaseHeldBarrier(
     held: HeldLock,
     expectedCount: number,
@@ -419,6 +450,22 @@ suite('POST /api/appointments — genuine concurrency', () => {
       await connection.query(
         'SELECT id FROM salon_client WHERE salon_id = $1 AND id = $2 FOR UPDATE',
         [SALON_ID, clientId],
+      );
+      return await registerHeldLock(connection);
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      connection.release();
+      throw error;
+    }
+  }
+
+  async function holdSalonRow(): Promise<HeldLock> {
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        'SELECT id FROM salon WHERE id = $1 FOR UPDATE',
+        [SALON_ID],
       );
       return await registerHeldLock(connection);
     } catch (error) {
@@ -1064,6 +1111,104 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     await expectErrorCode(loser, 'EXISTING_APPOINTMENT');
     await expectSingleBookingSideEffects({ expectedClientCount: 1 });
+  });
+
+  it('serializes an admin email update against new-profile booking creation', async () => {
+    const targetEmail = 'admin-booking-race@example.invalid';
+    await db.insert(schema.salonClientSchema).values({
+      id: 'client_admin_email_race',
+      salonId: SALON_ID,
+      phone: '4165554100',
+      fullName: 'Existing Profile',
+      email: 'existing-profile@example.invalid',
+      notes: 'Original notes',
+    });
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+
+    const { POST } = await import('./route');
+    const { PATCH: updateClient } = await import(
+      '../admin/clients/[id]/route'
+    );
+    const heldSalon = await holdSalonRow();
+    const booking = POST(bookingRequest({
+      clientPhone: '4165554101',
+      clientEmail: targetEmail,
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-07T18:00:00.000Z',
+    }));
+    const [bookingPid] = await waitForBlockedSessionPids(1, heldSalon.pid);
+    if (!bookingPid) {
+      throw new Error('Booking did not reach the salon-row barrier');
+    }
+
+    const adminUpdate = updateClient(
+      new Request(
+        'http://localhost/api/admin/clients/client_admin_email_race',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug: 'concurrency-salon',
+            email: targetEmail,
+            notes: 'Must roll back when booking wins',
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({ id: 'client_admin_email_race' }),
+      },
+    );
+
+    await waitForBlockedSessions(1, bookingPid);
+    await releaseHeldBarrier(heldSalon, 1, [booking, adminUpdate]);
+
+    const [bookingResponse, adminResponse] = await Promise.all([
+      booking,
+      adminUpdate,
+    ]);
+
+    expect(bookingResponse.status).toBe(201);
+
+    await expectErrorCode(adminResponse, 'CONTACT_IDENTITY_CONFLICT');
+
+    const [
+      clients,
+      appointments,
+      rewards,
+      referrals,
+      deliveries,
+      outbox,
+    ] = await Promise.all([
+      db.select().from(schema.salonClientSchema),
+      db.select().from(schema.appointmentSchema),
+      db.select().from(schema.rewardSchema),
+      db.select().from(schema.referralSchema),
+      db.select().from(schema.notificationDeliverySchema),
+      db.select().from(schema.integrationOutboxSchema),
+    ]);
+    const targetOwners = clients.filter(client =>
+      client.email?.toLowerCase() === targetEmail);
+    const existing = clients.find(client =>
+      client.id === 'client_admin_email_race');
+
+    expect(clients).toHaveLength(2);
+    expect(targetOwners).toHaveLength(1);
+    expect(existing).toMatchObject({
+      email: 'existing-profile@example.invalid',
+      notes: 'Original notes',
+    });
+    expect(appointments).toHaveLength(1);
+    expect(appointments[0]?.salonClientId).toBe(targetOwners[0]?.id);
+    expect(rewards).toHaveLength(0);
+    expect(referrals).toHaveLength(0);
+    expect(deliveries).toHaveLength(2);
+    expect(outbox).toHaveLength(1);
   });
 
   it('serializes terminal, source, phone-alias, and email-alias bookings', async () => {
