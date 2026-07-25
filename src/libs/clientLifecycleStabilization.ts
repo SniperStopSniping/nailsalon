@@ -3,6 +3,7 @@ import 'server-only';
 import { type SQL, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { normalizePhone } from '@/libs/phone';
 
 export const CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH = 16;
 export const CLIENT_LIFECYCLE_RETRYABLE_SQLSTATES = new Set([
@@ -206,6 +207,68 @@ export function resolveTerminalSalonClient(input: {
   allowArchived?: boolean;
 }): Promise<TerminalSalonClient> {
   return resolveTerminalSalonClientWithHandle(db as LifecycleSqlHandle, input);
+}
+
+/**
+ * Resolves a phone snapshot for an authenticated operational writer. This
+ * deliberately remains separate from customer authentication: historical
+ * contact aliases are continuity hints for existing salon records, never
+ * login aliases.
+ */
+export async function resolveOperationalSalonClientByPhoneWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone: string;
+  },
+): Promise<TerminalSalonClient | null> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const normalizedPhone = normalizePhone(input.phone);
+  if (normalizedPhone.length !== 10) {
+    return null;
+  }
+
+  const candidateResult = await handle.execute(sql`
+    select candidate.id
+    from (
+      select client.id
+      from salon_client as client
+      where client.salon_id = ${salonId}
+        and client.phone = ${normalizedPhone}
+
+      union
+
+      select alias.salon_client_id as id
+      from salon_client_contact_alias as alias
+      where alias.salon_id = ${salonId}
+        and alias.kind = 'phone'
+        and alias.normalized_value = ${normalizedPhone}
+    ) as candidate
+    order by candidate.id
+  `);
+  const candidateIds = [...new Set(
+    readRows(candidateResult)
+      .map(row => row.id)
+      .filter((id): id is string => typeof id === 'string'),
+  )];
+  if (candidateIds.length === 0) {
+    return null;
+  }
+
+  const terminals = await Promise.all(candidateIds.map(clientId =>
+    resolveTerminalSalonClientWithHandle(handle, {
+      salonId,
+      clientId,
+    })));
+  const terminalIds = new Set(terminals.map(terminal => terminal.id));
+  if (terminalIds.size !== 1) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+
+  return terminals[0] ?? null;
 }
 
 export async function getSalonClientLineageIdsWithHandle(

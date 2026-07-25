@@ -12,6 +12,7 @@ import {
   lockTerminalSalonClientsWithHandle,
   resolveTerminalSalonClientWithHandle,
 } from './clientLifecycleStabilization';
+import { purgeSalonGroups, type PurgeTx } from './salonPurge';
 
 vi.mock('server-only', () => ({}));
 
@@ -81,6 +82,10 @@ async function seedLifecycle(pool: pg.Pool): Promise<void> {
       ('lifecycle-salon-b', 'Lifecycle B', 'lifecycle-b', 'minimal')
   `);
   await pool.query(`
+    insert into technician (id, salon_id, name)
+    values ('lifecycle-tech', 'lifecycle-salon-a', 'Lifecycle Tech')
+  `);
+  await pool.query(`
     insert into salon_client (
       id, salon_id, phone, full_name, created_at, updated_at
     )
@@ -141,6 +146,11 @@ async function seedLifecycle(pool: pg.Pool): Promise<void> {
         now(),
         now()
       )
+  `);
+  await pool.query(`
+    update salon_client
+    set preferred_technician_id = 'lifecycle-tech'
+    where salon_id = 'lifecycle-salon-a'
   `);
   await pool.query(`
     update salon_client
@@ -568,5 +578,32 @@ describePostgres.sequential('client lifecycle PostgreSQL concurrency', () => {
       ]);
       await Promise.all([first.end(), second.end(), observer.end()]);
     }
+  });
+
+  it('keeps the actual v1.33 staff reset compatible with merged sources', async () => {
+    const database = drizzle(pool);
+
+    await database.transaction(async (tx) => {
+      await purgeSalonGroups(
+        tx as unknown as PurgeTx,
+        'lifecycle-salon-a',
+        ['staff'],
+      );
+    });
+
+    const source = await pool.query<{
+      merged_into_client_id: string | null;
+      preferred_technician_id: string | null;
+    }>(
+      `select merged_into_client_id, preferred_technician_id
+       from salon_client
+       where salon_id = 'lifecycle-salon-a'
+         and id = 'lifecycle-source'`,
+    );
+
+    expect(source.rows[0]).toEqual({
+      merged_into_client_id: 'lifecycle-middle',
+      preferred_technician_id: null,
+    });
   });
 });

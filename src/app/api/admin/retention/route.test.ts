@@ -13,11 +13,19 @@ const {
   selectQueue,
   insertedValues,
   updateSets,
+  lifecycleState,
+  lifecycleOperations,
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
+  const lifecycleState: { terminalClientId: string | null } = { terminalClientId: null };
+  const lifecycleOperations: string[] = [];
 
   const query = (result: unknown) => {
     const chain = {
@@ -32,6 +40,10 @@ const {
   };
 
   const tx = {
+    select: vi.fn(() => {
+      lifecycleOperations.push('dependent-read');
+      return query(selectQueue.shift() ?? []);
+    }),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateSets.push(values);
@@ -73,6 +85,33 @@ const {
     selectQueue,
     insertedValues,
     updateSets,
+    lifecycleState,
+    lifecycleOperations,
+    getSalonClientLineageIdsWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { terminalClientId: string },
+    ) => [input.terminalClientId]),
+    getSalonClientPhoneAliasesWithHandle: vi.fn(async () => []),
+    lockTerminalSalonClientWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { salonId: string; clientId: string },
+    ) => {
+      lifecycleOperations.push('terminal-lock');
+      return {
+        id: lifecycleState.terminalClientId ?? input.clientId,
+        salonId: input.salonId,
+        archivedAt: null,
+        redirectedFromClientId: lifecycleState.terminalClientId
+          ? input.clientId
+          : null,
+        lineagePath: lifecycleState.terminalClientId
+          ? [input.clientId, lifecycleState.terminalClientId]
+          : [input.clientId],
+      };
+    }),
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
     db: {
       select: vi.fn(() => query(selectQueue.shift() ?? [])),
       transaction: vi.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
@@ -81,6 +120,13 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon, getAdminSession }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
+  getSalonClientLineageIdsWithHandle,
+  getSalonClientPhoneAliasesWithHandle,
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+}));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
 
@@ -94,6 +140,8 @@ describe('/api/admin/retention', () => {
     selectQueue.length = 0;
     insertedValues.length = 0;
     updateSets.length = 0;
+    lifecycleState.terminalClientId = null;
+    lifecycleOperations.length = 0;
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
     getAdminSession.mockResolvedValue({ id: 'admin_1' });
     getRetentionSettingsForSalon.mockResolvedValue(DEFAULT_RETENTION_SETTINGS);
@@ -163,7 +211,11 @@ describe('/api/admin/retention', () => {
 
   it('persists an exact seven-day snooze with an honest status', async () => {
     selectQueue.push(
-      [{ id: 'client_1', lastVisitAt: new Date('2026-06-26T16:00:00.000Z') }],
+      [{
+        id: 'client_1',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-26T16:00:00.000Z'),
+      }],
       [],
     );
 
@@ -233,6 +285,44 @@ describe('/api/admin/retention', () => {
       kind: 'reminder',
       status: 'snoozed',
       snoozedUntil: '2026-07-17T17:59:59.999Z',
+    });
+  });
+
+  it('locks and writes the terminal client when a merged source is submitted', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    selectQueue.push(
+      [{ id: 'primary_client', phone: '4165551212', lastVisitAt: null }],
+      [{
+        id: 'appointment_1',
+        startTime: new Date('2026-07-17T18:00:00.000Z'),
+        salonClientId: 'primary_client',
+        clientPhone: 'historical-snapshot',
+      }],
+      [],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'merged_source',
+        appointmentId: 'appointment_1',
+        kind: 'reminder',
+        status: 'prepared',
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      { salonId: 'salon_1', clientId: 'merged_source' },
+    );
+    expect(lifecycleOperations.slice(0, 2)).toEqual(['terminal-lock', 'dependent-read']);
+    expect(insertedValues[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      appointmentId: 'appointment_1',
+      kind: 'reminder',
     });
   });
 

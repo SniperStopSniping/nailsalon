@@ -7,13 +7,21 @@ const {
   getSalonClientById,
   getSalonClientByPhone,
   insertedValues,
+  lifecycleOperations,
+  lifecycleState,
+  lockTerminalSalonClientWithHandle,
   requireAppointmentManagerAccess,
   selectQueue,
   updateSets,
+  withClientLifecycleTransactionRetry,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
+  const lifecycleOperations: string[] = [];
+  const lifecycleState: { terminalClientId: string | null } = {
+    terminalClientId: null,
+  };
 
   const query = (result: unknown) => {
     const chain = {
@@ -28,6 +36,10 @@ const {
   };
 
   const tx = {
+    select: vi.fn(() => {
+      lifecycleOperations.push('dependent-read');
+      return query(selectQueue.shift() ?? []);
+    }),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateSets.push(values);
@@ -70,12 +82,38 @@ const {
     getSalonClientById: vi.fn(),
     getSalonClientByPhone: vi.fn(),
     insertedValues,
+    lifecycleOperations,
+    lifecycleState,
+    lockTerminalSalonClientWithHandle: vi.fn(async (
+      _handle: unknown,
+      input: { salonId: string; clientId: string },
+    ) => {
+      lifecycleOperations.push('terminal-lock');
+      return {
+        id: lifecycleState.terminalClientId ?? input.clientId,
+        salonId: input.salonId,
+        archivedAt: null,
+        redirectedFromClientId: lifecycleState.terminalClientId
+          ? input.clientId
+          : null,
+        lineagePath: lifecycleState.terminalClientId
+          ? [input.clientId, lifecycleState.terminalClientId]
+          : [input.clientId],
+      };
+    }),
     requireAppointmentManagerAccess: vi.fn(),
     selectQueue,
     updateSets,
+    withClientLifecycleTransactionRetry: vi.fn(async (
+      operation: (attempt: number) => Promise<unknown>,
+    ) => operation(1)),
   };
 });
 
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  lockTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+}));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/queries', () => ({ getSalonClientById, getSalonClientByPhone }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
@@ -138,6 +176,8 @@ describe('/api/appointments/[id]/communication', () => {
     selectQueue.length = 0;
     insertedValues.length = 0;
     updateSets.length = 0;
+    lifecycleOperations.length = 0;
+    lifecycleState.terminalClientId = null;
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'staff',
@@ -251,6 +291,47 @@ describe('/api/appointments/[id]/communication', () => {
     });
   });
 
+  it('locks and writes the terminal client for a merged-source appointment', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientById.mockResolvedValue({
+      ...client,
+      id: 'merged_source',
+    });
+    selectQueue.push([]);
+
+    const response = await POST(
+      new Request('https://app.test/api/appointments/appt_1/communication', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'appointment_details',
+          status: 'marked_sent',
+          messageSnapshot: 'Historical appointment details',
+        }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      { salonId: 'salon_1', clientId: 'merged_source' },
+    );
+    expect(lifecycleOperations.slice(0, 2)).toEqual([
+      'terminal-lock',
+      'dependent-read',
+    ]);
+    expect(insertedValues[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      appointmentId: 'appt_1',
+      messageSnapshot: 'Historical appointment details',
+    });
+    expect(updateSets).toContainEqual({
+      lastContactAt: NOW,
+      updatedAt: NOW,
+    });
+  });
+
   it('caps a three-hour reminder snooze immediately before appointment start', async () => {
     selectQueue.push([]);
     requireAppointmentManagerAccess.mockResolvedValue({
@@ -343,7 +424,9 @@ describe('/api/appointments/[id]/communication', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: 'INVALID_STATUS_TRANSITION' },
     });
-    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(insertedValues).toHaveLength(0);
+    expect(updateSets).toHaveLength(0);
   });
 
   it('preserves tenant and assignment access failures', async () => {

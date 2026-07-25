@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ClientLifecycleStabilizationError,
   type LifecycleSqlHandle,
+  resolveOperationalSalonClientByPhoneWithHandle,
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from './clientLifecycleStabilization';
@@ -117,6 +118,53 @@ describe('client lifecycle stabilization', () => {
         allowArchived: true,
       },
     )).resolves.toMatchObject({ id: 'archived' });
+  });
+
+  it('resolves an operational phone alias through its active terminal without making it an auth alias', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{ id: 'source' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'source',
+        salon_id: 'salon-a',
+        merged_into_client_id: 'primary',
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'primary',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]));
+
+    await expect(resolveOperationalSalonClientByPhoneWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', phone: '+1 (416) 555-1212' },
+    )).resolves.toMatchObject({
+      id: 'primary',
+      redirectedFromClientId: 'source',
+    });
+  });
+
+  it('fails closed when one operational phone resolves to different terminals', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{ id: 'client-a' }, { id: 'client-b' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-a',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-b',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]));
+
+    await expect(resolveOperationalSalonClientByPhoneWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', phone: '4165551212' },
+    )).rejects.toMatchObject({ code: 'INVALID_CLIENT_STATE' });
   });
 
   it.each(['40P01', '40001'])(
