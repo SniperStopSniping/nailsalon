@@ -61,6 +61,24 @@ export type CanonicalSalonClientIdentity = SalonClientLineageIdentity & {
   matchedBy: NormalizedClientIdentity[];
 };
 
+export type OperationalEmailRecipientUnavailableReason =
+  | 'appointment_not_found'
+  | 'client_identity_unavailable'
+  | 'unsupported_client_identity'
+  | 'invalid_terminal_email'
+  | 'email_unavailable';
+
+export type OperationalEmailRecipientResolution =
+  | {
+    status: 'terminal_current' | 'appointment_snapshot';
+    email: string;
+    terminalClientId: string;
+  }
+  | {
+    status: 'unavailable';
+    reason: OperationalEmailRecipientUnavailableReason;
+  };
+
 export type SalonClientLifecycleLink = {
   id: string;
   archivedAt: Date | null;
@@ -116,6 +134,26 @@ function normalizeSupportedEmail(value: string | null | undefined): string | nul
     return null;
   }
   return normalizeEmail(value);
+}
+
+function tryNormalizeSupportedPhone(
+  value: string | null | undefined,
+): string | null {
+  try {
+    return normalizeSupportedPhone(value);
+  } catch {
+    return null;
+  }
+}
+
+function tryNormalizeSupportedEmail(
+  value: string | null | undefined,
+): string | null {
+  try {
+    return normalizeSupportedEmail(value);
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeSalonClientIdentity(input: {
@@ -728,6 +766,168 @@ export function resolveCanonicalSalonClientIdentity(input: {
   allowArchived?: boolean;
 }): Promise<CanonicalSalonClientIdentity | null> {
   return resolveCanonicalSalonClientIdentityWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+type AppointmentOperationalContactRow = {
+  salonClientId: string | null;
+  clientPhone: string;
+  clientEmail: string | null;
+};
+
+async function loadAppointmentOperationalContact(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    appointmentId: string;
+  },
+): Promise<AppointmentOperationalContactRow | null> {
+  const result = await handle.execute(sql`
+    select
+      salon_client_id,
+      client_phone,
+      client_email
+    from appointment
+    where salon_id = ${input.salonId}
+      and id = ${input.appointmentId}
+    limit 1
+  `);
+  const row = readRows(result)[0];
+  if (!row || typeof row.client_phone !== 'string') {
+    return null;
+  }
+  return {
+    salonClientId:
+      typeof row.salon_client_id === 'string' ? row.salon_client_id : null,
+    clientPhone: row.client_phone,
+    clientEmail: typeof row.client_email === 'string' ? row.client_email : null,
+  };
+}
+
+/**
+ * Selects the current operational email for an existing appointment without
+ * changing any historical appointment or communication snapshots.
+ *
+ * Historical contact values may locate an unlinked legacy appointment's
+ * same-salon client lineage, but they never become an authentication identity.
+ * A stable salon_client_id always owns the appointment when one is present.
+ */
+export async function resolveAppointmentOperationalEmailRecipientWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    appointmentId: string;
+  },
+): Promise<OperationalEmailRecipientResolution> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const appointmentId = requireInput(input.appointmentId, 'appointmentId');
+  const appointment = await loadAppointmentOperationalContact(handle, {
+    salonId,
+    appointmentId,
+  });
+  if (!appointment) {
+    return {
+      status: 'unavailable',
+      reason: 'appointment_not_found',
+    };
+  }
+
+  try {
+    let lineage: SalonClientLineageIdentity | null;
+    if (appointment.salonClientId) {
+      const terminal = await resolveTerminalSalonClientWithHandle(handle, {
+        salonId,
+        clientId: appointment.salonClientId,
+        allowArchived: true,
+      });
+      lineage = await getSalonClientLineageIdentityWithHandle(handle, {
+        salonId,
+        terminalClientId: terminal.id,
+        allowArchived: true,
+      });
+    } else {
+      const phone = tryNormalizeSupportedPhone(appointment.clientPhone);
+      const email = tryNormalizeSupportedEmail(appointment.clientEmail);
+      if (!phone && !email) {
+        return {
+          status: 'unavailable',
+          reason: 'client_identity_unavailable',
+        };
+      }
+      const canonical = await resolveCanonicalSalonClientIdentityWithHandle(
+        handle,
+        {
+          salonId,
+          phone,
+          email,
+          allowArchived: true,
+        },
+      );
+      if (!canonical || canonical.matchedBy.length === 0) {
+        return {
+          status: 'unavailable',
+          reason: 'client_identity_unavailable',
+        };
+      }
+      lineage = canonical;
+    }
+
+    if (lineage.externalClientId !== null) {
+      return {
+        status: 'unavailable',
+        reason: 'unsupported_client_identity',
+      };
+    }
+
+    const currentEmail = lineage.terminal.email;
+    if (currentEmail != null && currentEmail.trim() !== '') {
+      const normalizedCurrentEmail = tryNormalizeSupportedEmail(currentEmail);
+      if (!normalizedCurrentEmail) {
+        return {
+          status: 'unavailable',
+          reason: 'invalid_terminal_email',
+        };
+      }
+      return {
+        status: 'terminal_current',
+        email: normalizedCurrentEmail,
+        terminalClientId: lineage.terminal.id,
+      };
+    }
+
+    const snapshotEmail = tryNormalizeSupportedEmail(appointment.clientEmail);
+    if (!snapshotEmail) {
+      return {
+        status: 'unavailable',
+        reason: 'email_unavailable',
+      };
+    }
+    return {
+      status: 'appointment_snapshot',
+      email: snapshotEmail,
+      terminalClientId: lineage.terminal.id,
+    };
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return {
+        status: 'unavailable',
+        reason: 'client_identity_unavailable',
+      };
+    }
+    throw error;
+  }
+}
+
+export function resolveAppointmentOperationalEmailRecipient(input: {
+  salonId: string;
+  appointmentId: string;
+}): Promise<OperationalEmailRecipientResolution> {
+  return resolveAppointmentOperationalEmailRecipientWithHandle(
     db as LifecycleSqlHandle,
     input,
   );

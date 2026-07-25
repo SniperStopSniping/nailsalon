@@ -8,6 +8,7 @@ import {
   type LifecycleSqlHandle,
   lockSalonClientIdentityKeysWithHandle,
   normalizeClientIdentityInput,
+  resolveAppointmentOperationalEmailRecipientWithHandle,
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   resolveOperationalSalonClientContactByPhoneWithHandle,
@@ -450,6 +451,278 @@ describe('client lifecycle stabilization', () => {
         phone: '4165550100',
       },
     )).rejects.toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+  });
+
+  it('uses the current terminal email for an appointment owned by a merged source', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        salon_client_id: 'source',
+        client_phone: '4165550100',
+        client_email: 'snapshot@example.com',
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'source',
+        salon_id: 'salon-a',
+        merged_into_client_id: 'terminal',
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550200',
+        email: ' Current@Example.COM ',
+      }]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          depth: 1,
+          has_cycle: false,
+          has_unvisited_child: false,
+        },
+        {
+          id: 'terminal',
+          depth: 0,
+          has_cycle: false,
+          has_unvisited_child: false,
+        },
+      ]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          phone: '4165550100',
+          email: 'snapshot@example.com',
+          client_id: null,
+        },
+        {
+          id: 'terminal',
+          phone: '4165550200',
+          email: 'current@example.com',
+          client_id: null,
+        },
+      ]))
+      .mockResolvedValueOnce(result([]));
+
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'appointment-a' },
+    )).resolves.toEqual({
+      status: 'terminal_current',
+      email: 'current@example.com',
+      terminalClientId: 'terminal',
+    });
+  });
+
+  it('uses a valid immutable snapshot only when an unambiguous terminal has no email', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        salon_client_id: null,
+        client_phone: '4165550100',
+        client_email: ' Snapshot@Example.COM ',
+      }]))
+      .mockResolvedValueOnce(result([{ id: 'source' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'source',
+        salon_id: 'salon-a',
+        merged_into_client_id: 'terminal',
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550200',
+        email: null,
+      }]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          depth: 1,
+          has_cycle: false,
+          has_unvisited_child: false,
+        },
+        {
+          id: 'terminal',
+          depth: 0,
+          has_cycle: false,
+          has_unvisited_child: false,
+        },
+      ]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          phone: '4165550100',
+          email: 'snapshot@example.com',
+          client_id: null,
+        },
+        {
+          id: 'terminal',
+          phone: '4165550200',
+          email: null,
+          client_id: null,
+        },
+      ]))
+      .mockResolvedValueOnce(result([]));
+
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'appointment-a' },
+    )).resolves.toEqual({
+      status: 'appointment_snapshot',
+      email: 'snapshot@example.com',
+      terminalClientId: 'terminal',
+    });
+  });
+
+  it('fails closed instead of falling back when the current terminal email is invalid', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        salon_client_id: 'terminal',
+        client_phone: '4165550100',
+        client_email: 'snapshot@example.com',
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550100',
+        email: 'not-an-email',
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        depth: 0,
+        has_cycle: false,
+        has_unvisited_child: false,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        phone: '4165550100',
+        email: 'not-an-email',
+        client_id: null,
+      }]))
+      .mockResolvedValueOnce(result([]));
+
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'appointment-a' },
+    )).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'invalid_terminal_email',
+    });
+  });
+
+  it('keeps stable ownership authoritative and fails closed for unsupported identities', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        salon_client_id: 'terminal',
+        client_phone: '4165550999',
+        client_email: 'alias@example.com',
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550100',
+        email: 'current@example.com',
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        depth: 0,
+        has_cycle: false,
+        has_unvisited_child: false,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        phone: '4165550100',
+        email: 'current@example.com',
+        client_id: 'unsupported-global-client',
+      }]))
+      .mockResolvedValueOnce(result([]));
+
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'appointment-a' },
+    )).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'unsupported_client_identity',
+    });
+    expect(execute).toHaveBeenCalledTimes(7);
+  });
+
+  it('returns safe unavailable results for missing and ambiguous appointment ownership', async () => {
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      {
+        execute: vi.fn().mockResolvedValue(result([])),
+      } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'missing' },
+    )).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'appointment_not_found',
+    });
+
+    const ambiguous = vi.fn()
+      .mockResolvedValueOnce(result([{
+        salon_client_id: null,
+        client_phone: '4165550100',
+        client_email: null,
+      }]))
+      .mockResolvedValueOnce(result([{ id: 'client-a' }, { id: 'client-b' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-a',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-b',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]));
+
+    await expect(resolveAppointmentOperationalEmailRecipientWithHandle(
+      { execute: ambiguous } as LifecycleSqlHandle,
+      { salonId: 'salon-a', appointmentId: 'ambiguous' },
+    )).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'client_identity_unavailable',
+    });
   });
 
   it.each(['40P01', '40001'])(
