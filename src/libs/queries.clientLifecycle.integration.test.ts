@@ -200,6 +200,204 @@ async function seedValidDirectoryLifecycle(pool: pg.Pool): Promise<void> {
   `);
   await pool.query(`
     update salon_client
+    set loyalty_points = case id
+      when 'directory-primary' then 4321
+      when 'directory-middle' then 2222
+      when 'directory-source' then 7654
+      else loyalty_points
+    end
+    where salon_id = 'directory-salon-a'
+      and id in (
+        'directory-primary',
+        'directory-middle',
+        'directory-source'
+      )
+  `);
+  await pool.query(`
+    insert into appointment (
+      id,
+      salon_id,
+      salon_client_id,
+      client_phone,
+      client_name,
+      start_time,
+      end_time,
+      status,
+      payment_status,
+      total_price,
+      final_price_cents,
+      total_duration_minutes,
+      completed_at
+    )
+    values
+      (
+        'directory-stat-primary',
+        'directory-salon-a',
+        'directory-primary',
+        '4165551000',
+        'Primary snapshot',
+        '2026-08-01T14:00:00Z',
+        '2026-08-01T15:00:00Z',
+        'completed',
+        'paid',
+        1000,
+        1100,
+        60,
+        '2026-08-01T15:00:00Z'
+      ),
+      (
+        'directory-stat-middle',
+        'directory-salon-a',
+        'directory-middle',
+        '4165551002',
+        'Middle snapshot',
+        '2026-08-02T14:00:00Z',
+        '2026-08-02T15:00:00Z',
+        'completed',
+        'paid',
+        2000,
+        2200,
+        60,
+        '2026-08-02T15:00:00Z'
+      ),
+      (
+        'directory-stat-source',
+        'directory-salon-a',
+        'directory-source',
+        '4165551003',
+        'Source snapshot',
+        '2026-08-03T14:00:00Z',
+        '2026-08-03T15:00:00Z',
+        'completed',
+        'paid',
+        3000,
+        3300,
+        60,
+        '2026-08-03T15:00:00Z'
+      ),
+      (
+        'directory-stat-null-source',
+        'directory-salon-a',
+        null,
+        '+14165551003',
+        'Source phone snapshot',
+        '2026-08-04T14:00:00Z',
+        '2026-08-04T15:00:00Z',
+        'completed',
+        'paid',
+        4000,
+        4400,
+        60,
+        '2026-08-04T15:00:00Z'
+      ),
+      (
+        'directory-stat-null-alias',
+        'directory-salon-a',
+        null,
+        '14165551092',
+        'Alias phone snapshot',
+        '2026-08-05T14:00:00Z',
+        '2026-08-05T15:00:00Z',
+        'completed',
+        'paid',
+        5000,
+        5500,
+        60,
+        '2026-08-05T15:00:00Z'
+      ),
+      (
+        'directory-stat-primary-alias-phone',
+        'directory-salon-a',
+        'directory-primary',
+        '4165551092',
+        'Stable primary alias snapshot',
+        '2026-08-06T14:00:00Z',
+        '2026-08-06T15:00:00Z',
+        'completed',
+        'paid',
+        6000,
+        6600,
+        60,
+        '2026-08-06T15:00:00Z'
+      ),
+      (
+        'directory-stat-source-no-show',
+        'directory-salon-a',
+        'directory-source',
+        '4165551003',
+        'Source no-show snapshot',
+        '2026-08-07T14:00:00Z',
+        '2026-08-07T15:00:00Z',
+        'no_show',
+        'pending',
+        7000,
+        null,
+        60,
+        null
+      ),
+      (
+        'directory-stat-stable-collision',
+        'directory-salon-a',
+        'directory-second',
+        '4165551003',
+        'Other stable client snapshot',
+        '2026-08-08T14:00:00Z',
+        '2026-08-08T15:00:00Z',
+        'completed',
+        'paid',
+        7000,
+        7700,
+        60,
+        '2026-08-08T15:00:00Z'
+      ),
+      (
+        'directory-stat-unrelated',
+        'directory-salon-a',
+        null,
+        '4165551999',
+        'Unrelated snapshot',
+        '2026-08-09T14:00:00Z',
+        '2026-08-09T15:00:00Z',
+        'completed',
+        'paid',
+        8000,
+        8800,
+        60,
+        '2026-08-09T15:00:00Z'
+      ),
+      (
+        'directory-stat-foreign-stable',
+        'directory-salon-b',
+        'directory-foreign-primary',
+        '4165551003',
+        'Foreign stable snapshot',
+        '2026-08-10T14:00:00Z',
+        '2026-08-10T15:00:00Z',
+        'completed',
+        'paid',
+        9000,
+        9900,
+        60,
+        '2026-08-10T15:00:00Z'
+      ),
+      (
+        'directory-stat-foreign-fallback',
+        'directory-salon-b',
+        null,
+        '4165551003',
+        'Foreign fallback snapshot',
+        '2026-08-11T14:00:00Z',
+        '2026-08-11T15:00:00Z',
+        'completed',
+        'paid',
+        10000,
+        11000,
+        60,
+        '2026-08-11T15:00:00Z'
+      )
+  `);
+  await pool.query(`
+    update salon_client
     set
       archived_at = now(),
       archived_by = 'directory-test',
@@ -353,6 +551,7 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
   let migrationsThrough0061: string;
   let getSalonClients: QueriesModule['getSalonClients'];
   let getSalonClientByPhone: QueriesModule['getSalonClientByPhone'];
+  let updateSalonClientStats: QueriesModule['updateSalonClientStats'];
 
   beforeAll(async () => {
     pool = new pg.Pool({
@@ -375,6 +574,7 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
     const queries = await import('./queries');
     getSalonClients = queries.getSalonClients;
     getSalonClientByPhone = queries.getSalonClientByPhone;
+    updateSalonClientStats = queries.updateSalonClientStats;
   }, 60_000);
 
   afterAll(async () => {
@@ -483,5 +683,120 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
     );
 
     expect(historicalSource?.id).toBe('directory-source');
+  });
+
+  it('recalculates terminal caches once across stable lineage and null-id phone history', async () => {
+    await updateSalonClientStats(
+      'directory-salon-a',
+      '(416) 555-1003',
+    );
+
+    const readClientCaches = async () => {
+      const result = await pool.query<{
+        id: string;
+        total_visits: number;
+        total_spent: number;
+        no_show_count: number;
+        last_visit_at: Date | null;
+        loyalty_points: number;
+      }>(`
+        select
+          id,
+          total_visits,
+          total_spent,
+          no_show_count,
+          last_visit_at,
+          loyalty_points
+        from salon_client
+        where salon_id = 'directory-salon-a'
+          and id in (
+            'directory-primary',
+            'directory-middle',
+            'directory-source',
+            'directory-second'
+          )
+        order by id
+      `);
+      return result.rows;
+    };
+
+    const firstCaches = await readClientCaches();
+
+    expect(firstCaches).toEqual([
+      expect.objectContaining({
+        id: 'directory-middle',
+        total_visits: 2,
+        total_spent: 2000,
+        loyalty_points: 2222,
+      }),
+      expect.objectContaining({
+        id: 'directory-primary',
+        total_visits: 6,
+        total_spent: 23100,
+        no_show_count: 1,
+        loyalty_points: 4321,
+      }),
+      expect.objectContaining({
+        id: 'directory-second',
+        total_visits: 9,
+        total_spent: 9000,
+      }),
+      expect.objectContaining({
+        id: 'directory-source',
+        total_visits: 1,
+        total_spent: 1000,
+        loyalty_points: 7654,
+      }),
+    ]);
+
+    const primary = firstCaches.find(row => row.id === 'directory-primary');
+
+    expect(primary?.last_visit_at?.toISOString()).toBe(
+      '2026-08-06T14:00:00.000Z',
+    );
+
+    const snapshots = await pool.query<{
+      id: string;
+      salon_client_id: string | null;
+      client_phone: string;
+    }>(`
+      select id, salon_client_id, client_phone
+      from appointment
+      where id in (
+        'directory-stat-source',
+        'directory-stat-null-source',
+        'directory-stat-stable-collision'
+      )
+      order by id
+    `);
+
+    expect(snapshots.rows).toEqual([
+      {
+        id: 'directory-stat-null-source',
+        salon_client_id: null,
+        client_phone: '+14165551003',
+      },
+      {
+        id: 'directory-stat-source',
+        salon_client_id: 'directory-source',
+        client_phone: '4165551003',
+      },
+      {
+        id: 'directory-stat-stable-collision',
+        salon_client_id: 'directory-second',
+        client_phone: '4165551003',
+      },
+    ]);
+
+    await updateSalonClientStats(
+      'directory-salon-a',
+      '+1 (416) 555-1092',
+    );
+
+    expect(await readClientCaches()).toEqual(firstCaches);
+
+    await updateSalonClientStats('directory-salon-a', '4165551000');
+
+    expect(await readClientCaches()).toEqual(firstCaches);
   });
 });
