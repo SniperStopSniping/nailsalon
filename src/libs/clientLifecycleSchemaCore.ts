@@ -184,65 +184,101 @@ export async function getClientLifecycleSchemaReadiness(
         )
     `),
     booleanQuery(handle, sql`
-      with expected(index_name, is_unique, column_names) as (
+      with expected(
+        index_name,
+        relation_name,
+        access_method,
+        is_unique,
+        column_names
+      ) as (
         values
           (
             'salon_client_salon_id_id_idx',
+            'salon_client',
+            'btree',
             true,
             array['salon_id', 'id']::text[]
           ),
           (
             'salon_client_lifecycle_idx',
+            'salon_client',
+            'btree',
             false,
             array['salon_id', 'archived_at', 'merged_into_client_id']::text[]
           ),
           (
             'salon_client_merged_into_idx',
+            'salon_client',
+            'btree',
             false,
             array['salon_id', 'merged_into_client_id']::text[]
           ),
           (
             'salon_client_contact_alias_unique',
+            'salon_client_contact_alias',
+            'btree',
             true,
             array['salon_id', 'kind', 'normalized_value']::text[]
           ),
           (
             'salon_client_contact_alias_client_idx',
+            'salon_client_contact_alias',
+            'btree',
             false,
             array['salon_id', 'salon_client_id']::text[]
           ),
           (
             'salon_client_note_client_created_idx',
+            'salon_client_note',
+            'btree',
             false,
             array['salon_id', 'salon_client_id', 'created_at']::text[]
           ),
           (
             'salon_client_note_source_idx',
+            'salon_client_note',
+            'btree',
             false,
             array['salon_id', 'source_client_id']::text[]
           )
       ),
       actual as (
         select
-          classes.relname as index_name,
+          index_classes.relname as index_name,
+          indexed_relations.relname as relation_name,
+          access_methods.amname as access_method,
           indexes.indisunique as is_unique,
           indexes.indisvalid,
           indexes.indisready,
+          indexes.indpred is null as has_no_predicate,
+          indexes.indexprs is null as has_no_expressions,
+          indexes.indnatts = indexes.indnkeyatts
+            as has_no_included_columns,
+          indexes.indnkeyatts,
           array_agg(attributes.attname::text order by keys.ordinality)
             filter (where keys.ordinality <= indexes.indnkeyatts)
             as column_names
-        from pg_class as classes
+        from pg_class as index_classes
         inner join pg_index as indexes
-          on indexes.indexrelid = classes.oid
-        inner join pg_namespace as namespaces
-          on namespaces.oid = classes.relnamespace
+          on indexes.indexrelid = index_classes.oid
+        inner join pg_namespace as index_namespaces
+          on index_namespaces.oid = index_classes.relnamespace
+        inner join pg_class as indexed_relations
+          on indexed_relations.oid = indexes.indrelid
+         and indexed_relations.relkind in ('r', 'p')
+        inner join pg_namespace as indexed_namespaces
+          on indexed_namespaces.oid = indexed_relations.relnamespace
+        inner join pg_am as access_methods
+          on access_methods.oid = index_classes.relam
         cross join lateral unnest(indexes.indkey)
           with ordinality as keys(attribute_number, ordinality)
         inner join pg_attribute as attributes
           on attributes.attrelid = indexes.indrelid
          and attributes.attnum = keys.attribute_number
-        where namespaces.nspname = 'public'
-          and classes.relname in (
+        where index_namespaces.nspname = 'public'
+          and indexed_namespaces.nspname = 'public'
+          and index_classes.relkind = 'i'
+          and index_classes.relname in (
             'salon_client_salon_id_id_idx',
             'salon_client_lifecycle_idx',
             'salon_client_merged_into_idx',
@@ -252,20 +288,35 @@ export async function getClientLifecycleSchemaReadiness(
             'salon_client_note_source_idx'
           )
         group by
-          classes.relname,
+          index_classes.relname,
+          indexed_relations.relname,
+          access_methods.amname,
           indexes.indisunique,
           indexes.indisvalid,
-          indexes.indisready
+          indexes.indisready,
+          (indexes.indpred is null),
+          (indexes.indexprs is null),
+          indexes.indnatts,
+          indexes.indnkeyatts
       )
       select (
         count(*) = 7
         and bool_and(actual.indisvalid)
         and bool_and(actual.indisready)
+        and bool_and(actual.access_method = expected.access_method)
         and bool_and(actual.is_unique = expected.is_unique)
+        and bool_and(actual.has_no_predicate)
+        and bool_and(actual.has_no_expressions)
+        and bool_and(actual.has_no_included_columns)
+        and bool_and(
+          actual.indnkeyatts = cardinality(expected.column_names)
+        )
         and bool_and(actual.column_names = expected.column_names)
       ) as ok
       from expected
-      inner join actual using (index_name)
+      inner join actual
+        on actual.index_name = expected.index_name
+       and actual.relation_name = expected.relation_name
     `),
     booleanQuery(handle, sql`
       select count(*) = 1 as ok
@@ -326,62 +377,62 @@ export async function getClientLifecycleSchemaReadiness(
       with expected(
         trigger_name,
         relation_name,
-        function_name,
+        function_signature,
         trigger_type
       ) as (
         values
           (
             'salon_client_enforce_merge_transition',
             'salon_client',
-            'enforce_salon_client_merge_transition',
+            'public.enforce_salon_client_merge_transition()',
             23
           ),
           (
             'salon_client_prevent_merged_source_update',
             'salon_client',
-            'prevent_merged_salon_client_mutation',
+            'public.prevent_merged_salon_client_mutation()',
             19
           ),
           (
             'appointment_resolve_merged_client',
             'appointment',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'review_resolve_merged_client',
             'review',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'client_communication_resolve_merged_client',
             'client_communication',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'retention_campaign_resolve_merged_client',
             'retention_campaign',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'fraud_signal_resolve_merged_client',
             'fraud_signal',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'salon_client_note_resolve_merged_client',
             'salon_client_note',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           ),
           (
             'salon_client_alias_resolve_merged_client',
             'salon_client_contact_alias',
-            'resolve_merged_salon_client_reference',
+            'public.resolve_merged_salon_client_reference()',
             23
           )
       )
@@ -400,7 +451,7 @@ export async function getClientLifecycleSchemaReadiness(
        and namespaces.nspname = 'public'
       inner join pg_proc as functions
         on functions.oid = triggers.tgfoid
-       and functions.proname = expected.function_name
+       and functions.oid = to_regprocedure(expected.function_signature)
     `),
     booleanQuery(handle, sql`
       with recursive chain as (

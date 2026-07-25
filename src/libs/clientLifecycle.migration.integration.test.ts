@@ -428,6 +428,184 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     ).toBe(true);
   });
 
+  it('rejects a same-named index owned by the wrong public table', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      create table lifecycle_alias_index_decoy (
+        salon_id text not null,
+        kind text not null,
+        normalized_value text not null
+      );
+      create unique index salon_client_contact_alias_unique
+        on lifecycle_alias_index_decoy (
+          salon_id,
+          kind,
+          normalized_value
+        )
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('required client lifecycle indexes are missing');
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+
+    const capability = await pool.query<{ table_name: string | null }>(
+      `select to_regclass('public.app_schema_capability')::text as table_name`,
+    );
+
+    expect(capability.rows[0]?.table_name).toBeNull();
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      drop table lifecycle_alias_index_decoy;
+      create unique index salon_client_contact_alias_unique
+        on salon_client_contact_alias (
+          salon_id,
+          kind,
+          normalized_value
+        )
+    `);
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      create table lifecycle_alias_index_decoy (
+        salon_id text not null,
+        kind text not null,
+        normalized_value text not null
+      );
+      create unique index salon_client_contact_alias_unique
+        on lifecycle_alias_index_decoy (
+          salon_id,
+          kind,
+          normalized_value
+        )
+    `);
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(false);
+
+    await pool.query(`
+      drop index salon_client_contact_alias_unique;
+      drop table lifecycle_alias_index_decoy;
+      create unique index salon_client_contact_alias_unique
+        on salon_client_contact_alias (
+          salon_id,
+          kind,
+          normalized_value
+        )
+    `);
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  });
+
+  it('rejects a lifecycle trigger attached to a foreign-schema function', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    const fullFolder = await migrationFolderThrough(62);
+    temporaryFolders.push(through0061, fullFolder);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    await pool.query(`
+      create schema lifecycle_decoy;
+      create function lifecycle_decoy.resolve_merged_salon_client_reference()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        return new;
+      end;
+      $$;
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_id, salon_client_id
+        on appointment
+        for each row
+        execute function lifecycle_decoy.resolve_merged_salon_client_reference()
+    `);
+
+    await expect(
+      migrate(database, { migrationsFolder: fullFolder }),
+    ).rejects.toThrow('required client lifecycle triggers are unavailable');
+    expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
+      '1784950000006',
+    );
+
+    const capability = await pool.query<{ table_name: string | null }>(
+      `select to_regclass('public.app_schema_capability')::text as table_name`,
+    );
+
+    expect(capability.rows[0]?.table_name).toBeNull();
+
+    await pool.query(`
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_id, salon_client_id
+        on appointment
+        for each row
+        execute function public.resolve_merged_salon_client_reference();
+      drop schema lifecycle_decoy cascade
+    `);
+    await migrate(database, { migrationsFolder: fullFolder });
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+
+    await pool.query(`
+      create schema lifecycle_decoy;
+      create function lifecycle_decoy.resolve_merged_salon_client_reference()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        return new;
+      end;
+      $$;
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_id, salon_client_id
+        on appointment
+        for each row
+        execute function lifecycle_decoy.resolve_merged_salon_client_reference()
+    `);
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(false);
+
+    await pool.query(`
+      drop trigger appointment_resolve_merged_client on appointment;
+      create trigger appointment_resolve_merged_client
+        before insert or update of salon_id, salon_client_id
+        on appointment
+        for each row
+        execute function public.resolve_merged_salon_client_reference();
+      drop schema lifecycle_decoy cascade
+    `);
+
+    expect(
+      (await getClientLifecycleSchemaReadiness(database)).ready,
+    ).toBe(true);
+  });
+
   it('serializes 0062 with a pooled-safe transaction lock, then applies and no-ops', async () => {
     await resetDatabase(pool);
     const database = drizzle(pool);

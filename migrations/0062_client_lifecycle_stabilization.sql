@@ -305,65 +305,100 @@ BEGIN
   END IF;
 
   IF NOT (
-    WITH expected(index_name, is_unique, column_names) AS (
+    WITH expected(
+      index_name,
+      relation_name,
+      access_method,
+      is_unique,
+      column_names
+    ) AS (
       VALUES
         (
           'salon_client_salon_id_id_idx',
+          'salon_client',
+          'btree',
           true,
           ARRAY['salon_id', 'id']::text[]
         ),
         (
           'salon_client_lifecycle_idx',
+          'salon_client',
+          'btree',
           false,
           ARRAY['salon_id', 'archived_at', 'merged_into_client_id']::text[]
         ),
         (
           'salon_client_merged_into_idx',
+          'salon_client',
+          'btree',
           false,
           ARRAY['salon_id', 'merged_into_client_id']::text[]
         ),
         (
           'salon_client_contact_alias_unique',
+          'salon_client_contact_alias',
+          'btree',
           true,
           ARRAY['salon_id', 'kind', 'normalized_value']::text[]
         ),
         (
           'salon_client_contact_alias_client_idx',
+          'salon_client_contact_alias',
+          'btree',
           false,
           ARRAY['salon_id', 'salon_client_id']::text[]
         ),
         (
           'salon_client_note_client_created_idx',
+          'salon_client_note',
+          'btree',
           false,
           ARRAY['salon_id', 'salon_client_id', 'created_at']::text[]
         ),
         (
           'salon_client_note_source_idx',
+          'salon_client_note',
+          'btree',
           false,
           ARRAY['salon_id', 'source_client_id']::text[]
         )
     ),
     actual AS (
       SELECT
-        classes.relname AS index_name,
+        index_classes.relname AS index_name,
+        indexed_relations.relname AS relation_name,
+        access_methods.amname AS access_method,
         indexes.indisunique AS is_unique,
         indexes.indisvalid,
         indexes.indisready,
+        indexes.indpred IS NULL AS has_no_predicate,
+        indexes.indexprs IS NULL AS has_no_expressions,
+        indexes.indnatts = indexes.indnkeyatts AS has_no_included_columns,
+        indexes.indnkeyatts,
         array_agg(attributes.attname::text ORDER BY keys.ordinality)
           FILTER (WHERE keys.ordinality <= indexes.indnkeyatts)
           AS column_names
-      FROM pg_class AS classes
+      FROM pg_class AS index_classes
       INNER JOIN pg_index AS indexes
-        ON indexes.indexrelid = classes.oid
-      INNER JOIN pg_namespace AS namespaces
-        ON namespaces.oid = classes.relnamespace
+        ON indexes.indexrelid = index_classes.oid
+      INNER JOIN pg_namespace AS index_namespaces
+        ON index_namespaces.oid = index_classes.relnamespace
+      INNER JOIN pg_class AS indexed_relations
+        ON indexed_relations.oid = indexes.indrelid
+       AND indexed_relations.relkind IN ('r', 'p')
+      INNER JOIN pg_namespace AS indexed_namespaces
+        ON indexed_namespaces.oid = indexed_relations.relnamespace
+      INNER JOIN pg_am AS access_methods
+        ON access_methods.oid = index_classes.relam
       CROSS JOIN LATERAL unnest(indexes.indkey)
         WITH ORDINALITY AS keys(attribute_number, ordinality)
       INNER JOIN pg_attribute AS attributes
         ON attributes.attrelid = indexes.indrelid
        AND attributes.attnum = keys.attribute_number
-      WHERE namespaces.nspname = 'public'
-        AND classes.relname IN (
+      WHERE index_namespaces.nspname = 'public'
+        AND indexed_namespaces.nspname = 'public'
+        AND index_classes.relkind = 'i'
+        AND index_classes.relname IN (
           'salon_client_salon_id_id_idx',
           'salon_client_lifecycle_idx',
           'salon_client_merged_into_idx',
@@ -373,19 +408,34 @@ BEGIN
           'salon_client_note_source_idx'
         )
       GROUP BY
-        classes.relname,
+        index_classes.relname,
+        indexed_relations.relname,
+        access_methods.amname,
         indexes.indisunique,
         indexes.indisvalid,
-        indexes.indisready
+        indexes.indisready,
+        (indexes.indpred IS NULL),
+        (indexes.indexprs IS NULL),
+        indexes.indnatts,
+        indexes.indnkeyatts
     )
     SELECT
       count(*) = 7
       AND bool_and(actual.indisvalid)
       AND bool_and(actual.indisready)
+      AND bool_and(actual.access_method = expected.access_method)
       AND bool_and(actual.is_unique = expected.is_unique)
+      AND bool_and(actual.has_no_predicate)
+      AND bool_and(actual.has_no_expressions)
+      AND bool_and(actual.has_no_included_columns)
+      AND bool_and(
+        actual.indnkeyatts = cardinality(expected.column_names)
+      )
       AND bool_and(actual.column_names = expected.column_names)
     FROM expected
-    INNER JOIN actual USING (index_name)
+    INNER JOIN actual
+      ON actual.index_name = expected.index_name
+     AND actual.relation_name = expected.relation_name
   ) THEN
     RAISE EXCEPTION 'required client lifecycle indexes are missing';
   END IF;
@@ -414,62 +464,62 @@ BEGIN
     WITH expected(
       trigger_name,
       relation_name,
-      function_name,
+      function_signature,
       trigger_type
     ) AS (
       VALUES
         (
           'salon_client_enforce_merge_transition',
           'salon_client',
-          'enforce_salon_client_merge_transition',
+          'public.enforce_salon_client_merge_transition()',
           23
         ),
         (
           'salon_client_prevent_merged_source_update',
           'salon_client',
-          'prevent_merged_salon_client_mutation',
+          'public.prevent_merged_salon_client_mutation()',
           19
         ),
         (
           'appointment_resolve_merged_client',
           'appointment',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'review_resolve_merged_client',
           'review',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'client_communication_resolve_merged_client',
           'client_communication',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'retention_campaign_resolve_merged_client',
           'retention_campaign',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'fraud_signal_resolve_merged_client',
           'fraud_signal',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'salon_client_note_resolve_merged_client',
           'salon_client_note',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         ),
         (
           'salon_client_alias_resolve_merged_client',
           'salon_client_contact_alias',
-          'resolve_merged_salon_client_reference',
+          'public.resolve_merged_salon_client_reference()',
           23
         )
     )
@@ -488,7 +538,7 @@ BEGIN
      AND namespaces.nspname = 'public'
     INNER JOIN pg_proc AS functions
       ON functions.oid = triggers.tgfoid
-     AND functions.proname = expected.function_name
+     AND functions.oid = to_regprocedure(expected.function_signature)
   ) <> 9 THEN
     RAISE EXCEPTION 'required client lifecycle triggers are unavailable';
   END IF;
