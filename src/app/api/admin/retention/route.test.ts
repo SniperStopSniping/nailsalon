@@ -120,13 +120,20 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon, getAdminSession }));
-vi.mock('@/libs/clientLifecycleStabilization', () => ({
-  ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
-  getSalonClientLineageIdsWithHandle,
-  getSalonClientPhoneAliasesWithHandle,
-  lockTerminalSalonClientWithHandle,
-  withClientLifecycleTransactionRetry,
-}));
+vi.mock('@/libs/clientLifecycleStabilization', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@/libs/clientLifecycleStabilization')
+  >();
+  return {
+    ...actual,
+    ClientLifecycleStabilizationError:
+      class ClientLifecycleStabilizationError extends Error {},
+    getSalonClientLineageIdsWithHandle,
+    getSalonClientPhoneAliasesWithHandle,
+    lockTerminalSalonClientWithHandle,
+    withClientLifecycleTransactionRetry,
+  };
+});
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
 
@@ -171,6 +178,7 @@ describe('/api/admin/retention', () => {
           isBlocked: false,
         },
       ],
+      [],
       [{
         id: 'appointment_1',
         salonClientId: 'new_client',
@@ -196,6 +204,93 @@ describe('/api/admin/retention', () => {
       expect.objectContaining({ appointmentId: 'appointment_1', clientId: 'new_client' }),
     ]);
     expect(body.data.history).toEqual([]);
+  });
+
+  it('collapses a merged source into its active terminal before building reminder destinations', async () => {
+    selectQueue.push(
+      [{ id: 'merged_source' }],
+      [
+        {
+          id: 'primary_client',
+          fullName: 'Primary fixture',
+          phone: '4165550100',
+          lastVisitAt: new Date('2026-06-01T16:00:00.000Z'),
+          rebookIntervalDays: null,
+          isBlocked: false,
+          archivedAt: null,
+          mergedIntoClientId: null,
+        },
+        {
+          id: 'merged_source',
+          fullName: 'Source fixture',
+          phone: '4165550199',
+          lastVisitAt: new Date('2026-05-01T16:00:00.000Z'),
+          rebookIntervalDays: null,
+          isBlocked: false,
+          archivedAt: new Date('2026-07-01T16:00:00.000Z'),
+          mergedIntoClientId: 'primary_client',
+        },
+      ],
+      [{
+        salonClientId: 'merged_source',
+        kind: 'phone',
+        normalizedValue: '4165550199',
+      }],
+      [{
+        id: 'appointment_merged_source',
+        salonClientId: 'merged_source',
+        clientName: 'Historical fixture',
+        clientPhone: '4165550199',
+        startTime: new Date('2026-07-18T15:00:00.000Z'),
+        endTime: new Date('2026-07-18T16:00:00.000Z'),
+        status: 'confirmed',
+        dayBeforeReminderSentAt: null,
+        sameDayReminderSentAt: null,
+      }],
+      [{
+        id: 'communication_merged_source',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        appointmentId: null,
+        kind: 'promo_6w',
+        status: 'prepared',
+        dueAt: null,
+        snoozedUntil: null,
+        messageSnapshot: null,
+        metadata: {},
+        actorAdminId: 'admin_1',
+        destinationSnapshot: '4165550199',
+        preparedAt: NOW,
+        markedSentAt: null,
+        dismissedAt: null,
+        convertedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+    );
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=merged_source',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.retention).toEqual([]);
+    expect(body.data.appointmentReminders).toEqual([
+      expect.objectContaining({
+        appointmentId: 'appointment_merged_source',
+        clientId: 'primary_client',
+        phone: '4165550100',
+      }),
+    ]);
+    expect(body.data.history).toEqual([
+      expect.objectContaining({
+        id: 'communication_merged_source',
+        clientId: 'primary_client',
+      }),
+    ]);
+    expect(JSON.stringify(body.data)).not.toContain('4165550199');
+    expect(JSON.stringify(body.data)).not.toContain('"merged_source"');
   });
 
   it('returns 404 instead of leaking a client from another salon', async () => {

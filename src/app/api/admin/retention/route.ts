@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import {
+  buildActiveTerminalSalonClientMap,
   ClientLifecycleStabilizationError,
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
@@ -10,6 +11,7 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { normalizePhone } from '@/libs/phone';
 import {
   buildAppointmentReminderQueue,
   buildCommunicationStatusTimestamps,
@@ -26,6 +28,7 @@ import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   appointmentSchema,
   clientCommunicationSchema,
+  salonClientContactAliasSchema,
   salonClientSchema,
 } from '@/models/Schema';
 import type { ClientCommunicationKind, ClientCommunicationStatus, RetentionStage } from '@/types/retention';
@@ -42,10 +45,13 @@ const ACTIVE_RETENTION_STATUSES: ClientCommunicationStatus[] = ['prepared', 'sno
 
 type CommunicationRow = typeof clientCommunicationSchema.$inferSelect;
 
-function serializeCommunication(row: CommunicationRow) {
+function serializeCommunication(
+  row: CommunicationRow,
+  clientId = row.salonClientId,
+) {
   return {
     id: row.id,
-    clientId: row.salonClientId,
+    clientId,
     appointmentId: row.appointmentId,
     kind: row.kind,
     status: row.status,
@@ -102,7 +108,13 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const now = new Date();
-  const [settings, clientRows, appointmentRows, communicationRows] = await Promise.all([
+  const [
+    settings,
+    clientRows,
+    aliasRows,
+    appointmentRows,
+    communicationRows,
+  ] = await Promise.all([
     getRetentionSettingsForSalon(salon.id),
     db
       .select({
@@ -112,10 +124,20 @@ export async function GET(request: Request): Promise<Response> {
         lastVisitAt: salonClientSchema.lastVisitAt,
         rebookIntervalDays: salonClientSchema.rebookIntervalDays,
         isBlocked: salonClientSchema.isBlocked,
+        archivedAt: salonClientSchema.archivedAt,
+        mergedIntoClientId: salonClientSchema.mergedIntoClientId,
       })
       .from(salonClientSchema)
       .where(eq(salonClientSchema.salonId, salon.id))
       .limit(5000),
+    db
+      .select({
+        salonClientId: salonClientContactAliasSchema.salonClientId,
+        kind: salonClientContactAliasSchema.kind,
+        normalizedValue: salonClientContactAliasSchema.normalizedValue,
+      })
+      .from(salonClientContactAliasSchema)
+      .where(eq(salonClientContactAliasSchema.salonId, salon.id)),
     db
       .select({
         id: appointmentSchema.id,
@@ -152,18 +174,97 @@ export async function GET(request: Request): Promise<Response> {
       .limit(10000),
   ]);
 
-  const clients: RetentionClientSnapshot[] = clientRows;
-  const appointments: RetentionAppointmentSnapshot[] = appointmentRows.map(appointment => ({
-    id: appointment.id,
-    salonClientId: appointment.salonClientId,
-    clientName: appointment.clientName,
-    clientPhone: appointment.clientPhone,
-    startTime: appointment.startTime,
-    endTime: appointment.endTime,
-    status: appointment.status,
-    reminderSentAt: appointment.sameDayReminderSentAt ?? appointment.dayBeforeReminderSentAt,
-  }));
-  const communications = toCommunicationSnapshots(communicationRows);
+  const terminalBySource = buildActiveTerminalSalonClientMap(
+    clientRows.map(client => ({
+      id: client.id,
+      archivedAt: client.archivedAt,
+      mergedIntoClientId: client.mergedIntoClientId,
+    })),
+  );
+  const activeClientRows = clientRows.filter(
+    client => terminalBySource.get(client.id) === client.id,
+  );
+  const activeClientById = new Map(
+    activeClientRows.map(client => [client.id, client]),
+  );
+  const terminalIdsByPhone = new Map<string, Set<string>>();
+  const addPhoneIdentity = (value: string, terminalClientId: string) => {
+    const normalizedPhone = normalizePhone(value);
+    if (normalizedPhone.length !== 10) {
+      return;
+    }
+    const terminalIds = terminalIdsByPhone.get(normalizedPhone)
+      ?? new Set<string>();
+    terminalIds.add(terminalClientId);
+    terminalIdsByPhone.set(normalizedPhone, terminalIds);
+  };
+  for (const client of clientRows) {
+    const terminalClientId = terminalBySource.get(client.id);
+    if (terminalClientId) {
+      addPhoneIdentity(client.phone, terminalClientId);
+    }
+  }
+  for (const alias of aliasRows) {
+    if (alias.kind !== 'phone') {
+      continue;
+    }
+    const terminalClientId = terminalBySource.get(alias.salonClientId);
+    if (terminalClientId) {
+      addPhoneIdentity(alias.normalizedValue, terminalClientId);
+    }
+  }
+  const uniqueTerminalByPhone = new Map<string, string>();
+  for (const [normalizedPhone, terminalIds] of terminalIdsByPhone) {
+    if (terminalIds.size === 1) {
+      uniqueTerminalByPhone.set(normalizedPhone, [...terminalIds][0]!);
+    }
+  }
+  const resolveAppointmentClientId = (appointment: {
+    salonClientId: string | null;
+    clientPhone: string;
+  }): string | null => {
+    if (appointment.salonClientId !== null) {
+      return terminalBySource.get(appointment.salonClientId) ?? null;
+    }
+    return uniqueTerminalByPhone.get(normalizePhone(
+      appointment.clientPhone,
+    )) ?? null;
+  };
+
+  const clients: RetentionClientSnapshot[] = activeClientRows;
+  const appointments: RetentionAppointmentSnapshot[] = appointmentRows.flatMap(
+    (appointment) => {
+      const terminalClientId = resolveAppointmentClientId(appointment);
+      const terminalClient = terminalClientId
+        ? activeClientById.get(terminalClientId)
+        : null;
+      return terminalClientId && terminalClient
+        ? [{
+            id: appointment.id,
+            salonClientId: terminalClientId,
+            clientName: appointment.clientName,
+            // This is an operational destination only. The stored appointment
+            // snapshot remains unchanged.
+            clientPhone: terminalClient.phone,
+            startTime: appointment.startTime,
+            endTime: appointment.endTime,
+            status: appointment.status,
+            reminderSentAt:
+              appointment.sameDayReminderSentAt
+              ?? appointment.dayBeforeReminderSentAt,
+          }]
+        : [];
+    },
+  );
+  const communications = toCommunicationSnapshots(communicationRows)
+    .flatMap((communication) => {
+      const terminalClientId = terminalBySource.get(
+        communication.salonClientId,
+      );
+      return terminalClientId
+        ? [{ ...communication, salonClientId: terminalClientId }]
+        : [];
+    });
 
   const retention = buildRetentionQueue({
     clients,
@@ -180,11 +281,15 @@ export async function GET(request: Request): Promise<Response> {
     now,
   });
 
-  const history = parsed.data.clientId
+  const historyClientId = parsed.data.clientId
+    ? terminalBySource.get(parsed.data.clientId) ?? null
+    : null;
+  const history = historyClientId
     ? communicationRows
-      .filter(row => row.salonClientId === parsed.data.clientId)
+      .filter(row =>
+        terminalBySource.get(row.salonClientId) === historyClientId)
       .slice(0, 100)
-      .map(serializeCommunication)
+      .map(row => serializeCommunication(row, historyClientId))
     : [];
 
   return Response.json({
