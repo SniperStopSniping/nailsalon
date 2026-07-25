@@ -3119,20 +3119,16 @@ export async function POST(request: Request): Promise<Response> {
     // 12. SLOW WORK - SMS notifications (OUTSIDE lock window, after cache write)
     // =========================================================================
     // Use salonClient.phone as source of truth for all SMS
-    const confirmationEmail = normalizedClientEmail ?? originalAppointment?.clientEmail ?? null;
-    if (confirmationEmail) {
-      await sendCustomerBookingConfirmationEmail({
-        salonId: salon.id,
-        appointmentId: appointment.id,
-        to: confirmationEmail,
-        salonName: salon.name,
-        clientName: clientName ?? 'Guest',
-        serviceNames: services.map(service => service.name),
-        startTime: startTime.toISOString(),
-        timeZone: bookingConfig.timezone,
-        manageUrl,
-      });
-    }
+    await sendCustomerBookingConfirmationEmail({
+      salonId: salon.id,
+      appointmentId: appointment.id,
+      salonName: salon.name,
+      clientName: clientName ?? 'Guest',
+      serviceNames: services.map(service => service.name),
+      startTime: startTime.toISOString(),
+      timeZone: bookingConfig.timezone,
+      manageUrl,
+    });
 
     if (data.smsConsent?.granted) {
       await sendBookingConfirmationToClient(salon.id, {

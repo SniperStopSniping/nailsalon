@@ -573,6 +573,16 @@ describe('POST /api/appointments booking policy', () => {
     expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
       expect.objectContaining({ clientPhone: '2222222222' }),
     );
+    expect(sendCustomerBookingConfirmationEmail).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      appointmentId: 'appt_alias',
+      salonName: 'Salon A',
+      clientName: 'Alias Guest',
+      serviceNames: ['BIAB'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      timeZone: 'America/Toronto',
+      manageUrl: expect.any(String),
+    });
   });
 
   it('rejects a lineage-wide active conflict before any appointment-side insert', async () => {
