@@ -224,6 +224,49 @@ describe('POST /api/admin/retention/campaigns', () => {
     expect(updatedCommunications).toHaveLength(1);
   });
 
+  it('accepts a surfaced source communication without mutating its history row', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientLineageIdsWithHandle.mockResolvedValueOnce([
+      'merged_source',
+      'primary_client',
+    ]);
+    selectQueue.push(
+      [{
+        id: 'primary_client',
+        phone: '4165551212',
+        lastVisitAt: new Date('2026-06-05T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+      }],
+      [],
+      [{
+        id: 'communication_source',
+        salonId: 'salon_1',
+        salonClientId: 'merged_source',
+        kind: 'promo_6w',
+        metadata: { historical: true },
+      }],
+    );
+
+    const response = await POST(new Request('http://localhost/api/admin/retention/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'salon-a',
+        clientId: 'primary_client',
+        stage: 'promo_6w',
+        communicationId: 'communication_source',
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(insertedCampaigns[0]).toMatchObject({
+      salonClientId: 'primary_client',
+      communicationId: 'communication_source',
+    });
+    expect(updatedCommunications).toHaveLength(0);
+  });
+
   it('checks the terminal client block before preparing campaign state', async () => {
     lifecycleState.terminalClientId = 'primary_client';
     selectQueue.push([{

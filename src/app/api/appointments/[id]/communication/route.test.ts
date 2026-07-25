@@ -92,7 +92,7 @@ const {
       return {
         id: lifecycleState.terminalClientId ?? input.clientId,
         salonId: input.salonId,
-        archivedAt: null,
+        archivedAt: null as Date | null,
         redirectedFromClientId: lifecycleState.terminalClientId
           ? input.clientId
           : null,
@@ -107,7 +107,7 @@ const {
     ) => ({
       id: lifecycleState.terminalClientId ?? input.clientId,
       salonId: input.salonId,
-      archivedAt: null,
+      archivedAt: null as Date | null,
       redirectedFromClientId: lifecycleState.terminalClientId
         ? input.clientId
         : null,
@@ -289,6 +289,7 @@ describe('/api/appointments/[id]/communication', () => {
     expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
       salonId: 'salon_1',
       clientId: 'client_1',
+      allowArchived: true,
     });
     expect(getSalonClientById).toHaveBeenCalledWith(
       'salon_1',
@@ -335,11 +336,64 @@ describe('/api/appointments/[id]/communication', () => {
     expect(response.status).toBe(200);
     expect(resolveOperationalSalonClientByPhoneWithHandle).toHaveBeenCalledWith(
       db,
-      { salonId: 'salon_1', phone: '4165559999' },
+      {
+        salonId: 'salon_1',
+        phone: '4165559999',
+        allowArchived: true,
+      },
     );
     expect(getSalonClientById).toHaveBeenCalledWith(
       'salon_1',
       'primary_client',
+    );
+  });
+
+  it('keeps transactional communication available for an archived appointment client', async () => {
+    const archivedTerminal = {
+      id: 'client_1',
+      salonId: 'salon_1',
+      archivedAt: new Date('2026-07-01T12:00:00.000Z'),
+      redirectedFromClientId: null,
+      lineagePath: ['client_1'],
+    };
+    resolveTerminalSalonClient
+      .mockResolvedValueOnce(archivedTerminal)
+      .mockResolvedValueOnce(archivedTerminal);
+    lockTerminalSalonClientWithHandle.mockResolvedValueOnce(
+      archivedTerminal,
+    );
+    selectQueue.push([], [], []);
+
+    const getResponse = await GET(
+      new Request('https://app.test/api/appointments/appt_1/communication'),
+      { params: { id: 'appt_1' } },
+    );
+    const postResponse = await POST(
+      new Request('https://app.test/api/appointments/appt_1/communication', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'reminder',
+          status: 'marked_sent',
+        }),
+      }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(getResponse.status).toBe(200);
+    expect(postResponse.status).toBe(200);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'client_1',
+      allowArchived: true,
+    });
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'client_1',
+        allowArchived: true,
+      },
     );
   });
 
@@ -406,7 +460,11 @@ describe('/api/appointments/[id]/communication', () => {
     expect(response.status).toBe(200);
     expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
       expect.anything(),
-      { salonId: 'salon_1', clientId: 'merged_source' },
+      {
+        salonId: 'salon_1',
+        clientId: 'merged_source',
+        allowArchived: true,
+      },
     );
     expect(lifecycleOperations.slice(0, 2)).toEqual([
       'terminal-lock',

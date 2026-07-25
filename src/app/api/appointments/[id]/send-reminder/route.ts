@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 import { mintAppointmentManageLink } from '@/libs/appointmentManageLink';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
-import { resolveOperationalSalonClientContact } from '@/libs/clientLifecycleStabilization';
+import {
+  resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
+} from '@/libs/clientLifecycleStabilization';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -91,7 +94,11 @@ export async function POST(
           clientId: appointment.salonClientId,
           allowArchived: true,
         })
-        : Promise.resolve(null),
+        : resolveOperationalSalonClientContactByPhone({
+          salonId: appointment.salonId,
+          phone: appointment.clientPhone,
+          allowArchived: true,
+        }),
     ]);
 
     if (!salon) {

@@ -11,6 +11,7 @@ vi.mock('server-only', () => ({}));
 const {
   mintAppointmentManageLink,
   resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
   sendTransactionalEmail,
   getAppointmentServiceNames,
   getClientByPhone,
@@ -39,6 +40,7 @@ const {
   return {
     mintAppointmentManageLink: vi.fn(),
     resolveOperationalSalonClientContact: vi.fn(),
+    resolveOperationalSalonClientContactByPhone: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
     getClientByPhone: vi.fn(),
@@ -62,6 +64,7 @@ vi.mock('@/libs/email', () => ({
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
 }));
 
 vi.mock('@/libs/appointmentManageLink', () => ({
@@ -104,6 +107,7 @@ describe('appointment reminders', () => {
       redirectedFromClientId: 'merged_source',
       lineagePath: ['merged_source', 'primary_client'],
     });
+    resolveOperationalSalonClientContactByPhone.mockResolvedValue(null);
   });
 
   it('detects the day-before 6 PM local reminder window', () => {
@@ -233,6 +237,83 @@ describe('appointment reminders', () => {
       expect.objectContaining({ phone: '4165550198' }),
     );
     expect(result.dayBeforeSent).toBe(1);
+  });
+
+  it('uses a unique same-salon alias for a null-ID appointment', async () => {
+    resolveOperationalSalonClientContactByPhone.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165550198',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: 'merged_source',
+      lineagePath: ['merged_source', 'primary_client'],
+    });
+    queueSelectResults([{
+      appointmentId: 'appt_legacy',
+      salonId: 'salon_1',
+      salonClientId: null,
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '4165550100',
+      appointmentEmail: 'historical@example.test',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(resolveOperationalSalonClientContactByPhone).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      phone: '4165550100',
+      allowArchived: true,
+    });
+    expect(sendAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165550198' }),
+    );
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'historical@example.test' }),
+    );
+    expect(result.dayBeforeSent).toBe(1);
+  });
+
+  it('does not send or mark a null-ID reminder with ambiguous lifecycle contact', async () => {
+    resolveOperationalSalonClientContactByPhone.mockRejectedValue(
+      new Error('ambiguous lifecycle state'),
+    );
+    queueSelectResults([{
+      appointmentId: 'appt_ambiguous',
+      salonId: 'salon_1',
+      salonClientId: null,
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '4165550100',
+      appointmentEmail: null,
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      salonClientEmail: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(updateWhere).not.toHaveBeenCalled();
+    expect(result.failures).toBe(1);
   });
 
   it('fails closed without marking a reminder when terminal contact is invalid', async () => {

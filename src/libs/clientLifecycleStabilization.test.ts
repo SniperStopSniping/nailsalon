@@ -4,6 +4,7 @@ import {
   ClientLifecycleStabilizationError,
   type LifecycleSqlHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
+  resolveOperationalSalonClientContactByPhoneWithHandle,
   resolveOperationalSalonClientContactWithHandle,
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
@@ -172,6 +173,36 @@ describe('client lifecycle stabilization', () => {
       id: 'primary',
       phone: '4165550198',
       email: 'current@example.test',
+      redirectedFromClientId: 'source',
+    });
+  });
+
+  it('reads current operational contact through a private historical phone alias', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{ id: 'source' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'source',
+        salon_id: 'salon-a',
+        merged_into_client_id: 'primary',
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'primary',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550198',
+        email: 'current@example.test',
+      }]));
+
+    await expect(resolveOperationalSalonClientContactByPhoneWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', phone: '4165550100' },
+    )).resolves.toMatchObject({
+      id: 'primary',
+      phone: '4165550198',
       redirectedFromClientId: 'source',
     });
   });

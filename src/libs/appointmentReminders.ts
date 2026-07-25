@@ -3,7 +3,10 @@ import 'server-only';
 import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
-import { resolveOperationalSalonClientContact } from '@/libs/clientLifecycleStabilization';
+import {
+  resolveOperationalSalonClientContact,
+  resolveOperationalSalonClientContactByPhone,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmail } from '@/libs/email';
 import { normalizePhone } from '@/libs/phone';
@@ -249,17 +252,23 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
 async function resolveReminderOperationalContact(
   candidate: ReminderCandidate,
 ): Promise<ReminderCandidate> {
-  if (!candidate.salonClientId) {
-    return candidate;
-  }
-  const contact = await resolveOperationalSalonClientContact({
-    salonId: candidate.salonId,
-    clientId: candidate.salonClientId,
-    allowArchived: true,
-  });
+  const contact = candidate.salonClientId
+    ? await resolveOperationalSalonClientContact({
+      salonId: candidate.salonId,
+      clientId: candidate.salonClientId,
+      allowArchived: true,
+    })
+    : await resolveOperationalSalonClientContactByPhone({
+      salonId: candidate.salonId,
+      phone: candidate.clientPhone,
+      allowArchived: true,
+    });
   return {
     ...candidate,
-    clientPhone: contact.phone,
+    // A legacy appointment with no stable or alias match retains its immutable
+    // destination snapshot. Ambiguous or invalid lifecycle state throws above,
+    // so no management capability is sent until the state is resolved.
+    clientPhone: contact?.phone ?? candidate.clientPhone,
   };
 }
 

@@ -110,6 +110,7 @@ async function resolveAppointmentClient(appointment: {
     const terminal = await resolveTerminalSalonClient({
       salonId: appointment.salonId,
       clientId: appointment.salonClientId,
+      allowArchived: true,
     });
     const linkedClient = await getSalonClientById(
       appointment.salonId,
@@ -121,6 +122,7 @@ async function resolveAppointmentClient(appointment: {
   const terminal = await resolveOperationalSalonClientByPhoneWithHandle(db, {
     salonId: appointment.salonId,
     phone: appointment.clientPhone,
+    allowArchived: true,
   });
   return terminal
     ? getSalonClientById(appointment.salonId, terminal.id)
@@ -306,6 +308,7 @@ export async function POST(
         const terminal = await lockTerminalSalonClientWithHandle(tx, {
           salonId: appointment.salonId,
           clientId: client.id,
+          allowArchived: true,
         });
         const [latest] = await tx
           .select()

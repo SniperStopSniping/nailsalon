@@ -335,6 +335,34 @@ export async function resolveOperationalSalonClientByPhoneWithHandle(
   return terminals[0] ?? null;
 }
 
+export async function resolveOperationalSalonClientContactByPhoneWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone: string;
+    allowArchived?: boolean;
+  },
+): Promise<OperationalSalonClientContact | null> {
+  const terminal = await resolveOperationalSalonClientByPhoneWithHandle(
+    handle,
+    input,
+  );
+  return terminal
+    ? loadOperationalSalonClientContact(handle, terminal)
+    : null;
+}
+
+export function resolveOperationalSalonClientContactByPhone(input: {
+  salonId: string;
+  phone: string;
+  allowArchived?: boolean;
+}): Promise<OperationalSalonClientContact | null> {
+  return resolveOperationalSalonClientContactByPhoneWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
 export async function getSalonClientLineageIdsWithHandle(
   handle: LifecycleSqlHandle,
   input: {

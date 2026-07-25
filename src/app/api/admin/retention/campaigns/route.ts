@@ -190,7 +190,10 @@ export async function POST(request: Request): Promise<Response> {
             .where(and(
               eq(clientCommunicationSchema.id, parsed.data.communicationId),
               eq(clientCommunicationSchema.salonId, salon.id),
-              eq(clientCommunicationSchema.salonClientId, terminal.id),
+              inArray(
+                clientCommunicationSchema.salonClientId,
+                lineageIds,
+              ),
               eq(clientCommunicationSchema.kind, parsed.data.stage),
             ))
             .limit(1);
@@ -218,7 +221,7 @@ export async function POST(request: Request): Promise<Response> {
           singleUse: promotion.singleUse,
         });
 
-        if (communication) {
+        if (communication?.salonClientId === terminal.id) {
           await tx
             .update(clientCommunicationSchema)
             .set({
