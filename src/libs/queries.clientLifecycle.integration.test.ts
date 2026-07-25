@@ -435,6 +435,7 @@ async function seedInvalidDirectoryLifecycle(pool: pg.Pool): Promise<void> {
     ['directory-missing', '4165551102', 'Missing Target'],
     ['directory-cross-salon', '4165551103', 'Cross Salon'],
     ['directory-unarchived-source', '4165551104', 'Unarchived Source'],
+    ['directory-depth-terminal', '4165551105', 'Zulu Terminal'],
   ];
   for (let depth = 1; depth <= 16; depth += 1) {
     corruptClients.push([
@@ -531,7 +532,7 @@ async function seedInvalidDirectoryLifecycle(pool: pg.Pool): Promise<void> {
     `);
     for (let depth = 1; depth <= 16; depth += 1) {
       const target = depth === 1
-        ? 'directory-primary'
+        ? 'directory-depth-terminal'
         : `directory-depth-${String(depth - 1).padStart(2, '0')}`;
       await client.query(
         `update salon_client
@@ -602,11 +603,11 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
       sortOrder: 'desc',
     });
 
-    expect(firstPage.total).toBe(2);
+    expect(firstPage.total).toBe(3);
     expect(firstPage.clients.map(client => client.id)).toEqual([
       'directory-second',
     ]);
-    expect(secondPage.total).toBe(2);
+    expect(secondPage.total).toBe(3);
     expect(secondPage.clients).toEqual([
       expect.objectContaining({
         id: 'directory-primary',
@@ -620,6 +621,7 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
     expect(byVisits.clients.map(client => client.id)).toEqual([
       'directory-second',
       'directory-primary',
+      'directory-depth-terminal',
     ]);
   });
 
@@ -673,7 +675,7 @@ describePostgres.sequential('getSalonClients lifecycle compatibility', () => {
     });
 
     expect(result.total).toBe(1);
-    expect(result.clients[0]?.id).toBe('directory-primary');
+    expect(result.clients[0]?.id).toBe('directory-depth-terminal');
   });
 
   it('does not change phone authentication lookup semantics', async () => {
