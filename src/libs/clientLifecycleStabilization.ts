@@ -14,7 +14,8 @@ export const CLIENT_LIFECYCLE_RETRYABLE_SQLSTATES = new Set([
 export type ClientLifecycleErrorCode =
   | 'CLIENT_NOT_FOUND'
   | 'INVALID_CLIENT_STATE'
-  | 'CLIENT_ARCHIVED';
+  | 'CLIENT_ARCHIVED'
+  | 'UNSUPPORTED_CLIENT_IDENTITY';
 
 export class ClientLifecycleStabilizationError extends Error {
   readonly code: ClientLifecycleErrorCode;
@@ -43,11 +44,159 @@ export type OperationalSalonClientContact = TerminalSalonClient & {
   email: string | null;
 };
 
+export type NormalizedClientIdentity = {
+  kind: 'phone' | 'email';
+  value: string;
+};
+
+export type SalonClientLineageIdentity = {
+  terminal: OperationalSalonClientContact;
+  clientIds: string[];
+  phones: string[];
+  emails: string[];
+  externalClientId: string | null;
+};
+
+export type CanonicalSalonClientIdentity = SalonClientLineageIdentity & {
+  matchedBy: NormalizedClientIdentity[];
+};
+
 export type SalonClientLifecycleLink = {
   id: string;
   archivedAt: Date | null;
   mergedIntoClientId: string | null;
 };
+
+export type SalonClientIdentityKind = 'phone' | 'email';
+
+export type NormalizedSalonClientIdentity = {
+  phone: string | null;
+  email: string | null;
+};
+
+export type SalonClientIdentityLockKey = {
+  salonId: string;
+  kind: SalonClientIdentityKind;
+  normalizedValue: string;
+  advisoryKey: string;
+};
+
+function normalizeSupportedPhone(value: string | null | undefined): string | null {
+  if (value == null || !value.trim()) {
+    return null;
+  }
+  const normalized = normalizePhone(value);
+  if (normalized.length !== 10) {
+    throw new TypeError('phone must normalize to 10 digits');
+  }
+  return normalized;
+}
+
+function normalizeEmail(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const parts = normalized.split('@');
+  const domain = parts[1] ?? '';
+  if (
+    normalized.length > 320
+    || parts.length !== 2
+    || !parts[0]
+    || !domain
+    || !domain.includes('.')
+    || domain.startsWith('.')
+    || domain.endsWith('.')
+    || [...normalized].some(character => /\s/.test(character))
+  ) {
+    throw new TypeError('email is invalid');
+  }
+  return normalized;
+}
+
+function normalizeSupportedEmail(value: string | null | undefined): string | null {
+  if (value == null || !value.trim()) {
+    return null;
+  }
+  return normalizeEmail(value);
+}
+
+export function normalizeSalonClientIdentity(input: {
+  phone?: string | null;
+  email?: string | null;
+}): NormalizedSalonClientIdentity {
+  return {
+    phone: normalizeSupportedPhone(input.phone),
+    email: normalizeSupportedEmail(input.email),
+  };
+}
+
+/**
+ * Produces transaction-scoped identity locks in one deterministic order.
+ * The encoded advisory key is tenant scoped and includes the contact kind, so
+ * the same value in another salon or in another namespace never coordinates.
+ */
+export function buildSalonClientIdentityLockKeys(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+}): SalonClientIdentityLockKey[] {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const normalized = normalizeSalonClientIdentity(input);
+  const keys: SalonClientIdentityLockKey[] = [];
+
+  if (normalized.phone) {
+    keys.push({
+      salonId,
+      kind: 'phone',
+      normalizedValue: normalized.phone,
+      advisoryKey: JSON.stringify([
+        salonId,
+        'phone',
+        normalized.phone,
+      ]),
+    });
+  }
+  if (normalized.email) {
+    keys.push({
+      salonId,
+      kind: 'email',
+      normalizedValue: normalized.email,
+      advisoryKey: JSON.stringify([
+        salonId,
+        'email',
+        normalized.email,
+      ]),
+    });
+  }
+
+  return keys.sort((left, right) =>
+    left.advisoryKey.localeCompare(right.advisoryKey));
+}
+
+export async function lockSalonClientIdentityKeysWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+  },
+): Promise<NormalizedSalonClientIdentity> {
+  const keys = buildSalonClientIdentityLockKeys(input);
+  if (keys.length === 0) {
+    throw new TypeError('at least one supported client identity is required');
+  }
+
+  for (const key of keys) {
+    await handle.execute(sql`
+      select pg_advisory_xact_lock(
+        hashtextextended(${key.advisoryKey}, 0)
+      )
+    `);
+  }
+
+  return {
+    phone: keys.find(key => key.kind === 'phone')?.normalizedValue ?? null,
+    email: keys.find(key => key.kind === 'email')?.normalizedValue ?? null,
+  };
+}
 
 /**
  * Builds one tenant's source-to-active-terminal map without issuing queries.
@@ -124,6 +273,25 @@ function requireInput(value: string, name: string): string {
     throw new TypeError(`${name} is required`);
   }
   return normalized;
+}
+
+export function normalizeClientIdentityInput(input: {
+  phone?: string | null;
+  email?: string | null;
+}): NormalizedClientIdentity[] {
+  const identities: NormalizedClientIdentity[] = [];
+  if (input.phone != null && input.phone.trim() !== '') {
+    const phone = normalizePhone(input.phone);
+    if (phone.length !== 10) {
+      throw new TypeError('phone is invalid');
+    }
+    identities.push({ kind: 'phone', value: phone });
+  }
+  if (input.email != null && input.email.trim() !== '') {
+    identities.push({ kind: 'email', value: normalizeEmail(input.email) });
+  }
+  return identities.sort((left, right) =>
+    left.kind.localeCompare(right.kind) || left.value.localeCompare(right.value));
 }
 
 async function loadClientRow(
@@ -318,12 +486,14 @@ export async function resolveOperationalSalonClientByPhoneWithHandle(
     return null;
   }
 
-  const terminals = await Promise.all(candidateIds.map(clientId =>
-    resolveTerminalSalonClientWithHandle(handle, {
+  const terminals: TerminalSalonClient[] = [];
+  for (const clientId of candidateIds) {
+    terminals.push(await resolveTerminalSalonClientWithHandle(handle, {
       salonId,
       clientId,
       allowArchived: input.allowArchived,
-    })));
+    }));
+  }
   const terminalIds = new Set(terminals.map(terminal => terminal.id));
   if (terminalIds.size !== 1) {
     throw new ClientLifecycleStabilizationError(
@@ -358,6 +528,206 @@ export function resolveOperationalSalonClientContactByPhone(input: {
   allowArchived?: boolean;
 }): Promise<OperationalSalonClientContact | null> {
   return resolveOperationalSalonClientContactByPhoneWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+export async function getSalonClientLineageIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    terminalClientId: string;
+    allowArchived?: boolean;
+  },
+): Promise<SalonClientLineageIdentity> {
+  const terminal = await resolveOperationalSalonClientContactWithHandle(
+    handle,
+    {
+      salonId: input.salonId,
+      clientId: input.terminalClientId,
+      allowArchived: input.allowArchived,
+    },
+  );
+  if (terminal.id !== input.terminalClientId) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+
+  const clientIds = await getSalonClientLineageIdsWithHandle(handle, {
+    salonId: terminal.salonId,
+    terminalClientId: terminal.id,
+  });
+  const lineageRowsResult = await handle.execute(sql`
+    select id, phone, lower(email) as email, client_id
+    from salon_client
+    where salon_id = ${terminal.salonId}
+      and id in (
+        ${sql.join(clientIds.map(id => sql`${id}`), sql`, `)}
+      )
+    order by id
+  `);
+  const lineageRows = readRows(lineageRowsResult);
+  if (lineageRows.length !== clientIds.length) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+
+  const sourceWithExternalIdentity = lineageRows.some(row =>
+    row.id !== terminal.id && typeof row.client_id === 'string');
+  const externalClientIds = [...new Set(
+    lineageRows
+      .map(row => row.client_id)
+      .filter((id): id is string => typeof id === 'string'),
+  )];
+  if (sourceWithExternalIdentity || externalClientIds.length > 1) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+
+  const aliasesResult = await handle.execute(sql`
+    select kind, normalized_value
+    from salon_client_contact_alias
+    where salon_id = ${terminal.salonId}
+      and salon_client_id in (
+        ${sql.join(clientIds.map(id => sql`${id}`), sql`, `)}
+      )
+    order by salon_id, kind, normalized_value, salon_client_id
+  `);
+  const aliases = readRows(aliasesResult);
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  for (const row of lineageRows) {
+    if (typeof row.phone === 'string') {
+      const phone = normalizePhone(row.phone);
+      if (phone.length === 10) {
+        phones.add(phone);
+      }
+    }
+    if (typeof row.email === 'string' && row.email.trim()) {
+      emails.add(row.email.trim().toLowerCase());
+    }
+  }
+  for (const alias of aliases) {
+    if (alias.kind === 'phone' && typeof alias.normalized_value === 'string') {
+      const phone = normalizePhone(alias.normalized_value);
+      if (phone.length === 10) {
+        phones.add(phone);
+      }
+    }
+    if (alias.kind === 'email' && typeof alias.normalized_value === 'string') {
+      emails.add(alias.normalized_value.trim().toLowerCase());
+    }
+  }
+
+  return {
+    terminal,
+    clientIds,
+    phones: [...phones].sort(),
+    emails: [...emails].sort(),
+    externalClientId: externalClientIds[0] ?? null,
+  };
+}
+
+export async function resolveCanonicalSalonClientIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+    allowArchived?: boolean;
+  },
+): Promise<CanonicalSalonClientIdentity | null> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const identities = normalizeClientIdentityInput(input);
+  if (identities.length === 0) {
+    return null;
+  }
+
+  const phone = identities.find(identity => identity.kind === 'phone')?.value;
+  const email = identities.find(identity => identity.kind === 'email')?.value;
+  const candidateResult = await handle.execute(sql`
+    select distinct candidate.id
+    from (
+      select client.id
+      from salon_client as client
+      where client.salon_id = ${salonId}
+        and (
+          (${phone ?? null}::text is not null and client.phone = ${phone ?? null})
+          or (
+            ${email ?? null}::text is not null
+            and lower(client.email) = ${email ?? null}
+          )
+        )
+
+      union
+
+      select alias.salon_client_id as id
+      from salon_client_contact_alias as alias
+      where alias.salon_id = ${salonId}
+        and (
+          (
+            ${phone ?? null}::text is not null
+            and alias.kind = 'phone'
+            and alias.normalized_value = ${phone ?? null}
+          )
+          or (
+            ${email ?? null}::text is not null
+            and alias.kind = 'email'
+            and alias.normalized_value = ${email ?? null}
+          )
+        )
+    ) as candidate
+    order by candidate.id
+  `);
+  const candidateIds = [...new Set(
+    readRows(candidateResult)
+      .map(row => row.id)
+      .filter((id): id is string => typeof id === 'string'),
+  )];
+  if (candidateIds.length === 0) {
+    return null;
+  }
+
+  const terminals = await Promise.all(candidateIds.map(clientId =>
+    resolveTerminalSalonClientWithHandle(handle, {
+      salonId,
+      clientId,
+      allowArchived: input.allowArchived,
+    })));
+  const terminalIds = [...new Set(terminals.map(terminal => terminal.id))];
+  if (terminalIds.length !== 1) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+
+  const lineage = await getSalonClientLineageIdentityWithHandle(handle, {
+    salonId,
+    terminalClientId: terminalIds[0]!,
+    allowArchived: input.allowArchived,
+  });
+  const matchedBy = identities.filter(identity =>
+    identity.kind === 'phone'
+      ? lineage.phones.includes(identity.value)
+      : lineage.emails.includes(identity.value));
+  return { ...lineage, matchedBy };
+}
+
+export function resolveCanonicalSalonClientIdentity(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  allowArchived?: boolean;
+}): Promise<CanonicalSalonClientIdentity | null> {
+  return resolveCanonicalSalonClientIdentityWithHandle(
     db as LifecycleSqlHandle,
     input,
   );
@@ -399,11 +769,39 @@ export async function getSalonClientLineageIdsWithHandle(
       where lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
         and not source.id = any(lineage.path)
     )
-    select distinct id
+    select
+      id,
+      depth,
+      exists (
+        select 1
+        from salon_client as child
+        where child.salon_id = ${salonId}
+          and child.merged_into_client_id = lineage.id
+          and not child.id = any(lineage.path)
+      ) as has_unvisited_child,
+      exists (
+        select 1
+        from salon_client as child
+        where child.salon_id = ${salonId}
+          and child.merged_into_client_id = lineage.id
+          and child.id = any(lineage.path)
+      ) as has_cycle
     from lineage
     order by id
   `);
-  const ids = readRows(result)
+  const rows = readRows(result);
+  if (rows.some(row =>
+    row.has_cycle === true
+    || (
+      Number(row.depth) === CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1
+      && row.has_unvisited_child === true
+    ))) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+  const ids = rows
     .map(row => row.id)
     .filter((id): id is string => typeof id === 'string');
   if (!ids.includes(terminalClientId)) {

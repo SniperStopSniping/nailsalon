@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildSalonClientIdentityLockKeys,
   ClientLifecycleStabilizationError,
+  getSalonClientLineageIdentityWithHandle,
+  getSalonClientLineageIdsWithHandle,
   type LifecycleSqlHandle,
+  lockSalonClientIdentityKeysWithHandle,
+  normalizeClientIdentityInput,
+  resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   resolveOperationalSalonClientContactByPhoneWithHandle,
   resolveOperationalSalonClientContactWithHandle,
@@ -21,6 +27,55 @@ function databaseError(code: string): Error & { code: string } {
 }
 
 describe('client lifecycle stabilization', () => {
+  it('normalizes and deterministically orders supported identity keys', () => {
+    expect(normalizeClientIdentityInput({
+      phone: '+1 (416) 555-0101',
+      email: '  Client@Example.COM ',
+    })).toEqual([
+      { kind: 'email', value: 'client@example.com' },
+      { kind: 'phone', value: '4165550101' },
+    ]);
+    expect(buildSalonClientIdentityLockKeys({
+      salonId: 'salon-a',
+      phone: '+1 (416) 555-0101',
+      email: 'Client@Example.COM',
+    })).toEqual([
+      {
+        advisoryKey: '[\"salon-a\",\"email\",\"client@example.com\"]',
+        kind: 'email',
+        normalizedValue: 'client@example.com',
+        salonId: 'salon-a',
+      },
+      {
+        advisoryKey: '[\"salon-a\",\"phone\",\"4165550101\"]',
+        kind: 'phone',
+        normalizedValue: '4165550101',
+        salonId: 'salon-a',
+      },
+    ]);
+    expect(() => normalizeClientIdentityInput({ phone: '123' }))
+      .toThrow('phone is invalid');
+    expect(() => normalizeClientIdentityInput({ email: 'invalid' }))
+      .toThrow('email is invalid');
+  });
+
+  it('takes every identity advisory lock in deterministic sorted order', async () => {
+    const execute = vi.fn().mockResolvedValue(result([]));
+
+    await expect(lockSalonClientIdentityKeysWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        phone: '4165550101',
+        email: 'client@example.com',
+      },
+    )).resolves.toEqual({
+      email: 'client@example.com',
+      phone: '4165550101',
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
   it('resolves a bounded same-salon chain to its active terminal client', async () => {
     const execute = vi.fn()
       .mockResolvedValueOnce(result([{
@@ -227,6 +282,174 @@ describe('client lifecycle stabilization', () => {
       { execute } as LifecycleSqlHandle,
       { salonId: 'salon-a', phone: '4165551212' },
     )).rejects.toMatchObject({ code: 'INVALID_CLIENT_STATE' });
+  });
+
+  it('resolves current and historical contacts to one same-salon terminal', async () => {
+    const execute = vi.fn()
+      // Candidate lookup by the supplied historical values.
+      .mockResolvedValueOnce(result([{ id: 'source' }]))
+      // Resolve source -> terminal.
+      .mockResolvedValueOnce(result([{
+        id: 'source',
+        salon_id: 'salon-a',
+        merged_into_client_id: 'terminal',
+        archived_at: new Date(),
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      // Resolve and load the terminal operational contact.
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550200',
+        email: 'current@example.com',
+      }]))
+      // Load complete lineage, current identities, and aliases.
+      .mockResolvedValueOnce(result([{ id: 'source' }, { id: 'terminal' }]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          phone: '4165550100',
+          email: 'old@example.com',
+          client_id: null,
+        },
+        {
+          id: 'terminal',
+          phone: '4165550200',
+          email: 'current@example.com',
+          client_id: null,
+        },
+      ]))
+      .mockResolvedValueOnce(result([
+        { kind: 'phone', normalized_value: '4165550100' },
+        { kind: 'email', normalized_value: 'old@example.com' },
+      ]));
+
+    await expect(resolveCanonicalSalonClientIdentityWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        phone: '(416) 555-0100',
+        email: 'OLD@example.com',
+      },
+    )).resolves.toMatchObject({
+      terminal: {
+        id: 'terminal',
+        phone: '4165550200',
+        email: 'current@example.com',
+      },
+      clientIds: ['source', 'terminal'],
+      phones: ['4165550100', '4165550200'],
+      emails: ['current@example.com', 'old@example.com'],
+      matchedBy: [
+        { kind: 'email', value: 'old@example.com' },
+        { kind: 'phone', value: '4165550100' },
+      ],
+    });
+  });
+
+  it('fails closed when supplied identities resolve to different terminals', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{ id: 'client-a' }, { id: 'client-b' }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-a',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'client-b',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]));
+
+    await expect(resolveCanonicalSalonClientIdentityWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        phone: '4165550100',
+        email: 'other@example.com',
+      },
+    )).rejects.toMatchObject({ code: 'INVALID_CLIENT_STATE' });
+  });
+
+  it('rejects a merged lineage carrying a source external identity link', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([{
+        phone: '4165550200',
+        email: 'current@example.com',
+      }]))
+      .mockResolvedValueOnce(result([{ id: 'source' }, { id: 'terminal' }]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          phone: '4165550100',
+          email: null,
+          client_id: 'external-source',
+        },
+        {
+          id: 'terminal',
+          phone: '4165550200',
+          email: null,
+          client_id: null,
+        },
+      ]));
+
+    await expect(getSalonClientLineageIdentityWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', terminalClientId: 'terminal' },
+    )).rejects.toMatchObject({ code: 'INVALID_CLIENT_STATE' });
+  });
+
+  it('fails closed when reverse lineage traversal reaches its bound', async () => {
+    const execute = vi.fn().mockResolvedValue(result([
+      {
+        depth: 0,
+        has_cycle: false,
+        has_unvisited_child: false,
+        id: 'terminal',
+      },
+      {
+        depth: 15,
+        has_cycle: false,
+        has_unvisited_child: true,
+        id: 'source-15',
+      },
+    ]));
+
+    await expect(getSalonClientLineageIdsWithHandle(
+      { execute } as LifecycleSqlHandle,
+      { salonId: 'salon-a', terminalClientId: 'terminal' },
+    )).rejects.toMatchObject({ code: 'INVALID_CLIENT_STATE' });
+  });
+
+  it('fails closed when a same-salon identity candidate cannot resolve', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{ id: 'invalid-candidate' }]))
+      .mockResolvedValueOnce(result([]));
+
+    await expect(resolveCanonicalSalonClientIdentityWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        phone: '4165550100',
+      },
+    )).rejects.toMatchObject({ code: 'CLIENT_NOT_FOUND' });
   });
 
   it.each(['40P01', '40001'])(

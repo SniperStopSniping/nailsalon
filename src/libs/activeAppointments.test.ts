@@ -1,13 +1,18 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
-import { buildClientPhoneVariants, getActiveAppointmentsForContact } from './activeAppointments';
+import {
+  buildClientPhoneVariants,
+  getActiveAppointmentsForCanonicalClientWithHandle,
+  getActiveAppointmentsForContact,
+} from './activeAppointments';
 
 vi.mock('server-only', () => ({}));
 
@@ -30,6 +35,7 @@ let appointmentSeq = 0;
 
 async function insertAppointment(args: {
   salonId?: string;
+  salonClientId?: string | null;
   phone?: string;
   email?: string | null;
   start: string;
@@ -43,6 +49,7 @@ async function insertAppointment(args: {
     id,
     salonId: args.salonId ?? SALON_A,
     technicianId: null,
+    salonClientId: args.salonClientId ?? null,
     clientPhone: args.phone ?? '4165550100',
     clientEmail: args.email ?? null,
     startTime: new Date(args.start),
@@ -64,6 +71,56 @@ beforeAll(async () => {
   await db.insert(schema.salonSchema).values([
     { id: SALON_A, name: 'Active Salon A', slug: 'active-salon-a' },
     { id: SALON_B, name: 'Active Salon B', slug: 'active-salon-b' },
+  ]);
+  await db.insert(schema.salonClientSchema).values([
+    {
+      id: 'active-terminal',
+      salonId: SALON_A,
+      phone: '4165550300',
+      email: 'current@example.com',
+    },
+    {
+      id: 'active-source',
+      salonId: SALON_A,
+      phone: '4165550200',
+      email: 'historical@example.com',
+    },
+    {
+      id: 'active-other',
+      salonId: SALON_A,
+      phone: '4165550400',
+      email: 'other@example.com',
+    },
+  ]);
+  await db.execute(sql.raw(
+    'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+  ));
+  try {
+    await db.update(schema.salonClientSchema).set({
+      archivedAt: new Date('2099-01-01T00:00:00Z'),
+      archivedBy: 'active-test',
+      mergedIntoClientId: 'active-terminal',
+      mergedAt: new Date('2099-01-01T00:00:00Z'),
+      mergedBy: 'active-test',
+    }).where(sql`${schema.salonClientSchema.id} = 'active-source'`);
+  } finally {
+    await db.execute(sql.raw(
+      'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+    ));
+  }
+  await db.insert(schema.salonClientContactAliasSchema).values([
+    {
+      salonId: SALON_A,
+      salonClientId: 'active-source',
+      kind: 'phone',
+      normalizedValue: '4165550500',
+    },
+    {
+      salonId: SALON_A,
+      salonClientId: 'active-source',
+      kind: 'email',
+      normalizedValue: 'lineage-alias@example.com',
+    },
   ]);
 });
 
@@ -267,5 +324,115 @@ describe('getActiveAppointmentsForContact', () => {
     });
 
     expect(found.map(appt => appt.id)).toEqual([sooner, later]);
+  });
+});
+
+describe('getActiveAppointmentsForCanonicalClientWithHandle', () => {
+  it('uses stable lineage ownership first and fallback only for null stable IDs', async () => {
+    const stableSource = await insertAppointment({
+      salonClientId: 'active-source',
+      phone: '4165559999',
+      email: 'wrong-snapshot@example.com',
+      start: '2099-08-01T14:00:00Z',
+      end: '2099-08-01T15:00:00Z',
+    });
+    const legacyAlias = await insertAppointment({
+      salonClientId: null,
+      phone: '+1 (416) 555-0500',
+      email: null,
+      start: '2099-08-02T14:00:00Z',
+      end: '2099-08-02T15:00:00Z',
+    });
+    await insertAppointment({
+      salonClientId: 'active-other',
+      phone: '4165550500',
+      email: 'lineage-alias@example.com',
+      start: '2099-08-03T14:00:00Z',
+      end: '2099-08-03T15:00:00Z',
+    });
+
+    const found = await getActiveAppointmentsForCanonicalClientWithHandle(
+      db,
+      {
+        salonId: SALON_A,
+        terminalClientId: 'active-terminal',
+        horizon: 'booking-gate',
+        now: NOW,
+      },
+    );
+
+    expect(found.map(row => row.id)).toEqual([stableSource, legacyAlias]);
+  });
+
+  it('supports email aliases for null-ID legacy rows without reassigning stable rows', async () => {
+    const legacyAlias = await insertAppointment({
+      salonClientId: null,
+      phone: '4165550999',
+      email: 'LINEAGE-ALIAS@example.com',
+      start: '2099-08-04T14:00:00Z',
+      end: '2099-08-04T15:00:00Z',
+    });
+    await insertAppointment({
+      salonClientId: 'active-other',
+      phone: '4165550998',
+      email: 'lineage-alias@example.com',
+      start: '2099-08-05T14:00:00Z',
+      end: '2099-08-05T15:00:00Z',
+    });
+
+    const found = await getActiveAppointmentsForCanonicalClientWithHandle(
+      db,
+      {
+        salonId: SALON_A,
+        terminalClientId: 'active-terminal',
+        horizon: 'booking-gate',
+        now: new Date('2099-08-03T00:00:00Z'),
+      },
+    );
+
+    expect(found.map(row => row.id)).toContain(legacyAlias);
+    expect(found.some(row => row.salonClientId === 'active-other')).toBe(false);
+  });
+
+  it('can exclude the affected appointment during an authoritative transition', async () => {
+    const appointmentId = await insertAppointment({
+      salonClientId: 'active-terminal',
+      start: '2099-08-06T14:00:00Z',
+      end: '2099-08-06T15:00:00Z',
+    });
+
+    const found = await getActiveAppointmentsForCanonicalClientWithHandle(
+      db,
+      {
+        salonId: SALON_A,
+        terminalClientId: 'active-terminal',
+        horizon: 'booking-gate',
+        now: new Date('2099-08-06T00:00:00Z'),
+        excludeAppointmentId: appointmentId,
+      },
+    );
+
+    expect(found.some(row => row.id === appointmentId)).toBe(false);
+  });
+
+  it('treats an already-started active row as lineage-active', async () => {
+    const appointmentId = await insertAppointment({
+      salonClientId: 'active-terminal',
+      status: 'in_progress',
+      start: '2099-06-30T14:00:00Z',
+      end: '2099-06-30T15:00:00Z',
+    });
+
+    const found = await getActiveAppointmentsForCanonicalClientWithHandle(
+      db,
+      {
+        salonId: SALON_A,
+        terminalClientId: 'active-terminal',
+        horizon: 'lineage-active',
+        now: NOW,
+      },
+    );
+
+    expect(found.map(row => row.id)).toContain(appointmentId);
   });
 });
