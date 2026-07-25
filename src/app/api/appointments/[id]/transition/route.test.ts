@@ -2,72 +2,175 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  callOrder,
   requireStaffAppointmentAccess,
   logAppointmentChange,
   logAppointmentLocked,
   enqueueGoogleCalendarDelete,
-  db,
+  resolveTerminalSalonClientWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  lockOperationalSalonClientContactWithHandle,
+  getActiveAppointmentsForCanonicalClientWithHandle,
+  lockTechnicianAndAssertSlotFree,
+  lockedAppointment,
+  updateResult,
   capturedUpdates,
+  tx,
+  db,
 } = vi.hoisted(() => {
+  const callOrder: string[] = [];
   const capturedUpdates: Array<Record<string, unknown>> = [];
-  return {
-    requireStaffAppointmentAccess: vi.fn(),
-    logAppointmentChange: vi.fn(async () => undefined),
-    logAppointmentLocked: vi.fn(async () => undefined),
-    enqueueGoogleCalendarDelete: vi.fn(async () => undefined),
-    capturedUpdates,
-    db: {
-      query: {
-        appointmentArtifactsSchema: { findFirst: vi.fn(async () => null) },
-        salonPoliciesSchema: { findFirst: vi.fn(async () => null) },
-        superAdminPoliciesSchema: { findFirst: vi.fn(async () => null) },
-      },
-      update: vi.fn(() => ({
-        set: vi.fn((values: Record<string, unknown>) => {
-          capturedUpdates.push(values);
-          return {
-            where: vi.fn(() => ({
-              returning: vi.fn(async () => [{
-                id: 'appt_1',
-                canvasState: values.canvasState,
-                canvasStateUpdatedAt: values.canvasStateUpdatedAt,
-                startedAt: values.startedAt ?? null,
-                completedAt: values.completedAt ?? null,
-                lockedAt: values.lockedAt ?? null,
-                lockedBy: values.lockedBy ?? null,
-              }]),
-            })),
-          };
-        }),
-      })),
+  const requireStaffAppointmentAccess = vi.fn();
+  const logAppointmentChange = vi.fn(async () => undefined);
+  const logAppointmentLocked = vi.fn(async () => undefined);
+  const enqueueGoogleCalendarDelete = vi.fn(async () => undefined);
+  const resolveTerminalSalonClientWithHandle = vi.fn(async () => {
+    callOrder.push('resolve');
+    return {
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    };
+  });
+  const resolveCanonicalSalonClientIdentityWithHandle = vi.fn();
+  const lockOperationalSalonClientContactWithHandle = vi.fn(async () => {
+    callOrder.push('client-lock');
+    return {
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+      phone: '4165550100',
+      email: 'current@example.com',
+    };
+  });
+  const getActiveAppointmentsForCanonicalClientWithHandle = vi.fn(
+    async (): Promise<Array<{ id: string }>> => {
+      callOrder.push('active-check');
+      return [];
     },
+  );
+  const lockTechnicianAndAssertSlotFree = vi.fn(async () => {
+    callOrder.push('technician-lock');
+  });
+  const lockedAppointment = { current: null as Record<string, unknown> | null };
+  const updateResult = { current: null as Record<string, unknown> | null };
+
+  const tx = {
+    execute: vi.fn(),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          for: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              callOrder.push('appointment-lock');
+              return lockedAppointment.current ? [lockedAppointment.current] : [];
+            }),
+          })),
+        })),
+      })),
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        capturedUpdates.push(values);
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => {
+              callOrder.push('appointment-cas');
+              return updateResult.current ? [updateResult.current] : [];
+            }),
+          })),
+        };
+      }),
+    })),
+  };
+  const db = {
+    query: {
+      appointmentArtifactsSchema: { findFirst: vi.fn(async () => null) },
+      salonPoliciesSchema: { findFirst: vi.fn(async () => null) },
+      superAdminPoliciesSchema: { findFirst: vi.fn(async () => null) },
+    },
+    transaction: vi.fn(async (callback: (handle: typeof tx) => unknown) =>
+      callback(tx)),
+  };
+  return {
+    callOrder,
+    requireStaffAppointmentAccess,
+    logAppointmentChange,
+    logAppointmentLocked,
+    enqueueGoogleCalendarDelete,
+    resolveTerminalSalonClientWithHandle,
+    resolveCanonicalSalonClientIdentityWithHandle,
+    lockOperationalSalonClientContactWithHandle,
+    getActiveAppointmentsForCanonicalClientWithHandle,
+    lockTechnicianAndAssertSlotFree,
+    lockedAppointment,
+    updateResult,
+    capturedUpdates,
+    tx,
+    db,
   };
 });
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/staffApiGuards', () => ({ requireStaffAppointmentAccess }));
-vi.mock('@/libs/appointmentAudit', () => ({ logAppointmentChange, logAppointmentLocked }));
+vi.mock('@/libs/appointmentAudit', () => ({
+  logAppointmentChange,
+  logAppointmentLocked,
+}));
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  ClientLifecycleStabilizationError: class extends Error {},
+  resolveTerminalSalonClientWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  lockOperationalSalonClientContactWithHandle,
+  withClientLifecycleTransactionRetry: vi.fn(
+    async (operation: () => Promise<unknown>) => operation(),
+  ),
+}));
+vi.mock('@/libs/activeAppointments', () => ({
+  getActiveAppointmentsForCanonicalClientWithHandle,
+}));
+vi.mock('@/libs/bookingConflictGuard', () => ({
+  SlotConflictError: class extends Error {},
+  lockTechnicianAndAssertSlotFree,
+}));
 vi.mock('@/libs/DB', () => ({ db }));
 
 import { POST } from './route';
 
+const appointment = {
+  id: 'appt_1',
+  salonId: 'salon_1',
+  salonClientId: 'client_source',
+  technicianId: 'tech_1',
+  clientPhone: '4165550000',
+  clientEmail: 'historical@example.com',
+  startTime: new Date('2026-08-01T14:00:00.000Z'),
+  endTime: new Date('2026-08-01T15:00:00.000Z'),
+  blockedDurationMinutes: 60,
+  totalDurationMinutes: 60,
+  bufferMinutes: 0,
+  status: 'confirmed',
+  canvasState: 'waiting',
+  startedAt: null,
+  completedAt: null,
+  lockedAt: null,
+  googleCalendarEventId: 'gevent_1',
+};
+
 function makeAccess(overrides: Record<string, unknown> = {}) {
   return {
     ok: true,
-    session: { salonId: 'salon_1', technicianId: 'tech_1', technicianName: 'Daniela' },
-    appointment: {
-      id: 'appt_1',
+    session: {
       salonId: 'salon_1',
       technicianId: 'tech_1',
-      status: 'confirmed',
-      canvasState: 'waiting',
-      startedAt: null,
-      completedAt: null,
-      lockedAt: null,
-      googleCalendarEventId: 'gevent_1',
-      ...overrides,
+      technicianName: 'Daniela',
     },
+    appointment: { ...appointment, ...overrides },
   };
 }
 
@@ -82,11 +185,21 @@ function transitionRequest(to: string) {
 describe('POST /api/appointments/:id/transition', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    callOrder.length = 0;
     capturedUpdates.length = 0;
+    lockedAppointment.current = { ...appointment };
+    updateResult.current = { ...appointment, canvasState: 'working', status: 'in_progress' };
     requireStaffAppointmentAccess.mockResolvedValue(makeAccess());
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(null);
+    getActiveAppointmentsForCanonicalClientWithHandle.mockImplementation(
+      async () => {
+        callOrder.push('active-check');
+        return [];
+      },
+    );
   });
 
-  it('keeps the legacy status in sync when the tech starts working', async () => {
+  it('serializes an active transition behind the terminal client and technician', async () => {
     const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
 
     expect(response.status).toBe(200);
@@ -94,11 +207,67 @@ describe('POST /api/appointments/:id/transition', () => {
       canvasState: 'working',
       status: 'in_progress',
     });
+    expect(callOrder).toEqual([
+      'resolve',
+      'client-lock',
+      'technician-lock',
+      'appointment-lock',
+      'resolve',
+      'active-check',
+      'appointment-cas',
+    ]);
+    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        terminalClientId: 'client_primary',
+        excludeAppointmentId: 'appt_1',
+      }),
+    );
+    expect(logAppointmentChange).toHaveBeenCalledTimes(1);
+    expect(logAppointmentLocked).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed before CAS and side effects when the lineage is already active', async () => {
+    getActiveAppointmentsForCanonicalClientWithHandle.mockImplementation(
+      async () => {
+        callOrder.push('active-check');
+        return [{ id: 'appt_other' }];
+      },
+    );
+
+    const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
+
+    expect(response.status).toBe(409);
+    expect(callOrder).not.toContain('appointment-cas');
+    expect(logAppointmentChange).not.toHaveBeenCalled();
+    expect(logAppointmentLocked).not.toHaveBeenCalled();
     expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();
   });
 
-  it('marks the appointment completed for both models on complete', async () => {
-    requireStaffAppointmentAccess.mockResolvedValue(makeAccess({ canvasState: 'wrap_up' }));
+  it('lets only the compare-and-set winner emit audit and notification side effects', async () => {
+    updateResult.current = null;
+
+    const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
+
+    expect(response.status).toBe(409);
+    expect(logAppointmentChange).not.toHaveBeenCalled();
+    expect(logAppointmentLocked).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();
+  });
+
+  it('keeps completion behavior without lifecycle locks', async () => {
+    const completing = {
+      ...appointment,
+      canvasState: 'wrap_up',
+      status: 'in_progress',
+    };
+    requireStaffAppointmentAccess.mockResolvedValue(makeAccess(completing));
+    lockedAppointment.current = completing;
+    updateResult.current = {
+      ...completing,
+      canvasState: 'complete',
+      status: 'completed',
+    };
 
     const response = await POST(transitionRequest('complete'), { params: { id: 'appt_1' } });
 
@@ -107,9 +276,46 @@ describe('POST /api/appointments/:id/transition', () => {
       canvasState: 'complete',
       status: 'completed',
     });
+    expect(lockOperationalSalonClientContactWithHandle).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(['appointment-lock', 'appointment-cas']);
   });
 
-  it('records a real no_show status and releases the Google event', async () => {
+  it('keeps an already-active working to wrap-up transition lifecycle-lock free', async () => {
+    const working = {
+      ...appointment,
+      canvasState: 'working',
+      status: 'in_progress',
+    };
+    requireStaffAppointmentAccess.mockResolvedValue(makeAccess(working));
+    lockedAppointment.current = working;
+    updateResult.current = {
+      ...working,
+      canvasState: 'wrap_up',
+    };
+
+    const response = await POST(
+      transitionRequest('wrap_up'),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedUpdates[0]).toMatchObject({
+      canvasState: 'wrap_up',
+      status: 'in_progress',
+    });
+    expect(lockOperationalSalonClientContactWithHandle).not.toHaveBeenCalled();
+    expect(getActiveAppointmentsForCanonicalClientWithHandle)
+      .not.toHaveBeenCalled();
+    expect(callOrder).toEqual(['appointment-lock', 'appointment-cas']);
+  });
+
+  it('records a real no_show status and releases the Google event only after CAS', async () => {
+    updateResult.current = {
+      ...appointment,
+      canvasState: 'no_show',
+      status: 'no_show',
+    };
+
     const response = await POST(transitionRequest('no_show'), { params: { id: 'appt_1' } });
 
     expect(response.status).toBe(200);
@@ -125,12 +331,12 @@ describe('POST /api/appointments/:id/transition', () => {
     });
   });
 
-  it('rejects transitions on already-terminal appointments', async () => {
+  it('rejects transitions on already-terminal appointments before transaction work', async () => {
     requireStaffAppointmentAccess.mockResolvedValue(makeAccess({ canvasState: 'complete' }));
 
     const response = await POST(transitionRequest('cancelled'), { params: { id: 'appt_1' } });
 
     expect(response.status).toBe(409);
-    expect(capturedUpdates).toHaveLength(0);
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 });

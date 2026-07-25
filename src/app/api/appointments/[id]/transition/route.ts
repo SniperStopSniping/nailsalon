@@ -1,10 +1,23 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { canTransition, canvasStateToLegacyStatus } from '@/core/appointments/appointmentStateMachine';
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
 import type { AppointmentState, Transition } from '@/core/appointments/policyTypes';
+import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import { logAppointmentChange, logAppointmentLocked } from '@/libs/appointmentAudit';
+import {
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
+} from '@/libs/bookingConflictGuard';
+import {
+  ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockOperationalSalonClientContactWithHandle,
+  resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClientWithHandle,
+  withClientLifecycleTransactionRetry,
+} from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
@@ -22,6 +35,23 @@ import {
 const transitionRequestSchema = z.object({
   to: z.enum(['working', 'wrap_up', 'complete', 'cancelled', 'no_show']),
 });
+
+class TransitionConflictError extends Error {}
+
+function blockedEndTime(appointment: {
+  startTime: Date;
+  endTime: Date;
+  blockedDurationMinutes: number | null;
+  totalDurationMinutes: number;
+  bufferMinutes: number | null;
+}): Date {
+  const blockedMinutes = appointment.blockedDurationMinutes
+    ?? appointment.totalDurationMinutes + (appointment.bufferMinutes ?? 0);
+  return new Date(Math.max(
+    appointment.endTime.getTime(),
+    appointment.startTime.getTime() + blockedMinutes * 60_000,
+  ));
+}
 
 // =============================================================================
 // RESPONSE TYPES
@@ -193,17 +223,145 @@ export async function POST(
       updateData.completedAt = now;
     }
 
-    const [updated] = await db
-      .update(appointmentSchema)
-      .set(updateData)
-      .where(
-        and(
-          eq(appointmentSchema.id, appointmentId),
-          eq(appointmentSchema.salonId, session.salonId),
-          eq(appointmentSchema.technicianId, session.technicianId),
-        ),
-      )
-      .returning();
+    const updated = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx) => {
+        const handle = tx as LifecycleSqlHandle;
+        // waiting -> working enters service and must serialize with booking.
+        // working -> wrap_up remains the same already-active appointment, so
+        // its appointment CAS is sufficient and old operational profiles are
+        // not newly required merely to advance the staff canvas.
+        const activatesAppointment = legacyStatus === 'in_progress'
+          && appointment.status !== 'in_progress';
+        let terminalClientId: string | null = null;
+
+        if (activatesAppointment) {
+          const preliminaryIdentity = appointment.salonClientId
+            ? { terminal: await resolveTerminalSalonClientWithHandle(handle, {
+                salonId: appointment.salonId,
+                clientId: appointment.salonClientId,
+                allowArchived: true,
+              }) }
+            : await resolveCanonicalSalonClientIdentityWithHandle(handle, {
+              salonId: appointment.salonId,
+              phone: appointment.clientPhone,
+              email: appointment.clientEmail,
+              allowArchived: true,
+            });
+          if (!preliminaryIdentity) {
+            throw new TransitionConflictError();
+          }
+          const terminal = await lockOperationalSalonClientContactWithHandle(
+            handle,
+            {
+              salonId: appointment.salonId,
+              clientId: preliminaryIdentity.terminal.id,
+              allowArchived: true,
+            },
+          );
+          terminalClientId = terminal.id;
+
+          if (appointment.technicianId) {
+            await lockTechnicianAndAssertSlotFree(tx, {
+              salonId: appointment.salonId,
+              technicianId: appointment.technicianId,
+              startTime: appointment.startTime,
+              blockedEndTime: blockedEndTime(appointment),
+              excludedAppointmentId: appointmentId,
+            });
+          }
+        }
+
+        const [lockedAppointment] = await tx
+          .select()
+          .from(appointmentSchema)
+          .where(and(
+            eq(appointmentSchema.id, appointmentId),
+            eq(appointmentSchema.salonId, session.salonId),
+            eq(appointmentSchema.technicianId, session.technicianId),
+          ))
+          .for('update')
+          .limit(1);
+        if (
+          !lockedAppointment
+          || lockedAppointment.status !== appointment.status
+          || lockedAppointment.canvasState !== appointment.canvasState
+        ) {
+          return null;
+        }
+
+        if (activatesAppointment) {
+          if (
+            !terminalClientId
+            || lockedAppointment.technicianId !== appointment.technicianId
+            || lockedAppointment.startTime.getTime() !== appointment.startTime.getTime()
+            || lockedAppointment.endTime.getTime() !== appointment.endTime.getTime()
+            || lockedAppointment.totalDurationMinutes
+            !== appointment.totalDurationMinutes
+            || lockedAppointment.bufferMinutes !== appointment.bufferMinutes
+            || lockedAppointment.blockedDurationMinutes
+            !== appointment.blockedDurationMinutes
+          ) {
+            throw new TransitionConflictError();
+          }
+          const lockedIdentity = lockedAppointment.salonClientId
+            ? { terminal: await resolveTerminalSalonClientWithHandle(handle, {
+                salonId: lockedAppointment.salonId,
+                clientId: lockedAppointment.salonClientId,
+                allowArchived: true,
+              }) }
+            : await resolveCanonicalSalonClientIdentityWithHandle(handle, {
+              salonId: lockedAppointment.salonId,
+              phone: lockedAppointment.clientPhone,
+              email: lockedAppointment.clientEmail,
+              allowArchived: true,
+            });
+          if (!lockedIdentity || lockedIdentity.terminal.id !== terminalClientId) {
+            throw new TransitionConflictError();
+          }
+          const activeAppointments
+            = await getActiveAppointmentsForCanonicalClientWithHandle(handle, {
+              salonId: lockedAppointment.salonId,
+              terminalClientId,
+              horizon: 'lineage-active',
+              excludeAppointmentId: appointmentId,
+              allowArchived: true,
+            });
+          if (activeAppointments.length > 0) {
+            throw new TransitionConflictError();
+          }
+        }
+
+        const [winner] = await tx
+          .update(appointmentSchema)
+          .set(updateData)
+          .where(
+            and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, session.salonId),
+              eq(appointmentSchema.technicianId, session.technicianId),
+              eq(appointmentSchema.status, appointment.status),
+              appointment.canvasState == null
+                ? isNull(appointmentSchema.canvasState)
+                : eq(appointmentSchema.canvasState, appointment.canvasState),
+              isNull(appointmentSchema.deletedAt),
+            ),
+          )
+          .returning();
+        return winner ?? null;
+      }));
+
+    if (!updated) {
+      return Response.json(
+        {
+          error: {
+            code: 'STALE_STATE',
+            message: 'Appointment state changed before this transition completed.',
+            reason: 'stale_state',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
 
     // Staff cancellations and no-shows release the technician's time; the
     // linked Google Calendar event must be removed like the owner cancel path.
@@ -242,17 +400,33 @@ export async function POST(
     return Response.json({
       data: {
         appointment: {
-          id: updated!.id,
-          canvasState: updated!.canvasState,
-          canvasStateUpdatedAt: updated!.canvasStateUpdatedAt,
-          startedAt: updated!.startedAt,
-          completedAt: updated!.completedAt,
-          lockedAt: updated!.lockedAt,
-          lockedBy: updated!.lockedBy,
+          id: updated.id,
+          canvasState: updated.canvasState,
+          canvasStateUpdatedAt: updated.canvasStateUpdatedAt,
+          startedAt: updated.startedAt,
+          completedAt: updated.completedAt,
+          lockedAt: updated.lockedAt,
+          lockedBy: updated.lockedBy,
         },
       },
     });
   } catch (error) {
+    if (
+      error instanceof TransitionConflictError
+      || error instanceof SlotConflictError
+      || error instanceof ClientLifecycleStabilizationError
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'CLIENT_ACTIVE_APPOINTMENT_CONFLICT',
+            message: 'This client already has an active appointment.',
+            reason: 'client_active_appointment',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error transitioning appointment:', error);
     return Response.json(
       {
