@@ -1,8 +1,13 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('server-only', () => ({}));
+
 const {
   requireAppointmentAccess,
+  requireClientApiSession,
+  requireClientSalonFromBody,
+  guardModuleOr403,
   updateAppointmentStatus,
   getSalonById,
   getAppointmentServiceNames,
@@ -16,6 +21,7 @@ const {
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
   transitionReturning,
+  appointmentForUpdate,
   transaction,
   mockDbState,
   updateSet,
@@ -30,10 +36,28 @@ const {
     lockedAppointmentRows: [] as Array<{
       id: string;
       salonId: string;
+      clientPhone: string;
       status: string;
       cancelReason: string | null;
       notes: string | null;
+      totalPrice: number;
+      discountType: string | null;
       updatedAt: Date;
+    }>,
+    appointmentRows: [] as Array<{
+      id: string;
+      salonId: string;
+      clientPhone: string;
+      status: string;
+      cancelReason: string | null;
+      notes: string | null;
+      totalPrice: number;
+      discountType: string | null;
+      updatedAt: Date;
+    }>,
+    salonClientRows: [] as Array<{
+      id: string;
+      loyaltyPoints: number | null;
     }>,
     rewardRows: [] as Array<{
       id: string;
@@ -46,6 +70,7 @@ const {
     releaseBarrier: null as (() => void) | null,
     barrier: null as Promise<void> | null,
   };
+  const appointmentForUpdate = vi.fn();
   const select = vi.fn((projection?: Record<string, unknown>) => {
     const readsCurrentAppointment = Boolean(
       projection
@@ -55,14 +80,25 @@ const {
     );
     const from = vi.fn((table: Record<string, unknown>) => {
       const readsAppointmentTable = 'startTime' in table;
+      const readsSalonClientTable = 'loyaltyPoints' in table;
       const limit = vi.fn(async () => (
         readsCurrentAppointment
           ? mockDbState.currentAppointmentRows
           : readsAppointmentTable
-            ? mockDbState.lockedAppointmentRows
-            : mockDbState.rewardRows
+            ? mockDbState.appointmentRows
+            : readsSalonClientTable
+              ? mockDbState.salonClientRows
+              : mockDbState.rewardRows
       ));
-      const forLock = vi.fn(() => ({ limit }));
+      const lockedLimit = vi.fn(async () => (
+        readsAppointmentTable
+          ? mockDbState.lockedAppointmentRows
+          : limit()
+      ));
+      const forLock = vi.fn(() => {
+        appointmentForUpdate();
+        return { limit: lockedLimit };
+      });
       const where = vi.fn(() => ({ for: forLock, limit }));
       return { where };
     });
@@ -110,6 +146,9 @@ const {
 
   return {
     requireAppointmentAccess: vi.fn(),
+    requireClientApiSession: vi.fn(),
+    requireClientSalonFromBody: vi.fn(),
+    guardModuleOr403: vi.fn(),
     updateAppointmentStatus: vi.fn(),
     getSalonById: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
@@ -125,6 +164,7 @@ const {
       operation: (attempt: number) => Promise<unknown>,
     ) => operation(1)),
     transitionReturning,
+    appointmentForUpdate,
     transaction,
     mockDbState,
     updateSet,
@@ -138,6 +178,15 @@ const {
 
 vi.mock('@/libs/routeAccessGuards', () => ({
   requireAppointmentAccess,
+}));
+
+vi.mock('@/libs/clientApiGuards', () => ({
+  requireClientApiSession,
+  requireClientSalonFromBody,
+}));
+
+vi.mock('@/libs/featureGating', () => ({
+  guardModuleOr403,
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -173,6 +222,7 @@ vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
 
 vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }));
 
+import { POST as redeemPointsPOST } from '../../rewards/redeem-points/route';
 import { GET, PATCH } from './route';
 
 describe('appointment detail route auth', () => {
@@ -197,10 +247,20 @@ describe('appointment detail route auth', () => {
     mockDbState.lockedAppointmentRows = [{
       id: 'appt_1',
       salonId: 'salon_1',
+      clientPhone: '+14165551234',
       status: 'confirmed',
       cancelReason: null,
       notes: null,
+      totalPrice: 5000,
+      discountType: null,
       updatedAt: new Date('2026-07-17T15:00:00.000Z'),
+    }];
+    mockDbState.appointmentRows = [{
+      ...mockDbState.lockedAppointmentRows[0]!,
+    }];
+    mockDbState.salonClientRows = [{
+      id: 'primary_client',
+      loyaltyPoints: 5000,
     }];
     mockDbState.rewardRows = [];
     mockDbState.transitionApplied = false;
@@ -219,6 +279,20 @@ describe('appointment detail route auth', () => {
       redirectedFromClientId: 'merged_source',
       lineagePath: ['merged_source', 'primary_client'],
     });
+    requireClientApiSession.mockResolvedValue({
+      ok: true,
+      normalizedPhone: '4165551234',
+      session: { phone: '+14165551234' },
+    });
+    requireClientSalonFromBody.mockResolvedValue({
+      ok: true,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        rewardsEnabled: true,
+      },
+    });
+    guardModuleOr403.mockResolvedValue(null);
   });
 
   it('rejects unauthenticated appointment updates', async () => {
@@ -678,6 +752,103 @@ describe('appointment detail route auth', () => {
       notes: historicalAppointment.notes,
       startTime: historicalAppointment.startTime.toISOString(),
     }).toEqual(historicalSnapshot);
+  });
+
+  it('executes points redemption with terminal-client-first locking', async () => {
+    mockDbState.salonClientRows = [{
+      id: 'merged_source',
+      loyaltyPoints: 5000,
+    }];
+    mockDbState.appointmentRows[0] = {
+      ...mockDbState.appointmentRows[0]!,
+      status: 'pending',
+      notes: null,
+    };
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      status: 'confirmed',
+      notes: 'Locked appointment note',
+    };
+
+    const response = await redeemPointsPOST(new Request(
+      'http://localhost/api/rewards/redeem-points',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rewardTitle: 'Service credit',
+          rewardPoints: 2500,
+          appointmentId: 'appt_1',
+          salonSlug: 'salon-a',
+        }),
+      },
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      appointmentId: 'appt_1',
+      pointsSpent: 2500,
+      newPointsBalance: 2500,
+      newTotalPrice: 45,
+    });
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'merged_source',
+        allowArchived: true,
+      },
+    );
+    expect(
+      lockOperationalSalonClientContactWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(appointmentForUpdate.mock.invocationCallOrder[0]!);
+    expect(updateSet).toHaveBeenCalledTimes(2);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      totalPrice: 4500,
+      notes: 'Locked appointment note\n[Points redeemed: Service credit - 2,500 pts for $5.00 off]',
+    }));
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      loyaltyPoints: expect.anything(),
+    }));
+    expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves points and appointment untouched when cancellation wins first', async () => {
+    mockDbState.salonClientRows = [{
+      id: 'merged_source',
+      loyaltyPoints: 5000,
+    }];
+    mockDbState.appointmentRows[0] = {
+      ...mockDbState.appointmentRows[0]!,
+      status: 'pending',
+    };
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    };
+
+    const response = await redeemPointsPOST(new Request(
+      'http://localhost/api/rewards/redeem-points',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rewardTitle: 'Service credit',
+          rewardPoints: 2500,
+          appointmentId: 'appt_1',
+          salonSlug: 'salon-a',
+        }),
+      },
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('INVALID_APPOINTMENT_STATUS');
+    expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledTimes(1);
+    expect(appointmentForUpdate).toHaveBeenCalledTimes(1);
+    expect(updateSet).not.toHaveBeenCalled();
   });
 
   it('keeps the committed cancellation successful when post-commit delivery fails', async () => {
