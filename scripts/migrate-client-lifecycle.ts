@@ -215,25 +215,65 @@ async function runMigrationAttempt(
   databaseUrl: string,
   attempt: number,
 ): Promise<void> {
-  const client = new Client({
+  const coordinator = new Client({
+    connectionString: databaseUrl,
+    application_name: `client-lifecycle-migration-coordinator-${attempt}`,
+    connectionTimeoutMillis: 15_000,
+  });
+  const worker = new Client({
     connectionString: databaseUrl,
     application_name: `client-lifecycle-migration-${attempt}`,
     connectionTimeoutMillis: 15_000,
   });
+  let coordinatorTransactionOpen = false;
 
   try {
-    await client.connect();
-    await client.query(`set lock_timeout = '5s'`);
-    await client.query(`set statement_timeout = '60s'`);
+    await coordinator.connect();
+    await coordinator.query('begin');
+    coordinatorTransactionOpen = true;
+    await coordinator.query(`set local lock_timeout = '5s'`);
+    await coordinator.query(`set local statement_timeout = '60s'`);
+    await coordinator.query(`
+      select pg_advisory_xact_lock(
+        hashtextextended(
+          'client-lifecycle-stabilization-migration-runner',
+          0
+        )
+      )
+    `);
 
-    await verifyDatabase0061(client);
-    await migrate(drizzle(client), {
+    // Drizzle reads its journal before opening the migration transaction.
+    // Hold a separate transaction-scoped coordinator lock first so concurrent
+    // protected runners cannot both snapshot 0061 and publish duplicate 0062
+    // journal rows. The worker remains separate because Drizzle owns its own
+    // atomic migration transaction.
+    await worker.connect();
+    await worker.query(`set lock_timeout = '5s'`);
+    await worker.query(`set statement_timeout = '60s'`);
+
+    await verifyDatabase0061(worker);
+    await migrate(drizzle(worker), {
       migrationsFolder: path.join(process.cwd(), 'migrations'),
     });
-    await verifyDatabase0061(client);
-    await verifyDatabase0062Ready(client);
+    await verifyDatabase0061(worker);
+    await verifyDatabase0062Ready(worker);
+
+    await coordinator.query('commit');
+    coordinatorTransactionOpen = false;
+  } catch (error) {
+    if (coordinatorTransactionOpen) {
+      await coordinator.query('rollback').catch(() => undefined);
+      coordinatorTransactionOpen = false;
+    }
+    throw error;
   } finally {
-    await client.end().catch(() => undefined);
+    if (coordinatorTransactionOpen) {
+      await coordinator.query('rollback').catch(() => undefined);
+    }
+    await Promise.all([
+      worker.end().catch(() => undefined),
+      coordinator.end().catch(() => undefined),
+    ]);
   }
 }
 

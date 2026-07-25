@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -104,6 +104,61 @@ function runProtectedLifecycleMigration(): ReturnType<typeof spawnSync> {
       encoding: 'utf8',
       timeout: 60_000,
     },
+  );
+}
+
+type AsyncCommandResult = {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+};
+
+function runProtectedLifecycleMigrationAsync(): Promise<AsyncCommandResult> {
+  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const child = spawn(
+    executable,
+    ['tsx', 'scripts/migrate-client-lifecycle.ts'],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => stdout += String(chunk));
+  child.stderr.on('data', chunk => stderr += String(chunk));
+
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', status => resolve({ status, stdout, stderr }));
+  });
+}
+
+async function waitForMigrationCoordinatorWaiters(
+  pool: pg.Pool,
+  expectedCount: number,
+): Promise<void> {
+  const deadline = performance.now() + 5_000;
+  while (performance.now() < deadline) {
+    const result = await pool.query<{ waiting_count: string }>(
+      `select count(*)::text as waiting_count
+       from pg_stat_activity
+       where application_name = 'client-lifecycle-migration-coordinator-1'
+         and wait_event_type = 'Lock'`,
+    );
+    if (Number(result.rows[0]?.waiting_count ?? 0) >= expectedCount) {
+      return;
+    }
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  throw new Error(
+    'Timed out waiting for protected migration coordinator locks.',
   );
 }
 
@@ -650,6 +705,91 @@ describePostgres.sequential('client lifecycle migration chain', () => {
 
     expect(noOp.status).toBe(0);
     expect(await appliedMigrationRows(pool)).toEqual(rowsAfterApply);
+  }, 120_000);
+
+  it('serializes journal observation before two protected runners publish 0062', async () => {
+    await resetDatabase(pool);
+    const database = drizzle(pool);
+    const through0061 = await migrationFolderThrough(61);
+    temporaryFolders.push(through0061);
+    await migrate(database, { migrationsFolder: through0061 });
+
+    const barrier = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-lifecycle-runner-coordination-barrier',
+    });
+    let barrierTransactionOpen = false;
+    let firstMigration: Promise<AsyncCommandResult> | undefined;
+    let secondMigration: Promise<AsyncCommandResult> | undefined;
+    await barrier.connect();
+    try {
+      await barrier.query('begin');
+      barrierTransactionOpen = true;
+      await barrier.query(`
+        select pg_advisory_xact_lock(
+          hashtextextended(
+            'client-lifecycle-stabilization-migration-runner',
+            0
+          )
+        )
+      `);
+
+      firstMigration = runProtectedLifecycleMigrationAsync();
+      secondMigration = runProtectedLifecycleMigrationAsync();
+      await waitForMigrationCoordinatorWaiters(pool, 2);
+
+      await barrier.query('commit');
+      barrierTransactionOpen = false;
+
+      const [first, second] = await Promise.all([
+        firstMigration,
+        secondMigration,
+      ]);
+
+      expect(first.status).toBe(0);
+      expect(second.status).toBe(0);
+      expect(first.stderr).toBe('');
+      expect(second.stderr).toBe('');
+
+      const migration0062Rows = (await appliedMigrationRows(pool)).filter(
+        row => row.created_at === '1784950000007',
+      );
+
+      expect(migration0062Rows).toHaveLength(1);
+
+      const capability = await pool.query<{ count: string }>(
+        `select count(*)::text as count
+         from app_schema_capability
+         where capability = 'client_lifecycle'
+           and version = 2
+           and state = 'ready'
+           and merge_writes_enabled = false`,
+      );
+
+      expect(Number(capability.rows[0]?.count ?? 0)).toBe(1);
+      expect(
+        (await getClientLifecycleSchemaReadiness(database)).ready,
+      ).toBe(true);
+
+      const rowsAfterConcurrentApply = await appliedMigrationRows(pool);
+      const noOp = runProtectedLifecycleMigration();
+
+      expect(noOp.status).toBe(0);
+      expect(await appliedMigrationRows(pool)).toEqual(
+        rowsAfterConcurrentApply,
+      );
+    } finally {
+      if (barrierTransactionOpen) {
+        await barrier.query('rollback').catch(() => undefined);
+      }
+      await barrier.end();
+      await Promise.allSettled(
+        [firstMigration, secondMigration].filter(
+          (migration): migration is Promise<AsyncCommandResult> =>
+            migration != null,
+        ),
+      );
+    }
   }, 120_000);
 
   it('keeps the repository 0061 file byte-identical to Production evidence', async () => {
