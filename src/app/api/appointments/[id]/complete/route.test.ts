@@ -12,6 +12,8 @@ const {
   lockTechnicianAndAssertSlotFree,
   resolveCanonicalSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
@@ -30,6 +32,8 @@ const {
     lockTechnicianAndAssertSlotFree: vi.fn(),
     resolveCanonicalSalonClientIdentity: vi.fn(),
     resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
+    resolveTerminalSalonClient: vi.fn(),
+    resolveTerminalSalonClientWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(),
     db: {
       select,
@@ -63,6 +67,8 @@ vi.mock('@/libs/clientLifecycleStabilization', () => ({
   lockOperationalSalonClientContactWithHandle,
   resolveCanonicalSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 }));
 
@@ -149,6 +155,20 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     lockTechnicianAndAssertSlotFree.mockResolvedValue(undefined);
     resolveCanonicalSalonClientIdentity.mockResolvedValue(null);
     resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue(null);
+    resolveTerminalSalonClient.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
+    resolveTerminalSalonClientWithHandle.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
+    });
     withClientLifecycleTransactionRetry.mockImplementation(
       async operation => operation(1),
     );
@@ -270,6 +290,29 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       'lineage-active-check',
       'compare-and-set',
     ]);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'client_source',
+      allowArchived: true,
+    });
+    expect(resolveTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      tx,
+      {
+        salonId: 'salon_1',
+        clientId: 'client_source',
+        allowArchived: true,
+      },
+    );
+    expect(
+      lockOperationalSalonClientContactWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      resolveTerminalSalonClientWithHandle.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      resolveTerminalSalonClientWithHandle.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      lockTechnicianAndAssertSlotFree.mock.invocationCallOrder[0]!,
+    );
     expect(getActiveAppointmentsForCanonicalClientWithHandle)
       .toHaveBeenCalledWith(
         tx,

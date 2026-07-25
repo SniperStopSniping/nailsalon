@@ -25,6 +25,8 @@ import {
   lockOperationalSalonClientContactWithHandle,
   resolveCanonicalSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
+  resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -1039,10 +1041,19 @@ export async function POST(
     // Stable appointment ownership is authoritative. Only legacy appointments
     // without a stable salon_client_id may resolve through their immutable
     // contact snapshot.
-    let preliminaryIdentity: Awaited<
-      ReturnType<typeof resolveCanonicalSalonClientIdentity>
-    > = null;
-    if (!appointment.salonClientId) {
+    let expectedTerminalClientId: string | null = null;
+    if (appointment.salonClientId) {
+      expectedTerminalClientId = (
+        await resolveTerminalSalonClient({
+          salonId: appointment.salonId,
+          clientId: appointment.salonClientId,
+          allowArchived: true,
+        })
+      ).id;
+    } else {
+      let preliminaryIdentity: Awaited<
+        ReturnType<typeof resolveCanonicalSalonClientIdentity>
+      > = null;
       try {
         preliminaryIdentity = await resolveCanonicalSalonClientIdentity({
           salonId: appointment.salonId,
@@ -1056,10 +1067,8 @@ export async function POST(
         }
         throw error;
       }
+      expectedTerminalClientId = preliminaryIdentity?.terminal.id ?? null;
     }
-    const expectedTerminalClientId = appointment.salonClientId
-      ?? preliminaryIdentity?.terminal.id
-      ?? null;
     if (!expectedTerminalClientId) {
       throw new StartAppointmentIdentityConflictError();
     }
@@ -1080,9 +1089,17 @@ export async function POST(
         );
 
         if (appointment.salonClientId) {
+          const refreshedTerminal = await resolveTerminalSalonClientWithHandle(
+            tx as LifecycleSqlHandle,
+            {
+              salonId: appointment.salonId,
+              clientId: appointment.salonClientId,
+              allowArchived: true,
+            },
+          );
           if (
-            terminalClient.id !== expectedTerminalClientId
-            && !terminalClient.lineagePath.includes(appointment.salonClientId)
+            refreshedTerminal.id !== terminalClient.id
+            || terminalClient.id !== expectedTerminalClientId
           ) {
             throw new StartAppointmentIdentityConflictError();
           }
