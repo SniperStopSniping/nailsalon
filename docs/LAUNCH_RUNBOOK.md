@@ -45,13 +45,47 @@ Run these before treating a deployment as launch-ready:
 ```bash
 npm run check-types
 npm run ops:verify:launch
-npm run db:migrate
+npm run db:migrate:client-lifecycle
+npm run db:verify:client-lifecycle
 ```
 
 Notes:
 - `npm run ops:verify:launch` checks the repo’s actual launch env assumptions.
-- `npm run db:migrate` applies pending Drizzle SQL migrations using the production dotenv profile.
+- The lifecycle migration command verifies the immutable 0061 identity, retries
+  only approved transient PostgreSQL failures, and applies the real chain.
+- The private readiness command validates capability version, required
+  columns, tables, constraints, indexes, function signatures, enabled trigger
+  attachments, and bounded merge-chain behavior.
+- Both commands print aggregate operational state only. They must not print
+  database credentials, SQL definitions, client counts, or client data.
 - Migrations are **not** run automatically during build or deploy.
+
+### Client lifecycle migration-first gate
+
+Production already has immutable migration 0061. The repository adoption of
+0061 reconciles migration history; it is not a second Production migration.
+Migration 0062 is forward-only and publishes capability version 2 as ready only
+when its one transaction commits successfully.
+
+For the lifecycle stabilization release, use one independently reviewed,
+immutable commit and preserve the existing semantic-release and Vercel Git
+deployment path:
+
+1. Keep the application PR unmerged and all client lifecycle feature flags
+   disabled.
+2. Run the approved count-only Production preflight from the immutable commit.
+3. Run `npm run db:migrate:client-lifecycle`.
+4. Run `npm run db:verify:client-lifecycle`; a nonzero result blocks promotion.
+5. Verify current v1.33 remains operational under the documented emergency
+   compatibility limits.
+6. Only then merge the same immutable commit so the existing Vercel integration
+   can deploy it.
+7. Verify `/api/health` returns `200`,
+   `clientLifecycleSchema: "ready"`, and the expected deployed SHA.
+
+Do not create a competing deployment pipeline and do not promote application
+code when migration or readiness fails. Edit, Merge, Archive, Restore, and
+Delete remain unavailable throughout stabilization.
 
 ## Cron Setup
 
@@ -87,20 +121,23 @@ If you want live autopost processing, add:
 
 1. Set production environment variables in Vercel.
 2. Run `npm run ops:verify:launch`.
-3. Run `npm run db:migrate`.
-4. Deploy or redeploy Vercel.
-5. Confirm `/api/health` returns `200` and the expected integration flags.
-6. Verify one real booking end to end:
+3. Run the approved count-only client-lifecycle preflight.
+4. Run `npm run db:migrate:client-lifecycle`.
+5. Run `npm run db:verify:client-lifecycle`.
+6. Deploy or redeploy Vercel only after readiness succeeds.
+7. Confirm `/api/health` returns `200`,
+   `clientLifecycleSchema: "ready"`, and the expected integration flags.
+8. Verify one real booking end to end:
    - customer OTP works
    - booking succeeds
    - technician/owner notifications work if enabled
-7. Verify one reminder flow:
+9. Verify one reminder flow:
    - a test appointment enters the reminder window
    - the cron route updates reminder fields only once
-8. Verify billing:
+10. Verify billing:
    - checkout session can be created
    - webhook updates salon subscription state
-9. Verify media:
+11. Verify media:
    - live staff avatar upload stores a durable public URL
    - public booking page renders that avatar
 
@@ -122,11 +159,27 @@ The response reports:
 - Resend config presence
 - Stripe config presence
 - Sentry config presence
+- aggregate client lifecycle schema readiness
 
 Rules:
 - database failure returns `503`
+- lifecycle schema not ready in hosted Production returns `503`
 - missing optional integrations do **not** degrade the endpoint to `503`
 - missing optional integrations still indicate reduced SaaS readiness
+- the public response never includes migration metadata, object names, SQL,
+  function definitions, trigger details, client counts, or database errors
+
+### Conditional emergency rollback
+
+Migration 0062 is retained during rollback. v1.33 plus 0062 is conditionally
+safe emergency compatibility, not full lifecycle-aware behavior:
+
+- keep every lifecycle feature disabled
+- create no new merge or archive state
+- monitor operations that target a merged source
+- restore the stabilization application as soon as practical
+
+Never remove 0062, rewrite 0061, or create a destructive down migration.
 
 ## Operational Recovery Notes
 
