@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
-import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
+import { getActiveAppointmentsForCanonicalClient } from '@/libs/activeAppointments';
 import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
+import { resolveCanonicalSalonClientIdentity } from '@/libs/clientLifecycleStabilization';
 import { logger } from '@/libs/Logger';
 import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { getSalonBySlug } from '@/libs/queries';
@@ -58,11 +59,20 @@ export async function POST(request: Request) {
   try {
     // Read-only with respect to appointments: recovery never creates,
     // modifies, or deletes appointment rows.
-    const appointments = await getActiveAppointmentsForContact({
+    const identity = await resolveCanonicalSalonClientIdentity({
       salonId: salon.id,
       email,
       phone: normalizedPhone,
+      allowArchived: true,
+    });
+    if (!identity || identity.externalClientId !== null) {
+      return genericResponse();
+    }
+    const appointments = await getActiveAppointmentsForCanonicalClient({
+      salonId: salon.id,
+      terminalClientId: identity.terminal.id,
       horizon: 'recovery',
+      allowArchived: true,
     });
     if (!appointments.length) {
       return genericResponse();

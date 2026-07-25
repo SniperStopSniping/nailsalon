@@ -13,6 +13,7 @@ const {
   resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  sendAppointmentOperationalEmailOnce,
   sendTransactionalEmail,
   getAppointmentServiceNames,
   sendAppointmentReminder,
@@ -42,6 +43,7 @@ const {
     resolveAppointmentOperationalEmailRecipient: vi.fn(),
     resolveOperationalSalonClientContact: vi.fn(),
     resolveOperationalSalonClientContactByPhone: vi.fn(),
+    sendAppointmentOperationalEmailOnce: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
     sendAppointmentReminder: vi.fn(),
@@ -66,6 +68,7 @@ vi.mock('@/libs/clientLifecycleStabilization', () => ({
   resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  sendAppointmentOperationalEmailOnce,
 }));
 
 vi.mock('@/libs/appointmentManageLink', () => ({
@@ -98,6 +101,24 @@ describe('appointment reminders', () => {
       terminalClientId: 'primary_client',
     });
     sendTransactionalEmail.mockResolvedValue(true);
+    sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
+      const content = await input.prepare();
+      const recipient = await resolveAppointmentOperationalEmailRecipient({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+      });
+      if (recipient.status === 'unavailable') {
+        return { status: 'unavailable', deliveryId: 'delivery_1' };
+      }
+      const sent = await sendTransactionalEmail({
+        to: recipient.email,
+        ...content,
+      });
+      return {
+        status: sent ? 'sent' : 'failed',
+        deliveryId: 'delivery_1',
+      };
+    });
     sendAppointmentReminder.mockResolvedValue(true);
     mintAppointmentManageLink.mockResolvedValue(
       'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
@@ -508,5 +529,193 @@ describe('appointment reminders', () => {
     expect(resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
     expect(updateWhere).not.toHaveBeenCalled();
     expect(result.skipped).toBe(1);
+  });
+
+  it('resolves the current email only after the private manage link is ready', async () => {
+    let releaseManageLink!: () => void;
+    let signalManageLinkStarted!: () => void;
+    const manageLinkStarted = new Promise<void>((resolve) => {
+      signalManageLinkStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseManageLink = resolve;
+    });
+    mintAppointmentManageLink.mockImplementation(async () => {
+      signalManageLinkStarted();
+      await release;
+      return 'https://app.luster.test/en/salon/manage/FRESH_TOKEN';
+    });
+    queueSelectResults([{
+      appointmentId: 'appt_fresh_recipient',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const processing = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await manageLinkStarted;
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'changed@example.test',
+      terminalClientId: 'primary_client',
+    });
+    releaseManageLink();
+    await processing;
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'changed@example.test' }),
+    );
+    expect(sendTransactionalEmail).not.toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'current@example.test' }),
+    );
+  });
+
+  it('does not resend a successful reminder after the current email changes', async () => {
+    const candidate = {
+      appointmentId: 'appt_email_changed',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: ['primary_client'],
+    });
+    const firstSend = sendAppointmentOperationalEmailOnce.getMockImplementation()!;
+    sendAppointmentOperationalEmailOnce
+      .mockImplementationOnce(firstSend)
+      .mockResolvedValueOnce({ status: 'sent', deliveryId: 'delivery_1' });
+    queueSelectResults([candidate], [candidate]);
+
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'changed@example.test',
+      terminalClientId: 'primary_client',
+    });
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'current@example.test' }),
+    );
+  });
+
+  it('records email success even when the consent-gated SMS attempt fails', async () => {
+    sendAppointmentReminder.mockRejectedValue(new Error('SMS unavailable'));
+    queueSelectResults([{
+      appointmentId: 'appt_partial_channel',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(result.dayBeforeEmail).toBe(1);
+    expect(result.failures).toBe(0);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      dayBeforeReminderChannel: 'email',
+    }));
+  });
+
+  it('allows one concurrent worker to claim the same email reminder event', async () => {
+    const candidate = {
+      appointmentId: 'appt_concurrent_reminder',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: ['primary_client'],
+    });
+    let claimed = false;
+    let releaseWinner!: () => void;
+    let signalClaimed!: () => void;
+    const winnerClaimed = new Promise<void>((resolve) => {
+      signalClaimed = resolve;
+    });
+    const winnerRelease = new Promise<void>((resolve) => {
+      releaseWinner = resolve;
+    });
+    sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
+      if (claimed) {
+        return { status: 'duplicate', deliveryId: 'delivery_1' };
+      }
+      claimed = true;
+      signalClaimed();
+      await winnerRelease;
+      const content = await input.prepare();
+      await sendTransactionalEmail({
+        to: 'current@example.test',
+        ...content,
+      });
+      return { status: 'sent', deliveryId: 'delivery_1' };
+    });
+    queueSelectResults([candidate], [candidate]);
+
+    const winner = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await winnerClaimed;
+    const loser = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await loser;
+    releaseWinner();
+    await winner;
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
   });
 });

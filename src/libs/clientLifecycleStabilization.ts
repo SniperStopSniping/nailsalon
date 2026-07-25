@@ -1,9 +1,11 @@
 import 'server-only';
 
-import { type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
+import { notificationDeliverySchema } from '@/models/Schema';
 
 export const CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH = 16;
 export const CLIENT_LIFECYCLE_RETRYABLE_SQLSTATES = new Set([
@@ -79,6 +81,17 @@ export type OperationalEmailRecipientResolution =
     reason: OperationalEmailRecipientUnavailableReason;
   };
 
+export type OperationalEmailDeliveryResult = {
+  status: 'sent' | 'failed' | 'unavailable' | 'duplicate';
+  deliveryId: string | null;
+};
+
+type OperationalEmailContent = {
+  subject: string;
+  text: string;
+  html: string;
+};
+
 export type SalonClientLifecycleLink = {
   id: string;
   archivedAt: Date | null;
@@ -112,18 +125,7 @@ function normalizeSupportedPhone(value: string | null | undefined): string | nul
 
 function normalizeEmail(value: string): string {
   const normalized = value.trim().toLowerCase();
-  const parts = normalized.split('@');
-  const domain = parts[1] ?? '';
-  if (
-    normalized.length > 320
-    || parts.length !== 2
-    || !parts[0]
-    || !domain
-    || !domain.includes('.')
-    || domain.startsWith('.')
-    || domain.endsWith('.')
-    || [...normalized].some(character => /\s/.test(character))
-  ) {
+  if (!z.string().email().max(320).safeParse(normalized).success) {
     throw new TypeError('email is invalid');
   }
   return normalized;
@@ -931,6 +933,152 @@ export function resolveAppointmentOperationalEmailRecipient(input: {
     db as LifecycleSqlHandle,
     input,
   );
+}
+
+/**
+ * Claims one appointment-scoped customer email business event before doing
+ * any delivery work. The recipient is resolved only after content and private
+ * links are ready, immediately before the provider call.
+ *
+ * The dedupe identity deliberately excludes the recipient address so changing
+ * contact details cannot resend an event that was already delivered.
+ */
+export async function sendAppointmentOperationalEmailOnce(input: {
+  salonId: string;
+  appointmentId: string;
+  purpose: string;
+  eventVersion: string;
+  prepare: () => Promise<OperationalEmailContent> | OperationalEmailContent;
+  retryFailed?: boolean;
+}): Promise<OperationalEmailDeliveryResult> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const appointmentId = requireInput(input.appointmentId, 'appointmentId');
+  const purpose = requireInput(input.purpose, 'purpose');
+  const eventVersion = requireInput(input.eventVersion, 'eventVersion');
+  const dedupeKey = `email:operational:${purpose}:${appointmentId}:${eventVersion}`;
+  let deliveryId = crypto.randomUUID();
+  const inserted = await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId,
+    appointmentId,
+    channel: 'email',
+    purpose,
+    dedupeKey,
+    status: 'queued',
+  }).onConflictDoNothing().returning();
+
+  if (!inserted.length && input.retryFailed) {
+    const [reclaimed] = await db.update(notificationDeliverySchema).set({
+      status: 'queued',
+      errorCode: null,
+      errorMessage: null,
+      retryable: null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.appointmentId, appointmentId),
+      eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+      eq(notificationDeliverySchema.status, 'failed'),
+      eq(notificationDeliverySchema.retryable, true),
+    )).returning();
+    if (reclaimed) {
+      deliveryId = reclaimed.id;
+    } else {
+      const [existing] = await db.select({
+        id: notificationDeliverySchema.id,
+        status: notificationDeliverySchema.status,
+      }).from(notificationDeliverySchema).where(and(
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.appointmentId, appointmentId),
+        eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+      )).limit(1);
+      return existing?.status === 'sent'
+        ? { status: 'sent', deliveryId: existing.id }
+        : { status: 'duplicate', deliveryId: existing?.id ?? null };
+    }
+  } else if (!inserted.length) {
+    const [existing] = await db.select({
+      id: notificationDeliverySchema.id,
+      status: notificationDeliverySchema.status,
+    }).from(notificationDeliverySchema).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.appointmentId, appointmentId),
+      eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+    )).limit(1);
+    return existing?.status === 'sent'
+      ? { status: 'sent', deliveryId: existing.id }
+      : { status: 'duplicate', deliveryId: existing?.id ?? null };
+  }
+
+  let content: OperationalEmailContent;
+  try {
+    content = await input.prepare();
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_PREPARATION_FAILED',
+      retryable: true,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId };
+  }
+
+  const { sendTransactionalEmailDetailed } = await import('@/libs/email');
+  const recipient = await resolveAppointmentOperationalEmailRecipient({
+    salonId,
+    appointmentId,
+  }).catch(() => null);
+  if (!recipient || recipient.status === 'unavailable') {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      retryable: false,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'unavailable', deliveryId };
+  }
+
+  let providerResult;
+  try {
+    providerResult = await sendTransactionalEmailDetailed({
+      to: recipient.email,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+    });
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
+      retryable: false,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId };
+  }
+
+  await db.update(notificationDeliverySchema).set({
+    status: providerResult.ok ? 'sent' : 'failed',
+    providerMessageId: providerResult.providerMessageId,
+    errorCode: providerResult.errorCode,
+    retryable: !providerResult.ok,
+  }).where(and(
+    eq(notificationDeliverySchema.id, deliveryId),
+    eq(notificationDeliverySchema.salonId, salonId),
+    eq(notificationDeliverySchema.status, 'queued'),
+  ));
+  return {
+    status: providerResult.ok ? 'sent' : 'failed',
+    deliveryId,
+  };
 }
 
 export async function getSalonClientLineageIdsWithHandle(

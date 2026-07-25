@@ -8,9 +8,8 @@ import {
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingPolicy } from '@/libs/bookingPolicy';
-import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
+import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { sendTransactionalEmail } from '@/libs/email';
 import type { GoogleCalendarBusyWindow } from '@/libs/googleCalendar';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { getLocationById, getTechnicianById } from '@/libs/queries';
@@ -453,30 +452,35 @@ export async function POST(request: Request, context: { params: { token: string 
     });
   }
 
-  // Customer side. The move is already committed; re-resolve the current
-  // operational recipient without changing historical appointment snapshots.
+  // Customer side. The move is already committed. The event claim is based on
+  // the old/new schedule, never the recipient, and the shared sender resolves
+  // current contact only after the content and private link are ready.
   try {
-    const recipient = await resolveAppointmentOperationalEmailRecipient({
+    const timeZone = bookingConfig.timezone;
+    const newStart = new Date(result.detail.appointment.startTime);
+    const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
+    const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
+    const manageUrl = buildAppointmentManageUrl(
+      { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
+      context.params.token,
+    );
+    const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+    await sendAppointmentOperationalEmailOnce({
       salonId: managed.capability.salonId,
       appointmentId: managed.capability.appointmentId,
-    });
-    if (recipient.status !== 'unavailable') {
-      const timeZone = bookingConfig.timezone;
-      const newStart = new Date(result.detail.appointment.startTime);
-      const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
-      const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
-      const manageUrl = buildAppointmentManageUrl(
-        { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
-        context.params.token,
-      );
-      const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
-      await sendTransactionalEmail({
-        to: recipient.email,
+      purpose: 'client_appointment_rescheduled',
+      eventVersion: [
+        previousSchedule.startTime,
+        previousSchedule.endTime,
+        result.detail.appointment.startTime,
+        result.detail.appointment.endTime,
+      ].join(':'),
+      prepare: () => ({
         subject: `${managed.details.salonName} appointment rescheduled`,
         text,
         html: `<p>Your <strong>${escapeHtml(managed.details.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
-      });
-    }
+      }),
+    });
   } catch {
     console.error('[AppointmentManageLink] Reschedule confirmation email failed after the move committed:', {
       salonId: managed.capability.salonId,
@@ -554,19 +558,18 @@ export async function PATCH(request: Request, context: { params: { token: string
   }
 
   try {
-    const recipient = await resolveAppointmentOperationalEmailRecipient({
+    const text = `Your appointment with ${managed.details.salonName} has been cancelled.`;
+    await sendAppointmentOperationalEmailOnce({
       salonId: cancelled.salonId,
       appointmentId: cancelled.id,
-    });
-    if (recipient.status !== 'unavailable') {
-      const text = `Your appointment with ${managed.details.salonName} has been cancelled.`;
-      await sendTransactionalEmail({
-        to: recipient.email,
+      purpose: 'client_appointment_cancelled',
+      eventVersion: (cancelled.updatedAt ?? new Date()).toISOString(),
+      prepare: () => ({
         subject: `${managed.details.salonName} appointment cancelled`,
         text,
         html: `<p>${text}</p>`,
-      });
-    }
+      }),
+    });
   } catch {
     console.error('[AppointmentManageLink] Cancellation confirmation email failed after the cancellation committed:', {
       salonId: cancelled.salonId,

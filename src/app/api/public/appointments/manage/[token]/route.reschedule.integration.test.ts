@@ -9,7 +9,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,6 +128,25 @@ function rescheduleRequest(startTime: string | undefined, action = 'reschedule')
 
 async function appointmentRows() {
   return db.select().from(schema.appointmentSchema);
+}
+
+async function deliveriesFor(
+  appointmentId: string,
+  purpose: string,
+) {
+  return db
+    .select()
+    .from(schema.notificationDeliverySchema)
+    .where(and(
+      eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+      eq(schema.notificationDeliverySchema.purpose, purpose),
+    ));
+}
+
+function detailedEmailsTo(address: string) {
+  return sendTransactionalEmailDetailed.mock.calls
+    .map(call => call[0] as { to: string; subject: string; text: string })
+    .filter(message => message.to === address);
 }
 
 beforeAll(async () => {
@@ -255,8 +274,8 @@ describe('customer manage-link reschedule', () => {
 
     await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
 
-    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
-    expect(sendTransactionalEmail.mock.calls[0]![0]).toMatchObject({
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')[0]).toMatchObject({
       to: 'current@example.com',
       subject: 'Isla Nail Studio appointment rescheduled',
     });
@@ -266,8 +285,13 @@ describe('customer manage-link reschedule', () => {
       .from(schema.notificationDeliverySchema)
       .where(eq(schema.notificationDeliverySchema.appointmentId, appointmentId));
 
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]!.purpose).toBe('salon_rescheduled');
+    expect(deliveries).toHaveLength(2);
+    expect(await deliveriesFor(appointmentId, 'salon_rescheduled'))
+      .toHaveLength(1);
+    expect(await deliveriesFor(
+      appointmentId,
+      'client_appointment_rescheduled',
+    )).toHaveLength(1);
     expect(enqueueGoogleCalendarUpsert).toHaveBeenCalledTimes(1);
   });
 
@@ -276,10 +300,11 @@ describe('customer manage-link reschedule', () => {
 
     await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
 
-    const email = sendTransactionalEmail.mock.calls[0]![0] as { text: string };
+    const [email] = detailedEmailsTo('current@example.com');
 
-    expect(email.text).toContain(`https://app.luster.test/en/isla-nail-studio1/manage/${encodeURIComponent(token)}`);
-    expect(email.text).not.toMatch(/\/book\//);
+    expect(email).toBeDefined();
+    expect(email!.text).toContain(`https://app.luster.test/en/isla-nail-studio1/manage/${encodeURIComponent(token)}`);
+    expect(email!.text).not.toMatch(/\/book\//);
   });
 
   it('does not re-notify when the same committed move is submitted again', async () => {
@@ -298,12 +323,57 @@ describe('customer manage-link reschedule', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(secondBody.data.status).toBe('unchanged');
-    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
+  it('claims one customer email for concurrent identical reschedules', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const responses = await Promise.all([
+      POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
+      POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
+    ]);
+
+    expect(responses.every(response => response.status === 200)).toBe(true);
+    expect(await deliveriesFor(
+      appointmentId,
+      'client_appointment_rescheduled',
+    )).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
+  it('resolves the customer email after the committed move and preparation', async () => {
+    sendTransactionalEmailDetailed.mockImplementation(async (message) => {
+      if (message.to === 'owner@example.com') {
+        await db
+          .update(schema.salonClientSchema)
+          .set({ email: 'changed@example.com' })
+          .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+      }
+      return {
+        ok: true,
+        errorCode: null,
+        providerMessageId: 'msg_resched',
+      };
+    });
+    const { token } = await seedAppointmentWithToken();
+
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
+    expect(detailedEmailsTo('changed@example.com')).toHaveLength(1);
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'current@example.com' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
   });
 
   it('keeps a moved appointment committed when customer email delivery fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    sendTransactionalEmail.mockRejectedValue(new Error('provider unavailable'));
+    sendTransactionalEmailDetailed.mockRejectedValue(
+      new Error('provider unavailable'),
+    );
     const { appointmentId, token } = await seedAppointmentWithToken();
 
     const response = await POST(
@@ -337,7 +407,16 @@ describe('customer manage-link reschedule', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
+    expect(await deliveriesFor(
+      appointmentId,
+      'client_appointment_rescheduled',
+    )).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      }),
+    ]);
 
     const [appointment] = await db
       .select()

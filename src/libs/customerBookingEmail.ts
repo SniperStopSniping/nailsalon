@@ -18,6 +18,35 @@ const unavailableRecipientResult: TransactionalEmailResult = {
   providerMessageId: null,
 };
 
+async function markBookingRecipientUnavailable(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: unavailableRecipientResult.errorCode,
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    ne(notificationDeliverySchema.status, 'sent'),
+  ));
+}
+
+async function revokeBookingCapability(input: {
+  salonId: string;
+  tokenHash: string;
+}) {
+  await db.update(appointmentAccessTokenSchema).set({
+    revokedAt: new Date(),
+  }).where(and(
+    eq(appointmentAccessTokenSchema.salonId, input.salonId),
+    eq(appointmentAccessTokenSchema.tokenHash, input.tokenHash),
+  ));
+}
+
 export async function sendCustomerBookingConfirmationEmail(input: {
   salonName: string;
   clientName: string;
@@ -28,14 +57,6 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   salonId: string;
   appointmentId: string;
 }) {
-  const recipient = await resolveAppointmentOperationalEmailRecipient({
-    salonId: input.salonId,
-    appointmentId: input.appointmentId,
-  });
-  if (recipient.status === 'unavailable') {
-    return false;
-  }
-
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
@@ -58,6 +79,18 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   }).onConflictDoNothing().returning();
   if (!inserted.length) {
     return true;
+  }
+  const recipient = await resolveAppointmentOperationalEmailRecipient({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+  });
+  if (recipient.status === 'unavailable') {
+    await markBookingRecipientUnavailable({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+    });
+    return false;
   }
   const result = await sendTransactionalEmailDetailed({
     to: recipient.email,
@@ -109,16 +142,7 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     appointmentId: input.appointmentId,
   });
   if (recipient.status === 'unavailable') {
-    await db.update(notificationDeliverySchema).set({
-      status: 'failed',
-      errorCode: unavailableRecipientResult.errorCode,
-      retryable: false,
-    }).where(and(
-      eq(notificationDeliverySchema.id, input.deliveryId),
-      eq(notificationDeliverySchema.salonId, input.salonId),
-      eq(notificationDeliverySchema.appointmentId, input.appointmentId),
-      ne(notificationDeliverySchema.status, 'sent'),
-    ));
+    await markBookingRecipientUnavailable(input);
     return unavailableRecipientResult;
   }
 
@@ -152,18 +176,39 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
   const serviceNames = services.map(service => service.name || 'Appointment');
   const text = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
+  let finalRecipient;
+  try {
+    finalRecipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+    });
+  } catch (error) {
+    await revokeBookingCapability({
+      salonId: input.salonId,
+      tokenHash: capability.tokenHash,
+    });
+    throw error;
+  }
+  if (finalRecipient.status === 'unavailable') {
+    await revokeBookingCapability({
+      salonId: input.salonId,
+      tokenHash: capability.tokenHash,
+    });
+    await markBookingRecipientUnavailable(input);
+    return unavailableRecipientResult;
+  }
   const result = await sendTransactionalEmailDetailed({
-    to: recipient.email,
+    to: finalRecipient.email,
     subject: `${row.salonName} booking confirmed`,
     text,
     html: `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
   });
   await db.update(notificationDeliverySchema).set({ status: result.ok ? 'sent' : 'failed', providerMessageId: result.providerMessageId, errorCode: result.errorCode, retryable: !result.ok }).where(and(eq(notificationDeliverySchema.id, input.deliveryId), eq(notificationDeliverySchema.salonId, input.salonId)));
   if (!result.ok) {
-    await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
-      eq(appointmentAccessTokenSchema.salonId, input.salonId),
-      eq(appointmentAccessTokenSchema.tokenHash, capability.tokenHash),
-    ));
+    await revokeBookingCapability({
+      salonId: input.salonId,
+      tokenHash: capability.tokenHash,
+    });
     throw new Error(result.errorCode || 'BOOKING_EMAIL_RETRY_FAILED');
   }
   const activeTokens = await db.select({ id: appointmentAccessTokenSchema.id })

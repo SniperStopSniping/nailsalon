@@ -58,6 +58,15 @@ describe('client lifecycle stabilization', () => {
       .toThrow('phone is invalid');
     expect(() => normalizeClientIdentityInput({ email: 'invalid' }))
       .toThrow('email is invalid');
+
+    for (const invalidEmail of [
+      '.local@example.com',
+      'a..b@example.com',
+      'a@example..com',
+    ]) {
+      expect(() => normalizeClientIdentityInput({ email: invalidEmail }))
+        .toThrow('email is invalid');
+    }
   });
 
   it('takes every identity advisory lock in deterministic sorted order', async () => {

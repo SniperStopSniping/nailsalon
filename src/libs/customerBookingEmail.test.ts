@@ -165,7 +165,8 @@ describe('customer booking operational email', () => {
     );
   });
 
-  it('does not create delivery state or call the provider when no recipient is supported', async () => {
+  it('records a terminal failure and does not call the provider when no recipient is supported', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
     state.recipient = {
       status: 'unavailable',
       reason: 'email_unavailable',
@@ -174,8 +175,14 @@ describe('customer booking operational email', () => {
     await expect(sendCustomerBookingConfirmationEmail(initialInput()))
       .resolves.toBe(false);
 
-    expect(dbMock.insert).not.toHaveBeenCalled();
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        retryable: false,
+      }),
+    });
   });
 
   it('does not retry a business event already recorded as sent', async () => {
@@ -267,6 +274,75 @@ describe('customer booking operational email', () => {
       deliveryId: 'delivery_1',
     })).rejects.toThrow('RESEND_HTTP_500');
 
+    expect(state.updates).toContainEqual({
+      table: appointmentAccessTokenSchema,
+      set: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('sends to the current recipient when it changes during retry preparation', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [appointmentRow],
+      [],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.resolveAppointmentOperationalEmailRecipient
+      .mockResolvedValueOnce({
+        status: 'terminal_current',
+        email: 'first@example.com',
+        terminalClientId: 'client_1',
+      })
+      .mockResolvedValueOnce({
+        status: 'terminal_current',
+        email: 'changed@example.com',
+        terminalClientId: 'client_1',
+      });
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'changed@example.com' }),
+    );
+    expect(state.updates).not.toContainEqual({
+      table: appointmentAccessTokenSchema,
+      set: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('revokes the fresh token when final recipient resolution becomes unavailable', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed' }],
+      [appointmentRow],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.resolveAppointmentOperationalEmailRecipient
+      .mockResolvedValueOnce({
+        status: 'terminal_current',
+        email: 'first@example.com',
+        terminalClientId: 'client_1',
+      })
+      .mockResolvedValueOnce({
+        status: 'unavailable',
+        reason: 'email_unavailable',
+      });
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
     expect(state.updates).toContainEqual({
       table: appointmentAccessTokenSchema,
       set: { revokedAt: expect.any(Date) },

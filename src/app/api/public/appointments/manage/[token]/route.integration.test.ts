@@ -6,11 +6,12 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import * as schema from '@/models/Schema';
 
@@ -99,7 +100,29 @@ async function salonDeliveriesFor(appointmentId: string) {
   return db
     .select()
     .from(schema.notificationDeliverySchema)
-    .where(eq(schema.notificationDeliverySchema.appointmentId, appointmentId));
+    .where(and(
+      eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+      eq(schema.notificationDeliverySchema.purpose, 'salon_cancelled'),
+    ));
+}
+
+async function customerDeliveriesFor(appointmentId: string) {
+  return db
+    .select()
+    .from(schema.notificationDeliverySchema)
+    .where(and(
+      eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+      eq(
+        schema.notificationDeliverySchema.purpose,
+        'client_appointment_cancelled',
+      ),
+    ));
+}
+
+function detailedEmailsTo(address: string) {
+  return sendTransactionalEmailDetailed.mock.calls
+    .map(call => call[0] as { to: string; subject: string; text: string })
+    .filter(message => message.to === address);
 }
 
 beforeAll(async () => {
@@ -151,6 +174,83 @@ beforeEach(() => {
 });
 
 describe('customer manage-link cancellation', () => {
+  it('durably claims one concurrent customer email business event', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose: 'test_operational_email_claim',
+      eventVersion: 'event_1',
+      prepare: () => ({
+        subject: 'Test customer event',
+        text: 'Test customer event',
+        html: '<p>Test customer event</p>',
+      }),
+    };
+
+    const results = await Promise.all([
+      sendAppointmentOperationalEmailOnce(input),
+      sendAppointmentOperationalEmailOnce(input),
+    ]);
+
+    expect(results.map(result => result.status).sort())
+      .toEqual(['duplicate', 'sent']);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'changed@example.com' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+
+    await expect(sendAppointmentOperationalEmailOnce(input))
+      .resolves.toMatchObject({ status: 'sent' });
+    expect(detailedEmailsTo('changed@example.com')).toHaveLength(0);
+
+    await db
+      .update(schema.salonClientSchema)
+      .set({ email: 'current@example.com' })
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+  });
+
+  it('lets only one worker reclaim a retryable failed email event', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const purpose = 'test_operational_email_retry';
+    const eventVersion = 'event_1';
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: `delivery_failed_${appointmentId}`,
+      salonId: SALON_ID,
+      appointmentId,
+      channel: 'email',
+      purpose,
+      dedupeKey:
+        `email:operational:${purpose}:${appointmentId}:${eventVersion}`,
+      status: 'failed',
+      errorCode: 'EMAIL_PROVIDER_UNAVAILABLE',
+      retryable: true,
+    });
+    const input = {
+      salonId: SALON_ID,
+      appointmentId,
+      purpose,
+      eventVersion,
+      retryFailed: true,
+      prepare: () => ({
+        subject: 'Retried customer event',
+        text: 'Retried customer event',
+        html: '<p>Retried customer event</p>',
+      }),
+    };
+
+    const results = await Promise.all([
+      sendAppointmentOperationalEmailOnce(input),
+      sendAppointmentOperationalEmailOnce(input),
+    ]);
+
+    expect(results.map(result => result.status).sort())
+      .toEqual(['duplicate', 'sent']);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
   it('cancels the appointment and queues exactly one salon alert', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
@@ -170,18 +270,15 @@ describe('customer manage-link cancellation', () => {
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0]!.purpose).toBe('salon_cancelled');
     expect(deliveries[0]!.status).toBe('sent');
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
 
-    const salonEmail = sendTransactionalEmailDetailed.mock.calls[0]![0] as {
-      to: string;
-      subject: string;
-      text: string;
-    };
+    const [salonEmail] = detailedEmailsTo('owner@example.com');
 
-    expect(salonEmail.to).toBe('owner@example.com');
-    expect(salonEmail.subject).toContain('Appointment cancelled: Daniel Smith');
-    expect(salonEmail.text).toContain('Client manage link');
-    expect(salonEmail.text).toContain(
+    expect(salonEmail).toBeDefined();
+    expect(salonEmail!.to).toBe('owner@example.com');
+    expect(salonEmail!.subject).toContain('Appointment cancelled: Daniel Smith');
+    expect(salonEmail!.text).toContain('Client manage link');
+    expect(salonEmail!.text).toContain(
       `appointment=${appointmentId}`,
     );
   });
@@ -191,11 +288,12 @@ describe('customer manage-link cancellation', () => {
 
     await PATCH(cancelRequest(), { params: { token } });
 
-    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
-    expect(sendTransactionalEmail.mock.calls[0]![0]).toMatchObject({
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')[0]).toMatchObject({
       to: 'current@example.com',
       subject: 'Isla Nail Studio appointment cancelled',
     });
+    expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
 
     const [appointment] = await db
       .select()
@@ -214,8 +312,24 @@ describe('customer manage-link cancellation', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(409);
     expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
-    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
+    expect(detailedEmailsTo('owner@example.com')).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
+  it('allows only one concurrent cancellation to notify the customer', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+
+    const responses = await Promise.all([
+      PATCH(cancelRequest(), { params: { token } }),
+      PATCH(cancelRequest(), { params: { token } }),
+    ]);
+
+    expect(responses.map(response => response.status).sort())
+      .toEqual([200, 409]);
+    expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
+    expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
   });
 
   it('sends nothing for an appointment that was already cancelled', async () => {
@@ -246,7 +360,8 @@ describe('customer manage-link cancellation', () => {
     await PATCH(cancelRequest(), { params: { token } });
 
     expect(await salonDeliveriesFor(appointmentId)).toHaveLength(0);
-    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(detailedEmailsTo('owner@example.com')).toHaveLength(0);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
 
     await db
       .update(schema.salonSchema)
@@ -283,7 +398,9 @@ describe('customer manage-link cancellation', () => {
 
   it('keeps the appointment cancelled when current-recipient delivery fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    sendTransactionalEmail.mockRejectedValue(new Error('provider unavailable'));
+    sendTransactionalEmailDetailed.mockRejectedValue(
+      new Error('provider unavailable'),
+    );
     const { appointmentId, token } = await seedAppointmentWithToken();
 
     const response = await PATCH(cancelRequest(), { params: { token } });
@@ -311,7 +428,13 @@ describe('customer manage-link cancellation', () => {
     const response = await PATCH(cancelRequest(), { params: { token } });
 
     expect(response.status).toBe(200);
-    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
+    expect(await customerDeliveriesFor(appointmentId)).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      }),
+    ]);
 
     const [appointment] = await db
       .select()

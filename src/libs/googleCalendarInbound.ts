@@ -8,9 +8,8 @@ import {
   getAppointmentCalendarEventForSync,
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
-import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
+import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { sendTransactionalEmail } from '@/libs/email';
 import { listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon } from '@/libs/googleCalendar';
 import { extractGoogleEventContact } from '@/libs/googleEventAutofill';
 import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
@@ -85,14 +84,8 @@ async function sendCalendarChangeEmail(args: {
   timeZone: string;
   startTime: Date;
   operation: 'rescheduled' | 'cancelled';
+  eventVersion: string;
 }) {
-  const recipient = await resolveAppointmentOperationalEmailRecipient({
-    salonId: args.salonId,
-    appointmentId: args.appointmentId,
-  }).catch(() => null);
-  if (!recipient || recipient.status === 'unavailable') {
-    return;
-  }
   const greeting = args.clientName?.trim() ? `Hi ${args.clientName.trim()},` : 'Hello,';
   const time = formatAppointmentTime(args.startTime, args.timeZone);
   const action = args.operation === 'rescheduled'
@@ -101,12 +94,17 @@ async function sendCalendarChangeEmail(args: {
   const safeGreeting = escapeHtml(greeting);
   const safeAction = escapeHtml(action);
   const safeSalonName = escapeHtml(args.salonName);
-  await sendTransactionalEmail({
-    to: recipient.email,
-    subject: `${args.salonName} appointment ${args.operation}`,
-    text: `${greeting}\n\n${action}\n\nPlease contact ${args.salonName} if this change was unexpected.`,
-    html: `<p>${safeGreeting}</p><p>${safeAction}</p><p>Please contact ${safeSalonName} if this change was unexpected.</p>`,
-  }).catch(() => false);
+  await sendAppointmentOperationalEmailOnce({
+    salonId: args.salonId,
+    appointmentId: args.appointmentId,
+    purpose: `google_calendar_appointment_${args.operation}`,
+    eventVersion: args.eventVersion,
+    prepare: () => ({
+      subject: `${args.salonName} appointment ${args.operation}`,
+      text: `${greeting}\n\n${action}\n\nPlease contact ${args.salonName} if this change was unexpected.`,
+      html: `<p>${safeGreeting}</p><p>${safeAction}</p><p>Please contact ${safeSalonName} if this change was unexpected.</p>`,
+    }),
+  }).catch(() => undefined);
 }
 
 export async function processGoogleCalendarInboundSync(limit = 25, salonId?: string) {
@@ -294,19 +292,24 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
         }
 
         if (remoteEvent.status === 'cancelled') {
-          await db.update(appointmentSchema).set({
+          const mutationTime = new Date();
+          const [cancelled] = await db.update(appointmentSchema).set({
             status: 'cancelled',
             cancelReason: 'client_request',
             notes: [appointment.notes, '[Google Calendar] Event deleted by salon owner.'].filter(Boolean).join('\n'),
             googleCalendarEventId: null,
             googleCalendarSyncStatus: 'deleted',
             googleCalendarSyncError: null,
-            googleCalendarSyncedAt: new Date(),
-            updatedAt: new Date(),
+            googleCalendarSyncedAt: mutationTime,
+            updatedAt: mutationTime,
           }).where(and(
             eq(appointmentSchema.id, appointment.id),
             eq(appointmentSchema.salonId, connection.salonId),
-          ));
+            inArray(appointmentSchema.status, [...ACTIVE_APPOINTMENT_STATUSES]),
+          )).returning();
+          if (!cancelled) {
+            continue;
+          }
           await logAppointmentChange({
             appointmentId: appointment.id,
             salonId: appointment.salonId,
@@ -326,6 +329,11 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             timeZone,
             startTime: appointment.startTime,
             operation: 'cancelled',
+            eventVersion: [
+              remoteEvent.id,
+              remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
+              'cancelled',
+            ].join(':'),
           });
           summary.cancelledAppointments += 1;
           continue;
@@ -387,6 +395,12 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             timeZone,
             startTime: remoteEvent.startTime,
             operation: 'rescheduled',
+            eventVersion: [
+              remoteEvent.id,
+              remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
+              appointment.startTime.toISOString(),
+              remoteEvent.startTime.toISOString(),
+            ].join(':'),
           });
           summary.movedAppointments += 1;
         } catch (error) {
