@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
@@ -23,6 +23,44 @@ const ambiguousDeliveryResult: TransactionalEmailResult = {
   errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
   providerMessageId: null,
 };
+
+const appointmentNotConfirmableResult: TransactionalEmailResult = {
+  ok: false,
+  errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+  providerMessageId: null,
+};
+
+type BookingConfirmationEligibility = {
+  deletedAt: Date | null;
+  startTime: Date;
+  status: string;
+};
+
+function isBookingConfirmationEligible(
+  appointment: BookingConfirmationEligibility | undefined,
+): appointment is BookingConfirmationEligibility {
+  return Boolean(
+    appointment
+    && appointment.deletedAt === null
+    && appointment.startTime.getTime() > Date.now()
+    && (appointment.status === 'pending' || appointment.status === 'confirmed'),
+  );
+}
+
+async function loadBookingConfirmationEligibility(input: {
+  salonId: string;
+  appointmentId: string;
+}) {
+  const [appointment] = await db.select({
+    status: appointmentSchema.status,
+    deletedAt: appointmentSchema.deletedAt,
+    startTime: appointmentSchema.startTime,
+  }).from(appointmentSchema).where(and(
+    eq(appointmentSchema.id, input.appointmentId),
+    eq(appointmentSchema.salonId, input.salonId),
+  )).limit(1);
+  return appointment;
+}
 
 function isAmbiguousProviderFailure(
   result: TransactionalEmailResult,
@@ -81,6 +119,17 @@ async function markBookingAmbiguousFailure(input: {
     eq(notificationDeliverySchema.appointmentId, input.appointmentId),
     ne(notificationDeliverySchema.status, 'sent'),
   ));
+}
+
+async function markBookingAppointmentNotConfirmable(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+}) {
+  await markBookingAmbiguousFailure({
+    ...input,
+    errorCode: appointmentNotConfirmableResult.errorCode!,
+  });
 }
 
 async function enqueueBookingConfirmationRetry(input: {
@@ -196,6 +245,14 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   }
   let recipient;
   try {
+    const appointment = await loadBookingConfirmationEligibility(input);
+    if (!isBookingConfirmationEligible(appointment)) {
+      await markBookingAppointmentNotConfirmable({
+        ...input,
+        deliveryId,
+      });
+      return false;
+    }
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -322,12 +379,10 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     }).from(appointmentSchema).innerJoin(salonSchema, eq(salonSchema.id, appointmentSchema.salonId)).where(and(
       eq(appointmentSchema.id, input.appointmentId),
       eq(appointmentSchema.salonId, input.salonId),
-      inArray(appointmentSchema.status, ['pending', 'confirmed']),
-      isNull(appointmentSchema.deletedAt),
-      gt(appointmentSchema.startTime, new Date()),
     )).limit(1);
-    if (!row) {
-      throw new Error('BOOKING_EMAIL_APPOINTMENT_NOT_FOUND');
+    if (!row || !isBookingConfirmationEligible(row.appointment)) {
+      await markBookingAppointmentNotConfirmable(input);
+      return appointmentNotConfirmableResult;
     }
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
@@ -369,6 +424,16 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
       capabilityTokenHash = null;
       await markBookingRecipientUnavailable(input);
       return unavailableRecipientResult;
+    }
+    const finalEligibility = await loadBookingConfirmationEligibility(input);
+    if (!isBookingConfirmationEligible(finalEligibility)) {
+      await revokeBookingCapability({
+        salonId: input.salonId,
+        tokenHash: capability.tokenHash,
+      });
+      capabilityTokenHash = null;
+      await markBookingAppointmentNotConfirmable(input);
+      return appointmentNotConfirmableResult;
     }
     emailInput = {
       to: finalRecipient.email,

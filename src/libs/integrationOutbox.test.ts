@@ -6,9 +6,12 @@ const {
   deleteGoogleCalendarEventForAppointment,
   syncGoogleCalendarEventForAppointment,
   listGoogleCalendarEventsForSalon,
+  retryCustomerBookingConfirmationEmail,
   selectResults,
+  updates,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
+  const updates: Array<Record<string, unknown>> = [];
   const select = vi.fn(() => {
     const rows = selectResults.shift() ?? [];
     const chain: Record<string, unknown> = {};
@@ -20,15 +23,18 @@ const {
     return chain;
   });
   const update = vi.fn(() => ({
-    set: vi.fn(() => ({
-      where: vi.fn(() => {
-        const query = Promise.resolve(undefined) as Promise<undefined> & {
-          returning: () => Promise<Array<{ id: string }>>;
-        };
-        query.returning = async () => [{ id: 'job_1' }];
-        return query;
-      }),
-    })),
+    set: vi.fn((values: Record<string, unknown>) => {
+      updates.push(values);
+      return {
+        where: vi.fn(() => {
+          const query = Promise.resolve(undefined) as Promise<undefined> & {
+            returning: () => Promise<Array<{ id: string }>>;
+          };
+          query.returning = async () => [{ id: 'job_1' }];
+          return query;
+        }),
+      };
+    }),
   }));
 
   return {
@@ -36,7 +42,9 @@ const {
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     syncGoogleCalendarEventForAppointment: vi.fn(),
     listGoogleCalendarEventsForSalon: vi.fn(),
+    retryCustomerBookingConfirmationEmail: vi.fn(),
     selectResults,
+    updates,
   };
 });
 
@@ -48,18 +56,88 @@ vi.mock('@/libs/googleCalendar', () => ({
   listGoogleCalendarEventsForSalon,
 }));
 
+vi.mock('@/libs/customerBookingEmail', () => ({
+  retryCustomerBookingConfirmationEmail,
+}));
+
 import { processIntegrationOutbox } from './integrationOutbox';
 
 describe('processIntegrationOutbox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectResults.length = 0;
+    updates.length = 0;
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'deleted' });
     syncGoogleCalendarEventForAppointment.mockResolvedValue({
       status: 'synced',
       eventId: 'google_event_1',
     });
     listGoogleCalendarEventsForSalon.mockResolvedValue([]);
+    retryCustomerBookingConfirmationEmail.mockResolvedValue({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+      providerMessageId: null,
+    });
+  });
+
+  it('completes a terminal confirmation retry once without advancing it again', async () => {
+    selectResults.push(
+      [{
+        id: 'job_1',
+        salonId: 'salon_1',
+        appointmentId: 'appt_1',
+        provider: 'email',
+        operation: 'retry_booking_confirmation',
+        status: 'retry',
+        attempts: 0,
+        payload: { deliveryId: 'delivery_1' },
+        createdAt: new Date('2026-07-26T12:00:00.000Z'),
+        updatedAt: new Date('2026-07-26T12:00:00.000Z'),
+        availableAt: new Date('2026-07-26T12:00:00.000Z'),
+        processedAt: null,
+        lastError: 'BOOKING_EMAIL_PREPARATION_FAILED',
+      }],
+      [],
+      [],
+      [],
+    );
+
+    const first = await processIntegrationOutbox();
+
+    expect(first).toMatchObject({
+      scanned: 1,
+      succeeded: 1,
+      retried: 0,
+      failed: 0,
+    });
+    expect(retryCustomerBookingConfirmationEmail).toHaveBeenCalledTimes(1);
+    expect(retryCustomerBookingConfirmationEmail).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      deliveryId: 'delivery_1',
+    });
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'processing',
+      attempts: 1,
+    }));
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'completed',
+      lastError: null,
+    }));
+
+    selectResults.push([], [], [], []);
+    const second = await processIntegrationOutbox();
+
+    expect(second).toMatchObject({
+      scanned: 0,
+      succeeded: 0,
+      retried: 0,
+      failed: 0,
+    });
+    expect(retryCustomerBookingConfirmationEmail).toHaveBeenCalledTimes(1);
+    expect(updates.filter(update => 'attempts' in update)).toEqual([
+      expect.objectContaining({ attempts: 1 }),
+    ]);
   });
 
   it('turns a delayed upsert into a delete after the appointment is cancelled', async () => {
