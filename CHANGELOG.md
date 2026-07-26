@@ -1,3 +1,21 @@
+## [1.33.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.2...v1.33.3) (2026-07-26)
+
+
+### Bug Fixes
+
+* **email:** allow safe orphan snapshot delivery ([6ad6b73](https://github.com/SniperStopSniping/nailsalon/commit/6ad6b73758745e93bb8660fdbbf5902b86f452c1))
+* **email:** claim retries and contain delivery failures ([5a96fa7](https://github.com/SniperStopSniping/nailsalon/commit/5a96fa7753a5dda89d7aca90cb6ed237d88fcdf3))
+* **email:** finalize state before customer delivery ([2d82ed8](https://github.com/SniperStopSniping/nailsalon/commit/2d82ed846a5d7ce75d468c185952c171c5a7a073))
+* **email:** harden operational delivery retries ([63eb0e3](https://github.com/SniperStopSniping/nailsalon/commit/63eb0e30ad38c945c76391953f5d4a8d6bf106d4))
+* **email:** make operational delivery race-safe ([97f5b62](https://github.com/SniperStopSniping/nailsalon/commit/97f5b62abdc3ab677082773ae61ccc3b289302ed))
+* **email:** re-resolve booking confirmations ([31329d3](https://github.com/SniperStopSniping/nailsalon/commit/31329d327ea787b3d66847a35fafd80fbb54d701))
+* **email:** refresh reminders and calendar notices ([d584b87](https://github.com/SniperStopSniping/nailsalon/commit/d584b8773b4f11a5a8c6571e69714d64b56ec00b))
+* **email:** resolve current client recipients ([e31dc0c](https://github.com/SniperStopSniping/nailsalon/commit/e31dc0c8428e4f0fea7b39378e64c761ac6ffb3b))
+* **email:** resolve manage-link recipients ([5052b2d](https://github.com/SniperStopSniping/nailsalon/commit/5052b2d350d8c8a16f68905127aea1a32444c8c1))
+* **email:** secure booking recovery recipients ([033cb0c](https://github.com/SniperStopSniping/nailsalon/commit/033cb0c0d8d8a53cbebd13b751e503352ac1f386))
+* **reminders:** preserve safe SMS retries ([5510bfe](https://github.com/SniperStopSniping/nailsalon/commit/5510bfeece8e59c36ad5c376361f8b45ad288f2b))
+* **reminders:** scope retry evidence per attempt ([41cd22c](https://github.com/SniperStopSniping/nailsalon/commit/41cd22c0834e414e3a15c3832afe045873f90c3d))
+
 ## [1.33.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.1...v1.33.2) (2026-07-25)
 
 
