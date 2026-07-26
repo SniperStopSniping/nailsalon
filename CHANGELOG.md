@@ -1,3 +1,10 @@
+## [1.33.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.3...v1.33.4) (2026-07-26)
+
+
+### Bug Fixes
+
+* **email:** stop retries for terminal appointments ([0c5d07c](https://github.com/SniperStopSniping/nailsalon/commit/0c5d07c746793763e00b46b9f1cdc6fcfa4915fa))
+
 ## [1.33.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.2...v1.33.3) (2026-07-26)
 
 
