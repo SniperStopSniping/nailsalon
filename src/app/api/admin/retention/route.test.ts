@@ -253,11 +253,14 @@ describe('/api/admin/retention', () => {
       on: new PgDialect().sqlToQuery(join.on as SQL).sql,
     }));
 
-    expect(renderedJoins).toHaveLength(3);
+    expect(renderedJoins).toHaveLength(4);
     expect(renderedJoins.map(join => join.on)).toEqual(expect.arrayContaining([
       expect.stringContaining('active_lineage.id = "salon_client"."id"'),
       expect.stringContaining(
         'active_lineage.id = "appointment"."salon_client_id"',
+      ),
+      expect.stringContaining(
+        '"appointment"."salon_client_id" is null',
       ),
       expect.stringContaining(
         'active_lineage.id = "client_communication"."salon_client_id"',
@@ -265,11 +268,17 @@ describe('/api/admin/retention', () => {
     ]));
 
     for (const join of renderedJoins) {
-      expect(join.source).toContain('with recursive lineage');
+      expect(join.source).toContain('with recursive');
+      expect(join.source).toContain(
+        'lineage(id, terminal_id, depth, path)',
+      );
       expect(join.source).toContain('terminal.archived_at is null');
       expect(join.source).toContain('terminal.merged_into_client_id is null');
       expect(join.source).toContain('invalid_terminal');
     }
+
+    expect(renderedJoins.some(join =>
+      join.source.includes('phone_identity'))).toBe(true);
   });
 
   it('collapses a merged source into its active terminal before building reminder destinations', async () => {

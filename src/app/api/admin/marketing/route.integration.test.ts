@@ -101,6 +101,13 @@ beforeAll(async () => {
       fullName: 'Appointment Source',
       lastVisitAt: new Date(now - 45 * DAY),
     },
+    {
+      id: 'sc_legacy_terminal',
+      salonId: SALON_ID,
+      phone: '4165550309',
+      fullName: 'Legacy Appointment Terminal',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
     ...Array.from({ length: 17 }, (_, index) => ({
       id: `sc_deep_${index}`,
       salonId: SALON_ID,
@@ -140,6 +147,12 @@ beforeAll(async () => {
       'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
     ));
   }
+  await db.insert(schema.salonClientContactAliasSchema).values({
+    salonId: SALON_ID,
+    salonClientId: 'sc_legacy_terminal',
+    kind: 'phone',
+    normalizedValue: '4165550399',
+  });
   await db.insert(schema.communicationConsentSchema).values({
     id: 'consent_1',
     salonId: SALON_ID,
@@ -249,6 +262,43 @@ beforeAll(async () => {
       paymentStatus: 'paid',
     },
   ]);
+  await db.execute(sql`
+    insert into appointment (
+      id,
+      salon_id,
+      client_phone,
+      start_time,
+      end_time,
+      status,
+      total_price,
+      total_duration_minutes,
+      created_at,
+      updated_at
+    )
+    select
+      'appt_unmatched_legacy_' || noise.value::text,
+      ${SALON_ID},
+      '6470000000',
+      ${new Date(now + 4 * DAY)},
+      ${new Date(now + 4 * DAY + 3_600_000)},
+      'confirmed',
+      5000,
+      60,
+      ${new Date(now - DAY)},
+      ${new Date(now - DAY)}
+    from generate_series(1, 5000) as noise(value)
+  `);
+  await db.insert(schema.appointmentSchema).values({
+    id: 'appt_future_legacy_alias',
+    salonId: SALON_ID,
+    salonClientId: null,
+    clientPhone: '+1 (416) 555-0399',
+    startTime: new Date(now + 5 * DAY),
+    endTime: new Date(now + 5 * DAY + 3_600_000),
+    status: 'confirmed',
+    totalPrice: 5000,
+    totalDurationMinutes: 60,
+  });
   await db.insert(schema.serviceSchema).values({
     id: 'svc_x',
     salonId: SALON_ID,
@@ -335,6 +385,7 @@ describe('GET /api/admin/marketing', () => {
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_merged_source')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_terminal')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_source')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_legacy_terminal')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_deep_0')).toBe(false);
   });
 

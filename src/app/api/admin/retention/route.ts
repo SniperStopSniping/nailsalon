@@ -47,46 +47,46 @@ const ACTIVE_RETENTION_STATUSES: ClientCommunicationStatus[] = ['prepared', 'sno
 
 type CommunicationRow = typeof clientCommunicationSchema.$inferSelect;
 
-function activeSalonClientLineageTable(salonId: string) {
+function activeSalonClientLineageCtes(salonId: string) {
   return sql`
-    (
-      with recursive lineage(id, terminal_id, depth, path) as (
-        select
-          terminal.id,
-          terminal.id,
-          0,
-          array[terminal.id]::text[]
-        from salon_client as terminal
-        where terminal.salon_id = ${salonId}
-          and terminal.archived_at is null
-          and terminal.merged_into_client_id is null
+    lineage(id, terminal_id, depth, path) as (
+      select
+        terminal.id,
+        terminal.id,
+        0,
+        array[terminal.id]::text[]
+      from salon_client as terminal
+      where terminal.salon_id = ${salonId}
+        and terminal.archived_at is null
+        and terminal.merged_into_client_id is null
 
-        union all
+      union all
 
-        select
-          source.id,
-          lineage.terminal_id,
-          lineage.depth + 1,
-          lineage.path || source.id
-        from lineage
-        inner join salon_client as source
-          on source.salon_id = ${salonId}
-         and source.merged_into_client_id = lineage.id
-        where lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
-          and not source.id = any(lineage.path)
-      ),
-      invalid_terminal as (
-        select distinct lineage.terminal_id
-        from lineage
-        inner join salon_client as child
-          on child.salon_id = ${salonId}
-         and child.merged_into_client_id = lineage.id
-        where child.id = any(lineage.path)
-           or (
-             lineage.depth = ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
-             and not child.id = any(lineage.path)
-           )
-      )
+      select
+        source.id,
+        lineage.terminal_id,
+        lineage.depth + 1,
+        lineage.path || source.id
+      from lineage
+      inner join salon_client as source
+        on source.salon_id = ${salonId}
+       and source.merged_into_client_id = lineage.id
+      where lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+        and not source.id = any(lineage.path)
+    ),
+    invalid_terminal as (
+      select distinct lineage.terminal_id
+      from lineage
+      inner join salon_client as child
+        on child.salon_id = ${salonId}
+       and child.merged_into_client_id = lineage.id
+      where child.id = any(lineage.path)
+         or (
+           lineage.depth = ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+           and not child.id = any(lineage.path)
+         )
+    ),
+    active_lineage as (
       select lineage.id, lineage.terminal_id, lineage.depth
       from lineage
       where not exists (
@@ -94,7 +94,84 @@ function activeSalonClientLineageTable(salonId: string) {
         from invalid_terminal
         where invalid_terminal.terminal_id = lineage.terminal_id
       )
+    )
+  `;
+}
+
+function activeSalonClientLineageTable(salonId: string) {
+  return sql`
+    (
+      with recursive ${activeSalonClientLineageCtes(salonId)}
+      select id, terminal_id, depth
+      from active_lineage
     ) as active_lineage
+  `;
+}
+
+function activeSalonClientPhoneIdentityTable(salonId: string) {
+  return sql`
+    (
+      with recursive
+      ${activeSalonClientLineageCtes(salonId)},
+      phone_identity(normalized_phone, terminal_id) as (
+        select
+          case
+            when regexp_replace(current_client.phone, '[^0-9]', '', 'g')
+              ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(current_client.phone, '[^0-9]', '', 'g')
+                from 2
+              )
+            else regexp_replace(
+              current_client.phone,
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end,
+          active_lineage.terminal_id
+        from active_lineage
+        inner join salon_client as current_client
+          on current_client.salon_id = ${salonId}
+         and current_client.id = active_lineage.id
+
+        union all
+
+        select
+          case
+            when regexp_replace(alias.normalized_value, '[^0-9]', '', 'g')
+              ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(
+                  alias.normalized_value,
+                  '[^0-9]',
+                  '',
+                  'g'
+                )
+                from 2
+              )
+            else regexp_replace(
+              alias.normalized_value,
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end,
+          active_lineage.terminal_id
+        from active_lineage
+        inner join salon_client_contact_alias as alias
+          on alias.salon_id = ${salonId}
+         and alias.salon_client_id = active_lineage.id
+         and alias.kind = 'phone'
+      )
+      select
+        normalized_phone,
+        min(terminal_id) as terminal_id
+      from phone_identity
+      where length(normalized_phone) = 10
+      group by normalized_phone
+      having count(distinct terminal_id) = 1
+    ) as active_phone_identity
   `;
 }
 
@@ -212,7 +289,12 @@ export async function GET(request: Request): Promise<Response> {
     db
       .select({
         id: appointmentSchema.id,
-        salonClientId: sql<string | null>`active_lineage.terminal_id`,
+        salonClientId: sql<string | null>`
+          coalesce(
+            active_lineage.terminal_id,
+            active_phone_identity.terminal_id
+          )
+        `,
         clientName: appointmentSchema.clientName,
         clientPhone: appointmentSchema.clientPhone,
         startTime: appointmentSchema.startTime,
@@ -226,13 +308,44 @@ export async function GET(request: Request): Promise<Response> {
         activeSalonClientLineageTable(salon.id),
         sql`active_lineage.id = ${appointmentSchema.salonClientId}`,
       )
+      .leftJoin(
+        activeSalonClientPhoneIdentityTable(salon.id),
+        sql`
+          ${appointmentSchema.salonClientId} is null
+          and active_phone_identity.normalized_phone = case
+            when regexp_replace(
+              ${appointmentSchema.clientPhone},
+              '[^0-9]',
+              '',
+              'g'
+            ) ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(
+                  ${appointmentSchema.clientPhone},
+                  '[^0-9]',
+                  '',
+                  'g'
+                )
+                from 2
+              )
+            else regexp_replace(
+              ${appointmentSchema.clientPhone},
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end
+        `,
+      )
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
-        or(
-          isNull(appointmentSchema.salonClientId),
-          sql`active_lineage.terminal_id is not null`,
-        ),
+        sql`
+          coalesce(
+            active_lineage.terminal_id,
+            active_phone_identity.terminal_id
+          ) is not null
+        `,
         // Future pending/confirmed bookings, plus any in_progress visit
         // (even one started early or running past its slot) — all of these
         // must suppress retention outreach for the client.
