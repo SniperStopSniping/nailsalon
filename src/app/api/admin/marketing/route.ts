@@ -129,6 +129,10 @@ export async function GET(request: Request): Promise<Response> {
         isBlocked: salonClientSchema.isBlocked,
       })
       .from(salonClientSchema)
+      .innerJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${salonClientSchema.id}`,
+      )
       .where(and(
         eq(salonClientSchema.salonId, salon.id),
         isNull(salonClientSchema.archivedAt),
@@ -138,7 +142,7 @@ export async function GET(request: Request): Promise<Response> {
     db
       .select({
         id: appointmentSchema.id,
-        salonClientId: appointmentSchema.salonClientId,
+        salonClientId: sql<string | null>`active_lineage.terminal_id`,
         clientName: appointmentSchema.clientName,
         clientPhone: appointmentSchema.clientPhone,
         startTime: appointmentSchema.startTime,
@@ -148,9 +152,17 @@ export async function GET(request: Request): Promise<Response> {
         sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
       })
       .from(appointmentSchema)
+      .leftJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${appointmentSchema.salonClientId}`,
+      )
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
+        or(
+          isNull(appointmentSchema.salonClientId),
+          sql`active_lineage.terminal_id is not null`,
+        ),
         or(
           and(
             gt(appointmentSchema.startTime, now),

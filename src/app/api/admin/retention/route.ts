@@ -212,7 +212,7 @@ export async function GET(request: Request): Promise<Response> {
     db
       .select({
         id: appointmentSchema.id,
-        salonClientId: appointmentSchema.salonClientId,
+        salonClientId: sql<string | null>`active_lineage.terminal_id`,
         clientName: appointmentSchema.clientName,
         clientPhone: appointmentSchema.clientPhone,
         startTime: appointmentSchema.startTime,
@@ -222,9 +222,17 @@ export async function GET(request: Request): Promise<Response> {
         sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
       })
       .from(appointmentSchema)
+      .leftJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${appointmentSchema.salonClientId}`,
+      )
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
+        or(
+          isNull(appointmentSchema.salonClientId),
+          sql`active_lineage.terminal_id is not null`,
+        ),
         // Future pending/confirmed bookings, plus any in_progress visit
         // (even one started early or running past its slot) — all of these
         // must suppress retention outreach for the client.

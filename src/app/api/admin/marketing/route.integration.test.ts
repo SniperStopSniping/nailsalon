@@ -87,6 +87,27 @@ beforeAll(async () => {
       lastVisitAt: new Date(now - 45 * DAY),
     },
     { id: 'sc_merged_source', salonId: SALON_ID, phone: '4165550305', fullName: 'Merged Source', lastVisitAt: new Date(now - 45 * DAY) },
+    {
+      id: 'sc_appt_terminal',
+      salonId: SALON_ID,
+      phone: '4165550307',
+      fullName: 'Appointment Terminal',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    {
+      id: 'sc_appt_source',
+      salonId: SALON_ID,
+      phone: '4165550308',
+      fullName: 'Appointment Source',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    ...Array.from({ length: 17 }, (_, index) => ({
+      id: `sc_deep_${index}`,
+      salonId: SALON_ID,
+      phone: `417${String(index).padStart(7, '0')}`,
+      fullName: `Invalid depth ${index}`,
+      lastVisitAt: index === 0 ? new Date(now - 45 * DAY) : null,
+    })),
   ]);
   await db.execute(sql.raw(
     'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
@@ -96,10 +117,23 @@ beforeAll(async () => {
       UPDATE salon_client
       SET archived_at = now(),
           archived_by = 'merge-test',
-          merged_into_client_id = 'sc_terminal',
+          merged_into_client_id = CASE
+            WHEN id = 'sc_merged_source' THEN 'sc_terminal'
+            ELSE 'sc_appt_terminal'
+          END,
           merged_at = now(),
           merged_by = 'merge-test'
-      WHERE id = 'sc_merged_source'
+      WHERE id IN ('sc_merged_source', 'sc_appt_source')
+    `));
+    await db.execute(sql.raw(`
+      UPDATE salon_client AS source
+      SET archived_at = now(),
+          archived_by = 'merge-test',
+          merged_into_client_id = 'sc_deep_' || (deep.value - 1)::text,
+          merged_at = now(),
+          merged_by = 'merge-test'
+      FROM generate_series(1, 16) AS deep(value)
+      WHERE source.id = 'sc_deep_' || deep.value::text
     `));
   } finally {
     await db.execute(sql.raw(
@@ -180,6 +214,19 @@ beforeAll(async () => {
       clientPhone: '4165550302',
       startTime: new Date(now + 2 * DAY),
       endTime: new Date(now + 2 * DAY + 3_600_000),
+      status: 'confirmed',
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+    },
+    // A valid stale source ID must canonicalize to the active terminal before
+    // the bounded appointment input reaches the retention engine.
+    {
+      id: 'appt_future_merged_source',
+      salonId: SALON_ID,
+      salonClientId: 'sc_appt_source',
+      clientPhone: '4165550308',
+      startTime: new Date(now + 3 * DAY),
+      endTime: new Date(now + 3 * DAY + 3_600_000),
       status: 'confirmed',
       totalPrice: 5000,
       totalDurationMinutes: 60,
@@ -286,6 +333,9 @@ describe('GET /api/admin/marketing', () => {
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_suppressed')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_terminal')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_merged_source')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_terminal')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_source')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_deep_0')).toBe(false);
   });
 
   it('reports campaign results from finalized values — tax separated, never counted as revenue', async () => {

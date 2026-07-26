@@ -42,6 +42,10 @@ const {
         innerJoins.push({ source, on });
         return chain;
       }),
+      leftJoin: vi.fn((source: unknown, on: unknown) => {
+        innerJoins.push({ source, on });
+        return chain;
+      }),
       where: vi.fn(() => chain),
       orderBy: vi.fn(() => chain),
       limit: vi.fn(async () => result),
@@ -249,9 +253,12 @@ describe('/api/admin/retention', () => {
       on: new PgDialect().sqlToQuery(join.on as SQL).sql,
     }));
 
-    expect(renderedJoins).toHaveLength(2);
+    expect(renderedJoins).toHaveLength(3);
     expect(renderedJoins.map(join => join.on)).toEqual(expect.arrayContaining([
       expect.stringContaining('active_lineage.id = "salon_client"."id"'),
+      expect.stringContaining(
+        'active_lineage.id = "appointment"."salon_client_id"',
+      ),
       expect.stringContaining(
         'active_lineage.id = "client_communication"."salon_client_id"',
       ),
