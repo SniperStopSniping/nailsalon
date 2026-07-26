@@ -1,9 +1,10 @@
-import { and, desc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import {
   buildActiveTerminalSalonClientMap,
+  CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH,
   ClientLifecycleStabilizationError,
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
@@ -45,6 +46,57 @@ const RETENTION_KINDS: ClientCommunicationKind[] = ['rebook', 'promo_6w', 'promo
 const ACTIVE_RETENTION_STATUSES: ClientCommunicationStatus[] = ['prepared', 'snoozed'];
 
 type CommunicationRow = typeof clientCommunicationSchema.$inferSelect;
+
+function activeSalonClientLineageTable(salonId: string) {
+  return sql`
+    (
+      with recursive lineage(id, terminal_id, depth, path) as (
+        select
+          terminal.id,
+          terminal.id,
+          0,
+          array[terminal.id]::text[]
+        from salon_client as terminal
+        where terminal.salon_id = ${salonId}
+          and terminal.archived_at is null
+          and terminal.merged_into_client_id is null
+
+        union all
+
+        select
+          source.id,
+          lineage.terminal_id,
+          lineage.depth + 1,
+          lineage.path || source.id
+        from lineage
+        inner join salon_client as source
+          on source.salon_id = ${salonId}
+         and source.merged_into_client_id = lineage.id
+        where lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+          and not source.id = any(lineage.path)
+      ),
+      invalid_terminal as (
+        select distinct lineage.terminal_id
+        from lineage
+        inner join salon_client as child
+          on child.salon_id = ${salonId}
+         and child.merged_into_client_id = lineage.id
+        where child.id = any(lineage.path)
+           or (
+             lineage.depth = ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+             and not child.id = any(lineage.path)
+           )
+      )
+      select lineage.id, lineage.terminal_id, lineage.depth
+      from lineage
+      where not exists (
+        select 1
+        from invalid_terminal
+        where invalid_terminal.terminal_id = lineage.terminal_id
+      )
+    ) as active_lineage
+  `;
+}
 
 function serializeCommunication(
   row: CommunicationRow,
@@ -139,7 +191,15 @@ export async function GET(request: Request): Promise<Response> {
         mergedIntoClientId: salonClientSchema.mergedIntoClientId,
       })
       .from(salonClientSchema)
+      .innerJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${salonClientSchema.id}`,
+      )
       .where(eq(salonClientSchema.salonId, salon.id))
+      .orderBy(
+        sql`active_lineage.depth`,
+        salonClientSchema.id,
+      )
       .limit(5000),
     db
       .select({
@@ -178,8 +238,31 @@ export async function GET(request: Request): Promise<Response> {
       ))
       .limit(5000),
     db
-      .select()
+      .select({
+        id: clientCommunicationSchema.id,
+        salonId: clientCommunicationSchema.salonId,
+        salonClientId: sql<string>`active_lineage.terminal_id`,
+        appointmentId: clientCommunicationSchema.appointmentId,
+        kind: clientCommunicationSchema.kind,
+        status: clientCommunicationSchema.status,
+        dueAt: clientCommunicationSchema.dueAt,
+        snoozedUntil: clientCommunicationSchema.snoozedUntil,
+        messageSnapshot: clientCommunicationSchema.messageSnapshot,
+        destinationSnapshot: clientCommunicationSchema.destinationSnapshot,
+        metadata: clientCommunicationSchema.metadata,
+        preparedAt: clientCommunicationSchema.preparedAt,
+        markedSentAt: clientCommunicationSchema.markedSentAt,
+        dismissedAt: clientCommunicationSchema.dismissedAt,
+        convertedAt: clientCommunicationSchema.convertedAt,
+        actorAdminId: clientCommunicationSchema.actorAdminId,
+        createdAt: clientCommunicationSchema.createdAt,
+        updatedAt: clientCommunicationSchema.updatedAt,
+      })
       .from(clientCommunicationSchema)
+      .innerJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${clientCommunicationSchema.salonClientId}`,
+      )
       .where(eq(clientCommunicationSchema.salonId, salon.id))
       .orderBy(desc(clientCommunicationSchema.createdAt))
       .limit(10000),

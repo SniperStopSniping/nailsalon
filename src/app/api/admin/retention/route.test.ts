@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_RETENTION_SETTINGS } from '@/libs/retentionAssistant';
@@ -13,6 +15,7 @@ const {
   selectQueue,
   insertedValues,
   updateSets,
+  innerJoins,
   lifecycleState,
   lifecycleOperations,
   getSalonClientLineageIdsWithHandle,
@@ -28,12 +31,17 @@ const {
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
+  const innerJoins: Array<{ source: unknown; on: unknown }> = [];
   const lifecycleState: { terminalClientId: string | null } = { terminalClientId: null };
   const lifecycleOperations: string[] = [];
 
   const query = (result: unknown) => {
     const chain = {
       from: vi.fn(() => chain),
+      innerJoin: vi.fn((source: unknown, on: unknown) => {
+        innerJoins.push({ source, on });
+        return chain;
+      }),
       where: vi.fn(() => chain),
       orderBy: vi.fn(() => chain),
       limit: vi.fn(async () => result),
@@ -89,6 +97,7 @@ const {
     selectQueue,
     insertedValues,
     updateSets,
+    innerJoins,
     lifecycleState,
     lifecycleOperations,
     getSalonClientLineageIdsWithHandle: vi.fn(async (
@@ -166,6 +175,7 @@ describe('/api/admin/retention', () => {
     selectQueue.length = 0;
     insertedValues.length = 0;
     updateSets.length = 0;
+    innerJoins.length = 0;
     lifecycleState.terminalClientId = null;
     lifecycleOperations.length = 0;
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
@@ -223,6 +233,36 @@ describe('/api/admin/retention', () => {
       expect.objectContaining({ appointmentId: 'appointment_1', clientId: 'new_client' }),
     ]);
     expect(body.data.history).toEqual([]);
+  });
+
+  it('filters capped operational reads to active terminal lineages in SQL', async () => {
+    selectQueue.push([], [], [], []);
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a',
+    ));
+
+    expect(response.status).toBe(200);
+
+    const renderedJoins = innerJoins.map(join => ({
+      source: new PgDialect().sqlToQuery(join.source as SQL).sql,
+      on: new PgDialect().sqlToQuery(join.on as SQL).sql,
+    }));
+
+    expect(renderedJoins).toHaveLength(2);
+    expect(renderedJoins.map(join => join.on)).toEqual(expect.arrayContaining([
+      expect.stringContaining('active_lineage.id = "salon_client"."id"'),
+      expect.stringContaining(
+        'active_lineage.id = "client_communication"."salon_client_id"',
+      ),
+    ]));
+
+    for (const join of renderedJoins) {
+      expect(join.source).toContain('with recursive lineage');
+      expect(join.source).toContain('terminal.archived_at is null');
+      expect(join.source).toContain('terminal.merged_into_client_id is null');
+      expect(join.source).toContain('invalid_terminal');
+    }
   });
 
   it('collapses a merged source into its active terminal before building reminder destinations', async () => {

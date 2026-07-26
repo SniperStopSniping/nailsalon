@@ -68,9 +68,24 @@ beforeAll(async () => {
       archivedAt: new Date(now - DAY),
       archivedBy: 'archive-test',
     },
-    // The terminal is intentionally not due; its source below must never become
-    // a second active outreach candidate.
-    { id: 'sc_terminal', salonId: SALON_ID, phone: '4165550304', fullName: 'Terminal Client' },
+    // Due, but an older active communication state must still suppress it even
+    // when newer archived history exceeds the operational query cap.
+    {
+      id: 'sc_suppressed',
+      salonId: SALON_ID,
+      phone: '4165550306',
+      fullName: 'Suppressed Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    // Due, but a communication on the merged source below must suppress this
+    // terminal after SQL canonicalizes the source to its active primary.
+    {
+      id: 'sc_terminal',
+      salonId: SALON_ID,
+      phone: '4165550304',
+      fullName: 'Terminal Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
     { id: 'sc_merged_source', salonId: SALON_ID, phone: '4165550305', fullName: 'Merged Source', lastVisitAt: new Date(now - 45 * DAY) },
   ]);
   await db.execute(sql.raw(
@@ -79,7 +94,11 @@ beforeAll(async () => {
   try {
     await db.execute(sql.raw(`
       UPDATE salon_client
-      SET merged_into_client_id = 'sc_terminal'
+      SET archived_at = now(),
+          archived_by = 'merge-test',
+          merged_into_client_id = 'sc_terminal',
+          merged_at = now(),
+          merged_by = 'merge-test'
       WHERE id = 'sc_merged_source'
     `));
   } finally {
@@ -97,6 +116,48 @@ beforeAll(async () => {
     wordingVersion: 'v1',
     source: 'public_booking',
   });
+  await db.insert(schema.clientCommunicationSchema).values([
+    {
+      id: 'comm_active_suppression',
+      salonId: SALON_ID,
+      salonClientId: 'sc_suppressed',
+      kind: 'promo_6w',
+      status: 'snoozed',
+      snoozedUntil: new Date(now + 7 * DAY),
+      createdAt: new Date(now - 2 * DAY),
+      updatedAt: new Date(now - 2 * DAY),
+    },
+    {
+      id: 'comm_merged_source_suppression',
+      salonId: SALON_ID,
+      salonClientId: 'sc_merged_source',
+      kind: 'promo_6w',
+      status: 'snoozed',
+      snoozedUntil: new Date(now + 7 * DAY),
+      createdAt: new Date(now - 2 * DAY),
+      updatedAt: new Date(now - 2 * DAY),
+    },
+  ]);
+  await db.execute(sql`
+    insert into client_communication (
+      id,
+      salon_id,
+      salon_client_id,
+      kind,
+      status,
+      created_at,
+      updated_at
+    )
+    select
+      'comm_archived_noise_' || noise.value::text,
+      ${SALON_ID},
+      'sc_archived',
+      'rebook',
+      'marked_sent',
+      ${new Date(now - DAY)},
+      ${new Date(now - DAY)}
+    from generate_series(1, 10000) as noise(value)
+  `);
   await db.insert(schema.appointmentSchema).values([
     // Last completed visit for sc_due — provides "last service" via snapshot.
     {
@@ -222,6 +283,8 @@ describe('GET /api/admin/marketing', () => {
 
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_booked')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_archived')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_suppressed')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_terminal')).toBe(false);
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_merged_source')).toBe(false);
   });
 
