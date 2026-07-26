@@ -1,3 +1,15 @@
+# [1.34.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.4...v1.34.0) (2026-07-26)
+
+
+### Bug Fixes
+
+* **clients:** harden edit concurrency ([8f5c936](https://github.com/SniperStopSniping/nailsalon/commit/8f5c936c2ecba117186dda382d3660c2c2b8fdb8))
+
+
+### Features
+
+* **clients:** add safe profile editing ([356dc53](https://github.com/SniperStopSniping/nailsalon/commit/356dc5383cfd417c949cd891de700fe4ce335983))
+
 ## [1.33.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.3...v1.33.4) (2026-07-26)
 
 
