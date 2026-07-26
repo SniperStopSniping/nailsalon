@@ -270,6 +270,7 @@ describe('/api/admin/retention', () => {
         dayBeforeReminderSentAt: null,
         sameDayReminderSentAt: null,
       }],
+      [],
       [{
         id: 'communication_merged_source',
         salonId: 'salon_1',
@@ -316,7 +317,7 @@ describe('/api/admin/retention', () => {
     expect(JSON.stringify(body.data)).not.toContain('"merged_source"');
   });
 
-  it('keeps archived explicit communication history readable while excluding it from active queues', async () => {
+  it('queries archived explicit communication history independently from the capped active queue', async () => {
     selectQueue.push(
       [{
         id: 'archived_client',
@@ -328,6 +329,7 @@ describe('/api/admin/retention', () => {
         archivedAt: new Date('2026-07-10T16:00:00.000Z'),
         mergedIntoClientId: null,
       }],
+      [],
       [],
       [],
       [{

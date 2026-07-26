@@ -124,6 +124,7 @@ export async function GET(request: Request): Promise<Response> {
     aliasRows,
     appointmentRows,
     communicationRows,
+    historyCommunicationRows,
   ] = await Promise.all([
     getRetentionSettingsForSalon(salon.id),
     db
@@ -182,6 +183,20 @@ export async function GET(request: Request): Promise<Response> {
       .where(eq(clientCommunicationSchema.salonId, salon.id))
       .orderBy(desc(clientCommunicationSchema.createdAt))
       .limit(10000),
+    historyTerminalClientId
+      ? db
+        .select()
+        .from(clientCommunicationSchema)
+        .where(and(
+          eq(clientCommunicationSchema.salonId, salon.id),
+          inArray(
+            clientCommunicationSchema.salonClientId,
+            [...historyLineageClientIds],
+          ),
+        ))
+        .orderBy(desc(clientCommunicationSchema.createdAt))
+        .limit(100)
+      : Promise.resolve([] as CommunicationRow[]),
   ]);
 
   const terminalBySource = buildActiveTerminalSalonClientMap(
@@ -292,10 +307,8 @@ export async function GET(request: Request): Promise<Response> {
   });
 
   const history = historyTerminalClientId
-    ? communicationRows
-      .filter(row => historyLineageClientIds.has(row.salonClientId))
-      .slice(0, 100)
-      .map(row => serializeCommunication(row, historyTerminalClientId))
+    ? historyCommunicationRows.map(row =>
+      serializeCommunication(row, historyTerminalClientId))
     : [];
 
   return Response.json({
