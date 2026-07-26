@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, or } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
@@ -11,9 +11,11 @@ import {
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
 import { getAppointmentServiceNames } from '@/libs/queries';
+import { isSmsEnabled } from '@/libs/salonStatus';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
+  communicationConsentSchema,
   notificationDeliverySchema,
   salonClientSchema,
   salonSchema,
@@ -53,6 +55,7 @@ type ReminderSendResult = {
 
 type ReminderSmsClaim = {
   claimed: boolean;
+  createdAt: Date | null;
   deliveryId: string | null;
   status: string | null;
 };
@@ -310,11 +313,34 @@ async function claimReminderSmsDelivery(input: {
   if (inserted) {
     return {
       claimed: true,
+      createdAt: inserted.createdAt,
       deliveryId: inserted.id,
       status: inserted.status,
     };
   }
+  const [reclaimed] = await db.update(notificationDeliverySchema).set({
+    status: 'queued',
+    errorCode: null,
+    errorMessage: null,
+    retryable: false,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+    eq(notificationDeliverySchema.status, 'failed'),
+    eq(notificationDeliverySchema.retryable, true),
+  )).returning();
+  if (reclaimed) {
+    return {
+      claimed: true,
+      createdAt: reclaimed.createdAt,
+      deliveryId: reclaimed.id,
+      status: reclaimed.status,
+    };
+  }
   const [existing] = await db.select({
+    createdAt: notificationDeliverySchema.createdAt,
     id: notificationDeliverySchema.id,
     status: notificationDeliverySchema.status,
   }).from(notificationDeliverySchema).where(and(
@@ -324,20 +350,67 @@ async function claimReminderSmsDelivery(input: {
   )).limit(1);
   return {
     claimed: false,
+    createdAt: existing?.createdAt ?? null,
     deliveryId: existing?.id ?? null,
     status: existing?.status ?? null,
   };
 }
 
+async function canAttemptReminderSms(input: {
+  salonId: string;
+  phone: string;
+}): Promise<boolean> {
+  if (!await isSmsEnabled(input.salonId)) {
+    return false;
+  }
+  const [consent] = await db.select({
+    status: communicationConsentSchema.status,
+  }).from(communicationConsentSchema).where(and(
+    eq(communicationConsentSchema.salonId, input.salonId),
+    eq(communicationConsentSchema.recipient, input.phone),
+    eq(communicationConsentSchema.channel, 'sms'),
+    eq(
+      communicationConsentSchema.purpose,
+      'appointment_transactional',
+    ),
+  )).orderBy(desc(communicationConsentSchema.createdAt)).limit(1);
+  return consent?.status === 'granted';
+}
+
+async function wasReminderSmsFailureRetryable(input: {
+  appointmentId: string;
+  salonId: string;
+  reminderType: 'day_before' | 'same_day';
+  claimCreatedAt: Date;
+}): Promise<boolean> {
+  const purpose = input.reminderType === 'day_before'
+    ? 'appointment_reminder_24h'
+    : 'appointment_reminder_2h';
+  const attempts = await db.select({
+    retryable: notificationDeliverySchema.retryable,
+    status: notificationDeliverySchema.status,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.channel, 'sms'),
+    eq(notificationDeliverySchema.purpose, purpose),
+    gte(notificationDeliverySchema.createdAt, input.claimCreatedAt),
+  )).orderBy(desc(notificationDeliverySchema.createdAt)).limit(2);
+  return attempts.length === 1
+    && attempts[0]!.status === 'failed'
+    && attempts[0]!.retryable === true;
+}
+
 async function finishReminderSmsDelivery(input: {
   salonId: string;
   deliveryId: string;
+  retryable: boolean;
   sent: boolean;
 }) {
   await db.update(notificationDeliverySchema).set({
     status: input.sent ? 'sent' : 'failed',
     errorCode: input.sent ? null : 'SMS_DELIVERY_UNAVAILABLE',
-    retryable: false,
+    retryable: input.sent ? false : input.retryable,
   }).where(and(
     eq(notificationDeliverySchema.id, input.deliveryId),
     eq(notificationDeliverySchema.salonId, input.salonId),
@@ -384,6 +457,16 @@ async function sendDayBeforeReminder(
       attempted: emailDelivery.status === 'failed',
     };
   }
+  const smsEligible = await canAttemptReminderSms({
+    salonId: candidate.salonId,
+    phone: normalizedPhone,
+  }).catch(() => false);
+  if (!smsEligible) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: true,
+    };
+  }
 
   const smsClaim = await claimReminderSmsDelivery({
     appointmentId: candidate.appointmentId,
@@ -416,9 +499,18 @@ async function sendDayBeforeReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
+  const smsRetryable = !smsSent && smsClaim.createdAt
+    ? await wasReminderSmsFailureRetryable({
+      appointmentId: candidate.appointmentId,
+      salonId: candidate.salonId,
+      reminderType: 'day_before',
+      claimCreatedAt: smsClaim.createdAt,
+    }).catch(() => false)
+    : false;
   await finishReminderSmsDelivery({
     salonId: candidate.salonId,
     deliveryId: smsClaim.deliveryId,
+    retryable: smsRetryable,
     sent: smsSent,
   }).catch(() => undefined);
 
@@ -465,6 +557,16 @@ async function sendSameDayReminder(
       attempted: emailDelivery.status === 'failed',
     };
   }
+  const smsEligible = await canAttemptReminderSms({
+    salonId: candidate.salonId,
+    phone: normalizedPhone,
+  }).catch(() => false);
+  if (!smsEligible) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: true,
+    };
+  }
 
   const smsClaim = await claimReminderSmsDelivery({
     appointmentId: candidate.appointmentId,
@@ -497,9 +599,18 @@ async function sendSameDayReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
+  const smsRetryable = !smsSent && smsClaim.createdAt
+    ? await wasReminderSmsFailureRetryable({
+      appointmentId: candidate.appointmentId,
+      salonId: candidate.salonId,
+      reminderType: 'same_day',
+      claimCreatedAt: smsClaim.createdAt,
+    }).catch(() => false)
+    : false;
   await finishReminderSmsDelivery({
     salonId: candidate.salonId,
     deliveryId: smsClaim.deliveryId,
+    retryable: smsRetryable,
     sent: smsSent,
   }).catch(() => undefined);
 

@@ -13,6 +13,7 @@ const {
   resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  isSmsEnabled,
   sendAppointmentOperationalEmailOnce,
   sendTransactionalEmail,
   getAppointmentServiceNames,
@@ -22,10 +23,17 @@ const {
   updateSet,
   updateWhere,
   queueSelectResults,
+  queueSmsAttemptResults,
   resetSmsClaims,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
-  const smsClaims = new Map<string, { id: string; status: string }>();
+  const smsAttemptResults: unknown[][] = [];
+  const smsClaims = new Map<string, {
+    createdAt: Date;
+    id: string;
+    retryable: boolean;
+    status: string;
+  }>();
   const smsClaimKeysById = new Map<string, string>();
   let lastConflictedSmsClaimKey: string | null = null;
   const queryResult = {
@@ -49,19 +57,70 @@ const {
     },
   };
   const from = vi.fn(() => queryResult);
-  const select = vi.fn(() => ({ from }));
+  const staticResult = (rows: () => unknown[]) => {
+    const chain: any = {};
+    for (const method of ['from', 'where', 'orderBy', 'limit']) {
+      chain[method] = vi.fn(() => chain);
+    }
+    chain.then = (resolve: (value: unknown[]) => void) => resolve(rows());
+    return chain;
+  };
+  const select = vi.fn((fields?: Record<string, unknown>) => {
+    const keys = Object.keys(fields ?? {}).sort().join(',');
+    if (keys === 'status') {
+      return staticResult(() => [{ status: 'granted' }]);
+    }
+    if (keys === 'retryable,status') {
+      return staticResult(() => smsAttemptResults.shift() ?? []);
+    }
+    return { from };
+  });
 
-  const updateWhere = vi.fn(async () => []);
+  const updateWhere = vi.fn();
   const updateSet = vi.fn((values: Record<string, unknown>) => {
-    if (typeof values.status === 'string') {
+    const chain: any = {};
+    const applyUpdate = (reclaim: boolean) => {
       for (const [deliveryId, key] of smsClaimKeysById) {
         const current = smsClaims.get(key);
-        if (current?.id === deliveryId) {
-          smsClaims.set(key, { ...current, status: values.status });
+        if (
+          current?.id === deliveryId
+          && (!reclaim || (
+            current.status === 'failed'
+            && current.retryable === true
+          ))
+        ) {
+          smsClaims.set(key, {
+            ...current,
+            ...(typeof values.status === 'string'
+              ? { status: values.status }
+              : {}),
+            ...(typeof values.retryable === 'boolean'
+              ? { retryable: values.retryable }
+              : {}),
+          });
+          if (reclaim) {
+            return smsClaims.get(key);
+          }
         }
       }
-    }
-    return { where: updateWhere };
+      return null;
+    };
+    chain.where = vi.fn((...args: unknown[]) => {
+      updateWhere(...args);
+      return chain;
+    });
+    chain.returning = vi.fn(async () => {
+      const reclaimed = applyUpdate(true);
+      if (reclaimed) {
+        lastConflictedSmsClaimKey = null;
+      }
+      return reclaimed ? [reclaimed] : [];
+    });
+    chain.then = (resolve: (value: unknown[]) => void) => {
+      applyUpdate(false);
+      resolve([]);
+    };
+    return chain;
   });
   const update = vi.fn(() => ({ set: updateSet }));
   const insert = vi.fn(() => {
@@ -86,7 +145,9 @@ const {
           return [];
         }
         const row = {
+          createdAt: new Date(),
           id,
+          retryable: values?.retryable === true,
           status: typeof values?.status === 'string' ? values.status : 'queued',
         };
         smsClaims.set(dedupeKey, row);
@@ -102,6 +163,7 @@ const {
     resolveAppointmentOperationalEmailRecipient: vi.fn(),
     resolveOperationalSalonClientContact: vi.fn(),
     resolveOperationalSalonClientContactByPhone: vi.fn(),
+    isSmsEnabled: vi.fn(),
     sendAppointmentOperationalEmailOnce: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
@@ -113,9 +175,13 @@ const {
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
     },
+    queueSmsAttemptResults: (...rows: unknown[][]) => {
+      smsAttemptResults.splice(0, smsAttemptResults.length, ...rows);
+    },
     resetSmsClaims: () => {
       smsClaims.clear();
       smsClaimKeysById.clear();
+      smsAttemptResults.length = 0;
       lastConflictedSmsClaimKey = null;
     },
     db: {
@@ -145,6 +211,10 @@ vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
 }));
 
+vi.mock('@/libs/salonStatus', () => ({
+  isSmsEnabled,
+}));
+
 vi.mock('@/libs/SMS', () => ({
   sendAppointmentReminder,
 }));
@@ -162,6 +232,7 @@ describe('appointment reminders', () => {
     vi.clearAllMocks();
     queueSelectResults();
     resetSmsClaims();
+    isSmsEnabled.mockResolvedValue(true);
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
       status: 'terminal_current',
@@ -844,5 +915,83 @@ describe('appointment reminders', () => {
     expect(updateSet.mock.calls.filter(
       ([values]) => values.dayBeforeReminderChannel === 'sms',
     )).toHaveLength(2);
+  });
+
+  it('reclaims a proven retryable SMS failure without duplicating the first attempt', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_retry',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_retry',
+      claimed: false,
+    });
+    sendAppointmentReminder
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    queueSmsAttemptResults([{
+      status: 'failed',
+      retryable: true,
+    }]);
+    queueSelectResults([candidate], [candidate]);
+
+    const first = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    const second = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(first.failures).toBe(1);
+    expect(second.dayBeforeSms).toBe(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry an SMS failure the provider classified as ambiguous', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_ambiguous',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_ambiguous',
+      claimed: false,
+    });
+    sendAppointmentReminder.mockResolvedValue(false);
+    queueSmsAttemptResults([{
+      status: 'failed',
+      retryable: false,
+    }]);
+    queueSelectResults([candidate], [candidate]);
+
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
   });
 });
