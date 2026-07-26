@@ -21,7 +21,11 @@ import {
   canonicalizeClientVersionToken,
   ClientDeletionError,
 } from './clientDeletion';
-import type { LifecycleSqlHandle } from './clientLifecycleStabilization';
+import {
+  ClientLifecycleStabilizationError,
+  type LifecycleSqlHandle,
+  lockOperationalSalonClientContactWithHandle,
+} from './clientLifecycleStabilization';
 
 vi.mock('server-only', () => ({}));
 
@@ -1094,5 +1098,145 @@ describePostgres('archive client real PostgreSQL concurrency', () => {
       archived_at: null,
       audit_count: 0,
     });
+  });
+
+  it('lets archive win before the production booking identity gate and inserts no appointment', async () => {
+    await resetFixture();
+    const clientId = 'postgres-archive-booking';
+    const phone = '4165550203';
+    const expectedUpdatedAt = await seedClient(testDb, {
+      salonId,
+      clientId,
+      phone,
+    });
+    const blocker = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-archive-neutral-blocker',
+    });
+    const bookingConnection = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-archive-booking-gate',
+    });
+    await blocker.connect();
+    await bookingConnection.connect();
+    let blockerCommitted = false;
+
+    try {
+      await blocker.query('begin');
+      await blocker.query(
+        'select id from salon_client where id = $1 for update',
+        [clientId],
+      );
+
+      const archive = archiveSalonClient({
+        salonId,
+        requestedClientId: clientId,
+        expectedUpdatedAt,
+        actorAdminId: ACTOR_ID,
+      });
+      await waitForLockWait(observer, 'client-archive-library');
+
+      const bookingDb = drizzlePg(bookingConnection);
+      const booking = bookingDb.transaction(async (tx) => {
+        const lockedClient
+          = await lockOperationalSalonClientContactWithHandle(
+            tx as LifecycleSqlHandle,
+            {
+              salonId,
+              clientId,
+            },
+          );
+        await tx.execute(sql`
+          insert into appointment (
+            id,
+            salon_id,
+            client_phone,
+            client_name,
+            salon_client_id,
+            start_time,
+            end_time,
+            status,
+            total_price,
+            total_duration_minutes,
+            created_at,
+            updated_at
+          )
+          values (
+            'postgres-archive-booking-appointment',
+            ${salonId},
+            ${lockedClient.phone},
+            'Rejected archived booking',
+            ${lockedClient.id},
+            now() + interval '1 day',
+            now() + interval '1 day 1 hour',
+            'confirmed',
+            6500,
+            60,
+            now(),
+            now()
+          )
+        `);
+      });
+      const bookingOutcome = booking.then(
+        value => ({ status: 'fulfilled' as const, value }),
+        reason => ({ status: 'rejected' as const, reason }),
+      );
+      await waitForLockWait(observer, 'client-archive-booking-gate');
+      await blocker.query('commit');
+      blockerCommitted = true;
+
+      const [archiveResult, settledBooking] = await Promise.all([
+        archive,
+        bookingOutcome,
+      ]);
+
+      expect(archiveResult).toMatchObject({
+        code: 'CLIENT_ARCHIVED',
+        terminalClientId: clientId,
+      });
+      expect(settledBooking.status).toBe('rejected');
+
+      if (settledBooking.status !== 'rejected') {
+        throw new Error('Expected archived client booking to be rejected');
+      }
+
+      expect(settledBooking.reason)
+        .toBeInstanceOf(ClientLifecycleStabilizationError);
+      expect(
+        (settledBooking.reason as ClientLifecycleStabilizationError).code,
+      ).toBe('CLIENT_ARCHIVED');
+
+      const state = await pool.query<{
+        appointment_count: number;
+        archived_count: number;
+        audit_count: number;
+      }>(
+        `select
+           (select count(*)::int
+            from appointment
+            where salon_client_id = $1) as appointment_count,
+           (select count(*)::int
+            from salon_client
+            where id = $1
+              and archived_at is not null) as archived_count,
+           (select count(*)::int
+            from audit_log
+            where entity_id = $1
+              and action = 'client_archived') as audit_count`,
+        [clientId],
+      );
+
+      expect(state.rows[0]).toEqual({
+        appointment_count: 0,
+        archived_count: 1,
+        audit_count: 1,
+      });
+    } finally {
+      if (!blockerCommitted) {
+        await blocker.query('rollback').catch(() => {});
+      }
+      await blocker.end();
+      await bookingConnection.end();
+    }
   });
 });
