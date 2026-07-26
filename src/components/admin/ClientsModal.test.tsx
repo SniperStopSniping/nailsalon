@@ -1339,6 +1339,11 @@ describe('ClientsModal', () => {
   it('archives a stale-source detail, closes it, purges both IDs, refetches, and invalidates retention', async () => {
     let listFetchCount = 0;
     let detailFetchCount = 0;
+    let archiveSubmitCount = 0;
+    let completeArchiveResponse!: (response: Response) => void;
+    const archiveResponse = new Promise<Response>((resolve) => {
+      completeArchiveResponse = resolve;
+    });
     const retentionChanged = vi.fn();
     const googleSuggestionsRefresh = vi.fn();
     window.addEventListener('luster:retention-data-changed', retentionChanged);
@@ -1383,12 +1388,8 @@ describe('ClientsModal', () => {
         url.pathname === '/api/admin/clients/source_client/archive'
         && init?.method === 'POST'
       ) {
-        return new Response(JSON.stringify({
-          data: {
-            code: 'CLIENT_ARCHIVED',
-            clientId: 'terminal_client',
-          },
-        }), { status: 200 });
+        archiveSubmitCount += 1;
+        return archiveResponse;
       }
       throw new Error(`Unhandled fetch: ${url.pathname}${url.search}`);
     });
@@ -1413,9 +1414,34 @@ describe('ClientsModal', () => {
       fireEvent.click(await screen.findByTestId('client-delete-action'));
 
       const archiveDialog = await screen.findByTestId('client-archive-dialog');
-      fireEvent.click(
-        within(archiveDialog).getByTestId('client-archive-confirm'),
+
+      expect(
+        within(archiveDialog).getByRole('heading', { name: 'Delete client?' }),
+      ).toBeInTheDocument();
+      expect(archiveDialog).toHaveTextContent(
+        'This client will be removed from your active client list. Their appointments, payments and history will be kept.',
       );
+      expect(screen.queryByText('Advanced', { exact: true }))
+        .not.toBeInTheDocument();
+
+      const archiveConfirm = within(archiveDialog).getByTestId(
+        'client-archive-confirm',
+      );
+      fireEvent.click(archiveConfirm);
+      fireEvent.click(archiveConfirm);
+
+      expect(archiveConfirm).toBeDisabled();
+      expect(archiveSubmitCount).toBe(1);
+
+      await act(async () => {
+        completeArchiveResponse(new Response(JSON.stringify({
+          data: {
+            code: 'CLIENT_ARCHIVED',
+            clientId: 'terminal_client',
+          },
+        }), { status: 200 }));
+        await archiveResponse;
+      });
 
       expect(await screen.findByTestId('client-lifecycle-success'))
         .toHaveTextContent(
@@ -1445,122 +1471,6 @@ describe('ClientsModal', () => {
         retentionChanged,
       );
     }
-  });
-
-  it('permanently deletes an empty detail, closes it, removes it from cache, and refetches', async () => {
-    let listFetchCount = 0;
-    let detailFetchCount = 0;
-    const googleSuggestionsRefresh = vi.fn();
-
-    fetchMock.mockImplementation(async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      const url = new URL(String(input), 'http://localhost');
-
-      if (url.pathname === '/api/admin/settings/modules') {
-        return new Response(JSON.stringify({
-          data: {
-            moduleReasons: {
-              clientFlags: 'MODULE_DISABLED',
-              clientBlocking: 'MODULE_DISABLED',
-            },
-          },
-        }), { status: 200 });
-      }
-      if (url.pathname === '/api/admin/technicians') {
-        return new Response(
-          JSON.stringify(buildTechniciansResponse()),
-          { status: 200 },
-        );
-      }
-      if (url.pathname === '/api/admin/clients') {
-        listFetchCount += 1;
-        return new Response(JSON.stringify(buildListResponse(
-          listFetchCount === 1
-            ? [buildListClient({
-                id: 'empty_client',
-                fullName: 'Empty Client',
-              })]
-            : [],
-        )), { status: 200 });
-      }
-      if (url.pathname === '/api/admin/clients/empty_client') {
-        detailFetchCount += 1;
-        return new Response(JSON.stringify(buildDetailResponse({
-          client: {
-            id: 'empty_client',
-            fullName: 'Empty Client',
-            totalVisits: 0,
-            totalSpent: 0,
-            averageSpend: 0,
-            noShowCount: 0,
-            loyaltyPoints: 0,
-          },
-          upcomingAppointments: [],
-          pastAppointments: [],
-          recentIssues: [],
-          submittedPreferences: null,
-        })), { status: 200 });
-      }
-      if (
-        url.pathname === '/api/admin/clients/empty_client/permanent-delete'
-        && init?.method === 'POST'
-      ) {
-        return new Response(JSON.stringify({
-          data: {
-            code: 'CLIENT_PERMANENTLY_DELETED',
-            clientId: 'empty_client',
-          },
-        }), { status: 200 });
-      }
-      throw new Error(`Unhandled fetch: ${url.pathname}${url.search}`);
-    });
-
-    render(
-      <>
-        <section data-testid="google-review-queue">
-          <button
-            type="button"
-            aria-label="Refresh Google events"
-            onClick={googleSuggestionsRefresh}
-          />
-        </section>
-        <ClientsModal onClose={() => {}} />
-      </>,
-    );
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: /empty client/i }),
-    );
-    fireEvent.click(await screen.findByText('Advanced', { exact: true }));
-    fireEvent.click(screen.getByTestId('client-permanent-delete-action'));
-    fireEvent.change(
-      await screen.findByTestId('client-permanent-delete-input'),
-      { target: { value: 'DELETE' } },
-    );
-    fireEvent.click(screen.getByTestId('client-permanent-delete-continue'));
-    fireEvent.click(screen.getByTestId('client-permanent-delete-confirm'));
-
-    expect(await screen.findByTestId('client-lifecycle-success'))
-      .toHaveTextContent('Client permanently deleted.');
-    expect(screen.queryByRole('heading', { name: 'Empty Client' }))
-      .not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /empty client/i }))
-      .not.toBeInTheDocument();
-
-    await waitFor(() => expect(listFetchCount).toBeGreaterThanOrEqual(2));
-
-    expect(detailFetchCount).toBe(1);
-    expect(googleSuggestionsRefresh).toHaveBeenCalledTimes(1);
-
-    const permanentDeleteCall = fetchMock.mock.calls.find(([requestUrl]) =>
-      String(requestUrl).includes('/empty_client/permanent-delete'));
-
-    expect(JSON.parse(String(permanentDeleteCall?.[1]?.body))).toEqual({
-      salonSlug: 'isla-nail-studio',
-      expectedUpdatedAt: '2026-07-25T15:30:00.000Z',
-    });
   });
 
   describe('directory stale-request protection', () => {

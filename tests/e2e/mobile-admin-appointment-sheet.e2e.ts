@@ -168,7 +168,7 @@ test('iPhone Safari keeps upcoming appointment actions and edit controls reachab
   }
 });
 
-test('iPhone Safari keeps a rejected permanent-delete flow safe and reachable @mobile-safari', async ({
+test('iPhone Safari keeps archive confirmation safe and refreshes after success @mobile-safari', async ({
   page,
 }) => {
   test.slow();
@@ -192,19 +192,25 @@ test('iPhone Safari keeps a rejected permanent-delete flow safe and reachable @m
 
   expect(impersonation.ok(), await impersonation.text()).toBe(true);
 
-  let permanentDeleteBody: unknown = null;
-  const permanentDeleteRoute = '**/api/admin/clients/*/permanent-delete';
+  let archiveBody: unknown = null;
+  let archiveRequests = 0;
+  const archiveRoute = '**/api/admin/clients/*/archive';
 
-  await page.route(permanentDeleteRoute, async (route) => {
-    permanentDeleteBody = route.request().postDataJSON();
+  await page.route(archiveRoute, async (route) => {
+    archiveRequests += 1;
+    archiveBody = route.request().postDataJSON();
+    const requestUrl = new URL(route.request().url());
+    const requestedClientId = decodeURIComponent(
+      requestUrl.pathname.split('/').at(-2) || '',
+    );
+    await new Promise(resolve => setTimeout(resolve, 150));
     await route.fulfill({
-      status: 409,
+      status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        error: {
-          code: 'CLIENT_PERMANENT_DELETE_NOT_ALLOWED',
-          message:
-            'This client has history and can’t be permanently deleted. Delete them from the active list instead.',
+        data: {
+          code: 'CLIENT_ARCHIVED',
+          clientId: requestedClientId,
         },
       }),
     });
@@ -229,33 +235,19 @@ test('iPhone Safari keeps a rejected permanent-delete flow safe and reachable @m
 
     await expect(page.getByTestId('client-delete-action')).toBeVisible();
 
-    await page.getByText('Advanced', { exact: true }).click();
-    await page.getByTestId('client-permanent-delete-action').click();
+    await page.getByTestId('client-delete-action').click();
 
-    const dialog = page.getByTestId('client-permanent-delete-dialog');
+    const dialog = page.getByTestId('client-archive-dialog');
 
     await expect(dialog).toBeVisible();
-
-    await page.getByTestId('client-permanent-delete-input').fill('DELETE');
-    await page.getByTestId('client-permanent-delete-continue').click();
-
     await expect(
-      dialog.getByRole('heading', { name: 'Confirm permanent deletion' }),
+      dialog.getByRole('heading', { name: 'Delete client?' }),
     ).toBeVisible();
-
-    await page.getByTestId('client-permanent-delete-confirm').click();
-
-    await expect(dialog.getByRole('alert')).toHaveText(
-      'This client has history and can’t be permanently deleted. Delete them from the active list instead.',
-    );
     await expect(
-      dialog.getByTestId('client-permanent-delete-offer-archive'),
+      dialog.getByText(
+        'This client will be removed from your active client list. Their appointments, payments and history will be kept.',
+      ),
     ).toBeVisible();
-
-    expect(permanentDeleteBody).toEqual({
-      salonSlug: e2eConfig.salonSlug,
-      expectedUpdatedAt: expect.any(String),
-    });
 
     const dialogBox = await dialog.boundingBox();
     const viewport = page.viewportSize();
@@ -276,8 +268,29 @@ test('iPhone Safari keeps a rejected permanent-delete flow safe and reachable @m
       clientWidth: viewport!.width,
       scrollWidth: viewport!.width,
     });
+
+    await page.evaluate(() => {
+      const confirm = document.querySelector<HTMLButtonElement>(
+        '[data-testid="client-archive-confirm"]',
+      );
+      confirm?.click();
+      confirm?.click();
+    });
+
+    await expect.poll(() => archiveRequests).toBe(1);
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId('client-delete-action')).toBeHidden();
+    await expect(page.getByTestId('clients-directory-scroll')).toBeVisible();
+    await expect(page.getByTestId('client-lifecycle-success')).toHaveText(
+      'Client deleted from the active list. Their history was kept.',
+    );
+
+    expect(archiveBody).toEqual({
+      salonSlug: e2eConfig.salonSlug,
+      expectedUpdatedAt: expect.any(String),
+    });
   } finally {
-    await page.unroute(permanentDeleteRoute);
+    await page.unroute(archiveRoute);
     await page.request.delete('/api/super-admin/impersonate');
   }
 });

@@ -83,13 +83,6 @@ function deletionErrorResponse(error: ClientDeletionError): Response {
           retryable: true,
         },
       }, { status: 409 });
-    case 'CLIENT_PERMANENT_DELETE_NOT_ALLOWED':
-      return privateJson({
-        error: {
-          code: 'CLIENT_ARCHIVE_CONFLICT',
-          message: 'This client can’t be changed safely right now.',
-        },
-      }, { status: 409 });
   }
 }
 
