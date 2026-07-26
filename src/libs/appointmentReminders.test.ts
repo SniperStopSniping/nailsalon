@@ -33,6 +33,7 @@ const {
     id: string;
     retryable: boolean;
     status: string;
+    updatedAt: Date;
   }>();
   const smsClaimKeysById = new Map<string, string>();
   let lastConflictedSmsClaimKey: string | null = null;
@@ -91,6 +92,7 @@ const {
         ) {
           smsClaims.set(key, {
             ...current,
+            ...(reclaim ? { updatedAt: new Date() } : {}),
             ...(typeof values.status === 'string'
               ? { status: values.status }
               : {}),
@@ -149,6 +151,7 @@ const {
           id,
           retryable: values?.retryable === true,
           status: typeof values?.status === 'string' ? values.status : 'queued',
+          updatedAt: new Date(),
         };
         smsClaims.set(dedupeKey, row);
         smsClaimKeysById.set(id, dedupeKey);
@@ -917,7 +920,7 @@ describe('appointment reminders', () => {
     )).toHaveLength(2);
   });
 
-  it('reclaims a proven retryable SMS failure without duplicating the first attempt', async () => {
+  it('reclaims consecutive proven retryable SMS failures until delivery succeeds', async () => {
     const candidate = {
       appointmentId: 'appt_sms_retry',
       salonId: 'salon_1',
@@ -939,12 +942,19 @@ describe('appointment reminders', () => {
     });
     sendAppointmentReminder
       .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
-    queueSmsAttemptResults([{
-      status: 'failed',
-      retryable: true,
-    }]);
-    queueSelectResults([candidate], [candidate]);
+    queueSmsAttemptResults(
+      [{
+        status: 'failed',
+        retryable: true,
+      }],
+      [{
+        status: 'failed',
+        retryable: true,
+      }],
+    );
+    queueSelectResults([candidate], [candidate], [candidate]);
 
     const first = await processAppointmentReminders({
       now: new Date('2026-03-31T22:05:00.000Z'),
@@ -952,10 +962,14 @@ describe('appointment reminders', () => {
     const second = await processAppointmentReminders({
       now: new Date('2026-03-31T22:05:00.000Z'),
     });
+    const third = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
 
     expect(first.failures).toBe(1);
-    expect(second.dayBeforeSms).toBe(1);
-    expect(sendAppointmentReminder).toHaveBeenCalledTimes(2);
+    expect(second.failures).toBe(1);
+    expect(third.dayBeforeSms).toBe(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(3);
   });
 
   it('does not retry an SMS failure the provider classified as ambiguous', async () => {

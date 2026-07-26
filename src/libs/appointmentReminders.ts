@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gt, gte, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
@@ -55,7 +55,7 @@ type ReminderSendResult = {
 
 type ReminderSmsClaim = {
   claimed: boolean;
-  createdAt: Date | null;
+  claimedAt: Date | null;
   deliveryId: string | null;
   status: string | null;
 };
@@ -313,7 +313,7 @@ async function claimReminderSmsDelivery(input: {
   if (inserted) {
     return {
       claimed: true,
-      createdAt: inserted.createdAt,
+      claimedAt: inserted.updatedAt,
       deliveryId: inserted.id,
       status: inserted.status,
     };
@@ -323,7 +323,7 @@ async function claimReminderSmsDelivery(input: {
     errorCode: null,
     errorMessage: null,
     retryable: false,
-    updatedAt: new Date(),
+    updatedAt: sql`clock_timestamp()`,
   }).where(and(
     eq(notificationDeliverySchema.salonId, input.salonId),
     eq(notificationDeliverySchema.appointmentId, input.appointmentId),
@@ -334,13 +334,12 @@ async function claimReminderSmsDelivery(input: {
   if (reclaimed) {
     return {
       claimed: true,
-      createdAt: reclaimed.createdAt,
+      claimedAt: reclaimed.updatedAt,
       deliveryId: reclaimed.id,
       status: reclaimed.status,
     };
   }
   const [existing] = await db.select({
-    createdAt: notificationDeliverySchema.createdAt,
     id: notificationDeliverySchema.id,
     status: notificationDeliverySchema.status,
   }).from(notificationDeliverySchema).where(and(
@@ -350,7 +349,7 @@ async function claimReminderSmsDelivery(input: {
   )).limit(1);
   return {
     claimed: false,
-    createdAt: existing?.createdAt ?? null,
+    claimedAt: null,
     deliveryId: existing?.id ?? null,
     status: existing?.status ?? null,
   };
@@ -381,7 +380,7 @@ async function wasReminderSmsFailureRetryable(input: {
   appointmentId: string;
   salonId: string;
   reminderType: 'day_before' | 'same_day';
-  claimCreatedAt: Date;
+  claimedAt: Date;
 }): Promise<boolean> {
   const purpose = input.reminderType === 'day_before'
     ? 'appointment_reminder_24h'
@@ -394,7 +393,7 @@ async function wasReminderSmsFailureRetryable(input: {
     eq(notificationDeliverySchema.appointmentId, input.appointmentId),
     eq(notificationDeliverySchema.channel, 'sms'),
     eq(notificationDeliverySchema.purpose, purpose),
-    gte(notificationDeliverySchema.createdAt, input.claimCreatedAt),
+    gte(notificationDeliverySchema.createdAt, input.claimedAt),
   )).orderBy(desc(notificationDeliverySchema.createdAt)).limit(2);
   return attempts.length === 1
     && attempts[0]!.status === 'failed'
@@ -499,12 +498,12 @@ async function sendDayBeforeReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
-  const smsRetryable = !smsSent && smsClaim.createdAt
+  const smsRetryable = !smsSent && smsClaim.claimedAt
     ? await wasReminderSmsFailureRetryable({
       appointmentId: candidate.appointmentId,
       salonId: candidate.salonId,
       reminderType: 'day_before',
-      claimCreatedAt: smsClaim.createdAt,
+      claimedAt: smsClaim.claimedAt,
     }).catch(() => false)
     : false;
   await finishReminderSmsDelivery({
@@ -599,12 +598,12 @@ async function sendSameDayReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
-  const smsRetryable = !smsSent && smsClaim.createdAt
+  const smsRetryable = !smsSent && smsClaim.claimedAt
     ? await wasReminderSmsFailureRetryable({
       appointmentId: candidate.appointmentId,
       salonId: candidate.salonId,
       reminderType: 'same_day',
-      claimCreatedAt: smsClaim.createdAt,
+      claimedAt: smsClaim.claimedAt,
     }).catch(() => false)
     : false;
   await finishReminderSmsDelivery({
