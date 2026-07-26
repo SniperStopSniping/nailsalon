@@ -573,6 +573,40 @@ describe('POST /api/appointments booking policy', () => {
     expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
       expect.objectContaining({ clientPhone: '2222222222' }),
     );
+    expect(sendCustomerBookingConfirmationEmail).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      appointmentId: 'appt_alias',
+      salonName: 'Salon A',
+      clientName: 'Alias Guest',
+      serviceNames: ['BIAB'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      timeZone: 'America/Toronto',
+      manageUrl: expect.any(String),
+    });
+  });
+
+  it('keeps the committed booking successful when customer email setup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_email_failure',
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+    });
+    sendCustomerBookingConfirmationEmail.mockRejectedValueOnce(
+      new Error('delivery ledger unavailable'),
+    );
+
+    const response = await postBooking();
+
+    expect(response.status).toBe(201);
+    expect(sendCustomerBookingConfirmationEmail).toHaveBeenCalledOnce();
+    expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledOnce();
+
+    vi.restoreAllMocks();
   });
 
   it('rejects a lineage-wide active conflict before any appointment-side insert', async () => {

@@ -10,48 +10,185 @@ vi.mock('server-only', () => ({}));
 
 const {
   mintAppointmentManageLink,
+  resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  isSmsEnabled,
+  sendAppointmentOperationalEmailOnce,
   sendTransactionalEmail,
   getAppointmentServiceNames,
-  getClientByPhone,
   sendAppointmentReminder,
+  insert,
   select,
   updateSet,
   updateWhere,
   queueSelectResults,
+  queueSmsAttemptResults,
+  resetSmsClaims,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
+  const smsAttemptResults: unknown[][] = [];
+  const smsClaims = new Map<string, {
+    createdAt: Date;
+    id: string;
+    retryable: boolean;
+    status: string;
+    updatedAt: Date;
+  }>();
+  const smsClaimKeysById = new Map<string, string>();
+  let lastConflictedSmsClaimKey: string | null = null;
   const queryResult = {
     innerJoin: vi.fn(() => queryResult),
     leftJoin: vi.fn(() => queryResult),
     where: vi.fn(() => queryResult),
     orderBy: vi.fn(() => queryResult),
     limit: vi.fn(() => queryResult),
-    then: (resolve: (value: unknown[]) => void) => resolve(selectResults.shift() ?? []),
+    then: (resolve: (value: unknown[]) => void) => {
+      if (selectResults.length) {
+        resolve(selectResults.shift() ?? []);
+        return;
+      }
+      if (lastConflictedSmsClaimKey) {
+        const existing = smsClaims.get(lastConflictedSmsClaimKey);
+        lastConflictedSmsClaimKey = null;
+        resolve(existing ? [existing] : []);
+        return;
+      }
+      resolve([]);
+    },
   };
   const from = vi.fn(() => queryResult);
-  const select = vi.fn(() => ({ from }));
+  const staticResult = (rows: () => unknown[]) => {
+    const chain: any = {};
+    for (const method of ['from', 'where', 'orderBy', 'limit']) {
+      chain[method] = vi.fn(() => chain);
+    }
+    chain.then = (resolve: (value: unknown[]) => void) => resolve(rows());
+    return chain;
+  };
+  const select = vi.fn((fields?: Record<string, unknown>) => {
+    const keys = Object.keys(fields ?? {}).sort().join(',');
+    if (keys === 'status') {
+      return staticResult(() => [{ status: 'granted' }]);
+    }
+    if (keys === 'retryable,status') {
+      return staticResult(() => smsAttemptResults.shift() ?? []);
+    }
+    return { from };
+  });
 
-  const updateWhere = vi.fn(async () => []);
-  const updateSet = vi.fn(() => ({ where: updateWhere }));
+  const updateWhere = vi.fn();
+  const updateSet = vi.fn((values: Record<string, unknown>) => {
+    const chain: any = {};
+    const applyUpdate = (reclaim: boolean) => {
+      for (const [deliveryId, key] of smsClaimKeysById) {
+        const current = smsClaims.get(key);
+        if (
+          current?.id === deliveryId
+          && (!reclaim || (
+            current.status === 'failed'
+            && current.retryable === true
+          ))
+        ) {
+          smsClaims.set(key, {
+            ...current,
+            ...(reclaim ? { updatedAt: new Date() } : {}),
+            ...(typeof values.status === 'string'
+              ? { status: values.status }
+              : {}),
+            ...(typeof values.retryable === 'boolean'
+              ? { retryable: values.retryable }
+              : {}),
+          });
+          if (reclaim) {
+            return smsClaims.get(key);
+          }
+        }
+      }
+      return null;
+    };
+    chain.where = vi.fn((...args: unknown[]) => {
+      updateWhere(...args);
+      return chain;
+    });
+    chain.returning = vi.fn(async () => {
+      const reclaimed = applyUpdate(true);
+      if (reclaimed) {
+        lastConflictedSmsClaimKey = null;
+      }
+      return reclaimed ? [reclaimed] : [];
+    });
+    chain.then = (resolve: (value: unknown[]) => void) => {
+      applyUpdate(false);
+      resolve([]);
+    };
+    return chain;
+  });
   const update = vi.fn(() => ({ set: updateSet }));
+  const insert = vi.fn(() => {
+    let values: Record<string, unknown> | null = null;
+    const chain: any = {
+      values: vi.fn((nextValues: Record<string, unknown>) => {
+        values = nextValues;
+        return chain;
+      }),
+      onConflictDoNothing: vi.fn(() => chain),
+      returning: vi.fn(async () => {
+        const dedupeKey = typeof values?.dedupeKey === 'string'
+          ? values.dedupeKey
+          : null;
+        const id = typeof values?.id === 'string' ? values.id : null;
+        if (!dedupeKey || !id) {
+          return [];
+        }
+        const existing = smsClaims.get(dedupeKey);
+        if (existing) {
+          lastConflictedSmsClaimKey = dedupeKey;
+          return [];
+        }
+        const row = {
+          createdAt: new Date(),
+          id,
+          retryable: values?.retryable === true,
+          status: typeof values?.status === 'string' ? values.status : 'queued',
+          updatedAt: new Date(),
+        };
+        smsClaims.set(dedupeKey, row);
+        smsClaimKeysById.set(id, dedupeKey);
+        return [row];
+      }),
+    };
+    return chain;
+  });
 
   return {
     mintAppointmentManageLink: vi.fn(),
+    resolveAppointmentOperationalEmailRecipient: vi.fn(),
     resolveOperationalSalonClientContact: vi.fn(),
     resolveOperationalSalonClientContactByPhone: vi.fn(),
+    isSmsEnabled: vi.fn(),
+    sendAppointmentOperationalEmailOnce: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
-    getClientByPhone: vi.fn(),
     sendAppointmentReminder: vi.fn(),
+    insert,
     select,
     updateSet,
     updateWhere,
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
     },
+    queueSmsAttemptResults: (...rows: unknown[][]) => {
+      smsAttemptResults.splice(0, smsAttemptResults.length, ...rows);
+    },
+    resetSmsClaims: () => {
+      smsClaims.clear();
+      smsClaimKeysById.clear();
+      smsAttemptResults.length = 0;
+      lastConflictedSmsClaimKey = null;
+    },
     db: {
+      insert,
       select,
       update,
     },
@@ -63,8 +200,10 @@ vi.mock('@/libs/email', () => ({
 }));
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveAppointmentOperationalEmailRecipient,
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  sendAppointmentOperationalEmailOnce,
 }));
 
 vi.mock('@/libs/appointmentManageLink', () => ({
@@ -73,7 +212,10 @@ vi.mock('@/libs/appointmentManageLink', () => ({
 
 vi.mock('@/libs/queries', () => ({
   getAppointmentServiceNames,
-  getClientByPhone,
+}));
+
+vi.mock('@/libs/salonStatus', () => ({
+  isSmsEnabled,
 }));
 
 vi.mock('@/libs/SMS', () => ({
@@ -82,6 +224,7 @@ vi.mock('@/libs/SMS', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db: {
+    insert,
     select,
     update: vi.fn(() => ({ set: updateSet })),
   },
@@ -91,9 +234,38 @@ describe('appointment reminders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queueSelectResults();
+    resetSmsClaims();
+    isSmsEnabled.mockResolvedValue(true);
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
-    getClientByPhone.mockResolvedValue(null);
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.test',
+      terminalClientId: 'primary_client',
+    });
     sendTransactionalEmail.mockResolvedValue(true);
+    sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
+      const content = await input.prepare();
+      const recipient = await resolveAppointmentOperationalEmailRecipient({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+      });
+      if (recipient.status === 'unavailable') {
+        return {
+          status: 'unavailable',
+          deliveryId: 'delivery_1',
+          claimed: true,
+        };
+      }
+      const sent = await sendTransactionalEmail({
+        to: recipient.email,
+        ...content,
+      });
+      return {
+        status: sent ? 'sent' : 'failed',
+        deliveryId: 'delivery_1',
+        claimed: true,
+      };
+    });
     sendAppointmentReminder.mockResolvedValue(true);
     mintAppointmentManageLink.mockResolvedValue(
       'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
@@ -149,7 +321,7 @@ describe('appointment reminders', () => {
     });
 
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'ava@example.com',
+      to: 'current@example.test',
       subject: 'Reminder: Your appointment tomorrow at Isla Nail Studio',
     }));
     expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
@@ -230,7 +402,7 @@ describe('appointment reminders', () => {
       allowArchived: true,
     });
     expect(sendTransactionalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'historical@example.test' }),
+      expect.objectContaining({ to: 'current@example.test' }),
     );
     expect(sendAppointmentReminder).toHaveBeenCalledWith(
       'salon_1',
@@ -280,7 +452,7 @@ describe('appointment reminders', () => {
       expect.objectContaining({ phone: '4165550198' }),
     );
     expect(sendTransactionalEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'historical@example.test' }),
+      expect.objectContaining({ to: 'current@example.test' }),
     );
     expect(result.dayBeforeSent).toBe(1);
   });
@@ -367,7 +539,7 @@ describe('appointment reminders', () => {
     });
 
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'ava@example.com',
+      to: 'current@example.test',
       subject: 'Your Isla Nail Studio appointment is today',
     }));
     expect(sendAppointmentReminder).toHaveBeenCalledWith('salon_1', expect.objectContaining({
@@ -380,8 +552,69 @@ describe('appointment reminders', () => {
     expect(result.sameDaySent).toBe(1);
   });
 
-  it('uses the global client email fallback when the salon client email is missing', async () => {
-    getClientByPhone.mockResolvedValue({ email: 'fallback@example.com' });
+  it.each([
+    {
+      label: 'day-before',
+      now: new Date('2026-03-31T22:05:00.000Z'),
+      dayBeforeReminderSentAt: null,
+      expectedSubject: 'Reminder: Your appointment tomorrow at Isla Nail Studio',
+    },
+    {
+      label: 'same-day',
+      now: new Date('2026-04-01T16:55:00.000Z'),
+      dayBeforeReminderSentAt: new Date('2026-03-31T22:05:00.000Z'),
+      expectedSubject: 'Your Isla Nail Studio appointment is today',
+    },
+  ])('uses an explicit zero-candidate orphan snapshot for $label email without rewriting snapshots', async ({
+    now,
+    dayBeforeReminderSentAt,
+    expectedSubject,
+  }) => {
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'appointment_snapshot',
+      email: 'orphan@example.test',
+      terminalClientId: null,
+      identityResolution: 'zero_identity_candidates',
+    });
+    queueSelectResults([{
+      appointmentId: 'orphan_appointment',
+      salonId: 'salon_1',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: null,
+      appointmentEmail: 'orphan@example.test',
+      dayBeforeReminderSentAt,
+      sameDayReminderSentAt: null,
+    }]);
+
+    await processAppointmentReminders({ now });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'orphan@example.test',
+        subject: expectedSubject,
+      }),
+    );
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+
+    for (const [values] of updateSet.mock.calls) {
+      expect(values).not.toHaveProperty('clientEmail');
+      expect(values).not.toHaveProperty('clientPhone');
+      expect(values).not.toHaveProperty('appointmentEmail');
+      expect(values).not.toHaveProperty('salonClientEmail');
+    }
+  });
+
+  it('never uses a global identity fallback when canonical email is unavailable', async () => {
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'unsupported_client_identity',
+    });
     queueSelectResults([{
       appointmentId: 'appt_4',
       salonId: 'salon_1',
@@ -400,10 +633,11 @@ describe('appointment reminders', () => {
       now: new Date('2026-03-31T22:05:00.000Z'),
     });
 
-    expect(getClientByPhone).toHaveBeenCalledWith('+14165551234');
-    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'fallback@example.com',
-    }));
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4165551234' }),
+    );
   });
 
   it('puts the canonical management link in both reminder emails', async () => {
@@ -448,6 +682,8 @@ describe('appointment reminders', () => {
         manageUrl: 'https://app.luster.test/en/isla-nail-studio1/manage/TEST_TOKEN_NOT_A_REAL_CAPABILITY',
       }));
     }
+
+    expect(resolveAppointmentOperationalEmailRecipient).toHaveBeenCalledTimes(2);
   });
 
   it('still sends the reminder when the management link cannot be minted', async () => {
@@ -495,7 +731,339 @@ describe('appointment reminders', () => {
 
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
     expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
     expect(updateWhere).not.toHaveBeenCalled();
     expect(result.skipped).toBe(1);
+  });
+
+  it('resolves the current email only after the private manage link is ready', async () => {
+    let releaseManageLink!: () => void;
+    let signalManageLinkStarted!: () => void;
+    const manageLinkStarted = new Promise<void>((resolve) => {
+      signalManageLinkStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseManageLink = resolve;
+    });
+    mintAppointmentManageLink.mockImplementation(async () => {
+      signalManageLinkStarted();
+      await release;
+      return 'https://app.luster.test/en/salon/manage/FRESH_TOKEN';
+    });
+    queueSelectResults([{
+      appointmentId: 'appt_fresh_recipient',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const processing = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await manageLinkStarted;
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'changed@example.test',
+      terminalClientId: 'primary_client',
+    });
+    releaseManageLink();
+    await processing;
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'changed@example.test' }),
+    );
+    expect(sendTransactionalEmail).not.toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'current@example.test' }),
+    );
+  });
+
+  it('does not resend a successful reminder after the current email changes', async () => {
+    const candidate = {
+      appointmentId: 'appt_email_changed',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: ['primary_client'],
+    });
+    const firstSend = sendAppointmentOperationalEmailOnce.getMockImplementation()!;
+    sendAppointmentOperationalEmailOnce
+      .mockImplementationOnce(firstSend)
+      .mockResolvedValueOnce({
+        status: 'sent',
+        deliveryId: 'delivery_1',
+        claimed: false,
+      });
+    queueSelectResults([candidate], [candidate]);
+
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'changed@example.test',
+      terminalClientId: 'primary_client',
+    });
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'current@example.test' }),
+    );
+  });
+
+  it('records email success even when the consent-gated SMS attempt fails', async () => {
+    sendAppointmentReminder.mockRejectedValue(new Error('SMS unavailable'));
+    queueSelectResults([{
+      appointmentId: 'appt_partial_channel',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(result.dayBeforeEmail).toBe(1);
+    expect(result.failures).toBe(0);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      dayBeforeReminderChannel: 'email',
+    }));
+  });
+
+  it('allows one concurrent worker to claim each email and SMS reminder event', async () => {
+    const candidate = {
+      appointmentId: 'appt_concurrent_reminder',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    resolveOperationalSalonClientContact.mockResolvedValue({
+      id: 'primary_client',
+      salonId: 'salon_1',
+      phone: '4165551234',
+      email: 'current@example.test',
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: ['primary_client'],
+    });
+    let claimed = false;
+    let releaseWinner!: () => void;
+    let signalClaimed!: () => void;
+    const winnerClaimed = new Promise<void>((resolve) => {
+      signalClaimed = resolve;
+    });
+    const winnerRelease = new Promise<void>((resolve) => {
+      releaseWinner = resolve;
+    });
+    sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
+      if (claimed) {
+        return {
+          status: 'duplicate',
+          deliveryId: 'delivery_1',
+          claimed: false,
+        };
+      }
+      claimed = true;
+      signalClaimed();
+      await winnerRelease;
+      const content = await input.prepare();
+      await sendTransactionalEmail({
+        to: 'current@example.test',
+        ...content,
+      });
+      return {
+        status: 'sent',
+        deliveryId: 'delivery_1',
+        claimed: true,
+      };
+    });
+    queueSelectResults([candidate], [candidate]);
+
+    const winner = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await winnerClaimed;
+    const loser = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await loser;
+    releaseWinner();
+    await winner;
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses an independent SMS claim and repairs the marker without resending', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_claim',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_1',
+      claimed: false,
+    });
+    queueSelectResults([candidate], [candidate]);
+
+    const first = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    const markerWritesAfterFirst = updateSet.mock.calls.filter(
+      ([values]) => values.dayBeforeReminderChannel === 'sms',
+    ).length;
+    const second = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+    expect(first.dayBeforeSms).toBe(1);
+    expect(second.dayBeforeSms).toBe(1);
+    expect(markerWritesAfterFirst).toBe(1);
+    expect(updateSet.mock.calls.filter(
+      ([values]) => values.dayBeforeReminderChannel === 'sms',
+    )).toHaveLength(2);
+  });
+
+  it('reclaims consecutive proven retryable SMS failures until delivery succeeds', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_retry',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_retry',
+      claimed: false,
+    });
+    sendAppointmentReminder
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    queueSmsAttemptResults(
+      [{
+        status: 'failed',
+        retryable: true,
+      }],
+      [{
+        status: 'failed',
+        retryable: true,
+      }],
+    );
+    queueSelectResults([candidate], [candidate], [candidate]);
+
+    const first = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    const second = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    const third = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(first.failures).toBe(1);
+    expect(second.failures).toBe(1);
+    expect(third.dayBeforeSms).toBe(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry an SMS failure the provider classified as ambiguous', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_ambiguous',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_ambiguous',
+      claimed: false,
+    });
+    sendAppointmentReminder.mockResolvedValue(false);
+    queueSmsAttemptResults([{
+      status: 'failed',
+      retryable: false,
+    }]);
+    queueSelectResults([candidate], [candidate]);
+
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
   });
 });

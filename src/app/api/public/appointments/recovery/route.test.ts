@@ -1,10 +1,21 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getSalonBySlug, checkBookingRecoveryRateLimit, getActiveAppointmentsForContact, sendBookingRecoveryEmail, loggerWarn, loggerError } = vi.hoisted(() => ({
+const {
+  getSalonBySlug,
+  checkBookingRecoveryRateLimit,
+  getActiveAppointmentsForCanonicalClient,
+  getZeroCandidateOrphanRecoveryAppointments,
+  resolveCanonicalSalonClientIdentityOutcome,
+  sendBookingRecoveryEmail,
+  loggerWarn,
+  loggerError,
+} = vi.hoisted(() => ({
   getSalonBySlug: vi.fn(),
   checkBookingRecoveryRateLimit: vi.fn(),
-  getActiveAppointmentsForContact: vi.fn(),
+  getActiveAppointmentsForCanonicalClient: vi.fn(),
+  getZeroCandidateOrphanRecoveryAppointments: vi.fn(),
+  resolveCanonicalSalonClientIdentityOutcome: vi.fn(),
   sendBookingRecoveryEmail: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
@@ -12,7 +23,13 @@ const { getSalonBySlug, checkBookingRecoveryRateLimit, getActiveAppointmentsForC
 
 vi.mock('@/libs/queries', () => ({ getSalonBySlug }));
 vi.mock('@/libs/bookingRecoveryRateLimit', () => ({ checkBookingRecoveryRateLimit }));
-vi.mock('@/libs/activeAppointments', () => ({ getActiveAppointmentsForContact }));
+vi.mock('@/libs/activeAppointments', () => ({
+  getActiveAppointmentsForCanonicalClient,
+}));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  getZeroCandidateOrphanRecoveryAppointments,
+  resolveCanonicalSalonClientIdentityOutcome,
+}));
 vi.mock('@/libs/bookingRecoveryEmail', () => ({ sendBookingRecoveryEmail }));
 vi.mock('@/libs/Logger', () => ({ logger: { warn: loggerWarn, error: loggerError } }));
 vi.mock('@/libs/DB', () => ({ db: {} }));
@@ -51,7 +68,15 @@ describe('POST /api/public/appointments/recovery', () => {
     vi.clearAllMocks();
     getSalonBySlug.mockResolvedValue(SALON);
     checkBookingRecoveryRateLimit.mockResolvedValue(true);
-    getActiveAppointmentsForContact.mockResolvedValue([]);
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([]);
+    getZeroCandidateOrphanRecoveryAppointments.mockResolvedValue([]);
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'resolved_terminal',
+      identity: {
+        terminal: { id: 'client_1' },
+        externalClientId: null,
+      },
+    });
     sendBookingRecoveryEmail.mockResolvedValue({ ok: true, deduped: false, deliveryId: 'delivery_1' });
   });
 
@@ -84,68 +109,146 @@ describe('POST /api/public/appointments/recovery', () => {
     expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
   });
 
-  it('sends to the on-file email for an email match, normalizing case and whitespace', async () => {
-    getActiveAppointmentsForContact.mockResolvedValue([makeAppointment()]);
+  it('uses submitted email only as a normalized lookup hint', async () => {
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([
+      makeAppointment(),
+    ]);
 
     const response = await post({ salonSlug: 'test-salon', email: '  OnFile@Example.COM ' });
 
     expect(response.status).toBe(202);
-    expect(getActiveAppointmentsForContact).toHaveBeenCalledWith({
+    expect(resolveCanonicalSalonClientIdentityOutcome).toHaveBeenCalledWith({
       salonId: SALON.id,
       email: 'onfile@example.com',
       phone: undefined,
-      horizon: 'recovery',
+      allowArchived: true,
     });
-    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith(expect.objectContaining({
-      recipientEmail: 'onfile@example.com',
+    expect(getActiveAppointmentsForCanonicalClient).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      terminalClientId: 'client_1',
+      horizon: 'recovery',
+      allowArchived: true,
+    });
+    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
+      salon: SALON,
       appointments: [expect.objectContaining({ id: 'appt_1' })],
-    }));
+      recipientMode: 'canonical_terminal',
+    });
+    expect(JSON.stringify(sendBookingRecoveryEmail.mock.calls))
+      .not.toContain('onfile@example.com');
   });
 
-  it('matches by phone and sends to the ON-FILE email, not an entered address', async () => {
-    getActiveAppointmentsForContact.mockResolvedValue([makeAppointment()]);
+  it('uses submitted phone only as a lookup hint', async () => {
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([
+      makeAppointment(),
+    ]);
 
     const response = await post({ salonSlug: 'test-salon', phone: '+1 (416) 555-0101' });
 
     expect(response.status).toBe(202);
-    expect(getActiveAppointmentsForContact).toHaveBeenCalledWith({
+    expect(resolveCanonicalSalonClientIdentityOutcome).toHaveBeenCalledWith({
       salonId: SALON.id,
       email: undefined,
       phone: '4165550101',
-      horizon: 'recovery',
+      allowArchived: true,
     });
-    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith(expect.objectContaining({
-      recipientEmail: 'onfile@example.com',
-    }));
+    expect(getActiveAppointmentsForCanonicalClient).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      terminalClientId: 'client_1',
+      horizon: 'recovery',
+      allowArchived: true,
+    });
+    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
+      salon: SALON,
+      appointments: [expect.objectContaining({ id: 'appt_1' })],
+      recipientMode: 'canonical_terminal',
+    });
   });
 
-  it('sends nothing when the phone-matched appointment has no email on file', async () => {
-    getActiveAppointmentsForContact.mockResolvedValue([makeAppointment({ clientEmail: null })]);
+  it('allows the sender to resolve a current terminal email when the snapshot is empty', async () => {
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([
+      makeAppointment({ clientEmail: null }),
+    ]);
 
     const response = await post({ salonSlug: 'test-salon', phone: '4165550101' });
     const body = await response.json();
 
     expect(response.status).toBe(202);
     expect(body.data.message).toBe(GENERIC_MESSAGE);
-    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
-    expect(loggerWarn).toHaveBeenCalledWith(expect.objectContaining({ event: 'booking_recovery_no_email_on_file' }));
+    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
+      salon: SALON,
+      appointments: [expect.objectContaining({ id: 'appt_1' })],
+      recipientMode: 'canonical_terminal',
+    });
   });
 
-  it('includes email-less appointments alongside the recipient appointment for the same person', async () => {
-    getActiveAppointmentsForContact.mockResolvedValue([
+  it('requires the sender to resolve one destination for the complete appointment set', async () => {
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([
       makeAppointment({ id: 'appt_walkin', clientEmail: null }),
       makeAppointment({ id: 'appt_online', clientEmail: 'onfile@example.com' }),
     ]);
 
     await post({ salonSlug: 'test-salon', phone: '4165550101' });
 
-    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith(expect.objectContaining({
-      recipientEmail: 'onfile@example.com',
+    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
+      salon: SALON,
       appointments: [
         expect.objectContaining({ id: 'appt_walkin' }),
         expect.objectContaining({ id: 'appt_online' }),
       ],
-    }));
+      recipientMode: 'canonical_terminal',
+    });
+  });
+
+  it('selects only an explicit zero-candidate orphan set for snapshot recovery', async () => {
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'zero_identity_candidates',
+    });
+    getZeroCandidateOrphanRecoveryAppointments.mockResolvedValue([
+      makeAppointment({ id: 'orphan_1' }),
+      makeAppointment({ id: 'orphan_2' }),
+    ]);
+
+    const response = await post({
+      salonSlug: 'test-salon',
+      email: '  OnFile@Example.COM ',
+      phone: '+1 (416) 555-0101',
+    });
+
+    expect(response.status).toBe(202);
+    expect(getActiveAppointmentsForCanonicalClient).not.toHaveBeenCalled();
+    expect(getZeroCandidateOrphanRecoveryAppointments).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      email: 'onfile@example.com',
+      phone: '4165550101',
+    });
+    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
+      salon: SALON,
+      appointments: [
+        expect.objectContaining({ id: 'orphan_1' }),
+        expect.objectContaining({ id: 'orphan_2' }),
+      ],
+      recipientMode: 'zero_candidate_orphan',
+    });
+    expect(JSON.stringify(sendBookingRecoveryEmail.mock.calls))
+      .not.toContain('onfile@example.com');
+  });
+
+  it('never unlocks orphan lookup for invalid or ambiguous identity state', async () => {
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'invalid_or_ambiguous_identity',
+      reason: 'INVALID_CLIENT_STATE',
+    });
+
+    const response = await post({
+      salonSlug: 'test-salon',
+      email: 'onfile@example.com',
+    });
+
+    expect(response.status).toBe(202);
+    expect(getActiveAppointmentsForCanonicalClient).not.toHaveBeenCalled();
+    expect(getZeroCandidateOrphanRecoveryAppointments).not.toHaveBeenCalled();
+    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
   });
 
   it('returns the generic response with no send when nothing matches', async () => {
@@ -163,7 +266,7 @@ describe('POST /api/public/appointments/recovery', () => {
     const response = await post({ salonSlug: 'test-salon', email: 'onfile@example.com' });
 
     expect(response.status).toBe(202);
-    expect(getActiveAppointmentsForContact).not.toHaveBeenCalled();
+    expect(getActiveAppointmentsForCanonicalClient).not.toHaveBeenCalled();
     expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
   });
 
@@ -178,7 +281,9 @@ describe('POST /api/public/appointments/recovery', () => {
   });
 
   it('still returns the generic response when the provider send fails, and logs a safe diagnostic', async () => {
-    getActiveAppointmentsForContact.mockResolvedValue([makeAppointment()]);
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([
+      makeAppointment(),
+    ]);
     sendBookingRecoveryEmail.mockResolvedValue({ ok: false, deduped: false, deliveryId: 'delivery_9', errorCode: 'RESEND_HTTP_500' });
 
     const response = await post({ salonSlug: 'test-salon', email: 'onfile@example.com' });
@@ -199,7 +304,9 @@ describe('POST /api/public/appointments/recovery', () => {
   });
 
   it('masks unexpected lookup errors behind the generic response with a code-only log', async () => {
-    getActiveAppointmentsForContact.mockRejectedValue(new Error('boom with details user@example.com'));
+    resolveCanonicalSalonClientIdentityOutcome.mockRejectedValue(
+      new Error('boom with details user@example.com'),
+    );
 
     const response = await post({ salonSlug: 'test-salon', email: 'onfile@example.com' });
 
@@ -209,5 +316,25 @@ describe('POST /api/public/appointments/recovery', () => {
       salonId: SALON.id,
       errorCode: 'UNEXPECTED',
     });
+  });
+
+  it('fails closed for an unsupported external identity without revealing the match', async () => {
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'resolved_terminal',
+      identity: {
+        terminal: { id: 'client_1' },
+        externalClientId: 'unsupported_global_client',
+      },
+    });
+
+    const response = await post({
+      salonSlug: 'test-salon',
+      phone: '4165550101',
+    });
+
+    expect(response.status).toBe(202);
+    expect(getActiveAppointmentsForCanonicalClient).not.toHaveBeenCalled();
+    expect(getZeroCandidateOrphanRecoveryAppointments).not.toHaveBeenCalled();
+    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
   });
 });

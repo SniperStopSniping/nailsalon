@@ -13,15 +13,24 @@ const {
   runAppointmentManageMutation,
   getAppointmentCalendarEventForSync,
   enqueueGoogleCalendarUpsert,
+  resolveAppointmentOperationalEmailRecipient,
+  sendAppointmentOperationalEmailOnce,
   sendTransactionalEmail,
   logAppointmentChange,
+  updateReturning,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const limit = vi.fn(async () => selectResults.shift() ?? []);
   const selectWhere = vi.fn(() => ({ limit }));
   const from = vi.fn(() => ({ where: selectWhere }));
   const select = vi.fn(() => ({ from }));
-  const updateWhere = vi.fn(async () => undefined);
+  const updateReturning = vi.fn(async () => [{ id: 'appt_1' }]);
+  const updateResult = {
+    returning: updateReturning,
+    then: (resolve: (value: undefined) => unknown) =>
+      Promise.resolve(undefined).then(resolve),
+  };
+  const updateWhere = vi.fn(() => updateResult);
   const updateSet = vi.fn(() => ({ where: updateWhere }));
   const update = vi.fn(() => ({ set: updateSet }));
   const onConflictDoUpdate = vi.fn(async () => undefined);
@@ -38,8 +47,11 @@ const {
     runAppointmentManageMutation: vi.fn(),
     getAppointmentCalendarEventForSync: vi.fn(),
     enqueueGoogleCalendarUpsert: vi.fn(),
+    resolveAppointmentOperationalEmailRecipient: vi.fn(),
+    sendAppointmentOperationalEmailOnce: vi.fn(),
     sendTransactionalEmail: vi.fn(),
     logAppointmentChange: vi.fn(),
+    updateReturning,
   };
 });
 
@@ -58,6 +70,10 @@ vi.mock('@/libs/appointmentManage', () => ({
   runAppointmentManageMutation,
 }));
 vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarUpsert }));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  resolveAppointmentOperationalEmailRecipient,
+  sendAppointmentOperationalEmailOnce,
+}));
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail }));
 vi.mock('@/libs/appointmentAudit', () => ({ logAppointmentChange }));
 
@@ -93,7 +109,31 @@ describe('processGoogleCalendarInboundSync', () => {
     listGoogleCalendarEventsForSalon.mockResolvedValue([]);
     listGoogleCalendarsForSalon.mockResolvedValue([{ id: 'calendar_1', accessRole: 'owner' }]);
     runAppointmentManageMutation.mockResolvedValue({ appointment: {}, warnings: [] });
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.com',
+      terminalClientId: 'client_1',
+    });
     sendTransactionalEmail.mockResolvedValue(true);
+    sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
+      const content = await input.prepare();
+      const recipient = await resolveAppointmentOperationalEmailRecipient({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+      });
+      if (recipient.status === 'unavailable') {
+        return { status: 'unavailable', deliveryId: 'delivery_1' };
+      }
+      const sent = await sendTransactionalEmail({
+        to: recipient.email,
+        ...content,
+      });
+      return {
+        status: sent ? 'sent' : 'failed',
+        deliveryId: 'delivery_1',
+      };
+    });
+    updateReturning.mockResolvedValue([{ id: 'appt_1' }]);
   });
 
   it('initializes a bounded calendar import without flooding historical review', async () => {
@@ -149,9 +189,63 @@ describe('processGoogleCalendarInboundSync', () => {
       performedBy: 'google-calendar-sync',
     }));
     expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'client@example.com',
+      to: 'current@example.com',
       subject: 'Best Nails appointment rescheduled',
     }));
+    expect(runAppointmentManageMutation.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+    expect(logAppointmentChange.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+  });
+
+  it('deduplicates repeated customer email delivery for the same inbound move', async () => {
+    const remote = {
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:45:00.000Z'),
+    };
+    selectResults.push(
+      [connection],
+      [salon],
+      [],
+      [appointment],
+      [connection],
+      [salon],
+      [],
+      [appointment],
+    );
+    listGoogleCalendarEventsForSalon.mockResolvedValue([remote]);
+    sendAppointmentOperationalEmailOnce
+      .mockImplementationOnce(async (input) => {
+        const content = await input.prepare();
+        await sendTransactionalEmail({
+          to: 'current@example.com',
+          ...content,
+        });
+        return { status: 'sent', deliveryId: 'delivery_1' };
+      })
+      .mockResolvedValueOnce({ status: 'duplicate', deliveryId: 'delivery_1' });
+
+    await processGoogleCalendarInboundSync();
+    await processGoogleCalendarInboundSync();
+
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(2);
+
+    const [first, second] = sendAppointmentOperationalEmailOnce.mock.calls;
+
+    expect(first![0].eventVersion).toBe(second![0].eventVersion);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
   });
 
   it('imports a current Google event separately from CRM appointments', async () => {
@@ -221,6 +315,108 @@ describe('processGoogleCalendarInboundSync', () => {
       action: 'cancelled',
       salonId: 'salon_1',
     }));
+    expect(updateReturning.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+    expect(logAppointmentChange.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+  });
+
+  it('keeps a moved appointment successful when its audit fails afterward', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    selectResults.push([connection], [salon], [], [appointment]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:45:00.000Z'),
+    }]);
+    logAppointmentChange.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.movedAppointments).toBe(1);
+    expect(result.conflicts).toBe(0);
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it('keeps a Google move committed when current-recipient delivery fails', async () => {
+    selectResults.push([connection], [salon], [], [appointment]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'confirmed',
+      summary: 'Ava appointment',
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date('2026-07-15T16:00:00.000Z'),
+      startTime: new Date('2026-07-16T16:00:00.000Z'),
+      endTime: new Date('2026-07-16T17:45:00.000Z'),
+    }]);
+    resolveAppointmentOperationalEmailRecipient.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.movedAppointments).toBe(1);
+    expect(result.conflicts).toBe(0);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Google cancellation committed when recipient state is unsupported', async () => {
+    selectResults.push(
+      [connection],
+      [salon],
+      [{
+        id: 'gce_1',
+        appointmentId: 'appt_1',
+        reviewStatus: 'appointment',
+      }],
+      [appointment],
+    );
+    listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: 'google_1',
+      calendarId: 'calendar_1',
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      status: 'cancelled',
+      summary: null,
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      updatedAt: new Date(),
+      startTime: null,
+      endTime: null,
+    }]);
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'unsupported_client_identity',
+    });
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.cancelledAppointments).toBe(1);
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
   });
 
   it('ignores an event whose private salon marker does not match the connection', async () => {

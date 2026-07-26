@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
-import { getActiveAppointmentsForContact } from '@/libs/activeAppointments';
+import { getActiveAppointmentsForCanonicalClient } from '@/libs/activeAppointments';
 import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
+import {
+  getZeroCandidateOrphanRecoveryAppointments,
+  resolveCanonicalSalonClientIdentityOutcome,
+} from '@/libs/clientLifecycleStabilization';
 import { logger } from '@/libs/Logger';
 import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { getSalonBySlug } from '@/libs/queries';
@@ -58,27 +62,41 @@ export async function POST(request: Request) {
   try {
     // Read-only with respect to appointments: recovery never creates,
     // modifies, or deletes appointment rows.
-    const appointments = await getActiveAppointmentsForContact({
+    const identityOutcome = await resolveCanonicalSalonClientIdentityOutcome({
       salonId: salon.id,
       email,
       phone: normalizedPhone,
-      horizon: 'recovery',
+      allowArchived: true,
     });
+    if (identityOutcome.status === 'invalid_or_ambiguous_identity') {
+      return genericResponse();
+    }
+    let recipientMode:
+      | 'canonical_terminal'
+      | 'zero_candidate_orphan';
+    let appointments;
+    if (identityOutcome.status === 'resolved_terminal') {
+      if (identityOutcome.identity.externalClientId !== null) {
+        return genericResponse();
+      }
+      recipientMode = 'canonical_terminal';
+      appointments = await getActiveAppointmentsForCanonicalClient({
+        salonId: salon.id,
+        terminalClientId: identityOutcome.identity.terminal.id,
+        horizon: 'recovery',
+        allowArchived: true,
+      });
+    } else {
+      recipientMode = 'zero_candidate_orphan';
+      appointments = await getZeroCandidateOrphanRecoveryAppointments({
+        salonId: salon.id,
+        email,
+        phone: normalizedPhone,
+      });
+    }
     if (!appointments.length) {
       return genericResponse();
     }
-
-    // Send only to the address stored on the appointment — never to an
-    // entered address that merely phone-matched. (When matched by email the
-    // two are equal by definition.)
-    const recipientEmail = appointments.find(appointment => appointment.clientEmail)?.clientEmail;
-    if (!recipientEmail) {
-      logger.warn({ event: 'booking_recovery_no_email_on_file', salonId: salon.id, appointmentId: appointments[0]!.id });
-      return genericResponse();
-    }
-    const recipientAppointments = appointments.filter(
-      appointment => !appointment.clientEmail || appointment.clientEmail.toLowerCase() === recipientEmail.toLowerCase(),
-    );
 
     const result = await sendBookingRecoveryEmail({
       salon: {
@@ -88,12 +106,12 @@ export async function POST(request: Request) {
         customDomain: salon.customDomain,
         settings: salon.settings,
       },
-      appointments: recipientAppointments.map(appointment => ({
+      appointments: appointments.map(appointment => ({
         id: appointment.id,
         startTime: appointment.startTime,
         endTime: appointment.endTime,
       })),
-      recipientEmail,
+      recipientMode,
     });
     if (!result.ok) {
       logger.warn({

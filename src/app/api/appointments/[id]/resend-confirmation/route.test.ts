@@ -38,7 +38,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
     expect(resendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
   });
 
-  it('does not attempt delivery when the appointment has no email', async () => {
+  it('lets the delivery helper resolve a current terminal email when the snapshot is empty', async () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
@@ -47,7 +47,28 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
 
     const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
 
+    expect(response.status).toBe(200);
+    expect(resendCustomerBookingConfirmationEmail).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+    });
+  });
+
+  it('preserves the unavailable response after canonical recipient resolution', async () => {
+    resendCustomerBookingConfirmationEmail.mockResolvedValue({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      providerMessageId: null,
+    });
+
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
+
     expect(response.status).toBe(400);
-    expect(resendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'EMAIL_UNAVAILABLE',
+        message: 'This appointment has no client email address.',
+      },
+    });
   });
 });

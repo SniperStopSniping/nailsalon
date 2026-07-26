@@ -17,14 +17,14 @@ export async function POST(
   if (!access.ok) {
     return access.response;
   }
-  if (!access.appointment.clientEmail) {
-    return Response.json({ error: { code: 'EMAIL_UNAVAILABLE', message: 'This appointment has no client email address.' } }, { status: 400 });
-  }
   try {
     const result = await resendCustomerBookingConfirmationEmail({
       salonId: access.appointment.salonId,
       appointmentId: access.appointment.id,
     });
+    if (!result.ok && result.errorCode === 'OPERATIONAL_EMAIL_UNAVAILABLE') {
+      return Response.json({ error: { code: 'EMAIL_UNAVAILABLE', message: 'This appointment has no client email address.' } }, { status: 400 });
+    }
     return Response.json({ data: { status: result.ok ? 'sent' : 'failed' } });
   } catch {
     return Response.json({ error: { code: 'EMAIL_QUEUED_FOR_RETRY', message: 'Email could not be delivered yet. Luster will retry automatically.' } }, { status: 502 });

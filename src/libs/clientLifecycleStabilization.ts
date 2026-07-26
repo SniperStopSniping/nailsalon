@@ -1,9 +1,11 @@
 import 'server-only';
 
-import { type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
+import { notificationDeliverySchema } from '@/models/Schema';
 
 export const CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH = 16;
 export const CLIENT_LIFECYCLE_RETRYABLE_SQLSTATES = new Set([
@@ -61,6 +63,55 @@ export type CanonicalSalonClientIdentity = SalonClientLineageIdentity & {
   matchedBy: NormalizedClientIdentity[];
 };
 
+export type CanonicalSalonClientIdentityOutcome =
+  | {
+    status: 'resolved_terminal';
+    identity: CanonicalSalonClientIdentity;
+  }
+  | {
+    status: 'zero_identity_candidates';
+  }
+  | {
+    status: 'invalid_or_ambiguous_identity';
+    reason: ClientLifecycleErrorCode;
+  };
+
+export type OperationalEmailRecipientUnavailableReason =
+  | 'appointment_not_found'
+  | 'client_identity_unavailable'
+  | 'unsupported_client_identity'
+  | 'invalid_terminal_email'
+  | 'email_unavailable';
+
+export type OperationalEmailRecipientResolution =
+  | {
+    status: 'terminal_current' | 'appointment_snapshot';
+    email: string;
+    terminalClientId: string;
+  }
+  | {
+    status: 'appointment_snapshot';
+    email: string;
+    terminalClientId: null;
+    identityResolution: 'zero_identity_candidates';
+  }
+  | {
+    status: 'unavailable';
+    reason: OperationalEmailRecipientUnavailableReason;
+  };
+
+export type OperationalEmailDeliveryResult = {
+  status: 'sent' | 'failed' | 'unavailable' | 'duplicate';
+  deliveryId: string | null;
+  claimed: boolean;
+};
+
+type OperationalEmailContent = {
+  subject: string;
+  text: string;
+  html: string;
+};
+
 export type SalonClientLifecycleLink = {
   id: string;
   archivedAt: Date | null;
@@ -94,18 +145,7 @@ function normalizeSupportedPhone(value: string | null | undefined): string | nul
 
 function normalizeEmail(value: string): string {
   const normalized = value.trim().toLowerCase();
-  const parts = normalized.split('@');
-  const domain = parts[1] ?? '';
-  if (
-    normalized.length > 320
-    || parts.length !== 2
-    || !parts[0]
-    || !domain
-    || !domain.includes('.')
-    || domain.startsWith('.')
-    || domain.endsWith('.')
-    || [...normalized].some(character => /\s/.test(character))
-  ) {
+  if (!z.string().email().max(320).safeParse(normalized).success) {
     throw new TypeError('email is invalid');
   }
   return normalized;
@@ -116,6 +156,26 @@ function normalizeSupportedEmail(value: string | null | undefined): string | nul
     return null;
   }
   return normalizeEmail(value);
+}
+
+function tryNormalizeSupportedPhone(
+  value: string | null | undefined,
+): string | null {
+  try {
+    return normalizeSupportedPhone(value);
+  } catch {
+    return null;
+  }
+}
+
+function tryNormalizeSupportedEmail(
+  value: string | null | undefined,
+): string | null {
+  try {
+    return normalizeSupportedEmail(value);
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeSalonClientIdentity(input: {
@@ -635,7 +695,7 @@ export async function getSalonClientLineageIdentityWithHandle(
   };
 }
 
-export async function resolveCanonicalSalonClientIdentityWithHandle(
+export async function resolveCanonicalSalonClientIdentityOutcomeWithHandle(
   handle: LifecycleSqlHandle,
   input: {
     salonId: string;
@@ -643,11 +703,14 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
     email?: string | null;
     allowArchived?: boolean;
   },
-): Promise<CanonicalSalonClientIdentity | null> {
+): Promise<CanonicalSalonClientIdentityOutcome> {
   const salonId = requireInput(input.salonId, 'salonId');
   const identities = normalizeClientIdentityInput(input);
   if (identities.length === 0) {
-    return null;
+    return {
+      status: 'invalid_or_ambiguous_identity',
+      reason: 'INVALID_CLIENT_STATE',
+    };
   }
 
   const phone = identities.find(identity => identity.kind === 'phone')?.value;
@@ -662,7 +725,7 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
           (${phone ?? null}::text is not null and client.phone = ${phone ?? null})
           or (
             ${email ?? null}::text is not null
-            and lower(client.email) = ${email ?? null}
+            and lower(btrim(client.email)) = ${email ?? null}
           )
         )
 
@@ -692,33 +755,80 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
       .filter((id): id is string => typeof id === 'string'),
   )];
   if (candidateIds.length === 0) {
-    return null;
+    return { status: 'zero_identity_candidates' };
   }
 
-  const terminals = await Promise.all(candidateIds.map(clientId =>
-    resolveTerminalSalonClientWithHandle(handle, {
+  try {
+    const terminals = await Promise.all(candidateIds.map(clientId =>
+      resolveTerminalSalonClientWithHandle(handle, {
+        salonId,
+        clientId,
+        allowArchived: input.allowArchived,
+      })));
+    const terminalIds = [...new Set(terminals.map(terminal => terminal.id))];
+    if (terminalIds.length !== 1) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: 'INVALID_CLIENT_STATE',
+      };
+    }
+
+    const lineage = await getSalonClientLineageIdentityWithHandle(handle, {
       salonId,
-      clientId,
+      terminalClientId: terminalIds[0]!,
       allowArchived: input.allowArchived,
-    })));
-  const terminalIds = [...new Set(terminals.map(terminal => terminal.id))];
-  if (terminalIds.length !== 1) {
+    });
+    const matchedBy = identities.filter(identity =>
+      identity.kind === 'phone'
+        ? lineage.phones.includes(identity.value)
+        : lineage.emails.includes(identity.value));
+    if (matchedBy.length === 0) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: 'INVALID_CLIENT_STATE',
+      };
+    }
+    return {
+      status: 'resolved_terminal',
+      identity: { ...lineage, matchedBy },
+    };
+  } catch (error) {
+    if (error instanceof ClientLifecycleStabilizationError) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: error.code,
+      };
+    }
+    throw error;
+  }
+}
+
+export async function resolveCanonicalSalonClientIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+    allowArchived?: boolean;
+  },
+): Promise<CanonicalSalonClientIdentity | null> {
+  if (normalizeClientIdentityInput(input).length === 0) {
+    return null;
+  }
+  const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    handle,
+    input,
+  );
+  if (outcome.status === 'zero_identity_candidates') {
+    return null;
+  }
+  if (outcome.status === 'invalid_or_ambiguous_identity') {
     throw new ClientLifecycleStabilizationError(
-      'INVALID_CLIENT_STATE',
+      outcome.reason,
       'Client lifecycle state is unavailable.',
     );
   }
-
-  const lineage = await getSalonClientLineageIdentityWithHandle(handle, {
-    salonId,
-    terminalClientId: terminalIds[0]!,
-    allowArchived: input.allowArchived,
-  });
-  const matchedBy = identities.filter(identity =>
-    identity.kind === 'phone'
-      ? lineage.phones.includes(identity.value)
-      : lineage.emails.includes(identity.value));
-  return { ...lineage, matchedBy };
+  return outcome.identity;
 }
 
 export function resolveCanonicalSalonClientIdentity(input: {
@@ -731,6 +841,565 @@ export function resolveCanonicalSalonClientIdentity(input: {
     db as LifecycleSqlHandle,
     input,
   );
+}
+
+export function resolveCanonicalSalonClientIdentityOutcome(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  allowArchived?: boolean;
+}): Promise<CanonicalSalonClientIdentityOutcome> {
+  return resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+async function hasUnsupportedGlobalClientIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  identities: NormalizedClientIdentity[],
+): Promise<boolean> {
+  const phone = identities.find(identity => identity.kind === 'phone')?.value;
+  const email = identities.find(identity => identity.kind === 'email')?.value;
+  if (!phone && !email) {
+    return true;
+  }
+  const phoneVariants = phone
+    ? [phone, `1${phone}`, `+1${phone}`, `+${phone}`]
+    : [];
+  const globalPhoneMatch = phone
+    ? sql`client.phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const sessionPhoneMatch = phone
+    ? sql`client_session.client_phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const result = await handle.execute(sql`
+    select (
+      exists (
+        select 1
+        from client
+        where (
+          ${globalPhoneMatch}
+        )
+        or (
+          ${email ?? null}::text is not null
+          and lower(btrim(client.email)) = ${email ?? null}
+        )
+      )
+      or exists (
+        select 1
+        from client_session
+        where ${sessionPhoneMatch}
+      )
+    ) as has_unsupported_identity
+  `);
+  const row = readRows(result)[0];
+  if (!row || typeof row.has_unsupported_identity !== 'boolean') {
+    throw new TypeError('GLOBAL_CLIENT_IDENTITY_CHECK_INVALID');
+  }
+  return row.has_unsupported_identity;
+}
+
+export type ZeroCandidateOrphanRecoveryAppointment = {
+  id: string;
+  startTime: Date;
+  endTime: Date;
+};
+
+export async function getZeroCandidateOrphanRecoveryAppointmentsWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+    now?: Date;
+  },
+): Promise<ZeroCandidateOrphanRecoveryAppointment[]> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    handle,
+    {
+      salonId,
+      phone: input.phone,
+      email: input.email,
+      allowArchived: true,
+    },
+  );
+  if (outcome.status !== 'zero_identity_candidates') {
+    return [];
+  }
+
+  const identities = normalizeClientIdentityInput(input);
+  const phone = identities.find(identity => identity.kind === 'phone')?.value;
+  const email = identities.find(identity => identity.kind === 'email')?.value;
+  if (!phone && !email) {
+    return [];
+  }
+  if (await hasUnsupportedGlobalClientIdentityWithHandle(handle, identities)) {
+    return [];
+  }
+  const now = input.now ?? new Date();
+  const result = await handle.execute(sql`
+    select appointment.id, appointment.start_time, appointment.end_time
+    from appointment
+    where appointment.salon_id = ${salonId}
+      and appointment.salon_client_id is null
+      and appointment.status in ('pending', 'confirmed', 'in_progress')
+      and appointment.deleted_at is null
+      and appointment.end_time > ${now}
+      and (
+        (
+          ${phone ?? null}::text is not null
+          and case
+            when length(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )) = 10
+            then regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )
+            when length(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )) = 11
+              and left(regexp_replace(
+                appointment.client_phone,
+                '[^0-9]',
+                '',
+                'g'
+              ), 1) = '1'
+            then right(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            ), 10)
+            else null
+          end = ${phone ?? null}
+        )
+        or (
+          ${email ?? null}::text is not null
+          and lower(btrim(appointment.client_email)) = ${email ?? null}
+        )
+      )
+    order by appointment.start_time, appointment.id
+    limit 26
+  `);
+
+  const rows = readRows(result);
+  if (rows.length > 25) {
+    return [];
+  }
+  return rows.map((row) => {
+    const startTime = dateValue(row.start_time);
+    const endTime = dateValue(row.end_time);
+    if (
+      typeof row.id !== 'string'
+      || !startTime
+      || !endTime
+    ) {
+      throw new TypeError('ORPHAN_RECOVERY_APPOINTMENT_ROW_INVALID');
+    }
+    return {
+      id: row.id,
+      startTime,
+      endTime,
+    };
+  });
+}
+
+export function getZeroCandidateOrphanRecoveryAppointments(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  now?: Date;
+}): Promise<ZeroCandidateOrphanRecoveryAppointment[]> {
+  return getZeroCandidateOrphanRecoveryAppointmentsWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+type AppointmentOperationalContactRow = {
+  salonClientId: string | null;
+  clientPhone: string;
+  clientEmail: string | null;
+};
+
+async function loadAppointmentOperationalContact(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    appointmentId: string;
+  },
+): Promise<AppointmentOperationalContactRow | null> {
+  const result = await handle.execute(sql`
+    select
+      salon_client_id,
+      client_phone,
+      client_email
+    from appointment
+    where salon_id = ${input.salonId}
+      and id = ${input.appointmentId}
+    limit 1
+  `);
+  const row = readRows(result)[0];
+  if (!row || typeof row.client_phone !== 'string') {
+    return null;
+  }
+  return {
+    salonClientId:
+      typeof row.salon_client_id === 'string' ? row.salon_client_id : null,
+    clientPhone: row.client_phone,
+    clientEmail: typeof row.client_email === 'string' ? row.client_email : null,
+  };
+}
+
+/**
+ * Selects the current operational email for an existing appointment without
+ * changing any historical appointment or communication snapshots.
+ *
+ * Historical contact values may locate an unlinked legacy appointment's
+ * same-salon client lineage, but they never become an authentication identity.
+ * A stable salon_client_id always owns the appointment when one is present.
+ */
+export async function resolveAppointmentOperationalEmailRecipientWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    appointmentId: string;
+  },
+): Promise<OperationalEmailRecipientResolution> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const appointmentId = requireInput(input.appointmentId, 'appointmentId');
+  const appointment = await loadAppointmentOperationalContact(handle, {
+    salonId,
+    appointmentId,
+  });
+  if (!appointment) {
+    return {
+      status: 'unavailable',
+      reason: 'appointment_not_found',
+    };
+  }
+
+  try {
+    let lineage: SalonClientLineageIdentity | null;
+    if (appointment.salonClientId) {
+      const terminal = await resolveTerminalSalonClientWithHandle(handle, {
+        salonId,
+        clientId: appointment.salonClientId,
+        allowArchived: true,
+      });
+      lineage = await getSalonClientLineageIdentityWithHandle(handle, {
+        salonId,
+        terminalClientId: terminal.id,
+        allowArchived: true,
+      });
+    } else {
+      const phone = tryNormalizeSupportedPhone(appointment.clientPhone);
+      const email = tryNormalizeSupportedEmail(appointment.clientEmail);
+      if (!phone && !email) {
+        return {
+          status: 'unavailable',
+          reason: 'client_identity_unavailable',
+        };
+      }
+      const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+        handle,
+        {
+          salonId,
+          phone,
+          email,
+          allowArchived: true,
+        },
+      );
+      if (outcome.status === 'zero_identity_candidates') {
+        const identities = normalizeClientIdentityInput({ phone, email });
+        if (
+          await hasUnsupportedGlobalClientIdentityWithHandle(
+            handle,
+            identities,
+          )
+        ) {
+          return {
+            status: 'unavailable',
+            reason: 'unsupported_client_identity',
+          };
+        }
+        const snapshotEmail = tryNormalizeSupportedEmail(
+          appointment.clientEmail,
+        );
+        if (!snapshotEmail) {
+          return {
+            status: 'unavailable',
+            reason: 'email_unavailable',
+          };
+        }
+        return {
+          status: 'appointment_snapshot',
+          email: snapshotEmail,
+          terminalClientId: null,
+          identityResolution: 'zero_identity_candidates',
+        };
+      }
+      if (outcome.status === 'invalid_or_ambiguous_identity') {
+        return {
+          status: 'unavailable',
+          reason: 'client_identity_unavailable',
+        };
+      }
+      lineage = outcome.identity;
+    }
+
+    if (lineage.externalClientId !== null) {
+      return {
+        status: 'unavailable',
+        reason: 'unsupported_client_identity',
+      };
+    }
+
+    const currentEmail = lineage.terminal.email;
+    if (currentEmail != null && currentEmail.trim() !== '') {
+      const normalizedCurrentEmail = tryNormalizeSupportedEmail(currentEmail);
+      if (!normalizedCurrentEmail) {
+        return {
+          status: 'unavailable',
+          reason: 'invalid_terminal_email',
+        };
+      }
+      return {
+        status: 'terminal_current',
+        email: normalizedCurrentEmail,
+        terminalClientId: lineage.terminal.id,
+      };
+    }
+
+    const snapshotEmail = tryNormalizeSupportedEmail(appointment.clientEmail);
+    if (!snapshotEmail) {
+      return {
+        status: 'unavailable',
+        reason: 'email_unavailable',
+      };
+    }
+    return {
+      status: 'appointment_snapshot',
+      email: snapshotEmail,
+      terminalClientId: lineage.terminal.id,
+    };
+  } catch (error) {
+    if (
+      error instanceof ClientLifecycleStabilizationError
+      || error instanceof TypeError
+    ) {
+      return {
+        status: 'unavailable',
+        reason: 'client_identity_unavailable',
+      };
+    }
+    throw error;
+  }
+}
+
+export function resolveAppointmentOperationalEmailRecipient(input: {
+  salonId: string;
+  appointmentId: string;
+}): Promise<OperationalEmailRecipientResolution> {
+  return resolveAppointmentOperationalEmailRecipientWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+/**
+ * Claims one appointment-scoped customer email business event before doing
+ * any delivery work. The recipient is resolved only after content and private
+ * links are ready, immediately before the provider call.
+ *
+ * The dedupe identity deliberately excludes the recipient address so changing
+ * contact details cannot resend an event that was already delivered.
+ */
+export async function sendAppointmentOperationalEmailOnce(input: {
+  salonId: string;
+  appointmentId: string;
+  purpose: string;
+  eventVersion: string;
+  prepare: () => Promise<OperationalEmailContent> | OperationalEmailContent;
+  retryFailed?: boolean;
+}): Promise<OperationalEmailDeliveryResult> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const appointmentId = requireInput(input.appointmentId, 'appointmentId');
+  const purpose = requireInput(input.purpose, 'purpose');
+  const eventVersion = requireInput(input.eventVersion, 'eventVersion');
+  const dedupeKey = `email:operational:${purpose}:${appointmentId}:${eventVersion}`;
+  let deliveryId = crypto.randomUUID();
+  const inserted = await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId,
+    appointmentId,
+    channel: 'email',
+    purpose,
+    dedupeKey,
+    status: 'queued',
+  }).onConflictDoNothing().returning();
+
+  if (!inserted.length && input.retryFailed) {
+    const [reclaimed] = await db.update(notificationDeliverySchema).set({
+      status: 'queued',
+      errorCode: null,
+      errorMessage: null,
+      retryable: null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.appointmentId, appointmentId),
+      eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+      eq(notificationDeliverySchema.status, 'failed'),
+      eq(notificationDeliverySchema.retryable, true),
+    )).returning();
+    if (reclaimed) {
+      deliveryId = reclaimed.id;
+    } else {
+      const [existing] = await db.select({
+        id: notificationDeliverySchema.id,
+        status: notificationDeliverySchema.status,
+      }).from(notificationDeliverySchema).where(and(
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.appointmentId, appointmentId),
+        eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+      )).limit(1);
+      return existing?.status === 'sent'
+        ? { status: 'sent', deliveryId: existing.id, claimed: false }
+        : {
+            status: 'duplicate',
+            deliveryId: existing?.id ?? null,
+            claimed: false,
+          };
+    }
+  } else if (!inserted.length) {
+    const [existing] = await db.select({
+      id: notificationDeliverySchema.id,
+      status: notificationDeliverySchema.status,
+    }).from(notificationDeliverySchema).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.appointmentId, appointmentId),
+      eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+    )).limit(1);
+    return existing?.status === 'sent'
+      ? { status: 'sent', deliveryId: existing.id, claimed: false }
+      : {
+          status: 'duplicate',
+          deliveryId: existing?.id ?? null,
+          claimed: false,
+        };
+  }
+
+  let content: OperationalEmailContent;
+  try {
+    content = await input.prepare();
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_PREPARATION_FAILED',
+      retryable: input.retryFailed === true,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId, claimed: true };
+  }
+
+  const { sendTransactionalEmailDetailed } = await import('@/libs/email');
+  let recipient: OperationalEmailRecipientResolution;
+  try {
+    recipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId,
+      appointmentId,
+    });
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
+      retryable: input.retryFailed === true,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId, claimed: true };
+  }
+  if (recipient.status === 'unavailable') {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+      retryable: false,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'unavailable', deliveryId, claimed: true };
+  }
+
+  let providerResult;
+  try {
+    providerResult = await sendTransactionalEmailDetailed({
+      to: recipient.email,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+    });
+  } catch {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
+      retryable: false,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+    return { status: 'failed', deliveryId, claimed: true };
+  }
+
+  const providerOutcomeIsAmbiguous
+    = !providerResult.ok && providerResult.errorCode === 'RESEND_NETWORK_ERROR';
+  try {
+    await db.update(notificationDeliverySchema).set({
+      status: providerResult.ok ? 'sent' : 'failed',
+      providerMessageId: providerResult.providerMessageId,
+      errorCode: providerResult.errorCode,
+      retryable:
+        input.retryFailed === true
+        && !providerResult.ok
+        && !providerOutcomeIsAmbiguous,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+      eq(notificationDeliverySchema.status, 'queued'),
+    ));
+  } catch {
+    // Once the provider may have accepted a message, never turn a local
+    // bookkeeping failure into another provider attempt. The queued claim
+    // continues to block the same business event from being sent again.
+  }
+  return {
+    status: providerResult.ok ? 'sent' : 'failed',
+    deliveryId,
+    claimed: true,
+  };
 }
 
 export async function getSalonClientLineageIdsWithHandle(

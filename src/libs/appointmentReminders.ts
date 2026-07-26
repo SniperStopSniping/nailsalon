@@ -1,19 +1,22 @@
 import 'server-only';
 
-import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
+  sendAppointmentOperationalEmailOnce,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { sendTransactionalEmail } from '@/libs/email';
 import { normalizePhone } from '@/libs/phone';
-import { getAppointmentServiceNames, getClientByPhone } from '@/libs/queries';
+import { getAppointmentServiceNames } from '@/libs/queries';
+import { isSmsEnabled } from '@/libs/salonStatus';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
+  communicationConsentSchema,
+  notificationDeliverySchema,
   salonClientSchema,
   salonSchema,
   technicianSchema,
@@ -48,6 +51,13 @@ type ReminderCandidate = {
 type ReminderSendResult = {
   channel: ReminderChannel | null;
   attempted: boolean;
+};
+
+type ReminderSmsClaim = {
+  claimed: boolean;
+  claimedAt: Date | null;
+  deliveryId: string | null;
+  status: string | null;
 };
 
 export type ProcessAppointmentRemindersResult = {
@@ -272,6 +282,141 @@ async function resolveReminderOperationalContact(
   };
 }
 
+async function claimReminderSmsDelivery(input: {
+  appointmentId: string;
+  salonId: string;
+  reminderType: 'day_before' | 'same_day';
+  eventVersion: string;
+}): Promise<ReminderSmsClaim> {
+  const purpose = input.reminderType === 'day_before'
+    ? 'appointment_reminder_24h_guard'
+    : 'appointment_reminder_2h_guard';
+  const dedupeKey = [
+    'sms',
+    'appointment-reminder',
+    input.reminderType,
+    input.salonId,
+    input.appointmentId,
+    input.eventVersion,
+  ].join(':');
+  const deliveryId = crypto.randomUUID();
+  const [inserted] = await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    channel: 'sms',
+    purpose,
+    dedupeKey,
+    status: 'queued',
+    retryable: false,
+  }).onConflictDoNothing().returning();
+  if (inserted) {
+    return {
+      claimed: true,
+      claimedAt: inserted.updatedAt,
+      deliveryId: inserted.id,
+      status: inserted.status,
+    };
+  }
+  const [reclaimed] = await db.update(notificationDeliverySchema).set({
+    status: 'queued',
+    errorCode: null,
+    errorMessage: null,
+    retryable: false,
+    updatedAt: sql`clock_timestamp()`,
+  }).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+    eq(notificationDeliverySchema.status, 'failed'),
+    eq(notificationDeliverySchema.retryable, true),
+  )).returning();
+  if (reclaimed) {
+    return {
+      claimed: true,
+      claimedAt: reclaimed.updatedAt,
+      deliveryId: reclaimed.id,
+      status: reclaimed.status,
+    };
+  }
+  const [existing] = await db.select({
+    id: notificationDeliverySchema.id,
+    status: notificationDeliverySchema.status,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+  )).limit(1);
+  return {
+    claimed: false,
+    claimedAt: null,
+    deliveryId: existing?.id ?? null,
+    status: existing?.status ?? null,
+  };
+}
+
+async function canAttemptReminderSms(input: {
+  salonId: string;
+  phone: string;
+}): Promise<boolean> {
+  if (!await isSmsEnabled(input.salonId)) {
+    return false;
+  }
+  const [consent] = await db.select({
+    status: communicationConsentSchema.status,
+  }).from(communicationConsentSchema).where(and(
+    eq(communicationConsentSchema.salonId, input.salonId),
+    eq(communicationConsentSchema.recipient, input.phone),
+    eq(communicationConsentSchema.channel, 'sms'),
+    eq(
+      communicationConsentSchema.purpose,
+      'appointment_transactional',
+    ),
+  )).orderBy(desc(communicationConsentSchema.createdAt)).limit(1);
+  return consent?.status === 'granted';
+}
+
+async function wasReminderSmsFailureRetryable(input: {
+  appointmentId: string;
+  salonId: string;
+  reminderType: 'day_before' | 'same_day';
+  claimedAt: Date;
+}): Promise<boolean> {
+  const purpose = input.reminderType === 'day_before'
+    ? 'appointment_reminder_24h'
+    : 'appointment_reminder_2h';
+  const attempts = await db.select({
+    retryable: notificationDeliverySchema.retryable,
+    status: notificationDeliverySchema.status,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.channel, 'sms'),
+    eq(notificationDeliverySchema.purpose, purpose),
+    gte(notificationDeliverySchema.createdAt, input.claimedAt),
+  )).orderBy(desc(notificationDeliverySchema.createdAt)).limit(2);
+  return attempts.length === 1
+    && attempts[0]!.status === 'failed'
+    && attempts[0]!.retryable === true;
+}
+
+async function finishReminderSmsDelivery(input: {
+  salonId: string;
+  deliveryId: string;
+  retryable: boolean;
+  sent: boolean;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: input.sent ? 'sent' : 'failed',
+    errorCode: input.sent ? null : 'SMS_DELIVERY_UNAVAILABLE',
+    retryable: input.sent ? false : input.retryable,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.status, 'queued'),
+  ));
+}
+
 async function sendDayBeforeReminder(
   candidate: ReminderCandidate,
   context: {
@@ -280,22 +425,64 @@ async function sendDayBeforeReminder(
     now: Date;
   },
 ): Promise<ReminderSendResult> {
-  const clientEmail = await resolveClientEmail(candidate);
-  const manageUrl = await resolveReminderManageUrl(candidate);
-  const emailSent = clientEmail
-    ? await sendTransactionalEmail(
+  let manageUrl: string | null = null;
+  let manageUrlResolved = false;
+  const getManageUrl = async () => {
+    if (!manageUrlResolved) {
+      manageUrl = await resolveReminderManageUrl(candidate);
+      manageUrlResolved = true;
+    }
+    return manageUrl;
+  };
+  const emailDelivery = await sendAppointmentOperationalEmailOnce({
+    salonId: candidate.salonId,
+    appointmentId: candidate.appointmentId,
+    purpose: 'appointment_day_before_reminder',
+    eventVersion: candidate.startTime.toISOString(),
+    retryFailed: true,
+    prepare: async () =>
       buildDayBeforeEmailPayload(candidate, {
-        to: clientEmail,
         services: context.services,
         timeZone: context.timeZone,
-        manageUrl,
+        manageUrl: await getManageUrl(),
       }),
-    )
-    : false;
+  });
+  const emailSent = emailDelivery.status === 'sent';
 
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
-    return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: emailDelivery.status === 'failed',
+    };
+  }
+  const smsEligible = await canAttemptReminderSms({
+    salonId: candidate.salonId,
+    phone: normalizedPhone,
+  }).catch(() => false);
+  if (!smsEligible) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: true,
+    };
+  }
+
+  const smsClaim = await claimReminderSmsDelivery({
+    appointmentId: candidate.appointmentId,
+    salonId: candidate.salonId,
+    reminderType: 'day_before',
+    eventVersion: candidate.startTime.toISOString(),
+  });
+  if (!smsClaim.claimed || !smsClaim.deliveryId) {
+    return {
+      channel:
+        emailSent
+          ? 'email'
+          : smsClaim.status === 'sent'
+            ? 'sms'
+            : null,
+      attempted: false,
+    };
   }
 
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
@@ -309,12 +496,26 @@ async function sendDayBeforeReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
-    manageUrl,
-  });
+    manageUrl: await getManageUrl(),
+  }).catch(() => false);
+  const smsRetryable = !smsSent && smsClaim.claimedAt
+    ? await wasReminderSmsFailureRetryable({
+      appointmentId: candidate.appointmentId,
+      salonId: candidate.salonId,
+      reminderType: 'day_before',
+      claimedAt: smsClaim.claimedAt,
+    }).catch(() => false)
+    : false;
+  await finishReminderSmsDelivery({
+    salonId: candidate.salonId,
+    deliveryId: smsClaim.deliveryId,
+    retryable: smsRetryable,
+    sent: smsSent,
+  }).catch(() => undefined);
 
   return {
     channel: emailSent ? 'email' : smsSent ? 'sms' : null,
-    attempted: Boolean(clientEmail) || Boolean(normalizedPhone),
+    attempted: emailDelivery.status === 'failed' || Boolean(normalizedPhone),
   };
 }
 
@@ -325,19 +526,63 @@ async function sendSameDayReminder(
     timeZone: string;
   },
 ): Promise<ReminderSendResult> {
-  const clientEmail = await resolveClientEmail(candidate);
-  const manageUrl = await resolveReminderManageUrl(candidate);
-  const emailSent = clientEmail
-    ? await sendTransactionalEmail(buildSameDayEmailPayload(candidate, {
-      to: clientEmail,
-      services: context.services,
-      timeZone: context.timeZone,
-      manageUrl,
-    }))
-    : false;
+  let manageUrl: string | null = null;
+  let manageUrlResolved = false;
+  const getManageUrl = async () => {
+    if (!manageUrlResolved) {
+      manageUrl = await resolveReminderManageUrl(candidate);
+      manageUrlResolved = true;
+    }
+    return manageUrl;
+  };
+  const emailDelivery = await sendAppointmentOperationalEmailOnce({
+    salonId: candidate.salonId,
+    appointmentId: candidate.appointmentId,
+    purpose: 'appointment_same_day_reminder',
+    eventVersion: candidate.startTime.toISOString(),
+    retryFailed: true,
+    prepare: async () =>
+      buildSameDayEmailPayload(candidate, {
+        services: context.services,
+        timeZone: context.timeZone,
+        manageUrl: await getManageUrl(),
+      }),
+  });
+  const emailSent = emailDelivery.status === 'sent';
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
-    return { channel: emailSent ? 'email' : null, attempted: Boolean(clientEmail) };
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: emailDelivery.status === 'failed',
+    };
+  }
+  const smsEligible = await canAttemptReminderSms({
+    salonId: candidate.salonId,
+    phone: normalizedPhone,
+  }).catch(() => false);
+  if (!smsEligible) {
+    return {
+      channel: emailSent ? 'email' : null,
+      attempted: true,
+    };
+  }
+
+  const smsClaim = await claimReminderSmsDelivery({
+    appointmentId: candidate.appointmentId,
+    salonId: candidate.salonId,
+    reminderType: 'same_day',
+    eventVersion: candidate.startTime.toISOString(),
+  });
+  if (!smsClaim.claimed || !smsClaim.deliveryId) {
+    return {
+      channel:
+        emailSent
+          ? 'email'
+          : smsClaim.status === 'sent'
+            ? 'sms'
+            : null,
+      attempted: false,
+    };
   }
 
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
@@ -351,28 +596,27 @@ async function sendSameDayReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
-    manageUrl,
-  });
+    manageUrl: await getManageUrl(),
+  }).catch(() => false);
+  const smsRetryable = !smsSent && smsClaim.claimedAt
+    ? await wasReminderSmsFailureRetryable({
+      appointmentId: candidate.appointmentId,
+      salonId: candidate.salonId,
+      reminderType: 'same_day',
+      claimedAt: smsClaim.claimedAt,
+    }).catch(() => false)
+    : false;
+  await finishReminderSmsDelivery({
+    salonId: candidate.salonId,
+    deliveryId: smsClaim.deliveryId,
+    retryable: smsRetryable,
+    sent: smsSent,
+  }).catch(() => undefined);
 
   return {
     channel: emailSent ? 'email' : smsSent ? 'sms' : null,
-    attempted: Boolean(clientEmail) || Boolean(normalizedPhone),
+    attempted: emailDelivery.status === 'failed' || Boolean(normalizedPhone),
   };
-}
-
-async function resolveClientEmail(candidate: ReminderCandidate): Promise<string | null> {
-  const appointmentEmail = candidate.appointmentEmail?.trim().toLowerCase() ?? '';
-  if (appointmentEmail) {
-    return appointmentEmail;
-  }
-  const salonClientEmail = candidate.salonClientEmail?.trim().toLowerCase() ?? '';
-  if (salonClientEmail) {
-    return salonClientEmail;
-  }
-
-  const globalClient = await getClientByPhone(candidate.clientPhone);
-  const globalEmail = globalClient?.email?.trim().toLowerCase() ?? '';
-  return globalEmail || null;
 }
 
 /**
@@ -396,7 +640,7 @@ async function resolveReminderManageUrl(candidate: ReminderCandidate): Promise<s
 
 function buildSameDayEmailPayload(
   candidate: ReminderCandidate,
-  args: { to: string; services: string[]; timeZone: string; manageUrl: string | null },
+  args: { services: string[]; timeZone: string; manageUrl: string | null },
 ) {
   const formattedTime = formatDateTime(candidate.startTime, args.timeZone, {
     hour: 'numeric',
@@ -412,7 +656,6 @@ function buildSameDayEmailPayload(
     ...(args.manageUrl ? ['', `View, reschedule, or cancel: ${args.manageUrl}`] : []),
   ].join('\n');
   return {
-    to: args.to,
     subject: `Your ${candidate.salonName} appointment is today`,
     text,
     html: textToSimpleHtml(text),
@@ -422,13 +665,11 @@ function buildSameDayEmailPayload(
 function buildDayBeforeEmailPayload(
   candidate: ReminderCandidate,
   args: {
-    to: string;
     services: string[];
     timeZone: string;
     manageUrl: string | null;
   },
 ): {
-    to: string;
     subject: string;
     text: string;
     html: string;
@@ -459,7 +700,6 @@ function buildDayBeforeEmailPayload(
   ].join('\n');
 
   return {
-    to: args.to,
     subject: `Reminder: Your appointment tomorrow at ${candidate.salonName}`,
     text,
     html: textToSimpleHtml(text),

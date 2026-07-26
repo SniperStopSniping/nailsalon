@@ -1,7 +1,9 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import type { TransactionalEmailResult } from '@/libs/email';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAccessTokenSchema, appointmentSchema, appointmentServicesSchema, integrationOutboxSchema, notificationDeliverySchema, salonSchema } from '@/models/Schema';
@@ -10,8 +12,156 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
 }
 
+const unavailableRecipientResult: TransactionalEmailResult = {
+  ok: false,
+  errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+  providerMessageId: null,
+};
+
+const ambiguousDeliveryResult: TransactionalEmailResult = {
+  ok: false,
+  errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
+  providerMessageId: null,
+};
+
+function isAmbiguousProviderFailure(
+  result: TransactionalEmailResult,
+): boolean {
+  return result.errorCode === 'RESEND_NETWORK_ERROR';
+}
+
+async function markBookingRecipientUnavailable(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: unavailableRecipientResult.errorCode,
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    ne(notificationDeliverySchema.status, 'sent'),
+  ));
+}
+
+async function markBookingRetryableFailure(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+  errorCode: string;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: input.errorCode,
+    retryable: true,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    ne(notificationDeliverySchema.status, 'sent'),
+  ));
+}
+
+async function markBookingAmbiguousFailure(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+  errorCode: string;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: input.errorCode,
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    ne(notificationDeliverySchema.status, 'sent'),
+  ));
+}
+
+async function enqueueBookingConfirmationRetry(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+}) {
+  await db.insert(integrationOutboxSchema).values({
+    id: crypto.randomUUID(),
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    provider: 'email',
+    operation: 'retry_booking_confirmation',
+    dedupeKey: `email:booking-confirmation-retry:${input.appointmentId}`,
+    payload: { deliveryId: input.deliveryId },
+  }).onConflictDoNothing();
+}
+
+async function claimBookingConfirmationRetry(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+}): Promise<boolean> {
+  const claimed = await db.update(notificationDeliverySchema).set({
+    status: 'queued',
+    errorCode: 'EMAIL_DELIVERY_STATE_UNKNOWN',
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.status, 'failed'),
+    eq(notificationDeliverySchema.retryable, true),
+  )).returning();
+  return claimed.length === 1;
+}
+
+async function revokeBookingCapability(input: {
+  salonId: string;
+  tokenHash: string;
+}) {
+  await db.update(appointmentAccessTokenSchema).set({
+    revokedAt: new Date(),
+  }).where(and(
+    eq(appointmentAccessTokenSchema.salonId, input.salonId),
+    eq(appointmentAccessTokenSchema.tokenHash, input.tokenHash),
+  ));
+}
+
+async function restoreBookingRetryAfterCapabilityCleanup(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+  tokenHash: string | null;
+  errorCode: string;
+}) {
+  if (input.tokenHash) {
+    try {
+      await revokeBookingCapability({
+        salonId: input.salonId,
+        tokenHash: input.tokenHash,
+      });
+    } catch {
+      await markBookingAmbiguousFailure({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        deliveryId: input.deliveryId,
+        errorCode: 'BOOKING_CAPABILITY_CLEANUP_FAILED',
+      }).catch(() => undefined);
+      throw new Error('BOOKING_CAPABILITY_CLEANUP_FAILED');
+    }
+  }
+  await markBookingRetryableFailure({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    deliveryId: input.deliveryId,
+    errorCode: input.errorCode,
+  });
+}
+
 export async function sendCustomerBookingConfirmationEmail(input: {
-  to: string;
   salonName: string;
   clientName: string;
   serviceNames: string[];
@@ -44,87 +194,264 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   if (!inserted.length) {
     return true;
   }
-  const result = await sendTransactionalEmailDetailed({ to: input.to, subject, text, html });
-  await db.update(notificationDeliverySchema).set({
-    status: result.ok ? 'sent' : 'failed',
-    providerMessageId: result.providerMessageId,
-    errorCode: result.errorCode,
-    retryable: !result.ok,
-  }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, input.salonId)));
-  if (!result.ok) {
-    await db.insert(integrationOutboxSchema).values({
-      id: crypto.randomUUID(),
+  let recipient;
+  try {
+    recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
-      provider: 'email',
-      operation: 'retry_booking_confirmation',
-      dedupeKey: `email:booking-confirmation-retry:${input.appointmentId}`,
-      payload: { deliveryId },
-    }).onConflictDoNothing();
+    });
+  } catch {
+    await markBookingRetryableFailure({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+      errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
+    }).catch(() => undefined);
+    await enqueueBookingConfirmationRetry({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+    }).catch(() => undefined);
+    return false;
   }
-  return result.ok;
+  if (recipient.status === 'unavailable') {
+    await markBookingRecipientUnavailable({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+    });
+    return false;
+  }
+  const result = await sendTransactionalEmailDetailed({
+    to: recipient.email,
+    subject,
+    text,
+    html,
+  });
+  if (result.ok) {
+    // The provider has accepted the message. A ledger outage must not turn the
+    // acknowledged business event into a duplicate send on a later retry.
+    try {
+      await db.update(notificationDeliverySchema).set({
+        status: 'sent',
+        providerMessageId: result.providerMessageId,
+        errorCode: null,
+        retryable: false,
+      }).where(and(
+        eq(notificationDeliverySchema.id, deliveryId),
+        eq(notificationDeliverySchema.salonId, input.salonId),
+      ));
+    } catch {
+      // Provider acceptance is authoritative for retry suppression.
+    }
+    return true;
+  }
+
+  if (isAmbiguousProviderFailure(result)) {
+    await markBookingAmbiguousFailure({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+      errorCode: result.errorCode!,
+    }).catch(() => undefined);
+    return false;
+  }
+
+  await markBookingRetryableFailure({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    deliveryId,
+    errorCode: result.errorCode ?? 'BOOKING_EMAIL_FAILED',
+  }).catch(() => undefined);
+  await enqueueBookingConfirmationRetry({
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    deliveryId,
+  }).catch(() => undefined);
+  return false;
 }
 
 export async function retryCustomerBookingConfirmationEmail(input: { salonId: string; appointmentId: string; deliveryId: string }) {
-  const [row] = await db.select({
-    appointment: appointmentSchema,
-    salonName: salonSchema.name,
-    salonSlug: salonSchema.slug,
-    customDomain: salonSchema.customDomain,
-    salonSettings: salonSchema.settings,
-  }).from(appointmentSchema).innerJoin(salonSchema, eq(salonSchema.id, appointmentSchema.salonId)).where(and(
-    eq(appointmentSchema.id, input.appointmentId),
-    eq(appointmentSchema.salonId, input.salonId),
+  const [delivery] = await db.select({
+    status: notificationDeliverySchema.status,
+    errorCode: notificationDeliverySchema.errorCode,
+    providerMessageId: notificationDeliverySchema.providerMessageId,
+    retryable: notificationDeliverySchema.retryable,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
   )).limit(1);
-  if (!row?.appointment.clientEmail) {
-    throw new Error('BOOKING_EMAIL_RECIPIENT_UNAVAILABLE');
+  if (!delivery) {
+    throw new Error('BOOKING_EMAIL_DELIVERY_NOT_FOUND');
   }
-  const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
-  const capability = createOpaqueToken();
-  await db.insert(appointmentAccessTokenSchema).values({
-    id: crypto.randomUUID(),
-    salonId: input.salonId,
-    appointmentId: input.appointmentId,
-    tokenHash: capability.tokenHash,
-    expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
+  if (delivery.status === 'sent') {
+    return {
+      ok: true,
+      errorCode: null,
+      providerMessageId: null,
+    } satisfies TransactionalEmailResult;
+  }
+  if (
+    delivery.status !== 'failed'
+    || delivery.retryable !== true
+    || !await claimBookingConfirmationRetry(input)
+  ) {
+    return {
+      ok: false,
+      errorCode: delivery.errorCode ?? 'BOOKING_EMAIL_NOT_RETRYABLE',
+      providerMessageId: delivery.providerMessageId,
+    } satisfies TransactionalEmailResult;
+  }
+
+  let capabilityTokenHash: string | null = null;
+  let emailInput: {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  };
+  let sendTransactionalEmailDetailed: typeof import('@/libs/email').sendTransactionalEmailDetailed;
+  try {
+    const [row] = await db.select({
+      appointment: appointmentSchema,
+      salonName: salonSchema.name,
+      salonSlug: salonSchema.slug,
+      customDomain: salonSchema.customDomain,
+      salonSettings: salonSchema.settings,
+    }).from(appointmentSchema).innerJoin(salonSchema, eq(salonSchema.id, appointmentSchema.salonId)).where(and(
+      eq(appointmentSchema.id, input.appointmentId),
+      eq(appointmentSchema.salonId, input.salonId),
+      inArray(appointmentSchema.status, ['pending', 'confirmed']),
+      isNull(appointmentSchema.deletedAt),
+      gt(appointmentSchema.startTime, new Date()),
+    )).limit(1);
+    if (!row) {
+      throw new Error('BOOKING_EMAIL_APPOINTMENT_NOT_FOUND');
+    }
+    const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
+    const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
+    const config = resolveBookingConfigFromSettings(row.salonSettings);
+    const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);
+    const time = formatTimeInTimeZone(row.appointment.startTime.toISOString(), {}, config.timezone);
+    const serviceNames = services.map(service => service.name || 'Appointment');
+    ({ sendTransactionalEmailDetailed } = await import('@/libs/email'));
+
+    const finalRecipientBeforeToken = await resolveAppointmentOperationalEmailRecipient({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+    });
+    if (finalRecipientBeforeToken.status === 'unavailable') {
+      await markBookingRecipientUnavailable(input);
+      return unavailableRecipientResult;
+    }
+
+    const capability = createOpaqueToken();
+    capabilityTokenHash = capability.tokenHash;
+    await db.insert(appointmentAccessTokenSchema).values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      tokenHash: capability.tokenHash,
+      expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
+    });
+    const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
+    const text = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+    const finalRecipient = await resolveAppointmentOperationalEmailRecipient({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+    });
+    if (finalRecipient.status === 'unavailable') {
+      await revokeBookingCapability({
+        salonId: input.salonId,
+        tokenHash: capability.tokenHash,
+      });
+      capabilityTokenHash = null;
+      await markBookingRecipientUnavailable(input);
+      return unavailableRecipientResult;
+    }
+    emailInput = {
+      to: finalRecipient.email,
+      subject: `${row.salonName} booking confirmed`,
+      text,
+      html: `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
+    };
+  } catch (error) {
+    await restoreBookingRetryAfterCapabilityCleanup({
+      ...input,
+      tokenHash: capabilityTokenHash,
+      errorCode: 'BOOKING_EMAIL_PREPARATION_FAILED',
+    });
+    throw error;
+  }
+
+  let result: TransactionalEmailResult;
+  try {
+    result = await sendTransactionalEmailDetailed(emailInput);
+  } catch {
+    await markBookingAmbiguousFailure({
+      ...input,
+      errorCode: ambiguousDeliveryResult.errorCode!,
+    }).catch(() => undefined);
+    return ambiguousDeliveryResult;
+  }
+
+  if (result.ok) {
+    // Once accepted by the provider, every remaining database write is
+    // best-effort. Throwing would make the outbox send this event again.
+    try {
+      await db.update(notificationDeliverySchema).set({
+        status: 'sent',
+        providerMessageId: result.providerMessageId,
+        errorCode: null,
+        retryable: false,
+      }).where(and(
+        eq(notificationDeliverySchema.id, input.deliveryId),
+        eq(notificationDeliverySchema.salonId, input.salonId),
+      ));
+    } catch {
+      // Provider acceptance is authoritative for retry suppression.
+    }
+    let activeTokens: Array<{ id: string }> = [];
+    try {
+      activeTokens = await db.select({ id: appointmentAccessTokenSchema.id })
+        .from(appointmentAccessTokenSchema)
+        .where(and(
+          eq(appointmentAccessTokenSchema.salonId, input.salonId),
+          eq(appointmentAccessTokenSchema.appointmentId, input.appointmentId),
+          isNull(appointmentAccessTokenSchema.revokedAt),
+        ))
+        .orderBy(desc(appointmentAccessTokenSchema.createdAt));
+    } catch {
+      // Token-cap maintenance must not retry an acknowledged email.
+    }
+    for (const stale of activeTokens.slice(3)) {
+      try {
+        await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
+          eq(appointmentAccessTokenSchema.id, stale.id),
+          eq(appointmentAccessTokenSchema.salonId, input.salonId),
+        ));
+      } catch {
+        // Token-cap maintenance must not retry an acknowledged email.
+      }
+    }
+    return result;
+  }
+
+  if (isAmbiguousProviderFailure(result)) {
+    await markBookingAmbiguousFailure({
+      ...input,
+      errorCode: result.errorCode!,
+    }).catch(() => undefined);
+    return result;
+  }
+
+  await restoreBookingRetryAfterCapabilityCleanup({
+    ...input,
+    tokenHash: capabilityTokenHash,
+    errorCode: result.errorCode ?? 'BOOKING_EMAIL_RETRY_FAILED',
   });
-  const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
-  const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
-  const config = resolveBookingConfigFromSettings(row.salonSettings);
-  const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);
-  const time = formatTimeInTimeZone(row.appointment.startTime.toISOString(), {}, config.timezone);
-  const serviceNames = services.map(service => service.name || 'Appointment');
-  const text = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
-  const { sendTransactionalEmailDetailed } = await import('@/libs/email');
-  const result = await sendTransactionalEmailDetailed({
-    to: row.appointment.clientEmail,
-    subject: `${row.salonName} booking confirmed`,
-    text,
-    html: `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
-  });
-  await db.update(notificationDeliverySchema).set({ status: result.ok ? 'sent' : 'failed', providerMessageId: result.providerMessageId, errorCode: result.errorCode, retryable: !result.ok }).where(and(eq(notificationDeliverySchema.id, input.deliveryId), eq(notificationDeliverySchema.salonId, input.salonId)));
-  if (!result.ok) {
-    await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
-      eq(appointmentAccessTokenSchema.salonId, input.salonId),
-      eq(appointmentAccessTokenSchema.tokenHash, capability.tokenHash),
-    ));
-    throw new Error(result.errorCode || 'BOOKING_EMAIL_RETRY_FAILED');
-  }
-  const activeTokens = await db.select({ id: appointmentAccessTokenSchema.id })
-    .from(appointmentAccessTokenSchema)
-    .where(and(
-      eq(appointmentAccessTokenSchema.salonId, input.salonId),
-      eq(appointmentAccessTokenSchema.appointmentId, input.appointmentId),
-      isNull(appointmentAccessTokenSchema.revokedAt),
-    ))
-    .orderBy(desc(appointmentAccessTokenSchema.createdAt));
-  for (const stale of activeTokens.slice(3)) {
-    await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
-      eq(appointmentAccessTokenSchema.id, stale.id),
-      eq(appointmentAccessTokenSchema.salonId, input.salonId),
-    ));
-  }
-  return result;
+  throw new Error(result.errorCode || 'BOOKING_EMAIL_RETRY_FAILED');
 }
 
 export async function resendCustomerBookingConfirmationEmail(input: { salonId: string; appointmentId: string }) {
@@ -136,10 +463,15 @@ export async function resendCustomerBookingConfirmationEmail(input: { salonId: s
     channel: 'email',
     purpose: 'booking_confirmation_resend',
     dedupeKey: `email:booking-confirmation-resend:${input.appointmentId}:${deliveryId}`,
-    status: 'queued',
+    status: 'failed',
+    errorCode: 'MANUAL_RESEND_REQUESTED',
+    retryable: true,
   });
   try {
-    return await retryCustomerBookingConfirmationEmail({ ...input, deliveryId });
+    return await retryCustomerBookingConfirmationEmail({
+      ...input,
+      deliveryId,
+    });
   } catch (error) {
     await db.insert(integrationOutboxSchema).values({
       id: crypto.randomUUID(),
