@@ -19,7 +19,7 @@ const client: EditClientValue = {
 function renderDialog(overrides: Partial<{
   client: EditClientValue;
   onClose: () => void;
-  onSuccess: () => Promise<void> | void;
+  onSuccess: (client: EditClientValue) => void;
 }> = {}) {
   const onClose = overrides.onClose ?? vi.fn();
   const onSuccess = overrides.onSuccess ?? vi.fn();
@@ -40,7 +40,10 @@ function renderDialog(overrides: Partial<{
 function successResponse(updatedAt = '2026-07-25T15:31:00.000Z') {
   return new Response(JSON.stringify({
     data: {
-      client: { updatedAt },
+      client: {
+        ...client,
+        updatedAt,
+      },
     },
   }), { status: 200 });
 }
@@ -239,6 +242,37 @@ describe('EditClientDialog', () => {
       expect(onSuccess).toHaveBeenCalledTimes(1);
       expect(onClose).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('applies the committed client before closing without misreporting a parent failure', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(successResponse());
+    const onSuccess = vi.fn(() => {
+      throw new Error('Parent render unavailable');
+    });
+    const onClose = vi.fn();
+    renderDialog({ onClose, onSuccess });
+
+    await screen.findByRole('dialog', { name: 'Edit client' });
+    fireEvent.change(screen.getByLabelText('Notes'), {
+      target: { value: 'Committed before refresh.' },
+    });
+    fireEvent.click(screen.getByTestId('edit-client-save'));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onSuccess).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'client_1',
+      updatedAt: '2026-07-25T15:31:00.000Z',
+    }));
+    expect(onSuccess.mock.invocationCallOrder[0])
+      .toBeLessThan(onClose.mock.invocationCallOrder[0]!);
+    expect(screen.queryByText(/could not save/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('keeps the mobile sheet scrollable without horizontal overflow or covered actions', async () => {

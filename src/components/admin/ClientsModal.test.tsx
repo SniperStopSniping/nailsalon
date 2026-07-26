@@ -43,9 +43,32 @@ vi.mock('@/providers/SalonProvider', () => ({
 }));
 
 vi.mock('./NewAppointmentModal', () => ({
-  NewAppointmentModal: ({ isOpen, clientPrefill }: { isOpen: boolean; clientPrefill?: unknown }) => (
+  NewAppointmentModal: ({
+    isOpen,
+    clientPrefill,
+    onClose,
+    onSuccess,
+  }: {
+    isOpen: boolean;
+    clientPrefill?: unknown;
+    onClose?: () => void;
+    onSuccess?: () => void;
+  }) => (
     isOpen
-      ? <div data-testid="new-appointment-modal">{JSON.stringify(clientPrefill ?? null)}</div>
+      ? (
+          <div data-testid="new-appointment-modal">
+            {JSON.stringify(clientPrefill ?? null)}
+            <button
+              type="button"
+              aria-label="Complete mocked booking"
+              data-testid="complete-mocked-booking"
+              onClick={() => {
+                onSuccess?.();
+                onClose?.();
+              }}
+            />
+          </div>
+        )
       : null
   ),
 }));
@@ -666,6 +689,11 @@ describe('ClientsModal', () => {
           data: {
             client: {
               id: 'client_1',
+              fullName: currentName,
+              phone: '1111111111',
+              email: 'ava@example.com',
+              birthday: '1992-06-15',
+              notes: 'Prefers shorter almond shape.',
               updatedAt: currentUpdatedAt,
             },
           },
@@ -706,6 +734,203 @@ describe('ClientsModal', () => {
     });
     expect(await screen.findAllByText('Ava Marie Thompson-Santos')).not.toHaveLength(0);
     expect(detailFetchCount).toBe(2);
+  });
+
+  it('keeps committed contact actions current when the post-save profile refresh fails', async () => {
+    let detailFetchCount = 0;
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([
+          buildListClient(),
+        ])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), {
+          status: 200,
+        });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
+        if (detailFetchCount > 1) {
+          return new Response(JSON.stringify({ error: 'unavailable' }), {
+            status: 503,
+          });
+        }
+        return new Response(JSON.stringify(buildDetailResponse()), {
+          status: 200,
+        });
+      }
+      if (url === '/api/admin/clients/client_1' && init?.method === 'PATCH') {
+        return new Response(JSON.stringify({
+          data: {
+            client: {
+              id: 'client_1',
+              fullName: 'Ava Thompson',
+              phone: '4165550998',
+              email: 'ava@example.com',
+              birthday: '1992-06-15',
+              notes: 'Prefers shorter almond shape.',
+              updatedAt: '2026-07-25T15:31:00.000000Z',
+            },
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(await screen.findByTestId('edit-client-action'));
+
+    fireEvent.change(await screen.findByLabelText('Phone'), {
+      target: { value: '416-555-0998' },
+    });
+    fireEvent.click(screen.getByTestId('edit-client-save'));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit client' }))
+        .not.toBeInTheDocument();
+    });
+
+    expect(await screen.findByText(
+      'The client was saved, but the latest profile could not be refreshed.',
+    )).toBeInTheDocument();
+    expect(screen.getAllByText('(416) 555-0998').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/could not save/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('client-book-appointment'));
+
+    expect(await screen.findByTestId('new-appointment-modal'))
+      .toHaveTextContent('"phone":"4165550998"');
+    expect(detailFetchCount).toBe(2);
+
+    consoleError.mockRestore();
+  });
+
+  it('ignores an older detail response that resolves after a committed contact edit', async () => {
+    const staleDetail = deferredResponse();
+    let detailFetchCount = 0;
+
+    fetchMock.mockImplementation((
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 }));
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return Promise.resolve(new Response(JSON.stringify(buildListResponse([
+          buildListClient(),
+        ])), { status: 200 }));
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return Promise.resolve(new Response(JSON.stringify(buildTechniciansResponse()), {
+          status: 200,
+        }));
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
+        if (detailFetchCount === 2) {
+          return staleDetail.promise;
+        }
+        return Promise.resolve(new Response(JSON.stringify(buildDetailResponse({
+          client: detailFetchCount === 1
+            ? {}
+            : {
+                phone: '4165550998',
+                updatedAt: '2026-07-25T15:31:00.000000Z',
+              },
+        })), { status: 200 }));
+      }
+      if (url === '/api/admin/clients/client_1' && init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            client: {
+              id: 'client_1',
+              fullName: 'Ava Thompson',
+              phone: '4165550998',
+              email: 'ava@example.com',
+              birthday: '1992-06-15',
+              notes: 'Prefers shorter almond shape.',
+              updatedAt: '2026-07-25T15:31:00.000000Z',
+            },
+          },
+        }), { status: 200 }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    fireEvent.click(await screen.findByTestId('client-book-appointment'));
+    fireEvent.click(await screen.findByTestId('complete-mocked-booking'));
+    await waitFor(() => expect(detailFetchCount).toBe(2));
+
+    fireEvent.click(await screen.findByTestId('edit-client-action'));
+    fireEvent.change(await screen.findByLabelText('Phone'), {
+      target: { value: '416-555-0998' },
+    });
+    fireEvent.click(screen.getByTestId('edit-client-save'));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit client' }))
+        .not.toBeInTheDocument();
+    });
+
+    expect(await screen.findAllByText('(416) 555-0998')).not.toHaveLength(0);
+    expect(detailFetchCount).toBe(3);
+
+    const detailCalls = fetchMock.mock.calls.filter(([requestUrl]) =>
+      String(requestUrl) === '/api/admin/clients/client_1?salonSlug=isla-nail-studio');
+
+    expect(detailCalls[1]?.[1]?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      staleDetail.resolve(new Response(JSON.stringify(buildDetailResponse()), {
+        status: 200,
+      }));
+      await staleDetail.promise;
+    });
+
+    expect(screen.getAllByText('(416) 555-0998')).not.toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clients' }));
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    expect(await screen.findAllByText('(416) 555-0998')).not.toHaveLength(0);
+    expect(detailFetchCount).toBe(3);
+
+    fireEvent.click(screen.getByTestId('client-book-appointment'));
+
+    expect(await screen.findByTestId('new-appointment-modal'))
+      .toHaveTextContent('"phone":"4165550998"');
+    expect(screen.queryByText(
+      'The client was saved, but the latest profile could not be refreshed.',
+    )).not.toBeInTheDocument();
   });
 
   it('separates completed value, recorded payments, and completed outstanding', async () => {

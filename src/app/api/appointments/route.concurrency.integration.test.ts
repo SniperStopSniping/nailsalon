@@ -297,6 +297,25 @@ suite('POST /api/appointments — genuine concurrency', () => {
     return db.select().from(schema.appointmentSchema);
   }
 
+  async function loadExactClientUpdatedAtVersion(
+    clientId: string,
+  ): Promise<string> {
+    const result = await pool.query<{ updated_at_version: string }>(
+      `SELECT to_char(
+         updated_at,
+         'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+       ) AS updated_at_version
+       FROM salon_client
+       WHERE salon_id = $1 AND id = $2`,
+      [SALON_ID, clientId],
+    );
+    const version = result.rows[0]?.updated_at_version;
+    if (!version) {
+      throw new Error('Failed to load exact salon client version');
+    }
+    return version;
+  }
+
   async function waitForBlockedSessions(
     expectedCount: number,
     blockerPid: number,
@@ -1130,6 +1149,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
     if (!existingProfile) {
       throw new Error('Failed to seed admin edit race profile');
     }
+    const existingProfileVersion = await loadExactClientUpdatedAtVersion(
+      existingProfile.id,
+    );
     requireAdminSalon.mockResolvedValue({
       error: null,
       salon: {
@@ -1164,7 +1186,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
             salonSlug: 'concurrency-salon',
             email: targetEmail,
             notes: 'Must roll back when booking wins',
-            expectedUpdatedAt: existingProfile.updatedAt.toISOString(),
+            expectedUpdatedAt: existingProfileVersion,
           }),
         },
       ),
@@ -1235,6 +1257,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     if (!profile) {
       throw new Error('Failed to seed external identity race profile');
     }
+    const profileVersion = await loadExactClientUpdatedAtVersion(profile.id);
 
     requireAdminSalon.mockResolvedValue({
       error: null,
@@ -1279,7 +1302,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
             body: JSON.stringify({
               salonSlug: 'concurrency-salon',
               phone: proposedPhone,
-              expectedUpdatedAt: profile.updatedAt.toISOString(),
+              expectedUpdatedAt: profileVersion,
             }),
           },
         ),
@@ -1368,6 +1391,250 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
   });
 
+  it('fails a contact edit closed within the global identity lock deadline', async () => {
+    const [profile] = await db
+      .insert(schema.salonClientSchema)
+      .values({
+        id: 'client_global_lock_timeout',
+        salonId: SALON_ID,
+        phone: '4165554210',
+        fullName: 'Global Lock Timeout',
+        email: 'global-lock-timeout@example.invalid',
+        notes: 'Original timeout note',
+      })
+      .returning();
+    if (!profile) {
+      throw new Error('Failed to seed global lock timeout profile');
+    }
+    const profileVersion = await loadExactClientUpdatedAtVersion(profile.id);
+
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+
+    const blocker = await pool.connect();
+    let held: HeldLock | null = null;
+    let updatePromise: Promise<Response> | null = null;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('LOCK TABLE client IN ROW EXCLUSIVE MODE');
+      held = await registerHeldLock(blocker);
+
+      const { PATCH: updateClient } = await import(
+        '../admin/clients/[id]/route'
+      );
+      const startedAt = Date.now();
+      updatePromise = updateClient(
+        new Request(
+          'http://localhost/api/admin/clients/client_global_lock_timeout',
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              salonSlug: 'concurrency-salon',
+              phone: '+1 (416) 555-4211',
+              notes: 'Must roll back with the timed-out contact edit',
+              expectedUpdatedAt: profileVersion,
+            }),
+          },
+        ),
+        {
+          params: Promise.resolve({
+            id: 'client_global_lock_timeout',
+          }),
+        },
+      );
+
+      await waitForBlockedSessions(1, held.pid);
+      const response = await Promise.race([
+        updatePromise,
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(
+            () => reject(new Error(
+              'Contact edit exceeded its global identity lock deadline',
+            )),
+            7_000,
+          );
+        }),
+      ]);
+      const elapsedMilliseconds = Date.now() - startedAt;
+      const body = await response.json() as {
+        error?: { code?: string; message?: string };
+      };
+      const serialized = JSON.stringify(body);
+
+      expect(response.status).toBe(409);
+      expect(body.error?.code).toBe('CLIENT_EDIT_CONFLICT');
+      expect(response.headers.get('cache-control')).toContain('private');
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(elapsedMilliseconds).toBeLessThan(7_000);
+      expect(serialized).not.toMatch(
+        /55P03|57014|lock timeout|statement timeout|client_session/i,
+      );
+      expect(serialized).not.toContain('4165554211');
+      expect(serialized).not.toContain('client_global_lock_timeout');
+
+      const [stored, aliases, audits] = await Promise.all([
+        db
+          .select()
+          .from(schema.salonClientSchema)
+          .where(eq(
+            schema.salonClientSchema.id,
+            'client_global_lock_timeout',
+          ))
+          .limit(1)
+          .then(rows => rows[0]),
+        db
+          .select()
+          .from(schema.salonClientContactAliasSchema)
+          .where(eq(
+            schema.salonClientContactAliasSchema.salonClientId,
+            'client_global_lock_timeout',
+          )),
+        db
+          .select()
+          .from(schema.auditLogSchema)
+          .where(eq(
+            schema.auditLogSchema.entityId,
+            'client_global_lock_timeout',
+          )),
+      ]);
+
+      expect(stored).toMatchObject({
+        phone: '4165554210',
+        email: 'global-lock-timeout@example.invalid',
+        notes: 'Original timeout note',
+      });
+      expect(stored?.updatedAt).toEqual(profile.updatedAt);
+      expect(aliases).toHaveLength(0);
+      expect(audits).toHaveLength(0);
+    } finally {
+      if (deadline) {
+        clearTimeout(deadline);
+      }
+      if (held) {
+        await held.release();
+      } else {
+        await blocker.query('ROLLBACK').catch(() => {});
+        blocker.release();
+      }
+      if (updatePromise) {
+        await updatePromise.catch(() => undefined);
+      }
+    }
+  });
+
+  it('distinguishes same-millisecond versions and accepts an identical stale retry', async () => {
+    const clientId = 'client_edit_microsecond_cas';
+    await db
+      .insert(schema.salonClientSchema)
+      .values({
+        id: clientId,
+        salonId: SALON_ID,
+        phone: '4165554220',
+        fullName: 'Microsecond CAS Profile',
+        email: 'microsecond-cas@example.invalid',
+        notes: 'Original microsecond note',
+      });
+    await pool.query(
+      `UPDATE salon_client
+       SET updated_at = TIMESTAMP '2026-07-25 11:00:00.123456'
+       WHERE salon_id = $1 AND id = $2`,
+      [SALON_ID, clientId],
+    );
+    const staleVersion = await loadExactClientUpdatedAtVersion(clientId);
+
+    await pool.query(
+      `UPDATE salon_client
+       SET notes = $1,
+           updated_at = TIMESTAMP '2026-07-25 11:00:00.123457'
+       WHERE salon_id = $2 AND id = $3`,
+      ['Already saved elsewhere', SALON_ID, clientId],
+    );
+    const currentVersion = await loadExactClientUpdatedAtVersion(clientId);
+
+    expect(staleVersion).toBe('2026-07-25T11:00:00.123456Z');
+    expect(currentVersion).toBe('2026-07-25T11:00:00.123457Z');
+    expect(new Date(staleVersion).getTime())
+      .toBe(new Date(currentVersion).getTime());
+
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+    const { PATCH: updateClient } = await import(
+      '../admin/clients/[id]/route'
+    );
+    const edit = (notes: string) =>
+      updateClient(
+        new Request(`http://localhost/api/admin/clients/${clientId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug: 'concurrency-salon',
+            expectedUpdatedAt: staleVersion,
+            notes,
+          }),
+        }),
+        { params: Promise.resolve({ id: clientId }) },
+      );
+
+    const retry = await edit('Already saved elsewhere');
+    const retryBody = await retry.json() as {
+      data: { client: { notes: string; updatedAt: string } };
+      meta: { idempotent: boolean };
+    };
+
+    expect(retry.status).toBe(200);
+    expect(retryBody.meta.idempotent).toBe(true);
+    expect(retryBody.data.client).toMatchObject({
+      notes: 'Already saved elsewhere',
+      updatedAt: currentVersion,
+    });
+
+    const conflict = await edit('My stale pending edit');
+
+    expect(conflict.status).toBe(409);
+
+    await expectErrorCode(conflict, 'CLIENT_EDIT_CONFLICT');
+
+    const [stored, aliases, audits] = await Promise.all([
+      db
+        .select()
+        .from(schema.salonClientSchema)
+        .where(eq(schema.salonClientSchema.id, clientId))
+        .limit(1)
+        .then(rows => rows[0]),
+      db
+        .select()
+        .from(schema.salonClientContactAliasSchema)
+        .where(eq(
+          schema.salonClientContactAliasSchema.salonClientId,
+          clientId,
+        )),
+      db
+        .select()
+        .from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.entityId, clientId)),
+    ]);
+
+    expect(stored).toMatchObject({
+      notes: 'Already saved elsewhere',
+    });
+    expect(await loadExactClientUpdatedAtVersion(clientId))
+      .toBe(currentVersion);
+    expect(aliases).toHaveLength(0);
+    expect(audits).toHaveLength(0);
+  });
+
   it('lets one simultaneous edit win and treats its exact stale retry as idempotent', async () => {
     const [profile] = await db
       .insert(schema.salonClientSchema)
@@ -1383,6 +1650,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     if (!profile) {
       throw new Error('Failed to seed CAS edit profile');
     }
+    const profileVersion = await loadExactClientUpdatedAtVersion(profile.id);
 
     requireAdminSalon.mockResolvedValue({
       error: null,
@@ -1404,7 +1672,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
           body: JSON.stringify({
             salonSlug: 'concurrency-salon',
             notes,
-            expectedUpdatedAt: profile.updatedAt.toISOString(),
+            expectedUpdatedAt: profileVersion,
           }),
         },
       );
@@ -1456,7 +1724,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
       id: 'client_edit_cas_race',
       notes: winningNotes,
     });
-    expect(storedAfterRace?.updatedAt.toISOString())
+    expect(await loadExactClientUpdatedAtVersion('client_edit_cas_race'))
       .toBe(winnerBody.data.client.updatedAt);
     expect(auditsAfterRace).toHaveLength(1);
     expect(auditsAfterRace[0]).toMatchObject({
@@ -1516,6 +1784,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
     if (!terminalBefore) {
       throw new Error('Failed to seed contact edit terminal');
     }
+    const terminalVersion = await loadExactClientUpdatedAtVersion(
+      terminalBefore.id,
+    );
 
     await seedAppointment({
       id: 'appointment_before_contact_edit',
@@ -1558,7 +1829,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
             salonSlug: 'concurrency-salon',
             phone: '+1 (416) 555-3111',
             email: 'EDITED.CONTACT@example.invalid',
-            expectedUpdatedAt: terminalBefore.updatedAt.toISOString(),
+            expectedUpdatedAt: terminalVersion,
           }),
         },
       ),

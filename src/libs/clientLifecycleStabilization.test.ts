@@ -11,6 +11,7 @@ import {
   getSalonClientLineageIdsWithHandle,
   getZeroCandidateOrphanRecoveryAppointmentsWithHandle,
   hasUnsafeSalonClientExternalIdentityWithHandle,
+  isClientLifecycleTransactionTimeoutError,
   type LifecycleSqlHandle,
   lockSalonClientIdentityKeySetWithHandle,
   lockSalonClientIdentityKeysWithHandle,
@@ -22,6 +23,7 @@ import {
   resolveOperationalSalonClientContactByPhoneWithHandle,
   resolveOperationalSalonClientContactWithHandle,
   resolveTerminalSalonClientWithHandle,
+  setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
 } from './clientLifecycleStabilization';
 
@@ -131,6 +133,22 @@ describe('client lifecycle stabilization', () => {
       },
     )).resolves.toHaveLength(4);
     expect(execute).toHaveBeenCalledTimes(4);
+  });
+
+  it('sets transaction-local contact edit timeouts in deterministic order', async () => {
+    const execute = vi.fn().mockResolvedValue(result([]));
+
+    await expect(setClientContactEditTransactionTimeoutsWithHandle({
+      execute,
+    })).resolves.toBeUndefined();
+
+    const queries = execute.mock.calls.map(([query]) =>
+      new PgDialect().sqlToQuery(query as SQL).sql);
+
+    expect(queries).toEqual([
+      expect.stringContaining('set local lock_timeout = \'3s\''),
+      expect.stringContaining('set local statement_timeout = \'10s\''),
+    ]);
   });
 
   it('returns only valid same-salon lineage and alias phone hints for snapshot reads', async () => {
@@ -1232,5 +1250,22 @@ describe('client lifecycle stabilization', () => {
       sleep,
     })).rejects.toBe(validation);
     expect(validate).toHaveBeenCalledTimes(1);
+
+    for (const code of ['55P03', '57014']) {
+      const timeout = databaseError(code);
+      const timedOutOperation = vi.fn().mockRejectedValue(timeout);
+
+      expect(isClientLifecycleTransactionTimeoutError({
+        cause: timeout,
+      })).toBe(true);
+      await expect(withClientLifecycleTransactionRetry(timedOutOperation, {
+        sleep,
+      })).rejects.toBe(timeout);
+      expect(timedOutOperation).toHaveBeenCalledTimes(1);
+    }
+
+    expect(isClientLifecycleTransactionTimeoutError(
+      databaseError('23514'),
+    )).toBe(false);
   });
 });

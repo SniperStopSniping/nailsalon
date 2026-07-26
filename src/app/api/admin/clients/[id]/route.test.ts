@@ -1,4 +1,6 @@
 /* eslint-disable import/first */
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -6,6 +8,7 @@ const {
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
   hasUnsafeSalonClientExternalIdentityWithHandle,
+  isClientLifecycleTransactionTimeoutError,
   lockGlobalClientIdentityTablesWithHandle,
   lockSalonClientIdentityKeySetWithHandle,
   lockTerminalSalonClientWithHandle,
@@ -13,13 +16,14 @@ const {
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
   resolveTerminalSalonClientWithHandle,
+  setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
-  getSalonClientById,
   normalizePhone,
   selectQueue,
   transactionSelectQueue,
   transactionUpdateQueue,
   transactionUpdate,
+  transactionUpdateWhere,
   transactionInsert,
   transactionInsertValues,
   db,
@@ -49,11 +53,15 @@ const {
   const select = vi.fn(() => createQuery(selectQueue.shift() ?? []));
   const transactionSelect = vi.fn(() =>
     createQuery(transactionSelectQueue.shift() ?? []));
+  const transactionUpdateWhere = vi.fn();
   const transactionUpdate = vi.fn(() => {
     const result = transactionUpdateQueue.shift() ?? [];
     const query = {
       set: vi.fn(() => query),
-      where: vi.fn(() => query),
+      where: vi.fn((condition: unknown) => {
+        transactionUpdateWhere(condition);
+        return query;
+      }),
       returning: vi.fn(async () => result),
     };
     return query;
@@ -91,6 +99,7 @@ const {
     },
     getSalonClientHistoricalPhoneHints: vi.fn(),
     hasUnsafeSalonClientExternalIdentityWithHandle: vi.fn(),
+    isClientLifecycleTransactionTimeoutError: vi.fn(),
     lockGlobalClientIdentityTablesWithHandle: vi.fn(),
     lockSalonClientIdentityKeySetWithHandle: vi.fn(),
     lockTerminalSalonClientWithHandle: vi.fn(),
@@ -120,13 +129,14 @@ const {
     resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
     resolveTerminalSalonClient: vi.fn(),
     resolveTerminalSalonClientWithHandle: vi.fn(),
+    setClientContactEditTransactionTimeoutsWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(),
-    getSalonClientById: vi.fn(),
     normalizePhone: vi.fn((phone: string) => phone.replace(/\D/g, '')),
     selectQueue,
     transactionSelectQueue,
     transactionUpdateQueue,
     transactionUpdate,
+    transactionUpdateWhere,
     transactionInsert,
     transactionInsertValues,
     db: {
@@ -144,6 +154,7 @@ vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
   hasUnsafeSalonClientExternalIdentityWithHandle,
+  isClientLifecycleTransactionTimeoutError,
   lockGlobalClientIdentityTablesWithHandle,
   lockSalonClientIdentityKeySetWithHandle,
   lockTerminalSalonClientWithHandle,
@@ -151,11 +162,11 @@ vi.mock('@/libs/clientLifecycleStabilization', () => ({
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
   resolveTerminalSalonClientWithHandle,
+  setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
-  getSalonClientById,
   normalizePhone,
 }));
 
@@ -212,7 +223,7 @@ describe('GET /api/admin/clients/[id]', () => {
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(body).toEqual({ error: 'Forbidden' });
     expect(resolveTerminalSalonClient).not.toHaveBeenCalled();
-    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toMatch(
       /client|phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -223,7 +234,7 @@ describe('GET /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_fixture_owned' },
     });
-    getSalonClientById.mockResolvedValue(null);
+    selectQueue.push([]);
 
     const response = await GET(
       new Request('http://localhost/api/admin/clients/client_fixture_unknown?salonSlug=salon-fixture-owned'),
@@ -240,10 +251,7 @@ describe('GET /api/admin/clients/[id]', () => {
         message: 'Client not found',
       },
     });
-    expect(getSalonClientById).toHaveBeenCalledWith(
-      'salon_fixture_owned',
-      'client_fixture_unknown',
-    );
+    expect(db.select).toHaveBeenCalledOnce();
     expect(JSON.stringify(body)).not.toMatch(
       /phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -278,7 +286,7 @@ describe('GET /api/admin/clients/[id]', () => {
         message: 'Client not found',
       },
     });
-    expect(getSalonClientById).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toMatch(
       /phone|email|currency|timezone|financial|preference|record/i,
     );
@@ -289,32 +297,32 @@ describe('GET /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_1' },
     });
-    getSalonClientById.mockResolvedValue({
-      id: 'client_1',
-      phone: '1111111111',
-      fullName: 'Ava Thompson',
-      email: 'ava@example.com',
-      birthday: '1990-05-12',
-      preferredTechnicianId: 'tech_1',
-      notes: 'VIP client',
-      lastVisitAt: new Date('2026-03-10T14:00:00.000Z'),
-      totalVisits: 4,
-      totalSpent: 32000,
-      noShowCount: 1,
-      loyaltyPoints: 150,
-      sensitivities: null,
-      nailPreferences: {},
-      tags: [],
-      rebookIntervalDays: null,
-      nextRebookDueAt: null,
-      lastContactAt: null,
-      hasGoogleReview: false,
-      googleReviewMarkedAt: null,
-      createdAt: new Date('2025-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-03-01T00:00:00.000Z'),
-    });
-
     selectQueue.push(
+      [{
+        id: 'client_1',
+        phone: '1111111111',
+        fullName: 'Ava Thompson',
+        email: 'ava@example.com',
+        birthday: '1990-05-12',
+        preferredTechnicianId: 'tech_1',
+        notes: 'VIP client',
+        lastVisitAt: new Date('2026-03-10T14:00:00.000Z'),
+        totalVisits: 4,
+        totalSpent: 32000,
+        noShowCount: 1,
+        loyaltyPoints: 150,
+        sensitivities: null,
+        nailPreferences: {},
+        tags: [],
+        rebookIntervalDays: null,
+        nextRebookDueAt: null,
+        lastContactAt: null,
+        hasGoogleReview: false,
+        googleReviewMarkedAt: null,
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-01T00:00:00.123Z'),
+        updatedAtVersion: '2026-03-01T00:00:00.123456Z',
+      }],
       [{ id: 'tech_1', name: 'Daniela', avatarUrl: null }],
       [{
         id: 'appt_upcoming',
@@ -415,7 +423,7 @@ describe('GET /api/admin/clients/[id]', () => {
     });
     expect(body.data.client).toMatchObject({
       birthday: '1990-05-12',
-      updatedAt: '2026-03-01T00:00:00.000Z',
+      updatedAt: '2026-03-01T00:00:00.123456Z',
     });
     expect(body.data.upcomingAppointments).toHaveLength(1);
     expect(body.data.upcomingAppointments[0]).toMatchObject({
@@ -460,7 +468,9 @@ describe('GET /api/admin/clients/[id]', () => {
 
 describe('PATCH /api/admin/clients/[id]', () => {
   const loadedAt = new Date('2026-07-25T11:00:00.000Z');
+  const loadedVersion = '2026-07-25T11:00:00.000000Z';
   const savedAt = new Date('2026-07-25T12:00:00.000Z');
+  const savedVersion = '2026-07-25T12:00:00.000000Z';
   const currentClient = {
     id: 'client_primary',
     salonId: 'salon_1',
@@ -498,6 +508,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
     mergedBy: null,
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
     updatedAt: loadedAt,
+    updatedAtVersion: loadedVersion,
   };
 
   function editRequest(
@@ -556,6 +567,9 @@ describe('PATCH /api/admin/clients/[id]', () => {
       },
     ]);
     hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(false);
+    isClientLifecycleTransactionTimeoutError.mockReturnValue(false);
+    setClientContactEditTransactionTimeoutsWithHandle
+      .mockResolvedValue(undefined);
     resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
       terminal: {
         id: 'client_primary',
@@ -575,7 +589,10 @@ describe('PATCH /api/admin/clients/[id]', () => {
     withClientLifecycleTransactionRetry.mockImplementation(
       async operation => operation(1),
     );
-    transactionSelectQueue.push([currentClient]);
+    transactionSelectQueue.push(
+      [currentClient],
+      [{ updatedAtVersion: savedVersion }],
+    );
   });
 
   it('updates the same-salon terminal primary for a stale source profile ID', async () => {
@@ -583,6 +600,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
       ...currentClient,
       notes: 'Updated operational note',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await PATCH(
@@ -610,7 +628,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
     );
     expect(body.data.client.id).toBe('client_primary');
     expect(body.data.client.fullName).toBe('  Ava   van der Thompson  ');
-    expect(body.data.client.updatedAt).toBe(savedAt.toISOString());
+    expect(body.data.client.updatedAt).toBe(savedVersion);
     expect(transactionInsertValues).toHaveBeenCalledOnce();
     expect(transactionInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -623,6 +641,8 @@ describe('PATCH /api/admin/clients/[id]', () => {
       }),
     );
     expect(lockGlobalClientIdentityTablesWithHandle).not.toHaveBeenCalled();
+    expect(setClientContactEditTransactionTimeoutsWithHandle)
+      .not.toHaveBeenCalled();
     expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
     expect(hasUnsafeSalonClientExternalIdentityWithHandle)
       .not.toHaveBeenCalled();
@@ -640,6 +660,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
       ...currentClient,
       notes: 'Direct terminal edit',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await editRequest(
@@ -669,11 +690,12 @@ describe('PATCH /api/admin/clients/[id]', () => {
     );
   });
 
-  it('uses global-first lock order for an email update and rechecks canonical ownership', async () => {
+  it('sets bounded timeouts before the global-first lock order for an email update', async () => {
     transactionUpdateQueue.push([{
       ...currentClient,
       email: 'updated@example.com',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await PATCH(
@@ -721,6 +743,13 @@ describe('PATCH /api/admin/clients/[id]', () => {
         allowArchived: true,
       },
     );
+    expect(
+      setClientContactEditTransactionTimeoutsWithHandle
+        .mock.invocationCallOrder[0],
+    )
+      .toBeLessThan(
+        lockGlobalClientIdentityTablesWithHandle.mock.invocationCallOrder[0]!,
+      );
     expect(lockGlobalClientIdentityTablesWithHandle.mock.invocationCallOrder[0])
       .toBeLessThan(
         lockTerminalSalonClientWithHandle.mock.invocationCallOrder[0]!,
@@ -773,6 +802,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
       ...currentClient,
       phone: '4165550101',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await editRequest({
@@ -813,6 +843,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
       ...currentClient,
       birthday: '1991-06-13',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await editRequest({
@@ -823,6 +854,8 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(response.status).toBe(200);
     expect(body.data.client.birthday).toBe('1991-06-13');
     expect(lockGlobalClientIdentityTablesWithHandle).not.toHaveBeenCalled();
+    expect(setClientContactEditTransactionTimeoutsWithHandle)
+      .not.toHaveBeenCalled();
     expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
     expect(hasUnsafeSalonClientExternalIdentityWithHandle)
       .not.toHaveBeenCalled();
@@ -1036,6 +1069,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
       ...currentClient,
       fullName: 'Ava Thompson',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await PATCH(
@@ -1055,6 +1089,8 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(response.status).toBe(200);
     expect(hasUnsafeSalonClientExternalIdentityWithHandle)
       .not.toHaveBeenCalled();
+    expect(setClientContactEditTransactionTimeoutsWithHandle)
+      .not.toHaveBeenCalled();
     expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
     expect(transactionUpdate).toHaveBeenCalledOnce();
     expect(transactionInsertValues).toHaveBeenCalledWith(
@@ -1066,12 +1102,49 @@ describe('PATCH /api/admin/clients/[id]', () => {
     );
   });
 
+  it('canonicalizes a valid offset version to the exact UTC token used by CAS', async () => {
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      notes: 'Offset token edit',
+      updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: '2026-07-25T07:00:00-04:00',
+          notes: 'Offset token edit',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.updatedAt).toBe(savedVersion);
+
+    const updatePredicate = new PgDialect().sqlToQuery(
+      transactionUpdateWhere.mock.calls[0]![0] as SQL,
+    );
+
+    expect(updatePredicate.params).toEqual([
+      'salon_1',
+      'client_primary',
+      loadedVersion,
+    ]);
+  });
+
   it('returns a conflict when the locked record changed after the form loaded', async () => {
     transactionSelectQueue.length = 0;
     transactionSelectQueue.push([{
       ...currentClient,
       notes: 'Changed elsewhere',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await PATCH(
@@ -1094,12 +1167,149 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(transactionInsert).not.toHaveBeenCalled();
   });
 
+  it('conflicts when versions differ only below JavaScript millisecond precision', async () => {
+    transactionSelectQueue.length = 0;
+    transactionSelectQueue.push([{
+      ...currentClient,
+      notes: 'Changed elsewhere',
+      updatedAt: new Date('2026-07-25T11:00:00.123Z'),
+      updatedAtVersion: '2026-07-25T11:00:00.123456Z',
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: '2026-07-25T11:00:00.123455Z',
+          notes: 'My pending change',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_EDIT_CONFLICT');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 with no aliases or audit when the write-time CAS loses', async () => {
+    transactionUpdateQueue.push([]);
+
+    const response = await editRequest({
+      email: 'updated@example.com',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_EDIT_CONFLICT');
+    expect(transactionUpdate).toHaveBeenCalledOnce();
+    expect(transactionUpdateWhere).toHaveBeenCalledOnce();
+    expect(transactionInsert).not.toHaveBeenCalled();
+
+    const updatePredicate = new PgDialect().sqlToQuery(
+      transactionUpdateWhere.mock.calls[0]![0] as SQL,
+    );
+
+    expect(updatePredicate.sql).toContain('"salon_id" = $1');
+    expect(updatePredicate.sql).toContain('"id" = $2');
+    expect(updatePredicate.sql)
+      .toMatch(/to_char\(\s*"salon_client"\."updated_at"/);
+    expect(updatePredicate.sql).toContain('HH24:MI:SS.US');
+    expect(updatePredicate.sql).toContain('= $3');
+    expect(updatePredicate.sql).not.toContain('::timestamp');
+    expect(updatePredicate.sql).not.toContain('>=');
+    expect(updatePredicate.sql).not.toContain('<');
+    expect(updatePredicate.params).toEqual([
+      'salon_1',
+      'client_primary',
+      loadedVersion,
+    ]);
+  });
+
+  it.each(['55P03', '57014'])(
+    'maps contact-edit transaction timeout %s to a private retryable conflict',
+    async (code) => {
+      const databaseError = Object.assign(
+        new Error('database details must remain private'),
+        { code },
+      );
+      setClientContactEditTransactionTimeoutsWithHandle
+        .mockRejectedValue(databaseError);
+      isClientLifecycleTransactionTimeoutError
+        .mockImplementation(error => error === databaseError);
+
+      const response = await editRequest({
+        phone: '4165550101',
+      });
+      const body = await response.json();
+      const serialized = JSON.stringify(body);
+
+      expect(response.status).toBe(409);
+      expect(body).toEqual({
+        error: {
+          code: 'CLIENT_EDIT_CONFLICT',
+          message:
+            'This client could not be updated right now. Try again in a moment.',
+        },
+      });
+      expect(response.headers.get('cache-control')).toContain('private');
+      expect(serialized).not.toContain(code);
+      expect(serialized).not.toContain('database details');
+      expect(serialized).not.toContain('4165550101');
+      expect(lockGlobalClientIdentityTablesWithHandle).not.toHaveBeenCalled();
+      expect(lockTerminalSalonClientWithHandle).not.toHaveBeenCalled();
+      expect(transactionUpdate).not.toHaveBeenCalled();
+      expect(transactionInsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['55P03', '57014'])(
+    'preserves external-identity helper timeout %s as a private retryable conflict',
+    async (code) => {
+      const databaseError = Object.assign(
+        new Error('external identity database details must remain private'),
+        { code },
+      );
+      hasUnsafeSalonClientExternalIdentityWithHandle
+        .mockRejectedValue(databaseError);
+      isClientLifecycleTransactionTimeoutError
+        .mockImplementation(error => error === databaseError);
+
+      const response = await editRequest({
+        phone: '4165550101',
+      });
+      const body = await response.json();
+      const serialized = JSON.stringify(body);
+
+      expect(response.status).toBe(409);
+      expect(body).toEqual({
+        error: {
+          code: 'CLIENT_EDIT_CONFLICT',
+          message:
+            'This client could not be updated right now. Try again in a moment.',
+        },
+      });
+      expect(response.headers.get('cache-control')).toContain('private');
+      expect(serialized).not.toContain(code);
+      expect(serialized).not.toContain('database details');
+      expect(serialized).not.toContain('4165550101');
+      expect(lockGlobalClientIdentityTablesWithHandle).toHaveBeenCalledOnce();
+      expect(transactionUpdate).not.toHaveBeenCalled();
+      expect(transactionInsert).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns a stale identical retry without advancing updatedAt or adding an audit', async () => {
     transactionSelectQueue.length = 0;
     transactionSelectQueue.push([{
       ...currentClient,
       notes: 'Already saved',
       updatedAt: savedAt,
+      updatedAtVersion: savedVersion,
     }]);
 
     const response = await PATCH(
@@ -1118,7 +1328,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
 
     expect(response.status).toBe(200);
     expect(body.meta.idempotent).toBe(true);
-    expect(body.data.client.updatedAt).toBe(savedAt.toISOString());
+    expect(body.data.client.updatedAt).toBe(savedVersion);
     expect(transactionUpdate).not.toHaveBeenCalled();
     expect(transactionInsert).not.toHaveBeenCalled();
   });

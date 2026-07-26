@@ -27,7 +27,7 @@ type EditClientDialogProps = {
   salonSlug: string;
   client: EditClientValue;
   onClose: () => void;
-  onSuccess: () => Promise<void> | void;
+  onSuccess: (client: EditClientValue) => void;
 };
 
 type EditClientDraft = {
@@ -388,9 +388,7 @@ export function EditClientDialog({
       const payload = await response.json().catch(() => null) as (
         ApiErrorPayload & {
           data?: {
-            client?: {
-              updatedAt?: string;
-            };
+            client?: EditClientValue;
           };
         }
       ) | null;
@@ -402,13 +400,22 @@ export function EditClientDialog({
         return;
       }
 
-      if (!payload?.data?.client?.updatedAt) {
-        setFormError('The client was saved, but the refreshed profile could not be confirmed. Close this form and refresh the client list.');
-        return;
+      const committedClient = payload?.data?.client;
+      if (committedClient?.updatedAt) {
+        setExpectedUpdatedAt(committedClient.updatedAt);
       }
 
-      setExpectedUpdatedAt(payload.data.client.updatedAt);
-      await onSuccess();
+      // A successful PATCH is already committed. Apply its authoritative
+      // contact fields to the parent before closing so owner actions never use
+      // stale data while the full profile refresh runs in the background.
+      try {
+        if (committedClient) {
+          onSuccess(committedClient);
+        }
+      } catch {
+        // The mutation is committed. Parent refresh/render failures must not
+        // turn that success into a misleading save error.
+      }
       onClose();
     } catch {
       setFormError('We could not save this client. Check your connection and try again. Your entries are still here.');

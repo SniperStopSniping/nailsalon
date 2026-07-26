@@ -23,7 +23,10 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
-import { EditClientDialog } from '@/components/admin/EditClientDialog';
+import {
+  EditClientDialog,
+  type EditClientValue,
+} from '@/components/admin/EditClientDialog';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -802,6 +805,11 @@ function ClientDetail({
   const [photos, setPhotos] = useState<ClientPhoto[]>(initialCachedDetail?.photos ?? []);
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailRefreshWarning, setDetailRefreshWarning] = useState<string | null>(
+    null,
+  );
+  const detailRequestGenerationRef = useRef(0);
+  const detailAbortControllerRef = useRef<AbortController | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -879,31 +887,131 @@ function ClientDetail({
     });
   }, [clientSummary.id, onCacheUpdate]);
 
+  const invalidateDetailRequests = useCallback(() => {
+    detailRequestGenerationRef.current += 1;
+    detailAbortControllerRef.current?.abort();
+    detailAbortControllerRef.current = null;
+  }, []);
+
   const fetchClientDetail = useCallback(async (force = false) => {
     if (!force && (initialCachedDetail?.profile || profile)) {
-      return;
+      return {
+        status: 'success' as const,
+        requestGeneration: detailRequestGenerationRef.current,
+      };
     }
+
+    detailAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortControllerRef.current = controller;
+    const requestGeneration = detailRequestGenerationRef.current + 1;
+    detailRequestGenerationRef.current = requestGeneration;
+    const isCurrentRequest = () =>
+      requestGeneration === detailRequestGenerationRef.current
+      && !controller.signal.aborted;
 
     try {
       if (!profile) {
         setDetailLoading(true);
       }
       setDetailError(null);
-      const response = await fetch(`/api/admin/clients/${clientSummary.id}?salonSlug=${encodeURIComponent(salonSlug)}`);
+      const response = await fetch(
+        `/api/admin/clients/${clientSummary.id}?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { signal: controller.signal },
+      );
       if (!response.ok) {
         throw new Error('Failed to fetch client profile');
       }
       const result = await response.json();
+      if (!isCurrentRequest()) {
+        return {
+          status: 'superseded' as const,
+          requestGeneration,
+        };
+      }
       applyDetailPayload(result.data);
+      return {
+        status: 'success' as const,
+        requestGeneration,
+      };
     } catch (error) {
+      if (
+        !isCurrentRequest()
+        || (error instanceof DOMException && error.name === 'AbortError')
+      ) {
+        return {
+          status: 'superseded' as const,
+          requestGeneration,
+        };
+      }
       console.error('Failed to fetch client profile:', error);
       if (!profile) {
         setDetailError('Failed to load client profile');
       }
+      return {
+        status: 'failure' as const,
+        requestGeneration,
+      };
     } finally {
-      setDetailLoading(false);
+      if (isCurrentRequest()) {
+        setDetailLoading(false);
+        detailAbortControllerRef.current = null;
+      }
     }
   }, [applyDetailPayload, clientSummary.id, initialCachedDetail?.profile, profile, salonSlug]);
+
+  const refreshAfterCommittedEdit = useCallback(async () => {
+    const result = await fetchClientDetail(true);
+    if (
+      result.status === 'superseded'
+      || result.requestGeneration !== detailRequestGenerationRef.current
+    ) {
+      return;
+    }
+    setDetailRefreshWarning(
+      result.status === 'success'
+        ? null
+        : 'The client was saved, but the latest profile could not be refreshed.',
+    );
+  }, [fetchClientDetail]);
+
+  const handleCommittedClientEdit = useCallback((
+    committedClient: EditClientValue,
+  ) => {
+    invalidateDetailRequests();
+
+    if (!profile || committedClient.id !== profile.id) {
+      void refreshAfterCommittedEdit();
+      return;
+    }
+
+    const nextProfile: ClientProfile = {
+      ...profile,
+      fullName: committedClient.fullName,
+      phone: committedClient.phone,
+      email: committedClient.email,
+      birthday: committedClient.birthday,
+      notes: committedClient.notes,
+      updatedAt: committedClient.updatedAt,
+    };
+
+    setProfile(nextProfile);
+    setNotesDraft(committedClient.notes ?? '');
+    setDetailRefreshWarning(null);
+    onCacheUpdate(clientSummary.id, { profile: nextProfile });
+    void refreshAfterCommittedEdit();
+  }, [
+    clientSummary.id,
+    invalidateDetailRequests,
+    onCacheUpdate,
+    profile,
+    refreshAfterCommittedEdit,
+  ]);
+
+  useEffect(() => () => {
+    detailRequestGenerationRef.current += 1;
+    detailAbortControllerRef.current?.abort();
+  }, []);
 
   const fetchFlags = useCallback(async (force = false) => {
     if (!canManageFlags) {
@@ -1193,6 +1301,22 @@ function ClientDetail({
             )}
           </div>
         </AdminDetailCard>
+
+        {detailRefreshWarning && (
+          <div
+            role="status"
+            className="mb-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>{detailRefreshWarning}</span>
+            <button
+              type="button"
+              className="min-h-11 shrink-0 font-semibold text-amber-900 underline"
+              onClick={() => void refreshAfterCommittedEdit()}
+            >
+              Try refresh
+            </button>
+          </div>
+        )}
 
         <ProfileNavigation activeSection={activeSection} onChange={setActiveSection} />
 
@@ -1828,7 +1952,7 @@ function ClientDetail({
             updatedAt: profile.updatedAt,
           }}
           onClose={() => setShowEditDialog(false)}
-          onSuccess={() => fetchClientDetail(true)}
+          onSuccess={handleCommittedClientEdit}
         />
       )}
 

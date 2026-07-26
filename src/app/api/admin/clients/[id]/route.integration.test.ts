@@ -33,6 +33,10 @@ const PHONE = '4165550188';
 const EMAIL = 'partial.snapshot@example.invalid';
 const CLIENT_UPDATED_AT = new Date('2026-07-22T10:00:00.000Z');
 
+function exactClientVersion(date: Date): string {
+  return date.toISOString().replace(/Z$/, '000Z');
+}
+
 let client: PGlite;
 let testDb: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -188,7 +192,9 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(body.data.client.totalSpent).toBe(4000);
     expect(body.data.client.birthday).toBe('1990-05-04');
-    expect(body.data.client.updatedAt).toBe(CLIENT_UPDATED_AT.toISOString());
+    expect(body.data.client.updatedAt).toBe(
+      exactClientVersion(CLIENT_UPDATED_AT),
+    );
     expect(body.data.summary).toMatchObject({
       currency: 'CAD',
       timeZone: 'America/Toronto',
@@ -297,7 +303,7 @@ describe('PATCH /api/admin/clients/[id] snapshot-safe contact updates', () => {
       email: 'updated.client@example.invalid',
       birthday: '1990-05-04',
       notes: 'Original profile note',
-      updatedAt: NOW.toISOString(),
+      updatedAt: exactClientVersion(NOW),
     });
 
     const [terminalAfter] = await testDb

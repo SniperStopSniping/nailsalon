@@ -1,4 +1,14 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  sql,
+} from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -7,6 +17,7 @@ import {
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
   hasUnsafeSalonClientExternalIdentityWithHandle,
+  isClientLifecycleTransactionTimeoutError,
   type LifecycleSqlHandle,
   lockGlobalClientIdentityTablesWithHandle,
   lockSalonClientIdentityKeySetWithHandle,
@@ -15,13 +26,13 @@ import {
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
   resolveTerminalSalonClientWithHandle,
+  setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
 import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
 import {
-  getSalonClientById,
   normalizePhone,
 } from '@/libs/queries';
 import { completedAppointmentRevenueAggregateSql } from '@/libs/revenueSql';
@@ -85,9 +96,34 @@ const birthdaySchema = z.string().superRefine((value, context) => {
   }
 });
 
+const CLIENT_VERSION_TOKEN_PATTERN
+  = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
+
+function canonicalizeClientVersionToken(value: string): string {
+  const match = CLIENT_VERSION_TOKEN_PATTERN.exec(value);
+  if (!match) {
+    throw new TypeError('Invalid client version token');
+  }
+
+  const fraction = (match[2] ?? '').padEnd(6, '0');
+  const parsed = new Date(`${match[1]}.${fraction.slice(0, 3)}${match[3]}`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TypeError('Invalid client version token');
+  }
+
+  return `${parsed.toISOString().slice(0, 19)}.${fraction}Z`;
+}
+
+const clientVersionTokenSchema = z.string()
+  .datetime({ offset: true })
+  .refine(value => CLIENT_VERSION_TOKEN_PATTERN.test(value), {
+    message: 'Client version must be a valid timestamp',
+  })
+  .transform(canonicalizeClientVersionToken);
+
 const updateSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  expectedUpdatedAt: clientVersionTokenSchema,
   firstName: z.string().max(50).optional(),
   lastName: z.string().max(50).optional(),
   fullName: z.string().max(101).optional(),
@@ -237,6 +273,9 @@ class ClientEditConflictError extends Error {
 }
 
 type EditableClient = typeof salonClientSchema.$inferSelect;
+type VersionedEditableClient = EditableClient & {
+  updatedAtVersion: string;
+};
 type EditableClientField =
   | 'birthday'
   | 'email'
@@ -324,7 +363,16 @@ function clientNotFoundResponse(): Response {
   );
 }
 
-function clientResponse(client: EditableClient): Record<string, unknown> {
+function clientUpdatedAtVersionSql() {
+  return sql<string>`to_char(
+    ${salonClientSchema.updatedAt},
+    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+  )`;
+}
+
+function clientResponse(
+  client: VersionedEditableClient,
+): Record<string, unknown> {
   return {
     id: client.id,
     phone: client.phone,
@@ -338,7 +386,7 @@ function clientResponse(client: EditableClient): Record<string, unknown> {
     tags: client.tags ?? [],
     rebookIntervalDays: client.rebookIntervalDays,
     nextRebookDueAt: client.nextRebookDueAt?.toISOString() ?? null,
-    updatedAt: client.updatedAt.toISOString(),
+    updatedAt: client.updatedAtVersion,
   };
 }
 
@@ -384,9 +432,19 @@ export async function GET(
 
     // Resolve stale same-salon source IDs without falling back to contact data.
     const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
-    const client = terminalClientId
-      ? await getSalonClientById(salon.id, terminalClientId)
-      : null;
+    const [client] = terminalClientId
+      ? await db
+        .select({
+          ...getTableColumns(salonClientSchema),
+          updatedAtVersion: clientUpdatedAtVersionSql(),
+        })
+        .from(salonClientSchema)
+        .where(and(
+          eq(salonClientSchema.salonId, salon.id),
+          eq(salonClientSchema.id, terminalClientId),
+        ))
+        .limit(1)
+      : [];
     if (!client) {
       return clientNotFoundResponse();
     }
@@ -935,7 +993,7 @@ export async function GET(
           hasGoogleReview: client.hasGoogleReview,
           googleReviewMarkedAt: client.googleReviewMarkedAt?.toISOString() ?? null,
           createdAt: client.createdAt.toISOString(),
-          updatedAt: client.updatedAt.toISOString(),
+          updatedAt: client.updatedAtVersion,
         },
         summary: {
           currency: bookingConfig.currency,
@@ -1038,7 +1096,6 @@ export async function PATCH(
       birthday,
       ...updates
     } = validated.data;
-    const expectedUpdatedAtDate = new Date(expectedUpdatedAt);
     const proposedPhone = phone === undefined
       ? undefined
       : normalizeSalonClientIdentity({ phone }).phone!;
@@ -1093,6 +1150,7 @@ export async function PATCH(
       db.transaction(async (tx) => {
         const handle = tx as LifecycleSqlHandle;
         if (phone !== undefined || email !== undefined) {
+          await setClientContactEditTransactionTimeoutsWithHandle(handle);
           await lockGlobalClientIdentityTablesWithHandle(handle);
         }
         const lockedClient = await lockTerminalSalonClientWithHandle(handle, {
@@ -1101,7 +1159,10 @@ export async function PATCH(
           allowArchived: true,
         });
         const [currentClient] = await tx
-          .select()
+          .select({
+            ...getTableColumns(salonClientSchema),
+            updatedAtVersion: clientUpdatedAtVersionSql(),
+          })
           .from(salonClientSchema)
           .where(and(
             eq(salonClientSchema.salonId, salon.id),
@@ -1192,10 +1253,7 @@ export async function PATCH(
         if (changedFields.size === 0) {
           return { client: currentClient, mutated: false };
         }
-        if (
-          currentClient.updatedAt.getTime()
-          !== expectedUpdatedAtDate.getTime()
-        ) {
+        if (currentClient.updatedAtVersion !== expectedUpdatedAt) {
           throw new ClientEditConflictError();
         }
 
@@ -1248,7 +1306,10 @@ export async function PATCH(
                 },
               );
           } catch (error) {
-            if (error instanceof ClientLifecycleStabilizationError) {
+            if (
+              error instanceof ClientLifecycleStabilizationError
+              || isClientLifecycleTransactionTimeoutError(error)
+            ) {
               throw error;
             }
             throw new ClientLifecycleStabilizationError(
@@ -1302,9 +1363,23 @@ export async function PATCH(
           .where(and(
             eq(salonClientSchema.salonId, salon.id),
             eq(salonClientSchema.id, lockedClient.id),
+            sql`${clientUpdatedAtVersionSql()} = ${expectedUpdatedAt}`,
           ))
           .returning();
         if (!updatedClient) {
+          throw new ClientEditConflictError();
+        }
+        const [updatedVersion] = await tx
+          .select({
+            updatedAtVersion: clientUpdatedAtVersionSql(),
+          })
+          .from(salonClientSchema)
+          .where(and(
+            eq(salonClientSchema.salonId, salon.id),
+            eq(salonClientSchema.id, lockedClient.id),
+          ))
+          .limit(1);
+        if (!updatedVersion) {
           throw new ClientEditConflictError();
         }
 
@@ -1352,7 +1427,13 @@ export async function PATCH(
           userAgent: null,
         });
 
-        return { client: updatedClient, mutated: true };
+        return {
+          client: {
+            ...updatedClient,
+            updatedAtVersion: updatedVersion.updatedAtVersion,
+          },
+          mutated: true,
+        };
       }));
 
     return privateJson({
@@ -1383,6 +1464,18 @@ export async function PATCH(
             code: 'CLIENT_EDIT_CONFLICT',
             message:
               'This client changed elsewhere. Refresh the profile and try again.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (isClientLifecycleTransactionTimeoutError(error)) {
+      return privateJson(
+        {
+          error: {
+            code: 'CLIENT_EDIT_CONFLICT',
+            message:
+              'This client could not be updated right now. Try again in a moment.',
           },
         } satisfies ErrorResponse,
         { status: 409 },

@@ -12,6 +12,10 @@ export const CLIENT_LIFECYCLE_RETRYABLE_SQLSTATES = new Set([
   '40P01',
   '40001',
 ]);
+const CLIENT_EDIT_TRANSACTION_TIMEOUT_SQLSTATES = new Set([
+  '55P03',
+  '57014',
+]);
 
 export type ClientLifecycleErrorCode =
   | 'CLIENT_NOT_FOUND'
@@ -1615,6 +1619,22 @@ export function getSalonClientHistoricalPhoneHints(input: {
 }
 
 /**
+ * Bounds waits inside an interactive contact edit without changing the
+ * timeout behavior of non-contact client edits or other lifecycle callers.
+ * These settings are transaction-local and disappear on commit or rollback.
+ */
+export async function setClientContactEditTransactionTimeoutsWithHandle(
+  handle: LifecycleSqlHandle,
+): Promise<void> {
+  await handle.execute(sql`
+    set local lock_timeout = '3s'
+  `);
+  await handle.execute(sql`
+    set local statement_timeout = '10s'
+  `);
+}
+
+/**
  * Stabilizes the global customer/login identity tables for the duration of a
  * contact-edit transaction. Call this before taking any salon-client row lock
  * so identity writers and owner edits share one deadlock-safe lock order.
@@ -1852,6 +1872,14 @@ function sqlState(error: unknown): string | null {
     return candidate.code;
   }
   return candidate.cause === error ? null : sqlState(candidate.cause);
+}
+
+export function isClientLifecycleTransactionTimeoutError(
+  error: unknown,
+): boolean {
+  const state = sqlState(error);
+  return state != null
+    && CLIENT_EDIT_TRANSACTION_TIMEOUT_SQLSTATES.has(state);
 }
 
 export function isRetryableClientLifecycleError(error: unknown): boolean {
