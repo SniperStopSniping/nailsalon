@@ -22,6 +22,10 @@ import {
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
+import {
+  ClientDeletionDialogs,
+  type ClientDeletionSuccess,
+} from '@/components/admin/ClientDeletionDialogs';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
 import {
   EditClientDialog,
@@ -33,6 +37,7 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
 import {
@@ -291,6 +296,14 @@ const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
 ];
 
 const CLIENTS_PAGE_SIZE = 50;
+
+function refreshMountedGoogleEventSuggestions(): void {
+  document
+    .querySelector<HTMLButtonElement>(
+      '[data-testid="google-review-queue"] button[aria-label="Refresh Google events"]',
+    )
+    ?.click();
+}
 
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -779,6 +792,7 @@ function ClientDetail({
   onCacheUpdate,
   onRefreshTechnicians,
   onOpenPromotionSettings,
+  onClientLifecycleSuccess,
   onBack,
 }: {
   clientSummary: ClientSummary;
@@ -792,6 +806,7 @@ function ClientDetail({
   onCacheUpdate: (clientId: string, updates: Partial<ClientDetailCacheEntry>) => void;
   onRefreshTechnicians: () => Promise<void> | void;
   onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
+  onClientLifecycleSuccess: (result: ClientDeletionSuccess) => void;
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
@@ -1936,6 +1951,16 @@ function ClientDetail({
                   )}
                 </>
               )}
+
+        {profile && (
+          <ClientDeletionDialogs
+            salonSlug={salonSlug}
+            requestedClientId={clientSummary.id}
+            knownTerminalClientId={profile.id}
+            expectedUpdatedAt={profile.updatedAt}
+            onSuccess={onClientLifecycleSuccess}
+          />
+        )}
       </div>
 
       {profile && (
@@ -2048,6 +2073,7 @@ export function ClientsModal({
   const [insightsBookingClient, setInsightsBookingClient] = useState<ClientInsightAttentionItem | null>(null);
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
     loaded: false,
@@ -2060,6 +2086,7 @@ export function ClientsModal({
   const [techniciansError, setTechniciansError] = useState<string | null>(null);
 
   const clientDetailCacheRef = useRef<Record<string, ClientDetailCacheEntry>>({});
+  const removedClientIdsRef = useRef(new Set<string>());
   const lastFetchedPageRef = useRef(1);
   const initialClientRequestRef = useRef<string | null>(null);
   const directoryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -2237,7 +2264,12 @@ export function ClientsModal({
   }, []);
 
   useEffect(() => {
-    if (!initialClientId || !salonSlug || selectedClient?.id === initialClientId) {
+    if (
+      !initialClientId
+      || !salonSlug
+      || removedClientIdsRef.current.has(initialClientId)
+      || selectedClient?.id === initialClientId
+    ) {
       return;
     }
 
@@ -2442,6 +2474,50 @@ export function ClientsModal({
     });
   }, []);
 
+  const handleClientLifecycleSuccess = useCallback((
+    result: ClientDeletionSuccess,
+  ) => {
+    const removedIds = new Set([
+      result.requestedClientId,
+      result.terminalClientId,
+    ]);
+    for (const clientId of removedIds) {
+      removedClientIdsRef.current.add(clientId);
+      delete clientDetailCacheRef.current[clientId];
+    }
+
+    const visibleRemovedCount = clients.filter(client =>
+      removedIds.has(client.id)).length;
+    setClients(current =>
+      current.filter(client => !removedIds.has(client.id)));
+    if (visibleRemovedCount > 0) {
+      setTotalClients(current =>
+        Math.max(0, current - visibleRemovedCount));
+    }
+
+    // A snapshot captured before deletion can otherwise restore the removed
+    // client when an Insights segment is cleared.
+    savedDirectoryStateRef.current = null;
+    skipNextDirectoryFetchRef.current = false;
+    initialClientRequestRef.current = initialClientId && salonSlug
+      ? `${salonSlug}:${initialClientId}`
+      : null;
+    setInitialClientError(null);
+    setSelectedClient(null);
+    setShowHub(false);
+    setLifecycleNotice(
+      result.action === 'archive'
+        ? 'Client deleted from the active list. Their history was kept.'
+        : 'Client permanently deleted.',
+    );
+    setInsightsRefreshKey(current => current + 1);
+    setPage(1);
+    lastFetchedPageRef.current = 1;
+    notifyRetentionDataChanged();
+    refreshMountedGoogleEventSuggestions();
+    void fetchClients(1, true);
+  }, [clients, fetchClients, initialClientId, salonSlug]);
+
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
@@ -2554,6 +2630,16 @@ export function ClientsModal({
               className="flex-1 overflow-y-auto pb-10"
               data-testid="clients-directory-scroll"
             >
+              {lifecycleNotice && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  data-testid="client-lifecycle-success"
+                  className="mx-4 mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"
+                >
+                  {lifecycleNotice}
+                </div>
+              )}
               {initialClientError && (
                 <AsyncStatePanel
                   tone="error"
@@ -2688,6 +2774,7 @@ export function ClientsModal({
             onRefreshTechnicians={fetchTechnicians}
             onOpenPromotionSettings={stage =>
               onOpenPromotionSettings?.(stage, selectedClient.id)}
+            onClientLifecycleSuccess={handleClientLifecycleSuccess}
             onBack={() => setSelectedClient(null)}
           />
         )}

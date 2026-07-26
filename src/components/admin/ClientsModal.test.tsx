@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1327,6 +1334,233 @@ describe('ClientsModal', () => {
 
     expect(await screen.findByPlaceholderText('Search clients')).toHaveValue('Ava');
     expect(screen.getByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
+  });
+
+  it('archives a stale-source detail, closes it, purges both IDs, refetches, and invalidates retention', async () => {
+    let listFetchCount = 0;
+    let detailFetchCount = 0;
+    const retentionChanged = vi.fn();
+    const googleSuggestionsRefresh = vi.fn();
+    window.addEventListener('luster:retention-data-changed', retentionChanged);
+
+    fetchMock.mockImplementation(async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(String(input), 'http://localhost');
+
+      if (url.pathname === '/api/admin/settings/modules') {
+        return new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/technicians') {
+        return new Response(
+          JSON.stringify(buildTechniciansResponse()),
+          { status: 200 },
+        );
+      }
+      if (url.pathname === '/api/admin/clients') {
+        listFetchCount += 1;
+        return new Response(JSON.stringify(buildListResponse(
+          listFetchCount === 1
+            ? [buildListClient({ id: 'source_client' })]
+            : [],
+        )), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/clients/source_client') {
+        detailFetchCount += 1;
+        return new Response(JSON.stringify(buildDetailResponse({
+          client: { id: 'terminal_client' },
+        })), { status: 200 });
+      }
+      if (
+        url.pathname === '/api/admin/clients/source_client/archive'
+        && init?.method === 'POST'
+      ) {
+        return new Response(JSON.stringify({
+          data: {
+            code: 'CLIENT_ARCHIVED',
+            clientId: 'terminal_client',
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url.pathname}${url.search}`);
+    });
+
+    try {
+      render(
+        <>
+          <section data-testid="google-review-queue">
+            <button
+              type="button"
+              aria-label="Refresh Google events"
+              onClick={googleSuggestionsRefresh}
+            />
+          </section>
+          <ClientsModal onClose={() => {}} />
+        </>,
+      );
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: /ava thompson/i }),
+      );
+      fireEvent.click(await screen.findByTestId('client-delete-action'));
+
+      const archiveDialog = await screen.findByTestId('client-archive-dialog');
+      fireEvent.click(
+        within(archiveDialog).getByTestId('client-archive-confirm'),
+      );
+
+      expect(await screen.findByTestId('client-lifecycle-success'))
+        .toHaveTextContent(
+          'Client deleted from the active list. Their history was kept.',
+        );
+      expect(screen.queryByRole('heading', { name: 'Ava Thompson' }))
+        .not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /ava thompson/i }))
+        .not.toBeInTheDocument();
+
+      await waitFor(() => expect(listFetchCount).toBeGreaterThanOrEqual(2));
+
+      expect(detailFetchCount).toBe(1);
+      expect(retentionChanged).toHaveBeenCalledTimes(1);
+      expect(googleSuggestionsRefresh).toHaveBeenCalledTimes(1);
+
+      const archiveCall = fetchMock.mock.calls.find(([requestUrl]) =>
+        String(requestUrl).includes('/source_client/archive'));
+
+      expect(JSON.parse(String(archiveCall?.[1]?.body))).toEqual({
+        salonSlug: 'isla-nail-studio',
+        expectedUpdatedAt: '2026-07-25T15:30:00.000Z',
+      });
+    } finally {
+      window.removeEventListener(
+        'luster:retention-data-changed',
+        retentionChanged,
+      );
+    }
+  });
+
+  it('permanently deletes an empty detail, closes it, removes it from cache, and refetches', async () => {
+    let listFetchCount = 0;
+    let detailFetchCount = 0;
+    const googleSuggestionsRefresh = vi.fn();
+
+    fetchMock.mockImplementation(async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(String(input), 'http://localhost');
+
+      if (url.pathname === '/api/admin/settings/modules') {
+        return new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/technicians') {
+        return new Response(
+          JSON.stringify(buildTechniciansResponse()),
+          { status: 200 },
+        );
+      }
+      if (url.pathname === '/api/admin/clients') {
+        listFetchCount += 1;
+        return new Response(JSON.stringify(buildListResponse(
+          listFetchCount === 1
+            ? [buildListClient({
+                id: 'empty_client',
+                fullName: 'Empty Client',
+              })]
+            : [],
+        )), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/clients/empty_client') {
+        detailFetchCount += 1;
+        return new Response(JSON.stringify(buildDetailResponse({
+          client: {
+            id: 'empty_client',
+            fullName: 'Empty Client',
+            totalVisits: 0,
+            totalSpent: 0,
+            averageSpend: 0,
+            noShowCount: 0,
+            loyaltyPoints: 0,
+          },
+          upcomingAppointments: [],
+          pastAppointments: [],
+          recentIssues: [],
+          submittedPreferences: null,
+        })), { status: 200 });
+      }
+      if (
+        url.pathname === '/api/admin/clients/empty_client/permanent-delete'
+        && init?.method === 'POST'
+      ) {
+        return new Response(JSON.stringify({
+          data: {
+            code: 'CLIENT_PERMANENTLY_DELETED',
+            clientId: 'empty_client',
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url.pathname}${url.search}`);
+    });
+
+    render(
+      <>
+        <section data-testid="google-review-queue">
+          <button
+            type="button"
+            aria-label="Refresh Google events"
+            onClick={googleSuggestionsRefresh}
+          />
+        </section>
+        <ClientsModal onClose={() => {}} />
+      </>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /empty client/i }),
+    );
+    fireEvent.click(await screen.findByText('Advanced', { exact: true }));
+    fireEvent.click(screen.getByTestId('client-permanent-delete-action'));
+    fireEvent.change(
+      await screen.findByTestId('client-permanent-delete-input'),
+      { target: { value: 'DELETE' } },
+    );
+    fireEvent.click(screen.getByTestId('client-permanent-delete-continue'));
+    fireEvent.click(screen.getByTestId('client-permanent-delete-confirm'));
+
+    expect(await screen.findByTestId('client-lifecycle-success'))
+      .toHaveTextContent('Client permanently deleted.');
+    expect(screen.queryByRole('heading', { name: 'Empty Client' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /empty client/i }))
+      .not.toBeInTheDocument();
+
+    await waitFor(() => expect(listFetchCount).toBeGreaterThanOrEqual(2));
+
+    expect(detailFetchCount).toBe(1);
+    expect(googleSuggestionsRefresh).toHaveBeenCalledTimes(1);
+
+    const permanentDeleteCall = fetchMock.mock.calls.find(([requestUrl]) =>
+      String(requestUrl).includes('/empty_client/permanent-delete'));
+
+    expect(JSON.parse(String(permanentDeleteCall?.[1]?.body))).toEqual({
+      salonSlug: 'isla-nail-studio',
+      expectedUpdatedAt: '2026-07-25T15:30:00.000Z',
+    });
   });
 
   describe('directory stale-request protection', () => {
