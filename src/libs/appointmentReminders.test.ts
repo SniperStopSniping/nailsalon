@@ -552,6 +552,64 @@ describe('appointment reminders', () => {
     expect(result.sameDaySent).toBe(1);
   });
 
+  it.each([
+    {
+      label: 'day-before',
+      now: new Date('2026-03-31T22:05:00.000Z'),
+      dayBeforeReminderSentAt: null,
+      expectedSubject: 'Reminder: Your appointment tomorrow at Isla Nail Studio',
+    },
+    {
+      label: 'same-day',
+      now: new Date('2026-04-01T16:55:00.000Z'),
+      dayBeforeReminderSentAt: new Date('2026-03-31T22:05:00.000Z'),
+      expectedSubject: 'Your Isla Nail Studio appointment is today',
+    },
+  ])('uses an explicit zero-candidate orphan snapshot for $label email without rewriting snapshots', async ({
+    now,
+    dayBeforeReminderSentAt,
+    expectedSubject,
+  }) => {
+    resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'appointment_snapshot',
+      email: 'orphan@example.test',
+      terminalClientId: null,
+      identityResolution: 'zero_identity_candidates',
+    });
+    queueSelectResults([{
+      appointmentId: 'orphan_appointment',
+      salonId: 'salon_1',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      salonClientEmail: null,
+      appointmentEmail: 'orphan@example.test',
+      dayBeforeReminderSentAt,
+      sameDayReminderSentAt: null,
+    }]);
+
+    await processAppointmentReminders({ now });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'orphan@example.test',
+        subject: expectedSubject,
+      }),
+    );
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+
+    for (const [values] of updateSet.mock.calls) {
+      expect(values).not.toHaveProperty('clientEmail');
+      expect(values).not.toHaveProperty('clientPhone');
+      expect(values).not.toHaveProperty('appointmentEmail');
+      expect(values).not.toHaveProperty('salonClientEmail');
+    }
+  });
+
   it('never uses a global identity fallback when canonical email is unavailable', async () => {
     resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
       status: 'unavailable',

@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { getActiveAppointmentsForCanonicalClient } from '@/libs/activeAppointments';
 import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
-import { resolveCanonicalSalonClientIdentity } from '@/libs/clientLifecycleStabilization';
+import {
+  getZeroCandidateOrphanRecoveryAppointments,
+  resolveCanonicalSalonClientIdentityOutcome,
+} from '@/libs/clientLifecycleStabilization';
 import { logger } from '@/libs/Logger';
 import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { getSalonBySlug } from '@/libs/queries';
@@ -59,21 +62,38 @@ export async function POST(request: Request) {
   try {
     // Read-only with respect to appointments: recovery never creates,
     // modifies, or deletes appointment rows.
-    const identity = await resolveCanonicalSalonClientIdentity({
+    const identityOutcome = await resolveCanonicalSalonClientIdentityOutcome({
       salonId: salon.id,
       email,
       phone: normalizedPhone,
       allowArchived: true,
     });
-    if (!identity || identity.externalClientId !== null) {
+    if (identityOutcome.status === 'invalid_or_ambiguous_identity') {
       return genericResponse();
     }
-    const appointments = await getActiveAppointmentsForCanonicalClient({
-      salonId: salon.id,
-      terminalClientId: identity.terminal.id,
-      horizon: 'recovery',
-      allowArchived: true,
-    });
+    let recipientMode:
+      | 'canonical_terminal'
+      | 'zero_candidate_orphan';
+    let appointments;
+    if (identityOutcome.status === 'resolved_terminal') {
+      if (identityOutcome.identity.externalClientId !== null) {
+        return genericResponse();
+      }
+      recipientMode = 'canonical_terminal';
+      appointments = await getActiveAppointmentsForCanonicalClient({
+        salonId: salon.id,
+        terminalClientId: identityOutcome.identity.terminal.id,
+        horizon: 'recovery',
+        allowArchived: true,
+      });
+    } else {
+      recipientMode = 'zero_candidate_orphan';
+      appointments = await getZeroCandidateOrphanRecoveryAppointments({
+        salonId: salon.id,
+        email,
+        phone: normalizedPhone,
+      });
+    }
     if (!appointments.length) {
       return genericResponse();
     }
@@ -91,6 +111,7 @@ export async function POST(request: Request) {
         startTime: appointment.startTime,
         endTime: appointment.endTime,
       })),
+      recipientMode,
     });
     if (!result.ok) {
       logger.warn({

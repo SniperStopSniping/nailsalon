@@ -19,6 +19,12 @@ const state = vi.hoisted(() => ({
     terminalClientId: string;
   }
   | {
+    status: 'appointment_snapshot';
+    email: string;
+    terminalClientId: null;
+    identityResolution: 'zero_identity_candidates';
+  }
+  | {
     status: 'unavailable';
     reason: 'email_unavailable';
   },
@@ -116,6 +122,8 @@ vi.mock('./lusterSecurity', () => ({
 
 import {
   appointmentAccessTokenSchema,
+  appointmentSchema,
+  clientCommunicationSchema,
   integrationOutboxSchema,
   notificationDeliverySchema,
 } from '@/models/Schema';
@@ -193,6 +201,29 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'current@example.com' }),
     );
+  });
+
+  it('uses an explicit zero-candidate orphan snapshot for the initial confirmation without mutating snapshots', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.recipient = {
+      status: 'appointment_snapshot',
+      email: 'orphan@example.com',
+      terminalClientId: null,
+      identityResolution: 'zero_identity_candidates',
+    };
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'orphan@example.com' }),
+    );
+    expect(state.updates.some(update =>
+      update.table === appointmentSchema
+      || update.table === clientCommunicationSchema)).toBe(false);
+    expect(state.insertedValues.some(entry =>
+      entry.table === appointmentSchema
+      || entry.table === clientCommunicationSchema)).toBe(false);
   });
 
   it('records a terminal failure and does not call the provider when no recipient is supported', async () => {
@@ -319,6 +350,35 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'changed@example.com' }),
     );
+  });
+
+  it('uses an explicit zero-candidate orphan snapshot for a pending confirmation retry', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [appointmentRow],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.recipient = {
+      status: 'appointment_snapshot',
+      email: 'orphan@example.com',
+      terminalClientId: null,
+      identityResolution: 'zero_identity_candidates',
+    };
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'orphan@example.com' }),
+    );
+    expect(state.updates.some(update =>
+      update.table === appointmentSchema
+      || update.table === clientCommunicationSchema)).toBe(false);
   });
 
   it('marks an unavailable retry terminal without putting contact data in the outbox', async () => {
@@ -772,5 +832,37 @@ describe('customer booking operational email', () => {
     );
 
     expect(outboxRows).toHaveLength(0);
+  });
+
+  it('uses an explicit zero-candidate orphan snapshot for manual confirmation resend', async () => {
+    state.insertQueue.push([{}], [{}]);
+    state.selectQueue.push(
+      [{
+        status: 'failed',
+        retryable: true,
+        errorCode: 'MANUAL_RESEND_REQUESTED',
+      }],
+      [appointmentRow],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.recipient = {
+      status: 'appointment_snapshot',
+      email: 'orphan@example.com',
+      terminalClientId: null,
+      identityResolution: 'zero_identity_candidates',
+    };
+
+    await expect(resendCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'orphan@example.com' }),
+    );
+    expect(state.updates.some(update =>
+      update.table === appointmentSchema
+      || update.table === clientCommunicationSchema)).toBe(false);
   });
 });

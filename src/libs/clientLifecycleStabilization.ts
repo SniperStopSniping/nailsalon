@@ -63,6 +63,19 @@ export type CanonicalSalonClientIdentity = SalonClientLineageIdentity & {
   matchedBy: NormalizedClientIdentity[];
 };
 
+export type CanonicalSalonClientIdentityOutcome =
+  | {
+    status: 'resolved_terminal';
+    identity: CanonicalSalonClientIdentity;
+  }
+  | {
+    status: 'zero_identity_candidates';
+  }
+  | {
+    status: 'invalid_or_ambiguous_identity';
+    reason: ClientLifecycleErrorCode;
+  };
+
 export type OperationalEmailRecipientUnavailableReason =
   | 'appointment_not_found'
   | 'client_identity_unavailable'
@@ -75,6 +88,12 @@ export type OperationalEmailRecipientResolution =
     status: 'terminal_current' | 'appointment_snapshot';
     email: string;
     terminalClientId: string;
+  }
+  | {
+    status: 'appointment_snapshot';
+    email: string;
+    terminalClientId: null;
+    identityResolution: 'zero_identity_candidates';
   }
   | {
     status: 'unavailable';
@@ -676,7 +695,7 @@ export async function getSalonClientLineageIdentityWithHandle(
   };
 }
 
-export async function resolveCanonicalSalonClientIdentityWithHandle(
+export async function resolveCanonicalSalonClientIdentityOutcomeWithHandle(
   handle: LifecycleSqlHandle,
   input: {
     salonId: string;
@@ -684,11 +703,14 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
     email?: string | null;
     allowArchived?: boolean;
   },
-): Promise<CanonicalSalonClientIdentity | null> {
+): Promise<CanonicalSalonClientIdentityOutcome> {
   const salonId = requireInput(input.salonId, 'salonId');
   const identities = normalizeClientIdentityInput(input);
   if (identities.length === 0) {
-    return null;
+    return {
+      status: 'invalid_or_ambiguous_identity',
+      reason: 'INVALID_CLIENT_STATE',
+    };
   }
 
   const phone = identities.find(identity => identity.kind === 'phone')?.value;
@@ -703,7 +725,7 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
           (${phone ?? null}::text is not null and client.phone = ${phone ?? null})
           or (
             ${email ?? null}::text is not null
-            and lower(client.email) = ${email ?? null}
+            and lower(btrim(client.email)) = ${email ?? null}
           )
         )
 
@@ -733,33 +755,80 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
       .filter((id): id is string => typeof id === 'string'),
   )];
   if (candidateIds.length === 0) {
-    return null;
+    return { status: 'zero_identity_candidates' };
   }
 
-  const terminals = await Promise.all(candidateIds.map(clientId =>
-    resolveTerminalSalonClientWithHandle(handle, {
+  try {
+    const terminals = await Promise.all(candidateIds.map(clientId =>
+      resolveTerminalSalonClientWithHandle(handle, {
+        salonId,
+        clientId,
+        allowArchived: input.allowArchived,
+      })));
+    const terminalIds = [...new Set(terminals.map(terminal => terminal.id))];
+    if (terminalIds.length !== 1) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: 'INVALID_CLIENT_STATE',
+      };
+    }
+
+    const lineage = await getSalonClientLineageIdentityWithHandle(handle, {
       salonId,
-      clientId,
+      terminalClientId: terminalIds[0]!,
       allowArchived: input.allowArchived,
-    })));
-  const terminalIds = [...new Set(terminals.map(terminal => terminal.id))];
-  if (terminalIds.length !== 1) {
+    });
+    const matchedBy = identities.filter(identity =>
+      identity.kind === 'phone'
+        ? lineage.phones.includes(identity.value)
+        : lineage.emails.includes(identity.value));
+    if (matchedBy.length === 0) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: 'INVALID_CLIENT_STATE',
+      };
+    }
+    return {
+      status: 'resolved_terminal',
+      identity: { ...lineage, matchedBy },
+    };
+  } catch (error) {
+    if (error instanceof ClientLifecycleStabilizationError) {
+      return {
+        status: 'invalid_or_ambiguous_identity',
+        reason: error.code,
+      };
+    }
+    throw error;
+  }
+}
+
+export async function resolveCanonicalSalonClientIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+    allowArchived?: boolean;
+  },
+): Promise<CanonicalSalonClientIdentity | null> {
+  if (normalizeClientIdentityInput(input).length === 0) {
+    return null;
+  }
+  const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    handle,
+    input,
+  );
+  if (outcome.status === 'zero_identity_candidates') {
+    return null;
+  }
+  if (outcome.status === 'invalid_or_ambiguous_identity') {
     throw new ClientLifecycleStabilizationError(
-      'INVALID_CLIENT_STATE',
+      outcome.reason,
       'Client lifecycle state is unavailable.',
     );
   }
-
-  const lineage = await getSalonClientLineageIdentityWithHandle(handle, {
-    salonId,
-    terminalClientId: terminalIds[0]!,
-    allowArchived: input.allowArchived,
-  });
-  const matchedBy = identities.filter(identity =>
-    identity.kind === 'phone'
-      ? lineage.phones.includes(identity.value)
-      : lineage.emails.includes(identity.value));
-  return { ...lineage, matchedBy };
+  return outcome.identity;
 }
 
 export function resolveCanonicalSalonClientIdentity(input: {
@@ -769,6 +838,194 @@ export function resolveCanonicalSalonClientIdentity(input: {
   allowArchived?: boolean;
 }): Promise<CanonicalSalonClientIdentity | null> {
   return resolveCanonicalSalonClientIdentityWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+export function resolveCanonicalSalonClientIdentityOutcome(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  allowArchived?: boolean;
+}): Promise<CanonicalSalonClientIdentityOutcome> {
+  return resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+async function hasUnsupportedGlobalClientIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  identities: NormalizedClientIdentity[],
+): Promise<boolean> {
+  const phone = identities.find(identity => identity.kind === 'phone')?.value;
+  const email = identities.find(identity => identity.kind === 'email')?.value;
+  if (!phone && !email) {
+    return true;
+  }
+  const phoneVariants = phone
+    ? [phone, `1${phone}`, `+1${phone}`, `+${phone}`]
+    : [];
+  const globalPhoneMatch = phone
+    ? sql`client.phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const sessionPhoneMatch = phone
+    ? sql`client_session.client_phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const result = await handle.execute(sql`
+    select (
+      exists (
+        select 1
+        from client
+        where (
+          ${globalPhoneMatch}
+        )
+        or (
+          ${email ?? null}::text is not null
+          and lower(btrim(client.email)) = ${email ?? null}
+        )
+      )
+      or exists (
+        select 1
+        from client_session
+        where ${sessionPhoneMatch}
+      )
+    ) as has_unsupported_identity
+  `);
+  const row = readRows(result)[0];
+  if (!row || typeof row.has_unsupported_identity !== 'boolean') {
+    throw new TypeError('GLOBAL_CLIENT_IDENTITY_CHECK_INVALID');
+  }
+  return row.has_unsupported_identity;
+}
+
+export type ZeroCandidateOrphanRecoveryAppointment = {
+  id: string;
+  startTime: Date;
+  endTime: Date;
+};
+
+export async function getZeroCandidateOrphanRecoveryAppointmentsWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+    now?: Date;
+  },
+): Promise<ZeroCandidateOrphanRecoveryAppointment[]> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
+    handle,
+    {
+      salonId,
+      phone: input.phone,
+      email: input.email,
+      allowArchived: true,
+    },
+  );
+  if (outcome.status !== 'zero_identity_candidates') {
+    return [];
+  }
+
+  const identities = normalizeClientIdentityInput(input);
+  const phone = identities.find(identity => identity.kind === 'phone')?.value;
+  const email = identities.find(identity => identity.kind === 'email')?.value;
+  if (!phone && !email) {
+    return [];
+  }
+  if (await hasUnsupportedGlobalClientIdentityWithHandle(handle, identities)) {
+    return [];
+  }
+  const now = input.now ?? new Date();
+  const result = await handle.execute(sql`
+    select appointment.id, appointment.start_time, appointment.end_time
+    from appointment
+    where appointment.salon_id = ${salonId}
+      and appointment.salon_client_id is null
+      and appointment.status in ('pending', 'confirmed', 'in_progress')
+      and appointment.deleted_at is null
+      and appointment.end_time > ${now}
+      and (
+        (
+          ${phone ?? null}::text is not null
+          and case
+            when length(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )) = 10
+            then regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )
+            when length(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            )) = 11
+              and left(regexp_replace(
+                appointment.client_phone,
+                '[^0-9]',
+                '',
+                'g'
+              ), 1) = '1'
+            then right(regexp_replace(
+              appointment.client_phone,
+              '[^0-9]',
+              '',
+              'g'
+            ), 10)
+            else null
+          end = ${phone ?? null}
+        )
+        or (
+          ${email ?? null}::text is not null
+          and lower(btrim(appointment.client_email)) = ${email ?? null}
+        )
+      )
+    order by appointment.start_time, appointment.id
+    limit 26
+  `);
+
+  const rows = readRows(result);
+  if (rows.length > 25) {
+    return [];
+  }
+  return rows.map((row) => {
+    const startTime = dateValue(row.start_time);
+    const endTime = dateValue(row.end_time);
+    if (
+      typeof row.id !== 'string'
+      || !startTime
+      || !endTime
+    ) {
+      throw new TypeError('ORPHAN_RECOVERY_APPOINTMENT_ROW_INVALID');
+    }
+    return {
+      id: row.id,
+      startTime,
+      endTime,
+    };
+  });
+}
+
+export function getZeroCandidateOrphanRecoveryAppointments(input: {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  now?: Date;
+}): Promise<ZeroCandidateOrphanRecoveryAppointment[]> {
+  return getZeroCandidateOrphanRecoveryAppointmentsWithHandle(
     db as LifecycleSqlHandle,
     input,
   );
@@ -859,7 +1116,7 @@ export async function resolveAppointmentOperationalEmailRecipientWithHandle(
           reason: 'client_identity_unavailable',
         };
       }
-      const canonical = await resolveCanonicalSalonClientIdentityWithHandle(
+      const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(
         handle,
         {
           salonId,
@@ -868,13 +1125,42 @@ export async function resolveAppointmentOperationalEmailRecipientWithHandle(
           allowArchived: true,
         },
       );
-      if (!canonical || canonical.matchedBy.length === 0) {
+      if (outcome.status === 'zero_identity_candidates') {
+        const identities = normalizeClientIdentityInput({ phone, email });
+        if (
+          await hasUnsupportedGlobalClientIdentityWithHandle(
+            handle,
+            identities,
+          )
+        ) {
+          return {
+            status: 'unavailable',
+            reason: 'unsupported_client_identity',
+          };
+        }
+        const snapshotEmail = tryNormalizeSupportedEmail(
+          appointment.clientEmail,
+        );
+        if (!snapshotEmail) {
+          return {
+            status: 'unavailable',
+            reason: 'email_unavailable',
+          };
+        }
+        return {
+          status: 'appointment_snapshot',
+          email: snapshotEmail,
+          terminalClientId: null,
+          identityResolution: 'zero_identity_candidates',
+        };
+      }
+      if (outcome.status === 'invalid_or_ambiguous_identity') {
         return {
           status: 'unavailable',
           reason: 'client_identity_unavailable',
         };
       }
-      lineage = canonical;
+      lineage = outcome.identity;
     }
 
     if (lineage.externalClientId !== null) {

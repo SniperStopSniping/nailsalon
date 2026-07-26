@@ -23,8 +23,22 @@ const { dbMock } = vi.hoisted(() => {
     for (const method of ['from', 'where', 'orderBy', 'limit']) {
       chain[method] = vi.fn(() => chain);
     }
-    chain.then = (resolve: any, reject: any) =>
-      Promise.resolve(s.selectQueue.shift() ?? []).then(resolve, reject);
+    chain.then = (resolve: any, reject: any) => {
+      const queued = s.selectQueue.shift() ?? [];
+      const rows = queued.map((row) => {
+        if (
+          row
+          && typeof row === 'object'
+          && 'status' in row
+          && ('retryable' in row || row.status === 'sent')
+          && !('purpose' in row)
+        ) {
+          return { ...row, purpose: 'booking_recovery' };
+        }
+        return row;
+      });
+      return Promise.resolve(rows).then(resolve, reject);
+    };
     return chain;
   }
   function insertChain(table: unknown) {
@@ -103,6 +117,8 @@ vi.mock('./publicUrl', () => ({
 
 import {
   appointmentAccessTokenSchema,
+  appointmentSchema,
+  clientCommunicationSchema,
   integrationOutboxSchema,
   notificationDeliverySchema,
 } from '@/models/Schema';
@@ -115,6 +131,12 @@ const APPOINTMENT = {
   startTime: new Date('2099-07-01T18:00:00Z'),
   endTime: new Date('2099-07-01T19:00:00Z'),
 };
+const ORPHAN_RECIPIENT = {
+  status: 'appointment_snapshot',
+  email: 'orphan@example.com',
+  terminalClientId: null,
+  identityResolution: 'zero_identity_candidates',
+} as const;
 
 function queueHappyPathDb(options: { serviceRows?: unknown[] } = {}) {
   // Call order: select(fresh appointments) → insert(delivery) →
@@ -211,6 +233,110 @@ describe('sendBookingRecoveryEmail', () => {
 
     expect(deliveryUpdates).toHaveLength(1);
     expect(deliveryUpdates.at(-1)!.set).toMatchObject({ status: 'sent', retryable: false });
+  });
+
+  it('sends one all-or-nothing recovery to a common zero-candidate orphan snapshot without mutating snapshots', async () => {
+    const secondAppointment = {
+      ...APPOINTMENT,
+      id: 'appt_2',
+      startTime: new Date('2099-07-01T20:00:00Z'),
+      endTime: new Date('2099-07-01T21:00:00Z'),
+    };
+    state.selectQueue.push(
+      [APPOINTMENT, secondAppointment],
+      [
+        { appointmentId: 'appt_1', name: 'Gel Manicure' },
+        { appointmentId: 'appt_2', name: 'Pedicure' },
+      ],
+      [],
+      [],
+    );
+    state.insertQueue.push([{ id: 'delivery_1' }], [{}], [{}]);
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue(
+      ORPHAN_RECIPIENT,
+    );
+
+    await expect(sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT, secondAppointment],
+      recipientMode: 'zero_candidate_orphan',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.resolveAppointmentOperationalEmailRecipient)
+      .toHaveBeenCalledTimes(6);
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'orphan@example.com' }),
+    );
+
+    const delivery = state.insertedValues.find(
+      entry => entry.table === notificationDeliverySchema,
+    )!.values as { purpose: string };
+
+    expect(delivery.purpose).toBe('booking_recovery_zero_candidate');
+    expect(state.updates.some(update =>
+      update.table === appointmentSchema
+      || update.table === clientCommunicationSchema)).toBe(false);
+    expect(state.insertedValues.some(entry =>
+      entry.table === appointmentSchema
+      || entry.table === clientCommunicationSchema)).toBe(false);
+  });
+
+  it.each([
+    {
+      name: 'mixed orphan and terminal ownership',
+      recipients: [
+        ORPHAN_RECIPIENT,
+        {
+          status: 'terminal_current',
+          email: 'orphan@example.com',
+          terminalClientId: 'client_1',
+        },
+      ],
+    },
+    {
+      name: 'mixed orphan destinations',
+      recipients: [
+        ORPHAN_RECIPIENT,
+        {
+          ...ORPHAN_RECIPIENT,
+          email: 'different@example.com',
+        },
+      ],
+    },
+    {
+      name: 'one unavailable appointment',
+      recipients: [
+        ORPHAN_RECIPIENT,
+        {
+          status: 'unavailable',
+          reason: 'client_identity_unavailable',
+        },
+      ],
+    },
+  ])('sends nothing for $name in an orphan recovery set', async ({ recipients }) => {
+    const secondAppointment = {
+      ...APPOINTMENT,
+      id: 'appt_2',
+      startTime: new Date('2099-07-01T20:00:00Z'),
+      endTime: new Date('2099-07-01T21:00:00Z'),
+    };
+    state.selectQueue.push([APPOINTMENT, secondAppointment]);
+    for (const recipient of recipients) {
+      state.resolveAppointmentOperationalEmailRecipient
+        .mockResolvedValueOnce(recipient);
+    }
+
+    await expect(sendBookingRecoveryEmail({
+      salon: SALON,
+      appointments: [APPOINTMENT, secondAppointment],
+      recipientMode: 'zero_candidate_orphan',
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.insertedValues).toHaveLength(0);
   });
 
   it('marks failures retryable, revokes fresh tokens, and enqueues an outbox retry with IDs only', async () => {
@@ -625,6 +751,65 @@ describe('retryBookingRecoveryEmail', () => {
     const deliveryUpdates = state.updates.filter(update => update.table === notificationDeliverySchema);
 
     expect(deliveryUpdates.at(-1)!.set).toMatchObject({ status: 'sent', retryable: false });
+  });
+
+  it('retries an orphan recovery only when every appointment still has explicit zero-candidate provenance', async () => {
+    state.selectQueue.push(
+      [{
+        status: 'failed',
+        retryable: true,
+        purpose: 'booking_recovery_zero_candidate',
+      }],
+      [SALON],
+      [APPOINTMENT],
+      [{ appointmentId: 'appt_1', name: 'Pedicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue(
+      ORPHAN_RECIPIENT,
+    );
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'orphan@example.com' }),
+    );
+  });
+
+  it('fails an orphan retry closed if identity state becomes terminal-owned', async () => {
+    state.selectQueue.push(
+      [{
+        status: 'failed',
+        retryable: true,
+        purpose: 'booking_recovery_zero_candidate',
+      }],
+      [SALON],
+      [APPOINTMENT],
+    );
+    state.resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
+      status: 'terminal_current',
+      email: 'current@example.com',
+      terminalClientId: 'client_1',
+    });
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+    })).resolves.toEqual({
+      ok: false,
+      errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.insertedValues.filter(
+      entry => entry.table === appointmentAccessTokenSchema,
+    )).toHaveLength(0);
   });
 
   it('throws on provider failure so the outbox applies backoff', async () => {

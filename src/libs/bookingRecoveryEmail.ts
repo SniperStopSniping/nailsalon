@@ -19,6 +19,12 @@ import { formatDateInTimeZone, formatTimeInTimeZone } from './timeZone';
 const RECOVERY_DEDUPE_BUCKET_MS = 10 * 60_000;
 const MAX_ACTIVE_TOKENS_PER_APPOINTMENT = 3;
 const TOKEN_LIFETIME_AFTER_END_MS = 30 * 24 * 60 * 60 * 1000;
+const CANONICAL_RECOVERY_PURPOSE = 'booking_recovery';
+const ORPHAN_RECOVERY_PURPOSE = 'booking_recovery_zero_candidate';
+
+export type RecoveryRecipientMode =
+  | 'canonical_terminal'
+  | 'zero_candidate_orphan';
 
 type RecoverySalonSettings = import('@/types/salonPolicy').SalonSettings | null | undefined;
 
@@ -170,7 +176,8 @@ function buildEmailContent(args: {
 async function resolveRecoveryRecipient(
   salonId: string,
   appointments: RecoveryAppointment[],
-): Promise<{ email: string; terminalClientId: string } | null> {
+  recipientMode: RecoveryRecipientMode,
+): Promise<{ email: string; terminalClientId: string | null } | null> {
   const destinations = new Set<string>();
   const terminalClientIds = new Set<string>();
   for (const appointment of appointments) {
@@ -181,15 +188,60 @@ async function resolveRecoveryRecipient(
     if (recipient.status === 'unavailable') {
       return null;
     }
+    if (recipientMode === 'zero_candidate_orphan') {
+      if (
+        recipient.status !== 'appointment_snapshot'
+        || recipient.terminalClientId !== null
+        || !('identityResolution' in recipient)
+        || recipient.identityResolution !== 'zero_identity_candidates'
+      ) {
+        return null;
+      }
+    } else if (recipient.terminalClientId === null) {
+      return null;
+    }
     destinations.add(recipient.email);
-    terminalClientIds.add(recipient.terminalClientId);
+    if (recipient.terminalClientId !== null) {
+      terminalClientIds.add(recipient.terminalClientId);
+    }
   }
-  if (destinations.size !== 1 || terminalClientIds.size !== 1) {
+  if (
+    destinations.size !== 1
+    || (
+      recipientMode === 'canonical_terminal'
+        ? terminalClientIds.size !== 1
+        : terminalClientIds.size !== 0
+    )
+  ) {
     return null;
   }
   const email = [...destinations][0];
-  const terminalClientId = [...terminalClientIds][0];
-  return email && terminalClientId ? { email, terminalClientId } : null;
+  if (!email) {
+    return null;
+  }
+  return {
+    email,
+    terminalClientId:
+      recipientMode === 'canonical_terminal'
+        ? [...terminalClientIds][0]!
+        : null,
+  };
+}
+
+function recoveryPurposeForMode(mode: RecoveryRecipientMode): string {
+  return mode === 'zero_candidate_orphan'
+    ? ORPHAN_RECOVERY_PURPOSE
+    : CANONICAL_RECOVERY_PURPOSE;
+}
+
+function recoveryModeForPurpose(purpose: string): RecoveryRecipientMode | null {
+  if (purpose === ORPHAN_RECOVERY_PURPOSE) {
+    return 'zero_candidate_orphan';
+  }
+  if (purpose === CANONICAL_RECOVERY_PURPOSE) {
+    return 'canonical_terminal';
+  }
+  return null;
 }
 
 async function loadExactRecoveryAppointments(
@@ -334,8 +386,10 @@ async function enqueueRecoveryRetry(input: {
 export async function sendBookingRecoveryEmail(input: {
   salon: RecoverySalon;
   appointments: RecoveryAppointment[];
+  recipientMode?: RecoveryRecipientMode;
 }): Promise<{ ok: boolean; deduped: boolean; deliveryId: string | null; errorCode?: string | null }> {
   const { salon } = input;
+  const recipientMode = input.recipientMode ?? 'canonical_terminal';
   const appointmentIds = [...new Set(
     input.appointments.map(appointment => appointment.id),
   )].sort();
@@ -356,7 +410,11 @@ export async function sendBookingRecoveryEmail(input: {
     };
   }
 
-  const initialRecipient = await resolveRecoveryRecipient(salon.id, appointments);
+  const initialRecipient = await resolveRecoveryRecipient(
+    salon.id,
+    appointments,
+    recipientMode,
+  );
   if (!initialRecipient) {
     return {
       ok: false,
@@ -372,7 +430,7 @@ export async function sendBookingRecoveryEmail(input: {
     salonId: salon.id,
     appointmentId: appointments[0]!.id,
     channel: 'email',
-    purpose: 'booking_recovery',
+    purpose: recoveryPurposeForMode(recipientMode),
     dedupeKey: buildRecoveryDedupeKey(salon.id, appointmentIds),
     status: 'queued',
   }).onConflictDoNothing().returning();
@@ -391,6 +449,7 @@ export async function sendBookingRecoveryEmail(input: {
     const finalRecipientBeforeTokens = await resolveRecoveryRecipient(
       salon.id,
       appointments,
+      recipientMode,
     );
     if (!finalRecipientBeforeTokens) {
       await markRecoveryRecipientUnavailable({ salonId: salon.id, deliveryId });
@@ -419,6 +478,7 @@ export async function sendBookingRecoveryEmail(input: {
     const finalRecipient = await resolveRecoveryRecipient(
       salon.id,
       appointments,
+      recipientMode,
     );
     if (!finalRecipient) {
       await revokeRecoveryTokens(salon.id, issuedTokenHashes);
@@ -542,6 +602,7 @@ export async function retryBookingRecoveryEmail(input: {
     status: notificationDeliverySchema.status,
     errorCode: notificationDeliverySchema.errorCode,
     retryable: notificationDeliverySchema.retryable,
+    purpose: notificationDeliverySchema.purpose,
   }).from(notificationDeliverySchema).where(and(
     eq(notificationDeliverySchema.id, input.deliveryId),
     eq(notificationDeliverySchema.salonId, input.salonId),
@@ -551,6 +612,11 @@ export async function retryBookingRecoveryEmail(input: {
   }
   if (delivery.status === 'sent') {
     return { ok: true };
+  }
+  const recipientMode = recoveryModeForPurpose(delivery.purpose);
+  if (!recipientMode) {
+    await markRecoveryRecipientUnavailable(input);
+    return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
   }
   if (
     delivery.status !== 'failed'
@@ -592,6 +658,7 @@ export async function retryBookingRecoveryEmail(input: {
     const initialRecipient = await resolveRecoveryRecipient(
       input.salonId,
       appointments,
+      recipientMode,
     );
     if (!initialRecipient) {
       await markRecoveryRecipientUnavailable(input);
@@ -617,6 +684,7 @@ export async function retryBookingRecoveryEmail(input: {
     const finalRecipientBeforeTokens = await resolveRecoveryRecipient(
       input.salonId,
       appointments,
+      recipientMode,
     );
     if (!finalRecipientBeforeTokens) {
       await markRecoveryRecipientUnavailable(input);
@@ -638,6 +706,7 @@ export async function retryBookingRecoveryEmail(input: {
     const finalRecipient = await resolveRecoveryRecipient(
       input.salonId,
       appointments,
+      recipientMode,
     );
     if (!finalRecipient) {
       await revokeRecoveryTokens(input.salonId, issuedTokenHashes);
