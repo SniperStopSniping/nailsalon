@@ -467,6 +467,38 @@ describe('client deletion portable transactional authority', () => {
     });
   });
 
+  it('advances archive versions by one microsecond when the clock is behind', async () => {
+    const clientId = 'portable-monotonic-archive';
+    await seedClient(testDb, {
+      salonId: PORTABLE_SALON_ID,
+      clientId,
+      phone: '4165550115',
+    });
+    await testDb.execute(sql`
+      update salon_client
+      set updated_at = timestamp '2099-01-01 00:00:00.000000'
+      where id = ${clientId}
+    `);
+    const expectedUpdatedAt = await loadVersion(testDb, clientId);
+
+    const result = await archiveSalonClient({
+      salonId: PORTABLE_SALON_ID,
+      requestedClientId: clientId,
+      expectedUpdatedAt,
+      actorAdminId: ACTOR_ID,
+    });
+
+    expect(result.updatedAt).toBe('2099-01-01T00:00:00.000001Z');
+    expect(rows(await testDb.execute(sql`
+      select to_char(
+        archived_at at time zone 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+      ) as archived_at
+      from salon_client
+      where id = ${clientId}
+    `))[0]?.archived_at).toBe(result.updatedAt);
+  });
+
   it('fails archive closed for a lineage with multiple global identities', async () => {
     const terminalClientId = 'portable-ambiguous-terminal';
     const sourceClientId = 'portable-ambiguous-source';
@@ -1714,6 +1746,71 @@ describePostgres('client deletion real PostgreSQL concurrency', () => {
     expect(state.rows[0]).toEqual({
       client_count: 1,
       reward_count: 1,
+      audit_count: 0,
+    });
+  });
+
+  it('lets a direct stable-history writer win the client lock', async () => {
+    await resetFixture();
+    const clientId = 'postgres-direct-history-delete';
+    const expectedUpdatedAt = await seedClient(testDb, {
+      salonId,
+      clientId,
+      phone: '4165550209',
+    });
+    const writer = new Client({
+      connectionString: databaseUrl,
+      application_name: 'client-deletion-direct-history-writer',
+    });
+    await writer.connect();
+    await writer.query('begin');
+    await writer.query(
+      `insert into client_communication (
+         id, salon_id, salon_client_id, kind, status
+       )
+       values (
+         'postgres-direct-history-communication',
+         $1,
+         $2,
+         'generic_text',
+         'dismissed'
+       )`,
+      [salonId, clientId],
+    );
+
+    const deletion = permanentlyDeleteSalonClient({
+      salonId,
+      requestedClientId: clientId,
+      expectedUpdatedAt,
+      actorAdminId: ACTOR_ID,
+    });
+    await waitForLockWait(observer, 'client-deletion-library');
+    await writer.query('commit');
+    await writer.end();
+
+    await expectDeletionError(
+      deletion,
+      'CLIENT_PERMANENT_DELETE_NOT_ALLOWED',
+    );
+    const state = await pool.query<{
+      client_count: number;
+      communication_count: number;
+      audit_count: number;
+    }>(
+      `select
+         (select count(*)::int from salon_client
+          where id = $1) as client_count,
+         (select count(*)::int from client_communication
+          where id = 'postgres-direct-history-communication')
+            as communication_count,
+         (select count(*)::int from audit_log
+          where entity_id = $1) as audit_count`,
+      [clientId],
+    );
+
+    expect(state.rows[0]).toEqual({
+      client_count: 1,
+      communication_count: 1,
       audit_count: 0,
     });
   });

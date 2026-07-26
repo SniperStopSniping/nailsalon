@@ -5,6 +5,8 @@ import { type SQL, sql } from 'drizzle-orm';
 import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import {
   ClientLifecycleStabilizationError,
+  getSalonClientLineageIdentityWithHandle,
+  getSalonClientLineageIdsWithHandle,
   isClientLifecycleTransactionTimeoutError,
   type LifecycleSqlHandle,
   lockGlobalClientIdentityTablesWithHandle,
@@ -316,6 +318,15 @@ async function assertSupportedLifecyclePath(
   ) {
     throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
   }
+  let lineageIds: string[];
+  try {
+    lineageIds = await getSalonClientLineageIdsWithHandle(handle, {
+      salonId: input.salonId,
+      terminalClientId: input.terminalClientId,
+    });
+  } catch (error) {
+    return mapLifecycleError(error);
+  }
   const result = await handle.execute(sql`
     select
       id,
@@ -328,13 +339,13 @@ async function assertSupportedLifecyclePath(
     from salon_client
     where salon_id = ${input.salonId}
       and id in (
-        ${sql.join(input.lineagePath.map(id => sql`${id}`), sql`, `)}
+        ${sql.join(lineageIds.map(id => sql`${id}`), sql`, `)}
       )
     order by id
     for share
   `);
   const rows = readRows(result);
-  if (rows.length !== input.lineagePath.length) {
+  if (rows.length !== lineageIds.length) {
     throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
   }
   const rowsById = new Map(rows.map(row => [String(row.id), row]));
@@ -347,28 +358,38 @@ async function assertSupportedLifecyclePath(
   if (externalClientIds.size > 1) {
     throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
   }
-  for (let index = 0; index < input.lineagePath.length; index += 1) {
-    const id = input.lineagePath[index]!;
+  const lineageIdSet = new Set(lineageIds);
+  for (const id of lineageIds) {
     const row = rowsById.get(id);
-    const expectedTarget = input.lineagePath[index + 1] ?? null;
+    const actualTarget = typeof row?.merged_into_client_id === 'string'
+      ? row.merged_into_client_id
+      : null;
     if (
       !row
       || (
-        typeof row.merged_into_client_id === 'string'
-          ? row.merged_into_client_id
-          : null
-      ) !== expectedTarget
+        id === input.terminalClientId
+          ? actualTarget !== null
+          : actualTarget == null || !lineageIdSet.has(actualTarget)
+      )
     ) {
       throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
     }
     if (
-      expectedTarget
+      id !== input.terminalClientId
       && (
         row.archived_at == null
         || typeof row.archived_by !== 'string'
         || row.merged_at == null
         || typeof row.merged_by !== 'string'
       )
+    ) {
+      throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
+    }
+  }
+  for (let index = 0; index < input.lineagePath.length - 1; index += 1) {
+    const row = rowsById.get(input.lineagePath[index]!);
+    if (
+      row?.merged_into_client_id !== input.lineagePath[index + 1]
     ) {
       throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
     }
@@ -418,6 +439,18 @@ export async function archiveSalonClient(
       lineagePath: terminal.lineagePath,
       terminalClientId: terminal.id,
     });
+    try {
+      await getSalonClientLineageIdentityWithHandle(tx, {
+        salonId: input.salonId,
+        terminalClientId: terminal.id,
+        allowArchived: true,
+      });
+    } catch (error) {
+      if (error instanceof ClientLifecycleStabilizationError) {
+        return mapLifecycleError(error);
+      }
+      throw new ClientDeletionError('UNSUPPORTED_CLIENT_IDENTITY');
+    }
     const client = await loadDeletionRow(tx, {
       salonId: input.salonId,
       clientId: terminal.id,

@@ -10,7 +10,12 @@ import {
 } from './support/appointment-ops';
 import { authenticateCustomer } from './support/auth';
 import { createAppointmentViaApi } from './support/booking';
-import { authStatePaths, e2eConfig, uniqueCustomerPhone } from './support/config';
+import {
+  appPath,
+  authStatePaths,
+  e2eConfig,
+  uniqueCustomerPhone,
+} from './support/config';
 
 test.use({ storageState: authStatePaths.superAdmin });
 
@@ -160,5 +165,119 @@ test('iPhone Safari keeps upcoming appointment actions and edit controls reachab
   } finally {
     await adminRequest.dispose();
     await cancelCreatedAppointment(appointmentId);
+  }
+});
+
+test('iPhone Safari keeps a rejected permanent-delete flow safe and reachable @mobile-safari', async ({
+  page,
+}) => {
+  test.slow();
+
+  expect(page.viewportSize()).toEqual(devices['iPhone 13'].viewport);
+
+  const organizationsResponse = await page.request.get(
+    `/api/super-admin/organizations?page=1&pageSize=20&q=${encodeURIComponent(e2eConfig.salonSlug)}`,
+  );
+  const organizations = await organizationsResponse.json();
+  const salon = organizations.items?.find(
+    (item: { slug?: string }) => item.slug === e2eConfig.salonSlug,
+  );
+
+  expect(salon?.id, 'The configured E2E salon must exist.').toBeTruthy();
+
+  const impersonation = await page.request.post(
+    '/api/super-admin/impersonate',
+    { data: { salonId: salon.id } },
+  );
+
+  expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+  let permanentDeleteBody: unknown = null;
+  const permanentDeleteRoute = '**/api/admin/clients/*/permanent-delete';
+
+  await page.route(permanentDeleteRoute, async (route) => {
+    permanentDeleteBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'CLIENT_PERMANENT_DELETE_NOT_ALLOWED',
+          message:
+            'This client has history and can’t be permanently deleted. Delete them from the active list instead.',
+        },
+      }),
+    });
+  });
+
+  try {
+    await page.goto(
+      `${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`,
+      { waitUntil: 'domcontentloaded' },
+    );
+
+    await page.getByTestId('owner-nav-clients').click();
+
+    const firstClient = page
+      .getByTestId('clients-directory-scroll')
+      .locator('button')
+      .first();
+
+    await expect(firstClient).toBeVisible();
+
+    await firstClient.click();
+
+    await expect(page.getByTestId('client-delete-action')).toBeVisible();
+
+    await page.getByText('Advanced', { exact: true }).click();
+    await page.getByTestId('client-permanent-delete-action').click();
+
+    const dialog = page.getByTestId('client-permanent-delete-dialog');
+
+    await expect(dialog).toBeVisible();
+
+    await page.getByTestId('client-permanent-delete-input').fill('DELETE');
+    await page.getByTestId('client-permanent-delete-continue').click();
+
+    await expect(
+      dialog.getByRole('heading', { name: 'Confirm permanent deletion' }),
+    ).toBeVisible();
+
+    await page.getByTestId('client-permanent-delete-confirm').click();
+
+    await expect(dialog.getByRole('alert')).toHaveText(
+      'This client has history and can’t be permanently deleted. Delete them from the active list instead.',
+    );
+    await expect(
+      dialog.getByTestId('client-permanent-delete-offer-archive'),
+    ).toBeVisible();
+
+    expect(permanentDeleteBody).toEqual({
+      salonSlug: e2eConfig.salonSlug,
+      expectedUpdatedAt: expect.any(String),
+    });
+
+    const dialogBox = await dialog.boundingBox();
+    const viewport = page.viewportSize();
+
+    expect(dialogBox).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+    expect(dialogBox!.y).toBeGreaterThanOrEqual(0);
+    expect(dialogBox!.x + dialogBox!.width)
+      .toBeLessThanOrEqual(viewport!.width);
+    expect(dialogBox!.y + dialogBox!.height)
+      .toBeLessThanOrEqual(viewport!.height);
+
+    await expect.poll(() => page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }))).toEqual({
+      clientWidth: viewport!.width,
+      scrollWidth: viewport!.width,
+    });
+  } finally {
+    await page.unroute(permanentDeleteRoute);
+    await page.request.delete('/api/super-admin/impersonate');
   }
 });
