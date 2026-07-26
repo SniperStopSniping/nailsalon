@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -14,9 +14,23 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 
+const CLIENT_SUGGESTION_LIMIT = 500;
+
 function includesAllTokens(haystack: string, needle: string) {
   const tokens = needle.split(' ').filter(token => token.length >= 2);
   return tokens.length > 0 && tokens.every(token => haystack.includes(token));
+}
+
+function includesClientNameTokens(haystack: string, needle: string) {
+  const tokens = needle.split(' ').filter(Boolean);
+  if (tokens.length === 0) {
+    return false;
+  }
+  if (tokens.length === 1) {
+    return haystack === needle;
+  }
+  const haystackTokens = new Set(haystack.split(' ').filter(Boolean));
+  return tokens.every(token => haystackTokens.has(token));
 }
 
 function normalizePhone(value: string | null | undefined) {
@@ -43,23 +57,66 @@ export async function GET(request: Request) {
   if (parsed.data.status !== 'all') {
     clauses.push(eq(googleCalendarEventSchema.reviewStatus, parsed.data.status));
   }
-  const [events, clients, services] = await Promise.all([
+  const [events, clients, suppressedClientRows, services] = await Promise.all([
     db.select().from(googleCalendarEventSchema).where(and(...clauses)).orderBy(asc(googleCalendarEventSchema.startTime)).limit(parsed.data.limit),
-    db.select({ id: salonClientSchema.id, fullName: salonClientSchema.fullName, phone: salonClientSchema.phone, email: salonClientSchema.email }).from(salonClientSchema).where(eq(salonClientSchema.salonId, salon.id)).limit(500),
+    db.select({
+      id: salonClientSchema.id,
+      fullName: salonClientSchema.fullName,
+      phone: salonClientSchema.phone,
+      email: salonClientSchema.email,
+    }).from(salonClientSchema).where(and(
+      eq(salonClientSchema.salonId, salon.id),
+      isNull(salonClientSchema.archivedAt),
+      isNull(salonClientSchema.mergedIntoClientId),
+    )).limit(CLIENT_SUGGESTION_LIMIT),
+    db.select({
+      id: salonClientSchema.id,
+      fullName: salonClientSchema.fullName,
+      phone: salonClientSchema.phone,
+      email: salonClientSchema.email,
+    }).from(salonClientSchema).where(and(
+      eq(salonClientSchema.salonId, salon.id),
+      or(
+        isNotNull(salonClientSchema.archivedAt),
+        isNotNull(salonClientSchema.mergedIntoClientId),
+      ),
+    )).limit(CLIENT_SUGGESTION_LIMIT + 1),
     db.select({ id: serviceSchema.id, name: serviceSchema.name, category: serviceSchema.category, price: serviceSchema.price, durationMinutes: serviceSchema.durationMinutes }).from(serviceSchema).where(and(eq(serviceSchema.salonId, salon.id), eq(serviceSchema.isActive, true))),
   ]);
+  const suppressionCoverageComplete
+    = suppressedClientRows.length <= CLIENT_SUGGESTION_LIMIT;
+  const suppressedClients = suppressedClientRows.slice(
+    0,
+    CLIENT_SUGGESTION_LIMIT,
+  );
   const data = await Promise.all(events.map(async (event) => {
     const normalizedTitle = normalizeGoogleEventTitle(event.title);
     const parsedTitle = parseGoogleEventTitle(event.title);
     const attendeePhone = normalizePhone(event.attendeePhone);
     const attendeeEmail = event.attendeeEmail?.trim().toLowerCase() || null;
-    const directClientMatches = clients.filter(client =>
+    const explicitNames = new Set([
+      normalizeGoogleEventTitle(event.attendeeName),
+      normalizeGoogleEventTitle(parsedTitle.clientName),
+    ].filter(Boolean));
+    const matchesContact = (client: typeof clients[number]) =>
       (attendeePhone && normalizePhone(client.phone) === attendeePhone)
-      || (attendeeEmail && client.email?.trim().toLowerCase() === attendeeEmail));
-    const titleClientMatches = clients.filter(client => client.fullName && includesAllTokens(normalizedTitle, normalizeGoogleEventTitle(client.fullName)));
+      || (attendeeEmail && client.email?.trim().toLowerCase() === attendeeEmail);
+    const matchesTitleIdentity = (client: typeof clients[number]) => {
+      const normalizedName = normalizeGoogleEventTitle(client.fullName);
+      return normalizedName
+        && (explicitNames.has(normalizedName)
+          || includesClientNameTokens(normalizedTitle, normalizedName));
+    };
+    const directClientMatches = clients.filter(client =>
+      matchesContact(client));
+    const titleClientMatches = clients.filter(matchesTitleIdentity);
     const matchedClients = directClientMatches.length === 1 ? directClientMatches : titleClientMatches;
     const matchedClient = matchedClients.length === 1 ? matchedClients[0]! : null;
-    const suggestedClient = event.attendeePhone || event.attendeeEmail || event.attendeeName || parsedTitle.clientName || matchedClient
+    const hasSuppressedClientIdentity = !suppressionCoverageComplete
+      || suppressedClients.some(client =>
+        matchesContact(client) || matchesTitleIdentity(client));
+    const suggestedClient = !hasSuppressedClientIdentity
+      && (event.attendeePhone || event.attendeeEmail || event.attendeeName || parsedTitle.clientName || matchedClient)
       ? {
           fullName: event.attendeeName || parsedTitle.clientName || matchedClient?.fullName || null,
           phone: event.attendeePhone || matchedClient?.phone || '',

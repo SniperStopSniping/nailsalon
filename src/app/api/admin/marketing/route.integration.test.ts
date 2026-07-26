@@ -7,6 +7,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,35 @@ beforeAll(async () => {
     { id: 'sc_due', salonId: SALON_ID, phone: '4165550301', fullName: 'Due Client', lastVisitAt: new Date(now - 45 * DAY) },
     // Same staleness but has a FUTURE booking → must be excluded.
     { id: 'sc_booked', salonId: SALON_ID, phone: '4165550302', fullName: 'Booked Client', lastVisitAt: new Date(now - 45 * DAY) },
+    // Archived standalone profiles are historical records, never outreach candidates.
+    {
+      id: 'sc_archived',
+      salonId: SALON_ID,
+      phone: '4165550303',
+      fullName: 'Archived Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+      archivedAt: new Date(now - DAY),
+      archivedBy: 'archive-test',
+    },
+    // The terminal is intentionally not due; its source below must never become
+    // a second active outreach candidate.
+    { id: 'sc_terminal', salonId: SALON_ID, phone: '4165550304', fullName: 'Terminal Client' },
+    { id: 'sc_merged_source', salonId: SALON_ID, phone: '4165550305', fullName: 'Merged Source', lastVisitAt: new Date(now - 45 * DAY) },
   ]);
+  await db.execute(sql.raw(
+    'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+  ));
+  try {
+    await db.execute(sql.raw(`
+      UPDATE salon_client
+      SET merged_into_client_id = 'sc_terminal'
+      WHERE id = 'sc_merged_source'
+    `));
+  } finally {
+    await db.execute(sql.raw(
+      'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+    ));
+  }
   await db.insert(schema.communicationConsentSchema).values({
     id: 'consent_1',
     salonId: SALON_ID,
@@ -170,7 +199,7 @@ function marketingRequest(slug = 'marketing-salon') {
 }
 
 describe('GET /api/admin/marketing', () => {
-  it('groups follow-ups from the live engine, excludes future bookings, and surfaces consent + last service', async () => {
+  it('groups active follow-ups, excludes archived/merged clients and future bookings, and surfaces consent + last service', async () => {
     const response = await GET(marketingRequest());
     const body = await response.json();
 
@@ -192,6 +221,8 @@ describe('GET /api/admin/marketing', () => {
     const allItems = body.data.followups.groups.flatMap((group: { items: Array<{ clientId: string }> }) => group.items);
 
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_booked')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_archived')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_merged_source')).toBe(false);
   });
 
   it('reports campaign results from finalized values — tax separated, never counted as revenue', async () => {

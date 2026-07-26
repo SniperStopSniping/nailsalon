@@ -8,6 +8,7 @@ import {
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
   lockTerminalSalonClientWithHandle,
+  resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -93,16 +94,25 @@ export async function GET(request: Request): Promise<Response> {
     return error!;
   }
 
+  let historyTerminalClientId: string | null = null;
+  let historyLineageClientIds = new Set<string>();
   if (parsed.data.clientId) {
-    const [ownedClient] = await db
-      .select({ id: salonClientSchema.id })
-      .from(salonClientSchema)
-      .where(and(
-        eq(salonClientSchema.id, parsed.data.clientId),
-        eq(salonClientSchema.salonId, salon.id),
-      ))
-      .limit(1);
-    if (!ownedClient) {
+    try {
+      const terminal = await resolveTerminalSalonClient({
+        salonId: salon.id,
+        clientId: parsed.data.clientId,
+        allowArchived: true,
+      });
+      const lineageIds = await getSalonClientLineageIdsWithHandle(db, {
+        salonId: salon.id,
+        terminalClientId: terminal.id,
+      });
+      historyTerminalClientId = terminal.id;
+      historyLineageClientIds = new Set(lineageIds);
+    } catch (historyError) {
+      if (!(historyError instanceof ClientLifecycleStabilizationError)) {
+        throw historyError;
+      }
       return Response.json({ error: { code: 'CLIENT_NOT_FOUND', message: 'Client not found.' } }, { status: 404 });
     }
   }
@@ -281,15 +291,11 @@ export async function GET(request: Request): Promise<Response> {
     now,
   });
 
-  const historyClientId = parsed.data.clientId
-    ? terminalBySource.get(parsed.data.clientId) ?? null
-    : null;
-  const history = historyClientId
+  const history = historyTerminalClientId
     ? communicationRows
-      .filter(row =>
-        terminalBySource.get(row.salonClientId) === historyClientId)
+      .filter(row => historyLineageClientIds.has(row.salonClientId))
       .slice(0, 100)
-      .map(row => serializeCommunication(row, historyClientId))
+      .map(row => serializeCommunication(row, historyTerminalClientId))
     : [];
 
   return Response.json({

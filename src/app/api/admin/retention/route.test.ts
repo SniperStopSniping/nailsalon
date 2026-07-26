@@ -18,9 +18,13 @@ const {
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
   lockTerminalSalonClientWithHandle,
+  MockClientLifecycleStabilizationError,
+  resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
+  class MockClientLifecycleStabilizationError extends Error {}
+
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
@@ -109,6 +113,21 @@ const {
           : [input.clientId],
       };
     }),
+    MockClientLifecycleStabilizationError,
+    resolveTerminalSalonClient: vi.fn(async (input: {
+      salonId: string;
+      clientId: string;
+    }) => ({
+      id: lifecycleState.terminalClientId ?? input.clientId,
+      salonId: input.salonId,
+      archivedAt: null,
+      redirectedFromClientId: lifecycleState.terminalClientId
+        ? input.clientId
+        : null,
+      lineagePath: lifecycleState.terminalClientId
+        ? [input.clientId, lifecycleState.terminalClientId]
+        : [input.clientId],
+    })),
     withClientLifecycleTransactionRetry: vi.fn(async (
       operation: (attempt: number) => Promise<unknown>,
     ) => operation(1)),
@@ -126,11 +145,11 @@ vi.mock('@/libs/clientLifecycleStabilization', async (importOriginal) => {
   >();
   return {
     ...actual,
-    ClientLifecycleStabilizationError:
-      class ClientLifecycleStabilizationError extends Error {},
+    ClientLifecycleStabilizationError: MockClientLifecycleStabilizationError,
     getSalonClientLineageIdsWithHandle,
     getSalonClientPhoneAliasesWithHandle,
     lockTerminalSalonClientWithHandle,
+    resolveTerminalSalonClient,
     withClientLifecycleTransactionRetry,
   };
 });
@@ -207,8 +226,12 @@ describe('/api/admin/retention', () => {
   });
 
   it('collapses a merged source into its active terminal before building reminder destinations', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientLineageIdsWithHandle.mockResolvedValueOnce([
+      'merged_source',
+      'primary_client',
+    ]);
     selectQueue.push(
-      [{ id: 'merged_source' }],
       [
         {
           id: 'primary_client',
@@ -293,8 +316,68 @@ describe('/api/admin/retention', () => {
     expect(JSON.stringify(body.data)).not.toContain('"merged_source"');
   });
 
+  it('keeps archived explicit communication history readable while excluding it from active queues', async () => {
+    selectQueue.push(
+      [{
+        id: 'archived_client',
+        fullName: 'Archived fixture',
+        phone: '4165550990',
+        lastVisitAt: new Date('2026-06-01T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+        archivedAt: new Date('2026-07-10T16:00:00.000Z'),
+        mergedIntoClientId: null,
+      }],
+      [],
+      [],
+      [{
+        id: 'communication_archived',
+        salonId: 'salon_1',
+        salonClientId: 'archived_client',
+        appointmentId: null,
+        kind: 'rebook',
+        status: 'marked_sent',
+        dueAt: null,
+        snoozedUntil: null,
+        messageSnapshot: 'Historical outreach',
+        metadata: {},
+        actorAdminId: 'admin_1',
+        destinationSnapshot: '4165550990',
+        preparedAt: null,
+        markedSentAt: NOW,
+        dismissedAt: null,
+        convertedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+    );
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=archived_client',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.retention).toEqual([]);
+    expect(body.data.appointmentReminders).toEqual([]);
+    expect(body.data.history).toEqual([
+      expect.objectContaining({
+        id: 'communication_archived',
+        clientId: 'archived_client',
+        status: 'marked_sent',
+      }),
+    ]);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'archived_client',
+      allowArchived: true,
+    });
+  });
+
   it('returns 404 instead of leaking a client from another salon', async () => {
-    selectQueue.push([]);
+    resolveTerminalSalonClient.mockRejectedValueOnce(
+      new MockClientLifecycleStabilizationError(),
+    );
 
     const response = await GET(new Request(
       'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=foreign_client',
