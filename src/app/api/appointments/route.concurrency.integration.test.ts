@@ -249,7 +249,8 @@ suite('POST /api/appointments — genuine concurrency', () => {
     sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, errorCode: null, providerMessageId: 'm' });
 
     await pool.query(`TRUNCATE TABLE
-      appointment_audit_log, appointment_payment_link, reward, referral,
+      audit_log, client_communication, appointment_audit_log,
+      appointment_payment_link, reward, referral,
       appointment_access_token, appointment_add_on, appointment_services,
       notification_delivery, integration_outbox, appointment,
       salon_client_contact_alias, salon_client
@@ -1115,14 +1116,20 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
   it('serializes an admin email update against new-profile booking creation', async () => {
     const targetEmail = 'admin-booking-race@example.invalid';
-    await db.insert(schema.salonClientSchema).values({
-      id: 'client_admin_email_race',
-      salonId: SALON_ID,
-      phone: '4165554100',
-      fullName: 'Existing Profile',
-      email: 'existing-profile@example.invalid',
-      notes: 'Original notes',
-    });
+    const [existingProfile] = await db
+      .insert(schema.salonClientSchema)
+      .values({
+        id: 'client_admin_email_race',
+        salonId: SALON_ID,
+        phone: '4165554100',
+        fullName: 'Existing Profile',
+        email: 'existing-profile@example.invalid',
+        notes: 'Original notes',
+      })
+      .returning();
+    if (!existingProfile) {
+      throw new Error('Failed to seed admin edit race profile');
+    }
     requireAdminSalon.mockResolvedValue({
       error: null,
       salon: {
@@ -1157,6 +1164,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
             salonSlug: 'concurrency-salon',
             email: targetEmail,
             notes: 'Must roll back when booking wins',
+            expectedUpdatedAt: existingProfile.updatedAt.toISOString(),
           }),
         },
       ),
@@ -1209,6 +1217,453 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(referrals).toHaveLength(0);
     expect(deliveries).toHaveLength(2);
     expect(outbox).toHaveLength(1);
+  });
+
+  it('waits for a pending global identity writer and then fails the contact edit closed', async () => {
+    const proposedPhone = '+14165554199';
+    const globalClientId = 'global_client_edit_identity_race';
+    const [profile] = await db
+      .insert(schema.salonClientSchema)
+      .values({
+        id: 'client_external_identity_race',
+        salonId: SALON_ID,
+        phone: '4165554198',
+        fullName: 'External Identity Race',
+        email: 'external-identity-race@example.invalid',
+      })
+      .returning();
+    if (!profile) {
+      throw new Error('Failed to seed external identity race profile');
+    }
+
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+
+    const writer = await pool.connect();
+    let writerFinished = false;
+    let updatePromise: Promise<Response> | null = null;
+    try {
+      await writer.query('BEGIN');
+      await writer.query(
+        `INSERT INTO client (id, phone, first_name, email)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          globalClientId,
+          proposedPhone,
+          'External',
+          'global-identity-race@example.invalid',
+        ],
+      );
+      const writerPidResult = await writer.query<{ pid: number }>(
+        'SELECT pg_backend_pid()::int AS pid',
+      );
+      const writerPid = writerPidResult.rows[0]?.pid;
+      if (!writerPid) {
+        throw new Error('Failed to identify external identity writer');
+      }
+
+      const { PATCH: updateClient } = await import(
+        '../admin/clients/[id]/route'
+      );
+      updatePromise = updateClient(
+        new Request(
+          'http://localhost/api/admin/clients/client_external_identity_race',
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              salonSlug: 'concurrency-salon',
+              phone: proposedPhone,
+              expectedUpdatedAt: profile.updatedAt.toISOString(),
+            }),
+          },
+        ),
+        {
+          params: Promise.resolve({
+            id: 'client_external_identity_race',
+          }),
+        },
+      );
+
+      await waitForBlockedSessions(1, writerPid);
+      const linked = await writer.query(
+        `UPDATE salon_client
+         SET client_id = $1
+         WHERE salon_id = $2 AND id = $3`,
+        [
+          globalClientId,
+          SALON_ID,
+          'client_external_identity_race',
+        ],
+      );
+
+      expect(linked.rowCount).toBe(1);
+
+      await writer.query('COMMIT');
+      writerFinished = true;
+
+      const response = await updatePromise;
+      const body = await response.json() as {
+        error?: { code?: string; message?: string };
+      };
+
+      expect(response.status).toBe(409);
+      expect(body.error?.code).toBe('UNSUPPORTED_CLIENT_IDENTITY');
+      expect(body.error?.message).not.toMatch(
+        /customer login|session|foreign|global/i,
+      );
+      expect(JSON.stringify(body)).not.toContain(proposedPhone);
+      expect(JSON.stringify(body)).not.toContain(globalClientId);
+
+      const [stored] = await db
+        .select()
+        .from(schema.salonClientSchema)
+        .where(eq(
+          schema.salonClientSchema.id,
+          'client_external_identity_race',
+        ))
+        .limit(1);
+      const audits = await db
+        .select()
+        .from(schema.auditLogSchema)
+        .where(eq(
+          schema.auditLogSchema.entityId,
+          'client_external_identity_race',
+        ));
+
+      expect(stored).toMatchObject({
+        clientId: globalClientId,
+        phone: '4165554198',
+        email: 'external-identity-race@example.invalid',
+      });
+      expect(stored?.updatedAt).toEqual(profile.updatedAt);
+      expect(audits).toHaveLength(0);
+    } finally {
+      if (!writerFinished) {
+        await writer.query('ROLLBACK').catch(() => {});
+      }
+      writer.release();
+      if (updatePromise) {
+        await updatePromise.catch(() => undefined);
+      }
+      await pool.query(
+        'DELETE FROM client_session WHERE client_phone = $1',
+        [proposedPhone],
+      );
+      await pool.query(
+        `UPDATE salon_client
+         SET client_id = NULL
+         WHERE salon_id = $1 AND id = $2`,
+        [SALON_ID, 'client_external_identity_race'],
+      );
+      await pool.query(
+        'DELETE FROM client WHERE id = $1',
+        [globalClientId],
+      );
+    }
+  });
+
+  it('lets one simultaneous edit win and treats its exact stale retry as idempotent', async () => {
+    const [profile] = await db
+      .insert(schema.salonClientSchema)
+      .values({
+        id: 'client_edit_cas_race',
+        salonId: SALON_ID,
+        phone: '4165554200',
+        fullName: 'CAS Profile',
+        email: 'cas-profile@example.invalid',
+        notes: 'Original CAS note',
+      })
+      .returning();
+    if (!profile) {
+      throw new Error('Failed to seed CAS edit profile');
+    }
+
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+
+    const { PATCH: updateClient } = await import(
+      '../admin/clients/[id]/route'
+    );
+    const editRequest = (notes: string) =>
+      new Request(
+        'http://localhost/api/admin/clients/client_edit_cas_race',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug: 'concurrency-salon',
+            notes,
+            expectedUpdatedAt: profile.updatedAt.toISOString(),
+          }),
+        },
+      );
+    const editContext = {
+      params: Promise.resolve({ id: 'client_edit_cas_race' }),
+    };
+    const held = await holdTerminalClient('client_edit_cas_race');
+    const first = updateClient(
+      editRequest('CAS edit alpha'),
+      editContext,
+    );
+    const second = updateClient(
+      editRequest('CAS edit beta'),
+      {
+        params: Promise.resolve({ id: 'client_edit_cas_race' }),
+      },
+    );
+
+    await releaseHeldBarrier(held, 2, [first, second]);
+
+    const responses = await Promise.all([first, second]);
+    const winner = responses.find(response => response.status === 200);
+    const loser = responses.find(response => response.status === 409);
+
+    expect(winner).toBeDefined();
+    expect(loser).toBeDefined();
+
+    await expectErrorCode(loser!, 'CLIENT_EDIT_CONFLICT');
+
+    const winnerBody = await winner!.json() as {
+      data: { client: { notes: string; updatedAt: string } };
+    };
+    const winningNotes = winnerBody.data.client.notes;
+    const [storedAfterRace] = await db
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'client_edit_cas_race'))
+      .limit(1);
+    const auditsAfterRace = await db
+      .select()
+      .from(schema.auditLogSchema)
+      .where(eq(
+        schema.auditLogSchema.entityId,
+        'client_edit_cas_race',
+      ));
+
+    expect(['CAS edit alpha', 'CAS edit beta']).toContain(winningNotes);
+    expect(storedAfterRace).toMatchObject({
+      id: 'client_edit_cas_race',
+      notes: winningNotes,
+    });
+    expect(storedAfterRace?.updatedAt.toISOString())
+      .toBe(winnerBody.data.client.updatedAt);
+    expect(auditsAfterRace).toHaveLength(1);
+    expect(auditsAfterRace[0]).toMatchObject({
+      actorType: 'admin',
+      action: 'updated',
+      entityType: 'salon_client',
+      entityId: 'client_edit_cas_race',
+    });
+    expect(auditsAfterRace[0]?.metadata).toEqual({
+      terminalClientId: 'client_edit_cas_race',
+      changedFields: ['notes'],
+      redirectedFromStaleSource: false,
+    });
+    expect(JSON.stringify(auditsAfterRace[0]?.metadata))
+      .not.toContain(winningNotes);
+
+    const retry = await updateClient(
+      editRequest(winningNotes),
+      {
+        params: Promise.resolve({ id: 'client_edit_cas_race' }),
+      },
+    );
+    const retryBody = await retry.json() as {
+      data: { client: { notes: string; updatedAt: string } };
+    };
+
+    expect(retry.status).toBe(200);
+    expect(retryBody.data.client).toMatchObject({
+      notes: winningNotes,
+      updatedAt: winnerBody.data.client.updatedAt,
+    });
+
+    const [storedAfterRetry] = await db
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'client_edit_cas_race'))
+      .limit(1);
+    const auditsAfterRetry = await db
+      .select()
+      .from(schema.auditLogSchema)
+      .where(eq(
+        schema.auditLogSchema.entityId,
+        'client_edit_cas_race',
+      ));
+
+    expect(storedAfterRetry?.updatedAt).toEqual(storedAfterRace?.updatedAt);
+    expect(auditsAfterRetry).toEqual(auditsAfterRace);
+  });
+
+  it('keeps one-active-appointment protection across current and replaced contacts', async () => {
+    await seedMergedLineage();
+    const [terminalBefore] = await db
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'client_terminal'))
+      .limit(1);
+    if (!terminalBefore) {
+      throw new Error('Failed to seed contact edit terminal');
+    }
+
+    await seedAppointment({
+      id: 'appointment_before_contact_edit',
+      status: 'confirmed',
+      salonClientId: 'client_source',
+      clientPhone: '4165553001',
+      clientEmail: 'source@example.invalid',
+      startTime: '2099-10-01T15:00:00.000Z',
+    });
+    const appointmentBefore = await loadAppointment(
+      'appointment_before_contact_edit',
+    );
+    const communicationsBefore = await db
+      .select()
+      .from(schema.clientCommunicationSchema)
+      .where(eq(
+        schema.clientCommunicationSchema.appointmentId,
+        'appointment_before_contact_edit',
+      ));
+
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: {
+        id: SALON_ID,
+        slug: 'concurrency-salon',
+      },
+    });
+
+    const [{ PATCH: updateClient }, { POST }] = await Promise.all([
+      import('../admin/clients/[id]/route'),
+      import('./route'),
+    ]);
+    const updateResponse = await updateClient(
+      new Request(
+        'http://localhost/api/admin/clients/client_source',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug: 'concurrency-salon',
+            phone: '+1 (416) 555-3111',
+            email: 'EDITED.CONTACT@example.invalid',
+            expectedUpdatedAt: terminalBefore.updatedAt.toISOString(),
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({ id: 'client_source' }),
+      },
+    );
+    const updateBody = await updateResponse.json() as {
+      data?: { client?: { id?: string; phone?: string; email?: string } };
+    };
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateBody.data?.client).toMatchObject({
+      id: 'client_terminal',
+      phone: '4165553111',
+      email: 'edited.contact@example.invalid',
+    });
+
+    const currentContactBooking = await POST(bookingRequest({
+      clientPhone: '4165553111',
+      clientEmail: 'edited.contact@example.invalid',
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-08T18:00:00.000Z',
+    }));
+    const replacedContactBooking = await POST(bookingRequest({
+      clientPhone: '4165553000',
+      clientEmail: 'old-contact-clue@example.invalid',
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-09T18:00:00.000Z',
+    }));
+
+    await expectErrorCode(currentContactBooking, 'EXISTING_APPOINTMENT');
+    await expectErrorCode(replacedContactBooking, 'EXISTING_APPOINTMENT');
+
+    const [
+      clients,
+      aliases,
+      appointments,
+      communicationsAfter,
+      audits,
+      rewards,
+      referrals,
+      services,
+      accessTokens,
+      deliveries,
+      outbox,
+    ] = await Promise.all([
+      db.select().from(schema.salonClientSchema),
+      db.select().from(schema.salonClientContactAliasSchema),
+      db.select().from(schema.appointmentSchema),
+      db.select().from(schema.clientCommunicationSchema),
+      db.select().from(schema.auditLogSchema),
+      db.select().from(schema.rewardSchema),
+      db.select().from(schema.referralSchema),
+      db.select().from(schema.appointmentServicesSchema),
+      db.select().from(schema.appointmentAccessTokenSchema),
+      db.select().from(schema.notificationDeliverySchema),
+      db.select().from(schema.integrationOutboxSchema),
+    ]);
+
+    expect(clients).toHaveLength(2);
+    expect(clients.find(client => client.id === 'client_terminal'))
+      .toMatchObject({
+        phone: '4165553111',
+        email: 'edited.contact@example.invalid',
+        loyaltyPoints: terminalBefore.loyaltyPoints,
+        totalSpent: terminalBefore.totalSpent,
+      });
+    expect(clients.find(client => client.id === 'client_source'))
+      .toMatchObject({
+        phone: '4165553001',
+        email: 'source@example.invalid',
+        mergedIntoClientId: 'client_terminal',
+      });
+    expect(aliases).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        salonId: SALON_ID,
+        salonClientId: 'client_terminal',
+        kind: 'phone',
+        normalizedValue: '4165553000',
+      }),
+      expect.objectContaining({
+        salonId: SALON_ID,
+        salonClientId: 'client_terminal',
+        kind: 'email',
+        normalizedValue: 'terminal@example.invalid',
+      }),
+    ]));
+    expect(appointments).toEqual([appointmentBefore]);
+    expect(communicationsAfter).toEqual(communicationsBefore);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      entityId: 'client_terminal',
+    });
+    expect(audits[0]?.metadata).toEqual({
+      terminalClientId: 'client_terminal',
+      changedFields: ['email', 'phone'],
+      redirectedFromStaleSource: true,
+    });
+    expect(rewards).toHaveLength(0);
+    expect(referrals).toHaveLength(0);
+    expect(services).toHaveLength(0);
+    expect(accessTokens).toHaveLength(0);
+    expect(deliveries).toHaveLength(0);
+    expect(outbox).toHaveLength(0);
   });
 
   it('serializes terminal, source, phone-alias, and email-alias bookings', async () => {

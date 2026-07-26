@@ -4,20 +4,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   requireAdminSalon,
   ClientLifecycleStabilizationError,
-  lockSalonClientIdentityKeysWithHandle,
+  getSalonClientHistoricalPhoneHints,
+  hasUnsafeSalonClientExternalIdentityWithHandle,
+  lockGlobalClientIdentityTablesWithHandle,
+  lockSalonClientIdentityKeySetWithHandle,
   lockTerminalSalonClientWithHandle,
+  normalizeSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
   getSalonClientById,
   normalizePhone,
-  updateSalonClient,
   selectQueue,
+  transactionSelectQueue,
   transactionUpdateQueue,
   transactionUpdate,
+  transactionInsert,
+  transactionInsertValues,
   db,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
+  const transactionSelectQueue: unknown[] = [];
   const transactionUpdateQueue: unknown[][] = [];
 
   const createQuery = (result: unknown) => {
@@ -39,6 +47,8 @@ const {
   };
 
   const select = vi.fn(() => createQuery(selectQueue.shift() ?? []));
+  const transactionSelect = vi.fn(() =>
+    createQuery(transactionSelectQueue.shift() ?? []));
   const transactionUpdate = vi.fn(() => {
     const result = transactionUpdateQueue.shift() ?? [];
     const query = {
@@ -48,26 +58,77 @@ const {
     };
     return query;
   });
+  const transactionInsertValues = vi.fn((_values: unknown) => {
+    const query = {
+      onConflictDoNothing: vi.fn(async () => []),
+      then: (
+        resolve: (value: unknown) => void,
+        reject?: (reason: unknown) => void,
+      ) => Promise.resolve([]).then(resolve, reject),
+    };
+    return query;
+  });
+  const transactionInsert = vi.fn(() => ({
+    values: transactionInsertValues,
+  }));
   const transaction = vi.fn(async (operation: (tx: unknown) => unknown) =>
     operation({
       execute: vi.fn(),
+      select: transactionSelect,
       update: transactionUpdate,
+      insert: transactionInsert,
     }));
 
   return {
     requireAdminSalon: vi.fn(),
-    ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
-    lockSalonClientIdentityKeysWithHandle: vi.fn(),
+    ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {
+      code: string;
+
+      constructor(code: string) {
+        super(code);
+        this.code = code;
+      }
+    },
+    getSalonClientHistoricalPhoneHints: vi.fn(),
+    hasUnsafeSalonClientExternalIdentityWithHandle: vi.fn(),
+    lockGlobalClientIdentityTablesWithHandle: vi.fn(),
+    lockSalonClientIdentityKeySetWithHandle: vi.fn(),
     lockTerminalSalonClientWithHandle: vi.fn(),
+    normalizeSalonClientIdentity: vi.fn((input: {
+      phone?: string | null;
+      email?: string | null;
+    }) => {
+      const digits = input.phone?.replace(/\D/g, '') ?? '';
+      const phone = digits.length === 11 && digits.startsWith('1')
+        ? digits.slice(1)
+        : digits;
+      if (input.phone != null && input.phone.trim() && phone.length !== 10) {
+        throw new TypeError('invalid phone');
+      }
+      const email = input.email?.trim().toLowerCase() || null;
+      if (email) {
+        const [local, domain, extra] = email.split('@');
+        if (!local || !domain?.includes('.') || extra !== undefined) {
+          throw new TypeError('invalid email');
+        }
+      }
+      return {
+        phone: phone || null,
+        email,
+      };
+    }),
     resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
     resolveTerminalSalonClient: vi.fn(),
+    resolveTerminalSalonClientWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(),
     getSalonClientById: vi.fn(),
     normalizePhone: vi.fn((phone: string) => phone.replace(/\D/g, '')),
-    updateSalonClient: vi.fn(),
     selectQueue,
+    transactionSelectQueue,
     transactionUpdateQueue,
     transactionUpdate,
+    transactionInsert,
+    transactionInsertValues,
     db: {
       select,
       transaction,
@@ -81,17 +142,21 @@ vi.mock('@/libs/adminAuth', () => ({
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError,
-  lockSalonClientIdentityKeysWithHandle,
+  getSalonClientHistoricalPhoneHints,
+  hasUnsafeSalonClientExternalIdentityWithHandle,
+  lockGlobalClientIdentityTablesWithHandle,
+  lockSalonClientIdentityKeySetWithHandle,
   lockTerminalSalonClientWithHandle,
+  normalizeSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 }));
 
 vi.mock('@/libs/queries', () => ({
   getSalonClientById,
   normalizePhone,
-  updateSalonClient,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -113,6 +178,18 @@ describe('GET /api/admin/clients/[id]', () => {
       redirectedFromClientId: null,
       lineagePath: [clientId],
     }));
+    getSalonClientHistoricalPhoneHints.mockImplementation(
+      async ({ salonId, clientId }) => ({
+        terminal: {
+          id: clientId,
+          salonId,
+          archivedAt: null,
+          redirectedFromClientId: null,
+          lineagePath: [clientId],
+        },
+        phones: ['1111111111'],
+      }),
+    );
   });
 
   it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
@@ -217,6 +294,7 @@ describe('GET /api/admin/clients/[id]', () => {
       phone: '1111111111',
       fullName: 'Ava Thompson',
       email: 'ava@example.com',
+      birthday: '1990-05-12',
       preferredTechnicianId: 'tech_1',
       notes: 'VIP client',
       lastVisitAt: new Date('2026-03-10T14:00:00.000Z'),
@@ -233,6 +311,7 @@ describe('GET /api/admin/clients/[id]', () => {
       hasGoogleReview: false,
       googleReviewMarkedAt: null,
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-01T00:00:00.000Z'),
     });
 
     selectQueue.push(
@@ -334,6 +413,10 @@ describe('GET /api/admin/clients/[id]', () => {
       name: 'Daniela',
       avatarUrl: null,
     });
+    expect(body.data.client).toMatchObject({
+      birthday: '1990-05-12',
+      updatedAt: '2026-03-01T00:00:00.000Z',
+    });
     expect(body.data.upcomingAppointments).toHaveLength(1);
     expect(body.data.upcomingAppointments[0]).toMatchObject({
       id: 'appt_upcoming',
@@ -376,28 +459,103 @@ describe('GET /api/admin/clients/[id]', () => {
 });
 
 describe('PATCH /api/admin/clients/[id]', () => {
+  const loadedAt = new Date('2026-07-25T11:00:00.000Z');
+  const savedAt = new Date('2026-07-25T12:00:00.000Z');
+  const currentClient = {
+    id: 'client_primary',
+    salonId: 'salon_1',
+    clientId: null,
+    phone: '1111111111',
+    fullName: '  Ava   van der Thompson  ',
+    email: 'ava@example.com',
+    birthday: '1990-05-12',
+    preferredTechnicianId: null,
+    notes: 'Original note',
+    sensitivities: null,
+    nailPreferences: {},
+    tags: [],
+    rebookIntervalDays: null,
+    nextRebookDueAt: null,
+    lastContactAt: null,
+    lastVisitAt: null,
+    totalVisits: 0,
+    totalSpent: 0,
+    noShowCount: 0,
+    loyaltyPoints: 0,
+    welcomeBonusGrantedAt: null,
+    hasGoogleReview: false,
+    googleReviewMarkedAt: null,
+    googleReviewMarkedBy: null,
+    lateCancelCount: 0,
+    lastLateCancelAt: null,
+    adminFlags: null,
+    isBlocked: false,
+    blockedReason: null,
+    archivedAt: null,
+    archivedBy: null,
+    mergedIntoClientId: null,
+    mergedAt: null,
+    mergedBy: null,
+    createdAt: new Date('2025-01-01T00:00:00.000Z'),
+    updatedAt: loadedAt,
+  };
+
+  function editRequest(
+    fields: Record<string, unknown>,
+    clientId = 'client_source',
+  ): Promise<Response> {
+    return PATCH(
+      new Request(`http://localhost/api/admin/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          ...fields,
+        }),
+      }),
+      { params: Promise.resolve({ id: clientId }) },
+    );
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     selectQueue.length = 0;
+    transactionSelectQueue.length = 0;
     transactionUpdateQueue.length = 0;
-    resolveTerminalSalonClient.mockResolvedValue({
+    requireAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_1' },
+    });
+    lockTerminalSalonClientWithHandle.mockResolvedValue({
       id: 'client_primary',
       salonId: 'salon_1',
       archivedAt: null,
       redirectedFromClientId: 'client_source',
       lineagePath: ['client_source', 'client_primary'],
     });
-    lockTerminalSalonClientWithHandle.mockResolvedValue({
+    resolveTerminalSalonClientWithHandle.mockResolvedValue({
       id: 'client_primary',
       salonId: 'salon_1',
       archivedAt: null,
-      redirectedFromClientId: null,
-      lineagePath: ['client_primary'],
+      redirectedFromClientId: 'client_source',
+      lineagePath: ['client_source', 'client_primary'],
     });
-    lockSalonClientIdentityKeysWithHandle.mockResolvedValue({
-      phone: null,
-      email: 'updated@example.com',
-    });
+    lockSalonClientIdentityKeySetWithHandle.mockResolvedValue([
+      {
+        salonId: 'salon_1',
+        kind: 'email',
+        normalizedValue: 'ava@example.com',
+        advisoryKey: 'old-email',
+      },
+      {
+        salonId: 'salon_1',
+        kind: 'email',
+        normalizedValue: 'updated@example.com',
+        advisoryKey: 'new-email',
+      },
+    ]);
+    hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(false);
     resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
       terminal: {
         id: 'client_primary',
@@ -417,87 +575,14 @@ describe('PATCH /api/admin/clients/[id]', () => {
     withClientLifecycleTransactionRetry.mockImplementation(
       async operation => operation(1),
     );
+    transactionSelectQueue.push([currentClient]);
   });
 
   it('updates the same-salon terminal primary for a stale source profile ID', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: null,
-      salon: { id: 'salon_1' },
-    });
-    getSalonClientById.mockResolvedValue({
-      id: 'client_primary',
-      lastVisitAt: null,
-    });
-    updateSalonClient.mockResolvedValue({
-      id: 'client_primary',
-      phone: '1111111111',
-      fullName: 'Ava Primary',
-      email: null,
-      preferredTechnicianId: null,
-      notes: null,
-      sensitivities: null,
-      nailPreferences: {},
-      tags: [],
-      rebookIntervalDays: null,
-      nextRebookDueAt: null,
-      updatedAt: new Date('2026-07-25T12:00:00.000Z'),
-    });
-
-    const response = await PATCH(
-      new Request('http://localhost/api/admin/clients/client_source', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug: 'salon-a',
-          notes: 'Updated operational note',
-        }),
-      }),
-      { params: Promise.resolve({ id: 'client_source' }) },
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
-      salonId: 'salon_1',
-      clientId: 'client_source',
-      allowArchived: true,
-    });
-    expect(getSalonClientById).toHaveBeenCalledWith('salon_1', 'client_primary');
-    expect(updateSalonClient).toHaveBeenCalledWith(
-      'salon_1',
-      'client_primary',
-      expect.objectContaining({ notes: 'Updated operational note' }),
-    );
-    expect(updateSalonClient).not.toHaveBeenCalledWith(
-      'salon_1',
-      'client_source',
-      expect.anything(),
-    );
-    expect(body.data.client.id).toBe('client_primary');
-  });
-
-  it('serializes an email update after the terminal lock and rechecks canonical ownership', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: null,
-      salon: { id: 'salon_1' },
-    });
-    getSalonClientById.mockResolvedValue({
-      id: 'client_primary',
-      lastVisitAt: null,
-    });
     transactionUpdateQueue.push([{
-      id: 'client_primary',
-      phone: '1111111111',
-      fullName: 'Ava Primary',
-      email: 'updated@example.com',
-      preferredTechnicianId: null,
-      notes: 'Atomic profile update',
-      sensitivities: null,
-      nailPreferences: {},
-      tags: [],
-      rebookIntervalDays: null,
-      nextRebookDueAt: null,
-      updatedAt: new Date('2026-07-25T12:00:00.000Z'),
+      ...currentClient,
+      notes: 'Updated operational note',
+      updatedAt: savedAt,
     }]);
 
     const response = await PATCH(
@@ -506,8 +591,99 @@ describe('PATCH /api/admin/clients/[id]', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
-          email: 'updated@example.com',
-          notes: 'Atomic profile update',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          notes: 'Updated operational note',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'client_source',
+        allowArchived: true,
+      },
+    );
+    expect(body.data.client.id).toBe('client_primary');
+    expect(body.data.client.fullName).toBe('  Ava   van der Thompson  ');
+    expect(body.data.client.updatedAt).toBe(savedAt.toISOString());
+    expect(transactionInsertValues).toHaveBeenCalledOnce();
+    expect(transactionInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: 'client_primary',
+        metadata: {
+          terminalClientId: 'client_primary',
+          changedFields: ['notes'],
+          redirectedFromStaleSource: true,
+        },
+      }),
+    );
+    expect(lockGlobalClientIdentityTablesWithHandle).not.toHaveBeenCalled();
+    expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
+    expect(hasUnsafeSalonClientExternalIdentityWithHandle)
+      .not.toHaveBeenCalled();
+  });
+
+  it('edits a terminal client directly without marking a stale-source redirect', async () => {
+    lockTerminalSalonClientWithHandle.mockResolvedValue({
+      id: 'client_primary',
+      salonId: 'salon_1',
+      archivedAt: null,
+      redirectedFromClientId: null,
+      lineagePath: ['client_primary'],
+    });
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      notes: 'Direct terminal edit',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await editRequest(
+      { notes: 'Direct terminal edit' },
+      'client_primary',
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.id).toBe('client_primary');
+    expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        clientId: 'client_primary',
+        allowArchived: true,
+      },
+    );
+    expect(transactionInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          terminalClientId: 'client_primary',
+          changedFields: ['notes'],
+          redirectedFromStaleSource: false,
+        },
+      }),
+    );
+  });
+
+  it('uses global-first lock order for an email update and rechecks canonical ownership', async () => {
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      email: 'updated@example.com',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          email: ' UPDATED@Example.COM ',
         }),
       }),
       { params: Promise.resolve({ id: 'client_source' }) },
@@ -518,53 +694,148 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(body.data.client).toMatchObject({
       id: 'client_primary',
       email: 'updated@example.com',
-      notes: 'Atomic profile update',
     });
     expect(lockTerminalSalonClientWithHandle).toHaveBeenCalledWith(
       expect.anything(),
       {
         salonId: 'salon_1',
-        clientId: 'client_primary',
+        clientId: 'client_source',
         allowArchived: true,
       },
     );
-    expect(lockSalonClientIdentityKeysWithHandle).toHaveBeenCalledWith(
+    expect(lockSalonClientIdentityKeySetWithHandle).toHaveBeenCalledWith(
       expect.anything(),
       {
         salonId: 'salon_1',
-        email: 'updated@example.com',
+        contacts: [
+          { phone: '1111111111', email: 'ava@example.com' },
+          { phone: '1111111111', email: 'updated@example.com' },
+        ],
       },
     );
-    expect(resolveCanonicalSalonClientIdentityWithHandle).toHaveBeenCalledWith(
+    expect(resolveTerminalSalonClientWithHandle).toHaveBeenCalledWith(
       expect.anything(),
       {
         salonId: 'salon_1',
-        email: 'updated@example.com',
+        clientId: 'client_source',
         allowArchived: true,
       },
     );
+    expect(lockGlobalClientIdentityTablesWithHandle.mock.invocationCallOrder[0])
+      .toBeLessThan(
+        lockTerminalSalonClientWithHandle.mock.invocationCallOrder[0]!,
+      );
     expect(lockTerminalSalonClientWithHandle.mock.invocationCallOrder[0])
       .toBeLessThan(
-        lockSalonClientIdentityKeysWithHandle.mock.invocationCallOrder[0]!,
+        lockSalonClientIdentityKeySetWithHandle.mock.invocationCallOrder[0]!,
       );
-    expect(lockSalonClientIdentityKeysWithHandle.mock.invocationCallOrder[0])
+    expect(lockSalonClientIdentityKeySetWithHandle.mock.invocationCallOrder[0])
       .toBeLessThan(
-        resolveCanonicalSalonClientIdentityWithHandle.mock.invocationCallOrder[0]!,
+        resolveTerminalSalonClientWithHandle.mock.invocationCallOrder[0]!,
       );
     expect(resolveCanonicalSalonClientIdentityWithHandle.mock.invocationCallOrder[0])
       .toBeLessThan(transactionUpdate.mock.invocationCallOrder[0]!);
-    expect(updateSalonClient).not.toHaveBeenCalled();
+    expect(transactionInsertValues).toHaveBeenCalledTimes(2);
+    expect(transactionInsertValues).toHaveBeenNthCalledWith(1, [{
+      salonId: 'salon_1',
+      salonClientId: 'client_primary',
+      kind: 'email',
+      normalizedValue: 'ava@example.com',
+    }]);
+    expect(transactionInsertValues).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        metadata: {
+          terminalClientId: 'client_primary',
+          changedFields: ['email'],
+          redirectedFromStaleSource: true,
+        },
+      }),
+    );
+  });
+
+  it('normalizes and applies a phone-only edit while retaining the old phone as an alias', async () => {
+    lockSalonClientIdentityKeySetWithHandle.mockResolvedValue([
+      {
+        salonId: 'salon_1',
+        kind: 'phone',
+        normalizedValue: '1111111111',
+        advisoryKey: 'old-phone',
+      },
+      {
+        salonId: 'salon_1',
+        kind: 'phone',
+        normalizedValue: '4165550101',
+        advisoryKey: 'new-phone',
+      },
+    ]);
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      phone: '4165550101',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await editRequest({
+      phone: '+1 (416) 555-0101',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.phone).toBe('4165550101');
+    expect(lockSalonClientIdentityKeySetWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        contacts: [
+          { phone: '1111111111', email: 'ava@example.com' },
+          { phone: '4165550101', email: 'ava@example.com' },
+        ],
+      },
+    );
+    expect(transactionInsertValues).toHaveBeenNthCalledWith(1, [{
+      salonId: 'salon_1',
+      salonClientId: 'client_primary',
+      kind: 'phone',
+      normalizedValue: '1111111111',
+    }]);
+    expect(transactionInsertValues).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          changedFields: ['phone'],
+        }),
+      }),
+    );
+  });
+
+  it('applies a birthday-only edit without taking contact identity locks', async () => {
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      birthday: '1991-06-13',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await editRequest({
+      birthday: '1991-06-13',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client.birthday).toBe('1991-06-13');
+    expect(lockGlobalClientIdentityTablesWithHandle).not.toHaveBeenCalled();
+    expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
+    expect(hasUnsafeSalonClientExternalIdentityWithHandle)
+      .not.toHaveBeenCalled();
+    expect(transactionInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          changedFields: ['birthday'],
+        }),
+      }),
+    );
   });
 
   it('rolls back every profile field when the email belongs to another terminal', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: null,
-      salon: { id: 'salon_1' },
-    });
-    getSalonClientById.mockResolvedValue({
-      id: 'client_primary',
-      lastVisitAt: null,
-    });
     resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
       terminal: {
         id: 'client_other',
@@ -588,6 +859,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
           email: 'claimed@example.com',
           notes: 'Must roll back with the email',
         }),
@@ -605,16 +877,81 @@ describe('PATCH /api/admin/clients/[id]', () => {
     });
     expect(response.headers.get('cache-control')).toContain('private');
     expect(transactionUpdate).not.toHaveBeenCalled();
-    expect(updateSalonClient).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a phone owned by another same-salon terminal', async () => {
+    lockSalonClientIdentityKeySetWithHandle.mockResolvedValue([{
+      salonId: 'salon_1',
+      kind: 'phone',
+      normalizedValue: '4165550101',
+      advisoryKey: 'new-phone',
+    }]);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
+      terminal: {
+        id: 'client_other',
+        salonId: 'salon_1',
+        archivedAt: null,
+        redirectedFromClientId: null,
+        lineagePath: ['client_other'],
+        phone: '4165550101',
+        email: null,
+      },
+      clientIds: ['client_other'],
+      phones: ['4165550101'],
+      emails: [],
+      externalClientId: null,
+      matchedBy: [{ kind: 'phone', value: '4165550101' }],
+    });
+
+    const response = await editRequest({
+      phone: '(416) 555-0101',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CONTACT_IDENTITY_CONFLICT');
+    expect(resolveCanonicalSalonClientIdentityWithHandle)
+      .toHaveBeenCalledWith(expect.anything(), {
+        salonId: 'salon_1',
+        phone: '4165550101',
+        allowArchived: true,
+      });
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous historical alias ownership without writing', async () => {
+    lockSalonClientIdentityKeySetWithHandle.mockResolvedValue([{
+      salonId: 'salon_1',
+      kind: 'email',
+      normalizedValue: 'alias@example.com',
+      advisoryKey: 'alias-email',
+    }]);
+    resolveCanonicalSalonClientIdentityWithHandle.mockRejectedValue(
+      new ClientLifecycleStabilizationError('INVALID_CLIENT_STATE'),
+    );
+
+    const response = await editRequest({
+      email: 'alias@example.com',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CONTACT_IDENTITY_CONFLICT');
+    expect(resolveCanonicalSalonClientIdentityWithHandle)
+      .toHaveBeenCalledWith(expect.anything(), {
+        salonId: 'salon_1',
+        email: 'alias@example.com',
+        allowArchived: true,
+      });
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
   });
 
   it('does not update when the requested profile lineage is invalid', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: null,
-      salon: { id: 'salon_1' },
-    });
-    resolveTerminalSalonClient.mockRejectedValue(
-      new ClientLifecycleStabilizationError('Client lifecycle state is unavailable.'),
+    lockTerminalSalonClientWithHandle.mockRejectedValue(
+      new ClientLifecycleStabilizationError('INVALID_CLIENT_STATE'),
     );
 
     const response = await PATCH(
@@ -623,6 +960,7 @@ describe('PATCH /api/admin/clients/[id]', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
           notes: 'Must not write',
         }),
       }),
@@ -637,7 +975,180 @@ describe('PATCH /api/admin/clients/[id]', () => {
         message: 'Client not found',
       },
     });
-    expect(getSalonClientById).not.toHaveBeenCalled();
-    expect(updateSalonClient).not.toHaveBeenCalled();
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('does not disclose a foreign-salon client or submitted PII', async () => {
+    lockTerminalSalonClientWithHandle.mockRejectedValue(
+      new ClientLifecycleStabilizationError('CLIENT_NOT_FOUND'),
+    );
+
+    const response = await editRequest(
+      {
+        notes: 'private foreign note',
+        email: 'foreign@example.com',
+      },
+      'client_foreign',
+    );
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(404);
+    expect(body).toEqual({
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    });
+    expect(serialized).not.toContain('client_foreign');
+    expect(serialized).not.toContain('private foreign note');
+    expect(serialized).not.toContain('foreign@example.com');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('fails only actual contact changes for an unsafe customer-login identity', async () => {
+    hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(true);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          phone: '+1 (416) 555-0101',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('UNSUPPORTED_CLIENT_IDENTITY');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('allows a name-only edit without crossing the external identity boundary', async () => {
+    transactionUpdateQueue.push([{
+      ...currentClient,
+      fullName: 'Ava Thompson',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          firstName: ' Ava ',
+          lastName: ' Thompson ',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(hasUnsafeSalonClientExternalIdentityWithHandle)
+      .not.toHaveBeenCalled();
+    expect(lockSalonClientIdentityKeySetWithHandle).not.toHaveBeenCalled();
+    expect(transactionUpdate).toHaveBeenCalledOnce();
+    expect(transactionInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          changedFields: ['fullName'],
+        }),
+      }),
+    );
+  });
+
+  it('returns a conflict when the locked record changed after the form loaded', async () => {
+    transactionSelectQueue.length = 0;
+    transactionSelectQueue.push([{
+      ...currentClient,
+      notes: 'Changed elsewhere',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          notes: 'My pending change',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_EDIT_CONFLICT');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('returns a stale identical retry without advancing updatedAt or adding an audit', async () => {
+    transactionSelectQueue.length = 0;
+    transactionSelectQueue.push([{
+      ...currentClient,
+      notes: 'Already saved',
+      updatedAt: savedAt,
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          notes: 'Already saved',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.meta.idempotent).toBe(true);
+    expect(body.data.client.updatedAt).toBe(savedAt.toISOString());
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ firstName: '', lastName: 'Thompson' }, 'firstName'],
+    [{ firstName: 'Ava' }, 'lastName'],
+    [{ phone: '123' }, 'phone'],
+    [{ email: 'not-an-email' }, 'email'],
+    [{ birthday: '2024-02-30' }, 'birthday'],
+    [{ birthday: '1899-12-31' }, 'birthday'],
+    [{ notes: 'x'.repeat(5001) }, 'notes'],
+  ])('validates edit fields before taking locks: %j', async (fields, path) => {
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/clients/client_source', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          expectedUpdatedAt: loadedAt.toISOString(),
+          ...fields,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'client_source' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.details.fieldErrors[path]).toBeDefined();
+    expect(lockTerminalSalonClientWithHandle).not.toHaveBeenCalled();
   });
 });

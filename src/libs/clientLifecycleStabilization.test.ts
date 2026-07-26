@@ -4,11 +4,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildSalonClientIdentityLockKeys,
+  buildSalonClientIdentityLockKeySet,
   ClientLifecycleStabilizationError,
+  getSalonClientHistoricalPhoneHintsWithHandle,
   getSalonClientLineageIdentityWithHandle,
   getSalonClientLineageIdsWithHandle,
   getZeroCandidateOrphanRecoveryAppointmentsWithHandle,
+  hasUnsafeSalonClientExternalIdentityWithHandle,
   type LifecycleSqlHandle,
+  lockSalonClientIdentityKeySetWithHandle,
   lockSalonClientIdentityKeysWithHandle,
   normalizeClientIdentityInput,
   resolveAppointmentOperationalEmailRecipientWithHandle,
@@ -88,6 +92,161 @@ describe('client lifecycle stabilization', () => {
       phone: '4165550101',
     });
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('deduplicates every old/new contact and locks the complete set in one sorted order', async () => {
+    expect(buildSalonClientIdentityLockKeySet({
+      salonId: 'salon-a',
+      contacts: [
+        {
+          phone: '(416) 555-0101',
+          email: 'Old@Example.com',
+        },
+        {
+          phone: '+1 647 555 0102',
+          email: 'new@example.com',
+        },
+        {
+          phone: '4165550101',
+          email: ' old@example.com ',
+        },
+      ],
+    }).map(key => [key.kind, key.normalizedValue])).toEqual([
+      ['email', 'new@example.com'],
+      ['email', 'old@example.com'],
+      ['phone', '4165550101'],
+      ['phone', '6475550102'],
+    ]);
+
+    const execute = vi.fn().mockResolvedValue(result([]));
+
+    await expect(lockSalonClientIdentityKeySetWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        contacts: [
+          { phone: '4165550101', email: 'old@example.com' },
+          { phone: '6475550102', email: 'new@example.com' },
+        ],
+      },
+    )).resolves.toHaveLength(4);
+    expect(execute).toHaveBeenCalledTimes(4);
+  });
+
+  it('returns only valid same-salon lineage and alias phone hints for snapshot reads', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        salon_id: 'salon-a',
+        merged_into_client_id: null,
+        archived_at: null,
+      }]))
+      .mockResolvedValueOnce(result([
+        {
+          id: 'source',
+          depth: 1,
+          has_unvisited_child: false,
+          has_cycle: false,
+        },
+        {
+          id: 'terminal',
+          depth: 0,
+          has_unvisited_child: true,
+          has_cycle: false,
+        },
+      ]))
+      .mockResolvedValueOnce(result([
+        { phone: '+1 (416) 555-0101' },
+        { phone: '6475550102' },
+      ]))
+      .mockResolvedValueOnce(result([
+        { normalized_value: '9055550103' },
+        { normalized_value: 'invalid' },
+      ]));
+
+    await expect(getSalonClientHistoricalPhoneHintsWithHandle(
+      { execute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        clientId: 'terminal',
+        allowArchived: true,
+      },
+    )).resolves.toEqual({
+      terminal: expect.objectContaining({ id: 'terminal' }),
+      phones: ['4165550101', '6475550102', '9055550103'],
+    });
+  });
+
+  it('detects direct and contact-derived global login relationships without promoting aliases to auth', async () => {
+    const linkedExecute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        depth: 0,
+        has_unvisited_child: false,
+        has_cycle: false,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        phone: '4165550101',
+        email: 'client@example.com',
+        client_id: 'global-client',
+      }]));
+
+    await expect(hasUnsafeSalonClientExternalIdentityWithHandle(
+      { execute: linkedExecute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        terminalClientId: 'terminal',
+      },
+    )).resolves.toBe(true);
+    expect(linkedExecute).toHaveBeenCalledTimes(2);
+
+    const sessionExecute = vi.fn()
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        depth: 0,
+        has_unvisited_child: false,
+        has_cycle: false,
+      }]))
+      .mockResolvedValueOnce(result([{
+        id: 'terminal',
+        phone: '4165550101',
+        email: null,
+        client_id: null,
+      }]))
+      .mockResolvedValueOnce(result([]))
+      .mockResolvedValueOnce(result([{
+        kind: 'phone',
+        normalized_value: '6475550102',
+      }]))
+      .mockResolvedValueOnce(result([{
+        has_unsafe_identity: true,
+      }]));
+
+    await expect(hasUnsafeSalonClientExternalIdentityWithHandle(
+      { execute: sessionExecute } as LifecycleSqlHandle,
+      {
+        salonId: 'salon-a',
+        terminalClientId: 'terminal',
+        proposedContact: {
+          phone: '9055550103',
+          email: 'new@example.com',
+        },
+      },
+    )).resolves.toBe(true);
+    expect(sessionExecute).toHaveBeenCalledTimes(5);
+
+    const lineageQuery = new PgDialect().sqlToQuery(
+      sessionExecute.mock.calls[1]![0] as SQL,
+    );
+    const identityTableLock = new PgDialect().sqlToQuery(
+      sessionExecute.mock.calls[2]![0] as SQL,
+    );
+
+    expect(lineageQuery.sql).toContain('for share');
+    expect(identityTableLock.sql).toContain(
+      'lock table client, client_session in share mode',
+    );
   });
 
   it('resolves a bounded same-salon chain to its active terminal client', async () => {

@@ -132,6 +132,11 @@ export type SalonClientIdentityLockKey = {
   advisoryKey: string;
 };
 
+export type SalonClientIdentityContactInput = {
+  phone?: string | null;
+  email?: string | null;
+};
+
 function normalizeSupportedPhone(value: string | null | undefined): string | null {
   if (value == null || !value.trim()) {
     return null;
@@ -198,48 +203,54 @@ export function buildSalonClientIdentityLockKeys(input: {
   phone?: string | null;
   email?: string | null;
 }): SalonClientIdentityLockKey[] {
+  return buildSalonClientIdentityLockKeySet({
+    salonId: input.salonId,
+    contacts: [input],
+  });
+}
+
+/**
+ * Produces one globally sorted, de-duplicated lock set for every current and
+ * proposed contact involved in a salon-scoped identity mutation.
+ */
+export function buildSalonClientIdentityLockKeySet(input: {
+  salonId: string;
+  contacts: SalonClientIdentityContactInput[];
+}): SalonClientIdentityLockKey[] {
   const salonId = requireInput(input.salonId, 'salonId');
-  const normalized = normalizeSalonClientIdentity(input);
-  const keys: SalonClientIdentityLockKey[] = [];
+  const keysByAdvisoryKey = new Map<string, SalonClientIdentityLockKey>();
 
-  if (normalized.phone) {
-    keys.push({
-      salonId,
-      kind: 'phone',
-      normalizedValue: normalized.phone,
-      advisoryKey: JSON.stringify([
+  for (const contact of input.contacts) {
+    const normalized = normalizeSalonClientIdentity(contact);
+    for (const [kind, normalizedValue] of [
+      ['phone', normalized.phone],
+      ['email', normalized.email],
+    ] as const) {
+      if (!normalizedValue) {
+        continue;
+      }
+      const advisoryKey = JSON.stringify([salonId, kind, normalizedValue]);
+      keysByAdvisoryKey.set(advisoryKey, {
         salonId,
-        'phone',
-        normalized.phone,
-      ]),
-    });
-  }
-  if (normalized.email) {
-    keys.push({
-      salonId,
-      kind: 'email',
-      normalizedValue: normalized.email,
-      advisoryKey: JSON.stringify([
-        salonId,
-        'email',
-        normalized.email,
-      ]),
-    });
+        kind,
+        normalizedValue,
+        advisoryKey,
+      });
+    }
   }
 
-  return keys.sort((left, right) =>
+  return [...keysByAdvisoryKey.values()].sort((left, right) =>
     left.advisoryKey.localeCompare(right.advisoryKey));
 }
 
-export async function lockSalonClientIdentityKeysWithHandle(
+export async function lockSalonClientIdentityKeySetWithHandle(
   handle: LifecycleSqlHandle,
   input: {
     salonId: string;
-    phone?: string | null;
-    email?: string | null;
+    contacts: SalonClientIdentityContactInput[];
   },
-): Promise<NormalizedSalonClientIdentity> {
-  const keys = buildSalonClientIdentityLockKeys(input);
+): Promise<SalonClientIdentityLockKey[]> {
+  const keys = buildSalonClientIdentityLockKeySet(input);
   if (keys.length === 0) {
     throw new TypeError('at least one supported client identity is required');
   }
@@ -251,6 +262,21 @@ export async function lockSalonClientIdentityKeysWithHandle(
       )
     `);
   }
+  return keys;
+}
+
+export async function lockSalonClientIdentityKeysWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    phone?: string | null;
+    email?: string | null;
+  },
+): Promise<NormalizedSalonClientIdentity> {
+  const keys = await lockSalonClientIdentityKeySetWithHandle(handle, {
+    salonId: input.salonId,
+    contacts: [input],
+  });
 
   return {
     phone: keys.find(key => key.kind === 'phone')?.normalizedValue ?? null,
@@ -1506,6 +1532,248 @@ export async function getSalonClientPhoneAliasesWithHandle(
       .map(row => row.normalized_value)
       .filter((value): value is string => typeof value === 'string'),
   )];
+}
+
+/**
+ * Returns every valid same-salon phone snapshot in a terminal lineage plus its
+ * private lookup aliases. These values are operational history hints only;
+ * customer authentication continues to use the global client's current phone.
+ */
+export async function getSalonClientHistoricalPhoneHintsWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    clientId: string;
+    allowArchived?: boolean;
+  },
+): Promise<{
+    terminal: TerminalSalonClient;
+    phones: string[];
+  }> {
+  const terminal = await resolveTerminalSalonClientWithHandle(handle, input);
+  const clientIds = await getSalonClientLineageIdsWithHandle(handle, {
+    salonId: terminal.salonId,
+    terminalClientId: terminal.id,
+  });
+  const result = await handle.execute(sql`
+    select phone
+    from salon_client
+    where salon_id = ${terminal.salonId}
+      and id in (
+        ${sql.join(clientIds.map(id => sql`${id}`), sql`, `)}
+      )
+    order by id
+  `);
+  const rows = readRows(result);
+  if (rows.length !== clientIds.length) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+  const aliases = await getSalonClientPhoneAliasesWithHandle(handle, {
+    salonId: terminal.salonId,
+    clientIds,
+  });
+  const phones = new Set<string>();
+  for (const value of [
+    ...rows.map(row => row.phone),
+    ...aliases,
+  ]) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const normalized = tryNormalizeSupportedPhone(value);
+    if (normalized) {
+      phones.add(normalized);
+    }
+  }
+  if (phones.size === 0) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+  return {
+    terminal,
+    phones: [...phones].sort(),
+  };
+}
+
+export function getSalonClientHistoricalPhoneHints(input: {
+  salonId: string;
+  clientId: string;
+  allowArchived?: boolean;
+}): Promise<{
+    terminal: TerminalSalonClient;
+    phones: string[];
+  }> {
+  return getSalonClientHistoricalPhoneHintsWithHandle(
+    db as LifecycleSqlHandle,
+    input,
+  );
+}
+
+/**
+ * Stabilizes the global customer/login identity tables for the duration of a
+ * contact-edit transaction. Call this before taking any salon-client row lock
+ * so identity writers and owner edits share one deadlock-safe lock order.
+ */
+export async function lockGlobalClientIdentityTablesWithHandle(
+  handle: LifecycleSqlHandle,
+): Promise<void> {
+  await handle.execute(sql`
+    lock table client, client_session in share mode
+  `);
+}
+
+/**
+ * Detects any global customer/login ownership touching a salon lineage. This
+ * is intentionally broader than authentication lookup: aliases are inspected
+ * only as risk signals and are never promoted to login identities.
+ */
+export async function hasUnsafeSalonClientExternalIdentityWithHandle(
+  handle: LifecycleSqlHandle,
+  input: {
+    salonId: string;
+    terminalClientId: string;
+    proposedContact?: SalonClientIdentityContactInput;
+  },
+): Promise<boolean> {
+  const salonId = requireInput(input.salonId, 'salonId');
+  const terminalClientId = requireInput(
+    input.terminalClientId,
+    'terminalClientId',
+  );
+  const clientIds = await getSalonClientLineageIdsWithHandle(handle, {
+    salonId,
+    terminalClientId,
+  });
+  const lineageResult = await handle.execute(sql`
+    select id, phone, lower(btrim(email)) as email, client_id
+    from salon_client
+    where salon_id = ${salonId}
+      and id in (
+        ${sql.join(clientIds.map(id => sql`${id}`), sql`, `)}
+      )
+    order by id
+    for share
+  `);
+  const rows = readRows(lineageResult);
+  if (rows.length !== clientIds.length) {
+    throw new ClientLifecycleStabilizationError(
+      'INVALID_CLIENT_STATE',
+      'Client lifecycle state is unavailable.',
+    );
+  }
+  if (rows.some(row => typeof row.client_id === 'string')) {
+    return true;
+  }
+
+  // Global customer and session writers do not share the salon-scoped
+  // advisory-lock namespace. A transaction-level SHARE table lock lets their
+  // pending writes finish before the identity read and prevents a new login
+  // relationship from appearing until this contact edit commits.
+  await lockGlobalClientIdentityTablesWithHandle(handle);
+
+  const aliasesResult = await handle.execute(sql`
+    select kind, normalized_value
+    from salon_client_contact_alias
+    where salon_id = ${salonId}
+      and salon_client_id in (
+        ${sql.join(clientIds.map(id => sql`${id}`), sql`, `)}
+      )
+    order by kind, normalized_value, salon_client_id
+  `);
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  for (const row of rows) {
+    const phone = typeof row.phone === 'string'
+      ? tryNormalizeSupportedPhone(row.phone)
+      : null;
+    const email = typeof row.email === 'string'
+      ? tryNormalizeSupportedEmail(row.email)
+      : null;
+    if (phone) {
+      phones.add(phone);
+    }
+    if (email) {
+      emails.add(email);
+    }
+  }
+  for (const alias of readRows(aliasesResult)) {
+    if (
+      alias.kind === 'phone'
+      && typeof alias.normalized_value === 'string'
+    ) {
+      const phone = tryNormalizeSupportedPhone(alias.normalized_value);
+      if (phone) {
+        phones.add(phone);
+      }
+    }
+    if (
+      alias.kind === 'email'
+      && typeof alias.normalized_value === 'string'
+    ) {
+      const email = tryNormalizeSupportedEmail(alias.normalized_value);
+      if (email) {
+        emails.add(email);
+      }
+    }
+  }
+  if (input.proposedContact) {
+    const proposed = normalizeSalonClientIdentity(input.proposedContact);
+    if (proposed.phone) {
+      phones.add(proposed.phone);
+    }
+    if (proposed.email) {
+      emails.add(proposed.email);
+    }
+  }
+  if (phones.size === 0 && emails.size === 0) {
+    return true;
+  }
+
+  const phoneVariants = [...phones].flatMap(phone => [
+    phone,
+    `1${phone}`,
+    `+1${phone}`,
+    `+${phone}`,
+  ]);
+  const phoneMatch = phoneVariants.length > 0
+    ? sql`client.phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const emailMatch = emails.size > 0
+    ? sql`lower(btrim(client.email)) in (
+        ${sql.join([...emails].map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const sessionMatch = phoneVariants.length > 0
+    ? sql`client_session.client_phone in (
+        ${sql.join(phoneVariants.map(value => sql`${value}`), sql`, `)}
+      )`
+    : sql`false`;
+  const externalResult = await handle.execute(sql`
+    select (
+      exists (
+        select 1
+        from client
+        where ${phoneMatch} or ${emailMatch}
+      )
+      or exists (
+        select 1
+        from client_session
+        where ${sessionMatch}
+      )
+    ) as has_unsafe_identity
+  `);
+  const row = readRows(externalResult)[0];
+  if (!row || typeof row.has_unsafe_identity !== 'boolean') {
+    throw new TypeError('GLOBAL_CLIENT_IDENTITY_CHECK_INVALID');
+  }
+  return row.has_unsafe_identity;
 }
 
 export async function lockTerminalSalonClientsWithHandle(

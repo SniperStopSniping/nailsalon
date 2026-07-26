@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as schema from '@/models/Schema';
 
-import { GET } from './route';
+import { GET, PATCH } from './route';
 
 vi.mock('server-only', () => ({}));
 
@@ -30,6 +30,8 @@ const SALON_ID = 'salon_client_profile_financial';
 const CLIENT_ID = 'client_profile_financial';
 const SOURCE_CLIENT_ID = 'client_profile_merged_source';
 const PHONE = '4165550188';
+const EMAIL = 'partial.snapshot@example.invalid';
+const CLIENT_UPDATED_AT = new Date('2026-07-22T10:00:00.000Z');
 
 let client: PGlite;
 let testDb: ReturnType<typeof drizzle<typeof schema>>;
@@ -58,8 +60,12 @@ beforeAll(async () => {
     id: CLIENT_ID,
     salonId: SALON_ID,
     phone: PHONE,
-    fullName: 'Partial Payment Client',
+    fullName: 'Partial  Payment Client',
+    email: EMAIL,
+    birthday: '1990-05-04',
+    notes: 'Original profile note',
     totalSpent: 4000,
+    updatedAt: CLIENT_UPDATED_AT,
   });
   await testDb.insert(schema.salonClientSchema).values({
     id: SOURCE_CLIENT_ID,
@@ -91,8 +97,10 @@ beforeAll(async () => {
     {
       id: 'client_profile_partial',
       salonId: SALON_ID,
+      salonClientId: CLIENT_ID,
       clientPhone: PHONE,
-      clientName: 'Partial Payment Client',
+      clientName: 'Partial  Payment Client',
+      clientEmail: EMAIL,
       startTime: new Date('2026-07-20T14:00:00.000Z'),
       endTime: new Date('2026-07-20T15:00:00.000Z'),
       totalDurationMinutes: 60,
@@ -109,8 +117,10 @@ beforeAll(async () => {
     {
       id: 'client_profile_future',
       salonId: SALON_ID,
+      salonClientId: CLIENT_ID,
       clientPhone: PHONE,
-      clientName: 'Partial Payment Client',
+      clientName: 'Partial  Payment Client',
+      clientEmail: EMAIL,
       startTime: new Date('2026-08-20T14:00:00.000Z'),
       endTime: new Date('2026-08-20T15:00:00.000Z'),
       totalDurationMinutes: 60,
@@ -128,6 +138,17 @@ beforeAll(async () => {
     method: 'cash',
     recordedByType: 'admin',
     recordedAt: new Date('2026-07-20T15:00:00.000Z'),
+  });
+  await testDb.insert(schema.clientCommunicationSchema).values({
+    id: 'client_profile_communication',
+    salonId: SALON_ID,
+    salonClientId: CLIENT_ID,
+    appointmentId: 'client_profile_partial',
+    kind: 'appointment_details',
+    status: 'marked_sent',
+    messageSnapshot: 'Historical receipt message',
+    destinationSnapshot: PHONE,
+    markedSentAt: new Date('2026-07-20T15:01:00.000Z'),
   });
 }, 60_000);
 
@@ -166,6 +187,8 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
     expect(response.headers.get('cache-control')).toContain('private');
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(body.data.client.totalSpent).toBe(4000);
+    expect(body.data.client.birthday).toBe('1990-05-04');
+    expect(body.data.client.updatedAt).toBe(CLIENT_UPDATED_AT.toISOString());
     expect(body.data.summary).toMatchObject({
       currency: 'CAD',
       timeZone: 'America/Toronto',
@@ -218,5 +241,181 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
       .from(schema.appointmentSchema);
 
     expect(appointmentsAfter).toEqual(appointmentsBefore);
+  });
+});
+
+describe('PATCH /api/admin/clients/[id] snapshot-safe contact updates', () => {
+  it('updates only the terminal, retains aliases and history, and writes one PII-free audit row', async () => {
+    const [terminalBefore] = await testDb
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID))
+      .limit(1);
+    const sourceBefore = await testDb
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, SOURCE_CLIENT_ID))
+      .limit(1);
+    const appointmentsBefore = await testDb
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.salonId, SALON_ID));
+    const paymentsBefore = await testDb
+      .select()
+      .from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.salonId, SALON_ID));
+    const communicationsBefore = await testDb
+      .select()
+      .from(schema.clientCommunicationSchema)
+      .where(eq(schema.clientCommunicationSchema.salonId, SALON_ID));
+
+    expect(terminalBefore).toBeDefined();
+
+    const response = await PATCH(
+      new Request(
+        `http://localhost/api/admin/clients/${SOURCE_CLIENT_ID}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug: 'client-profile-financial',
+            phone: '+1 (647) 555-0144',
+            email: ' Updated.Client@Example.Invalid ',
+            expectedUpdatedAt: terminalBefore!.updatedAt.toISOString(),
+          }),
+        },
+      ),
+      { params: Promise.resolve({ id: SOURCE_CLIENT_ID }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.client).toMatchObject({
+      id: CLIENT_ID,
+      phone: '6475550144',
+      fullName: 'Partial  Payment Client',
+      email: 'updated.client@example.invalid',
+      birthday: '1990-05-04',
+      notes: 'Original profile note',
+      updatedAt: NOW.toISOString(),
+    });
+
+    const [terminalAfter] = await testDb
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID))
+      .limit(1);
+    const sourceAfter = await testDb
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, SOURCE_CLIENT_ID))
+      .limit(1);
+    const aliases = await testDb
+      .select()
+      .from(schema.salonClientContactAliasSchema)
+      .where(eq(schema.salonClientContactAliasSchema.salonId, SALON_ID));
+    const appointmentsAfter = await testDb
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.salonId, SALON_ID));
+    const paymentsAfter = await testDb
+      .select()
+      .from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.salonId, SALON_ID));
+    const communicationsAfter = await testDb
+      .select()
+      .from(schema.clientCommunicationSchema)
+      .where(eq(schema.clientCommunicationSchema.salonId, SALON_ID));
+    const audits = await testDb
+      .select()
+      .from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.salonId, SALON_ID));
+
+    expect(terminalAfter).toMatchObject({
+      id: CLIENT_ID,
+      phone: '6475550144',
+      fullName: terminalBefore!.fullName,
+      email: 'updated.client@example.invalid',
+      birthday: terminalBefore!.birthday,
+      notes: terminalBefore!.notes,
+      totalSpent: terminalBefore!.totalSpent,
+      loyaltyPoints: terminalBefore!.loyaltyPoints,
+    });
+    expect(sourceAfter).toEqual(sourceBefore);
+    expect(aliases.map(alias => ({
+      salonClientId: alias.salonClientId,
+      kind: alias.kind,
+      normalizedValue: alias.normalizedValue,
+    })).sort((left, right) => left.kind.localeCompare(right.kind))).toEqual([
+      {
+        salonClientId: CLIENT_ID,
+        kind: 'email',
+        normalizedValue: EMAIL,
+      },
+      {
+        salonClientId: CLIENT_ID,
+        kind: 'phone',
+        normalizedValue: PHONE,
+      },
+    ]);
+    expect(appointmentsAfter).toEqual(appointmentsBefore);
+    expect(paymentsAfter).toEqual(paymentsBefore);
+    expect(communicationsAfter).toEqual(communicationsBefore);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'admin',
+      action: 'updated',
+      entityType: 'salon_client',
+      entityId: CLIENT_ID,
+    });
+    expect(audits[0]?.metadata).toEqual({
+      terminalClientId: CLIENT_ID,
+      changedFields: ['email', 'phone'],
+      redirectedFromStaleSource: true,
+    });
+
+    const serializedAudit = JSON.stringify(audits[0]);
+
+    for (const pii of [
+      PHONE,
+      EMAIL,
+      '6475550144',
+      'updated.client@example.invalid',
+      'Partial  Payment Client',
+      '1990-05-04',
+      'Original profile note',
+    ]) {
+      expect(serializedAudit).not.toContain(pii);
+    }
+
+    for (const requestedId of [CLIENT_ID, SOURCE_CLIENT_ID]) {
+      const historyResponse = await GET(
+        new Request(
+          `http://localhost/api/admin/clients/${requestedId}?salonSlug=client-profile-financial`,
+        ),
+        { params: Promise.resolve({ id: requestedId }) },
+      );
+      const historyBody = await historyResponse.json();
+
+      expect(historyResponse.status).toBe(200);
+      expect(historyBody.data.client.id).toBe(CLIENT_ID);
+      expect(historyBody.data.client.phone).toBe('6475550144');
+      expect(historyBody.data.pastAppointments).toEqual([
+        expect.objectContaining({
+          id: 'client_profile_partial',
+          financial: expect.objectContaining({
+            payments: [
+              expect.objectContaining({
+                id: 'client_profile_payment',
+                amountCents: 4000,
+              }),
+            ],
+          }),
+        }),
+      ]);
+      expect(historyBody.data.upcomingAppointments).toEqual([
+        expect.objectContaining({ id: 'client_profile_future' }),
+      ]);
+    }
   });
 });

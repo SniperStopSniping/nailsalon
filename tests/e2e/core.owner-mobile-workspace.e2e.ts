@@ -84,8 +84,14 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await page.getByRole('tab', { name: 'Client Insights' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Client health' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
+    const clientHub = page.getByTestId('client-hub');
+
+    await expect(
+      clientHub.getByRole('heading', { name: 'Client health' }),
+    ).toBeVisible();
+    await expect(
+      clientHub.getByRole('heading', { name: 'Needs attention' }),
+    ).toBeVisible();
     await expect.poll(() => page.evaluate(() => ({
       innerWidth: window.innerWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -106,7 +112,88 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await expect(page.getByTestId('clients-active-segment')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Back' }).first().click();
+    const firstClient = page
+      .getByTestId('clients-directory-scroll')
+      .locator('button')
+      .first();
+
+    await expect(firstClient).toBeVisible();
+
+    await firstClient.click();
+
+    const editClientAction = page.getByTestId('edit-client-action');
+
+    await expect(editClientAction).toBeVisible();
+
+    await editClientAction.click();
+
+    const editDialog = page.getByTestId('edit-client-dialog');
+    const editDialogBody = page.getByTestId('edit-client-dialog-body');
+    const saveClient = page.getByTestId('edit-client-save');
+
+    await expect(editDialog).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Edit client' })).toBeVisible();
+    await expect(page.getByLabel('First name')).not.toHaveValue('');
+    await expect(page.getByLabel('Phone')).not.toHaveValue('');
+    await expect(page.getByLabel('Last name')).toBeVisible();
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.getByLabel('Birthday')).toBeVisible();
+
+    await page.getByLabel('Notes').scrollIntoViewIfNeeded();
+
+    await expect(page.getByLabel('Notes')).toBeVisible();
+    await expect(saveClient).toBeVisible();
+
+    const editGeometry = await editDialog.evaluate((dialog) => {
+      const dialogRect = dialog.getBoundingClientRect();
+      const documentElement = document.documentElement;
+      return {
+        dialogBottom: Math.round(dialogRect.bottom),
+        dialogLeft: Math.round(dialogRect.left),
+        dialogRight: Math.round(dialogRect.right),
+        dialogTop: Math.round(dialogRect.top),
+        dialogWidth: Math.round(dialogRect.width),
+        documentClientWidth: documentElement.clientWidth,
+        documentScrollWidth: documentElement.scrollWidth,
+        viewportHeight: window.innerHeight,
+        viewportWidth: window.innerWidth,
+      };
+    });
+
+    expect(editGeometry.dialogTop).toBeGreaterThanOrEqual(0);
+    expect(editGeometry.dialogBottom).toBeLessThanOrEqual(
+      editGeometry.viewportHeight,
+    );
+    expect(editGeometry.dialogLeft).toBeGreaterThanOrEqual(0);
+    expect(editGeometry.dialogRight).toBeLessThanOrEqual(
+      editGeometry.viewportWidth,
+    );
+    expect(editGeometry.dialogWidth).toBeLessThanOrEqual(
+      editGeometry.viewportWidth,
+    );
+    expect(editGeometry.documentScrollWidth).toBe(
+      editGeometry.documentClientWidth,
+    );
+
+    const bodyGeometry = await editDialogBody.evaluate(body => ({
+      clientWidth: body.clientWidth,
+      scrollWidth: body.scrollWidth,
+    }));
+
+    expect(bodyGeometry.scrollWidth).toBe(bodyGeometry.clientWidth);
+    await expect(saveClient).toBeInViewport();
+    await expect(
+      page.getByRole('button', { name: 'Close edit client dialog' }),
+    ).toBeInViewport();
+
+    await page.getByRole('button', { name: 'Close edit client dialog' }).click();
+
+    await expect(editDialog).toHaveCount(0);
+
+    const appModal = page.getByTestId('app-modal-scroll-region');
+
+    await appModal.getByRole('button', { name: 'Clients' }).click();
+    await appModal.getByRole('button', { name: 'Back' }).first().click();
 
     await expect
       .poll(() => page.evaluate(() => Math.round(window.scrollY)))

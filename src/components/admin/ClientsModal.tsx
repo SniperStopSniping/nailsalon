@@ -5,6 +5,7 @@ import {
   Calendar,
   ChevronRight,
   Mail,
+  Pencil,
   Phone,
   ShieldAlert,
   User,
@@ -22,6 +23,7 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
+import { EditClientDialog } from '@/components/admin/EditClientDialog';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -63,6 +65,7 @@ type ClientProfile = {
   phone: string;
   fullName: string | null;
   email: string | null;
+  birthday: string | null;
   preferredTechnician: {
     id: string;
     name: string;
@@ -89,6 +92,7 @@ type ClientProfile = {
   hasGoogleReview: boolean;
   googleReviewMarkedAt: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 type ClientAppointment = {
@@ -800,6 +804,7 @@ function ClientDetail({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
   const [activeSection, setActiveSection] = useState<ProfileSection>('overview');
 
@@ -1036,7 +1041,7 @@ function ClientDetail({
   ]);
 
   const saveProfile = async () => {
-    if (!profileDirty) {
+    if (!profileDirty || !profile) {
       return;
     }
 
@@ -1048,6 +1053,7 @@ function ClientDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
+          expectedUpdatedAt: profile.updatedAt,
           notes: notesDraft.trim() || null,
           preferredTechnicianId: preferredTechnicianIdDraft || null,
           sensitivities: sensitivitiesDraft.trim() || null,
@@ -1063,13 +1069,19 @@ function ClientDetail({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save client profile');
+        const payload = await response.json().catch(() => null);
+        if (payload?.error?.code === 'CLIENT_EDIT_CONFLICT') {
+          throw new Error('This client changed elsewhere. Refresh the profile and try again.');
+        }
+        throw new Error('Could not save client details');
       }
 
       await fetchClientDetail(true);
     } catch (error) {
       console.error('Failed to save client profile:', error);
-      setProfileSaveError('Could not save client details');
+      setProfileSaveError(
+        error instanceof Error ? error.message : 'Could not save client details',
+      );
     } finally {
       setProfileSaving(false);
     }
@@ -1133,11 +1145,11 @@ function ClientDetail({
 
       <div className="mx-auto w-full max-w-6xl p-4 pb-32 lg:pb-12">
         <AdminDetailCard className="mb-4 overflow-hidden rounded-[24px] border border-rose-100 bg-gradient-to-br from-white via-[#fffaf5] to-rose-50/70">
-          <div className="flex flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
+          <div className="flex min-w-0 flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
             <div className="mb-3 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-2xl font-bold text-white shadow-lg">
               {getInitials(statsSource.fullName)}
             </div>
-            <div className="lg:ml-5">
+            <div className="min-w-0 lg:ml-5">
               <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
                 <h2 className="text-[24px] font-semibold text-[#3f1727]">{detailName}</h2>
                 {profile?.tags?.map(tag => (
@@ -1166,6 +1178,19 @@ function ClientDetail({
                     : 'Loading client history…'}
               </div>
             </div>
+            {profile && (
+              <Button
+                type="button"
+                variant="brandSoft"
+                size="pillSm"
+                data-testid="edit-client-action"
+                onClick={() => setShowEditDialog(true)}
+                className="mt-4 min-h-11 w-full shrink-0 lg:ml-auto lg:mt-0 lg:w-auto"
+              >
+                <Pencil className="mr-2 size-4" />
+                Edit client
+              </Button>
+            )}
           </div>
         </AdminDetailCard>
 
@@ -1788,6 +1813,24 @@ function ClientDetail({
                 </>
               )}
       </div>
+
+      {profile && (
+        <EditClientDialog
+          isOpen={showEditDialog}
+          salonSlug={salonSlug}
+          client={{
+            id: profile.id,
+            fullName: profile.fullName,
+            phone: profile.phone,
+            email: profile.email,
+            birthday: profile.birthday,
+            notes: profile.notes,
+            updatedAt: profile.updatedAt,
+          }}
+          onClose={() => setShowEditDialog(false)}
+          onSuccess={() => fetchClientDetail(true)}
+        />
+      )}
 
       <AppointmentQuickEditSheet
         isOpen={Boolean(appointmentActions.selectedAppointmentId)}

@@ -5,11 +5,16 @@ import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   ClientLifecycleStabilizationError,
+  getSalonClientHistoricalPhoneHints,
+  hasUnsafeSalonClientExternalIdentityWithHandle,
   type LifecycleSqlHandle,
-  lockSalonClientIdentityKeysWithHandle,
+  lockGlobalClientIdentityTablesWithHandle,
+  lockSalonClientIdentityKeySetWithHandle,
   lockTerminalSalonClientWithHandle,
+  normalizeSalonClientIdentity,
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveTerminalSalonClient,
+  resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -18,7 +23,6 @@ import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '
 import {
   getSalonClientById,
   normalizePhone,
-  updateSalonClient,
 } from '@/libs/queries';
 import { completedAppointmentRevenueAggregateSql } from '@/libs/revenueSql';
 import {
@@ -28,7 +32,9 @@ import {
   appointmentPhotoSchema,
   appointmentSchema,
   appointmentServicesSchema,
+  auditLogSchema,
   clientPreferencesSchema,
+  salonClientContactAliasSchema,
   salonClientSchema,
   salonLocationSchema,
   serviceSchema,
@@ -46,12 +52,50 @@ const getQuerySchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
 });
 
+const birthdaySchema = z.string().superRefine((value, context) => {
+  if (value === '') {
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Birthday must use YYYY-MM-DD',
+    });
+    return;
+  }
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year!, month! - 1, day!));
+  const today = new Date();
+  const todayValue = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month! - 1
+    || parsed.getUTCDate() !== day
+    || value < '1900-01-01'
+    || parsed.getTime() > todayValue
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Birthday must be a valid date between 1900-01-01 and today',
+    });
+  }
+});
+
 const updateSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
-  fullName: z.string().optional(),
-  email: z.string().email().optional().nullable(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  firstName: z.string().max(50).optional(),
+  lastName: z.string().max(50).optional(),
+  fullName: z.string().max(101).optional(),
+  phone: z.string().max(50).optional(),
+  email: z.string().max(320).optional().nullable(),
+  birthday: birthdaySchema.optional().nullable(),
   preferredTechnicianId: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
   sensitivities: z.string().max(2000).optional().nullable(),
   nailPreferences: z.object({
     shape: z.string().max(100).optional(),
@@ -61,6 +105,61 @@ const updateSchema = z.object({
   }).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
   rebookIntervalDays: z.number().int().min(1).max(365).optional().nullable(),
+}).superRefine((value, context) => {
+  const hasFirstName = value.firstName !== undefined;
+  const hasLastName = value.lastName !== undefined;
+  if (hasFirstName !== hasLastName) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'First name and last name must be submitted together',
+      path: hasFirstName ? ['lastName'] : ['firstName'],
+    });
+  }
+  if (hasFirstName && !value.firstName?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'First name is required',
+      path: ['firstName'],
+    });
+  }
+  if (value.fullName !== undefined && !value.fullName.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Name is required',
+      path: ['fullName'],
+    });
+  }
+  if (hasFirstName && value.fullName !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Use first and last name fields for this edit',
+      path: ['fullName'],
+    });
+  }
+  if (value.phone !== undefined) {
+    try {
+      if (!normalizeSalonClientIdentity({ phone: value.phone }).phone) {
+        throw new TypeError('phone is required');
+      }
+    } catch {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter a valid Canadian or international phone number',
+        path: ['phone'],
+      });
+    }
+  }
+  if (value.email != null && value.email.trim()) {
+    try {
+      normalizeSalonClientIdentity({ email: value.email });
+    } catch {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter a valid email address',
+        path: ['email'],
+      });
+    }
+  }
 });
 
 // =============================================================================
@@ -130,6 +229,119 @@ class ContactIdentityConflictError extends Error {
   }
 }
 
+class ClientEditConflictError extends Error {
+  constructor() {
+    super('Client profile changed after this edit was loaded.');
+    this.name = 'ClientEditConflictError';
+  }
+}
+
+type EditableClient = typeof salonClientSchema.$inferSelect;
+type EditableClientField =
+  | 'birthday'
+  | 'email'
+  | 'fullName'
+  | 'nailPreferences'
+  | 'nextRebookDueAt'
+  | 'notes'
+  | 'phone'
+  | 'preferredTechnicianId'
+  | 'rebookIntervalDays'
+  | 'sensitivities'
+  | 'tags';
+
+function normalizeNamePart(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeNullableText(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value?.trim() ?? '';
+  return normalized || null;
+}
+
+function normalizeStoredEmail(value: string | null): string | null {
+  try {
+    return normalizeSalonClientIdentity({ email: value }).email;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredPhone(value: string): string | null {
+  try {
+    return normalizeSalonClientIdentity({ phone: value }).phone;
+  } catch {
+    return null;
+  }
+}
+
+function birthdayValue(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value);
+}
+
+function datesEqual(
+  left: Date | null | undefined,
+  right: Date | null | undefined,
+): boolean {
+  return (left?.getTime() ?? null) === (right?.getTime() ?? null);
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (candidate.code === '23505') {
+    return true;
+  }
+  return candidate.cause !== error && isUniqueViolation(candidate.cause);
+}
+
+function clientNotFoundResponse(): Response {
+  return privateJson(
+    {
+      error: {
+        code: 'CLIENT_NOT_FOUND',
+        message: 'Client not found',
+      },
+    } satisfies ErrorResponse,
+    { status: 404 },
+  );
+}
+
+function clientResponse(client: EditableClient): Record<string, unknown> {
+  return {
+    id: client.id,
+    phone: client.phone,
+    fullName: client.fullName,
+    email: client.email,
+    birthday: birthdayValue(client.birthday),
+    preferredTechnicianId: client.preferredTechnicianId,
+    notes: client.notes,
+    sensitivities: client.sensitivities,
+    nailPreferences: client.nailPreferences ?? {},
+    tags: client.tags ?? [],
+    rebookIntervalDays: client.rebookIntervalDays,
+    nextRebookDueAt: client.nextRebookDueAt?.toISOString() ?? null,
+    updatedAt: client.updatedAt.toISOString(),
+  };
+}
+
 // =============================================================================
 // GET /api/admin/clients/[id] - Get client profile with appointment history
 // =============================================================================
@@ -176,15 +388,25 @@ export async function GET(
       ? await getSalonClientById(salon.id, terminalClientId)
       : null;
     if (!client) {
-      return privateJson(
-        {
-          error: {
-            code: 'CLIENT_NOT_FOUND',
-            message: 'Client not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
+      return clientNotFoundResponse();
+    }
+
+    let historicalPhones: string[];
+    try {
+      const phoneHints = await getSalonClientHistoricalPhoneHints({
+        salonId: salon.id,
+        clientId: terminalClientId!,
+        allowArchived: true,
+      });
+      historicalPhones = phoneHints.phones;
+    } catch (error) {
+      if (
+        error instanceof ClientLifecycleStabilizationError
+        || error instanceof TypeError
+      ) {
+        return clientNotFoundResponse();
+      }
+      throw error;
     }
 
     // Get preferred technician details if set
@@ -205,9 +427,18 @@ export async function GET(
       preferredTechnician = tech ?? null;
     }
 
-    // Build phone variants for matching appointments
+    // Historical phone values remain immutable appointment/payment snapshots.
+    // Query every valid same-salon lineage and alias hint instead of rewriting
+    // those records when a terminal client's current phone changes.
     const normalizedPhone = normalizePhone(client.phone);
-    const phoneVariants = [normalizedPhone, `+1${normalizedPhone}`, client.phone];
+    const phoneVariants = [...new Set([
+      client.phone,
+      ...historicalPhones.flatMap(phone => [
+        phone,
+        `1${phone}`,
+        `+1${phone}`,
+      ]),
+    ])];
 
     const now = new Date();
 
@@ -673,7 +904,10 @@ export async function GET(
       createdAt: appointmentPhotoSchema.createdAt,
     }).from(appointmentPhotoSchema).where(and(
       eq(appointmentPhotoSchema.salonId, salon.id),
-      eq(appointmentPhotoSchema.normalizedClientPhone, normalizePhone(client.phone)),
+      inArray(
+        appointmentPhotoSchema.normalizedClientPhone,
+        historicalPhones,
+      ),
     )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
 
     return privateJson({
@@ -683,6 +917,7 @@ export async function GET(
           phone: client.phone,
           fullName: client.fullName,
           email: client.email,
+          birthday: birthdayValue(client.birthday),
           preferredTechnician,
           notes: client.notes,
           sensitivities: client.sensitivities,
@@ -700,6 +935,7 @@ export async function GET(
           hasGoogleReview: client.hasGoogleReview,
           googleReviewMarkedAt: client.googleReviewMarkedAt?.toISOString() ?? null,
           createdAt: client.createdAt.toISOString(),
+          updatedAt: client.updatedAt.toISOString(),
         },
         summary: {
           currency: bookingConfig.currency,
@@ -751,9 +987,9 @@ export async function GET(
         })),
       },
     });
-  } catch (error) {
-    console.error('Error fetching client:', error);
-    return Response.json(
+  } catch {
+    console.error('Error fetching client profile');
+    return privateJson(
       {
         error: {
           code: 'INTERNAL_ERROR',
@@ -777,7 +1013,6 @@ export async function PATCH(
     const { id: clientId } = await params;
     const body = await request.json();
 
-    // Validate request body
     const validated = updateSchema.safeParse(body);
     if (!validated.success) {
       return privateJson(
@@ -792,32 +1027,43 @@ export async function PATCH(
       );
     }
 
-    const { salonSlug, ...updates } = validated.data;
+    const {
+      salonSlug,
+      expectedUpdatedAt,
+      firstName,
+      lastName,
+      fullName,
+      phone,
+      email,
+      birthday,
+      ...updates
+    } = validated.data;
+    const expectedUpdatedAtDate = new Date(expectedUpdatedAt);
+    const proposedPhone = phone === undefined
+      ? undefined
+      : normalizeSalonClientIdentity({ phone }).phone!;
+    const proposedEmail = email === undefined
+      ? undefined
+      : normalizeSalonClientIdentity({ email }).email;
+    const proposedBirthday = birthday === undefined
+      ? undefined
+      : birthday || null;
+    const proposedNotes = normalizeNullableText(updates.notes);
+    const proposedSensitivities = normalizeNullableText(updates.sensitivities);
+    const proposedFullName = firstName !== undefined
+      ? [
+          normalizeNamePart(firstName),
+          normalizeNamePart(lastName!),
+        ].filter(Boolean).join(' ')
+      : fullName === undefined
+        ? undefined
+        : normalizeNamePart(fullName);
 
-    // Verify user owns this salon
     const { error, salon } = await requireAdminSalon(salonSlug);
     if (error || !salon) {
-      return error!;
+      return withPrivateNoStore(error!);
     }
 
-    // Resolve stale same-salon source IDs without disclosing invalid lineage.
-    const terminalClientId = await resolveRequestedClientId(salon.id, clientId);
-    const existingClient = terminalClientId
-      ? await getSalonClientById(salon.id, terminalClientId)
-      : null;
-    if (!terminalClientId || !existingClient) {
-      return Response.json(
-        {
-          error: {
-            code: 'CLIENT_NOT_FOUND',
-            message: 'Client not found',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    // Validate technician if provided
     if (updates.preferredTechnicianId) {
       const [tech] = await db
         .select({ id: technicianSchema.id })
@@ -831,7 +1077,7 @@ export async function PATCH(
         .limit(1);
 
       if (!tech) {
-        return Response.json(
+        return privateJson(
           {
             error: {
               code: 'INVALID_TECHNICIAN',
@@ -843,52 +1089,191 @@ export async function PATCH(
       }
     }
 
-    // Update client
-    const nextRebookDueAt = updates.rebookIntervalDays && existingClient.lastVisitAt
-      ? new Date(existingClient.lastVisitAt.getTime() + updates.rebookIntervalDays * 86_400_000)
-      : updates.rebookIntervalDays === null ? null : undefined;
-    const updateValues = {
-      fullName: updates.fullName,
-      email: updates.email,
-      preferredTechnicianId: updates.preferredTechnicianId,
-      notes: updates.notes,
-      sensitivities: updates.sensitivities,
-      nailPreferences: updates.nailPreferences,
-      tags: updates.tags ? [...new Set(updates.tags.map(tag => tag.toLowerCase()))] : undefined,
-      rebookIntervalDays: updates.rebookIntervalDays,
-      nextRebookDueAt,
-    };
-    const updatedClient = updates.email === undefined
-      ? await updateSalonClient(salon.id, terminalClientId, updateValues)
-      : await withClientLifecycleTransactionRetry(() =>
-        db.transaction(async (tx) => {
-          const handle = tx as LifecycleSqlHandle;
-          const lockedClient = await lockTerminalSalonClientWithHandle(
+    const result = await withClientLifecycleTransactionRetry(() =>
+      db.transaction(async (tx) => {
+        const handle = tx as LifecycleSqlHandle;
+        if (phone !== undefined || email !== undefined) {
+          await lockGlobalClientIdentityTablesWithHandle(handle);
+        }
+        const lockedClient = await lockTerminalSalonClientWithHandle(handle, {
+          salonId: salon.id,
+          clientId,
+          allowArchived: true,
+        });
+        const [currentClient] = await tx
+          .select()
+          .from(salonClientSchema)
+          .where(and(
+            eq(salonClientSchema.salonId, salon.id),
+            eq(salonClientSchema.id, lockedClient.id),
+          ))
+          .limit(1);
+        if (!currentClient || currentClient.mergedIntoClientId) {
+          throw new ClientLifecycleStabilizationError('CLIENT_NOT_FOUND');
+        }
+
+        const updateValues: Partial<EditableClient> = {};
+        const changedFields = new Set<EditableClientField>();
+        const setChangedValue = <Key extends EditableClientField>(
+          key: Key,
+          value: EditableClient[Key],
+          equal = (left: EditableClient[Key], right: EditableClient[Key]) =>
+            left === right,
+        ) => {
+          if (!equal(currentClient[key], value)) {
+            updateValues[key] = value;
+            changedFields.add(key);
+          }
+        };
+
+        if (proposedFullName !== undefined) {
+          setChangedValue('fullName', proposedFullName);
+        }
+        const currentPhone = normalizeStoredPhone(currentClient.phone);
+        if (proposedPhone !== undefined && proposedPhone !== currentPhone) {
+          setChangedValue('phone', proposedPhone);
+        }
+        const currentEmail = normalizeStoredEmail(currentClient.email);
+        if (proposedEmail !== undefined && proposedEmail !== currentEmail) {
+          setChangedValue('email', proposedEmail);
+        }
+        if (
+          proposedBirthday !== undefined
+          && proposedBirthday !== birthdayValue(currentClient.birthday)
+        ) {
+          setChangedValue('birthday', proposedBirthday);
+        }
+        if (proposedNotes !== undefined) {
+          setChangedValue('notes', proposedNotes);
+        }
+        if (updates.preferredTechnicianId !== undefined) {
+          setChangedValue(
+            'preferredTechnicianId',
+            updates.preferredTechnicianId,
+          );
+        }
+        if (proposedSensitivities !== undefined) {
+          setChangedValue('sensitivities', proposedSensitivities);
+        }
+        if (updates.nailPreferences !== undefined) {
+          setChangedValue(
+            'nailPreferences',
+            updates.nailPreferences,
+            jsonEqual,
+          );
+        }
+        if (updates.tags !== undefined) {
+          const normalizedTags = [
+            ...new Set(updates.tags.map(tag => tag.toLowerCase())),
+          ];
+          setChangedValue('tags', normalizedTags, jsonEqual);
+        }
+        if (updates.rebookIntervalDays !== undefined) {
+          setChangedValue(
+            'rebookIntervalDays',
+            updates.rebookIntervalDays,
+          );
+          if (updates.rebookIntervalDays !== currentClient.rebookIntervalDays) {
+            const nextRebookDueAt
+              = updates.rebookIntervalDays && currentClient.lastVisitAt
+                ? new Date(currentClient.lastVisitAt.getTime()
+                  + updates.rebookIntervalDays * 86_400_000)
+                : updates.rebookIntervalDays === null ? null : undefined;
+            if (nextRebookDueAt !== undefined) {
+              setChangedValue(
+                'nextRebookDueAt',
+                nextRebookDueAt,
+                datesEqual,
+              );
+            }
+          }
+        }
+
+        if (changedFields.size === 0) {
+          return { client: currentClient, mutated: false };
+        }
+        if (
+          currentClient.updatedAt.getTime()
+          !== expectedUpdatedAtDate.getTime()
+        ) {
+          throw new ClientEditConflictError();
+        }
+
+        const contactChanged
+          = changedFields.has('phone') || changedFields.has('email');
+        const nextPhone = changedFields.has('phone')
+          ? proposedPhone!
+          : currentPhone;
+        const nextEmail = changedFields.has('email')
+          ? proposedEmail ?? null
+          : currentEmail;
+        if (contactChanged) {
+          const lockedKeys = await lockSalonClientIdentityKeySetWithHandle(
             handle,
             {
               salonId: salon.id,
-              clientId: terminalClientId,
+              contacts: [
+                { phone: currentPhone, email: currentEmail },
+                { phone: nextPhone, email: nextEmail },
+              ],
+            },
+          );
+          const reResolved = await resolveTerminalSalonClientWithHandle(
+            handle,
+            {
+              salonId: salon.id,
+              clientId,
               allowArchived: true,
             },
           );
+          if (reResolved.id !== lockedClient.id) {
+            throw new ClientLifecycleStabilizationError(
+              'INVALID_CLIENT_STATE',
+              'Client lifecycle state is unavailable.',
+            );
+          }
 
-          if (updates.email !== null) {
-            await lockSalonClientIdentityKeysWithHandle(handle, {
-              salonId: salon.id,
-              email: updates.email,
-            });
-
-            let emailIdentity;
-            try {
-              emailIdentity
-                  = await resolveCanonicalSalonClientIdentityWithHandle(
-                  handle,
-                  {
-                    salonId: salon.id,
-                    email: updates.email,
-                    allowArchived: true,
+          let hasUnsafeExternalIdentity: boolean;
+          try {
+            hasUnsafeExternalIdentity
+              = await hasUnsafeSalonClientExternalIdentityWithHandle(
+                handle,
+                {
+                  salonId: salon.id,
+                  terminalClientId: lockedClient.id,
+                  proposedContact: {
+                    phone: nextPhone,
+                    email: nextEmail,
                   },
-                );
+                },
+              );
+          } catch (error) {
+            if (error instanceof ClientLifecycleStabilizationError) {
+              throw error;
+            }
+            throw new ClientLifecycleStabilizationError(
+              'UNSUPPORTED_CLIENT_IDENTITY',
+              'This contact change cannot be completed safely.',
+            );
+          }
+          if (hasUnsafeExternalIdentity) {
+            throw new ClientLifecycleStabilizationError(
+              'UNSUPPORTED_CLIENT_IDENTITY',
+              'This contact change cannot be completed safely.',
+            );
+          }
+
+          for (const key of lockedKeys) {
+            let identity;
+            try {
+              identity = await resolveCanonicalSalonClientIdentityWithHandle(
+                handle,
+                {
+                  salonId: salon.id,
+                  [key.kind]: key.normalizedValue,
+                  allowArchived: true,
+                },
+              );
             } catch (error) {
               if (
                 error instanceof ClientLifecycleStabilizationError
@@ -898,60 +1283,85 @@ export async function PATCH(
               }
               throw error;
             }
-
-            if (
-              emailIdentity
-              && emailIdentity.terminal.id !== lockedClient.id
-            ) {
+            if (identity && identity.terminal.id !== lockedClient.id) {
               throw new ContactIdentityConflictError();
             }
           }
+        }
 
-          const [updated] = await tx
-            .update(salonClientSchema)
-            .set({
-              ...updateValues,
-              updatedAt: new Date(),
-            })
-            .where(and(
-              eq(salonClientSchema.salonId, salon.id),
-              eq(salonClientSchema.id, lockedClient.id),
-            ))
-            .returning();
-          return updated ?? null;
-        }));
+        const mutationAt = new Date(Math.max(
+          Date.now(),
+          currentClient.updatedAt.getTime() + 1,
+        ));
+        const [updatedClient] = await tx
+          .update(salonClientSchema)
+          .set({
+            ...updateValues,
+            updatedAt: mutationAt,
+          })
+          .where(and(
+            eq(salonClientSchema.salonId, salon.id),
+            eq(salonClientSchema.id, lockedClient.id),
+          ))
+          .returning();
+        if (!updatedClient) {
+          throw new ClientEditConflictError();
+        }
 
-    if (!updatedClient) {
-      return Response.json(
-        {
-          error: {
-            code: 'UPDATE_FAILED',
-            message: 'Failed to update client',
+        const aliases: Array<typeof salonClientContactAliasSchema.$inferInsert>
+          = [];
+        if (changedFields.has('phone') && currentPhone) {
+          aliases.push({
+            salonId: salon.id,
+            salonClientId: lockedClient.id,
+            kind: 'phone',
+            normalizedValue: currentPhone,
+          });
+        }
+        if (changedFields.has('email') && currentEmail) {
+          aliases.push({
+            salonId: salon.id,
+            salonClientId: lockedClient.id,
+            kind: 'email',
+            normalizedValue: currentEmail,
+          });
+        }
+        if (aliases.length > 0) {
+          await tx
+            .insert(salonClientContactAliasSchema)
+            .values(aliases)
+            .onConflictDoNothing();
+        }
+
+        await tx.insert(auditLogSchema).values({
+          id: `audit_${crypto.randomUUID()}`,
+          salonId: salon.id,
+          actorType: 'admin',
+          actorId: null,
+          actorPhone: null,
+          action: 'updated',
+          entityType: 'salon_client',
+          entityId: lockedClient.id,
+          metadata: {
+            terminalClientId: lockedClient.id,
+            changedFields: [...changedFields].sort(),
+            redirectedFromStaleSource:
+              clientId !== lockedClient.id,
           },
-        } satisfies ErrorResponse,
-        { status: 500 },
-      );
-    }
+          ip: null,
+          userAgent: null,
+        });
 
-    return Response.json({
+        return { client: updatedClient, mutated: true };
+      }));
+
+    return privateJson({
       data: {
-        client: {
-          id: updatedClient.id,
-          phone: updatedClient.phone,
-          fullName: updatedClient.fullName,
-          email: updatedClient.email,
-          preferredTechnicianId: updatedClient.preferredTechnicianId,
-          notes: updatedClient.notes,
-          sensitivities: updatedClient.sensitivities,
-          nailPreferences: updatedClient.nailPreferences ?? {},
-          tags: updatedClient.tags ?? [],
-          rebookIntervalDays: updatedClient.rebookIntervalDays,
-          nextRebookDueAt: updatedClient.nextRebookDueAt?.toISOString() ?? null,
-          updatedAt: updatedClient.updatedAt.toISOString(),
-        },
+        client: clientResponse(result.client),
       },
       meta: {
         timestamp: new Date().toISOString(),
+        idempotent: !result.mutated,
       },
     });
   } catch (error) {
@@ -966,8 +1376,46 @@ export async function PATCH(
         { status: 409 },
       );
     }
-    console.error('Error updating client:', error);
-    return Response.json(
+    if (error instanceof ClientEditConflictError) {
+      return privateJson(
+        {
+          error: {
+            code: 'CLIENT_EDIT_CONFLICT',
+            message:
+              'This client changed elsewhere. Refresh the profile and try again.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (error instanceof ClientLifecycleStabilizationError) {
+      if (error.code === 'UNSUPPORTED_CLIENT_IDENTITY') {
+        return privateJson(
+          {
+            error: {
+              code: 'UNSUPPORTED_CLIENT_IDENTITY',
+              message:
+                'This contact change cannot be completed safely. Review the details or contact support.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+      return clientNotFoundResponse();
+    }
+    if (isUniqueViolation(error)) {
+      return privateJson(
+        {
+          error: {
+            code: 'CONTACT_IDENTITY_CONFLICT',
+            message: 'Client contact information conflicts with another profile',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    console.error('Error updating client profile');
+    return privateJson(
       {
         error: {
           code: 'INTERNAL_ERROR',

@@ -175,6 +175,7 @@ function buildDetailResponse(overrides?: Partial<{
         phone: '1111111111',
         fullName: 'Ava Thompson',
         email: 'ava@example.com',
+        birthday: '1992-06-15',
         preferredTechnician: {
           id: 'tech_1',
           name: 'Daniela',
@@ -188,6 +189,7 @@ function buildDetailResponse(overrides?: Partial<{
         noShowCount: 1,
         loyaltyPoints: 820,
         createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2026-07-25T15:30:00.000Z',
         ...overrides?.client,
       },
       upcomingAppointments: overrides?.upcomingAppointments ?? [{
@@ -622,6 +624,90 @@ describe('ClientsModal', () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100')).toHaveLength(1);
   });
 
+  it('opens Edit only from owner client detail, preserves name parts, and refreshes after success', async () => {
+    let detailFetchCount = 0;
+    let currentName = 'Ava Marie Thompson';
+    let currentUpdatedAt = '2026-07-25T15:30:00.000Z';
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([
+          buildListClient({ fullName: 'Ava Marie Thompson' }),
+        ])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
+        return new Response(JSON.stringify(buildDetailResponse({
+          client: {
+            fullName: currentName,
+            updatedAt: currentUpdatedAt,
+          },
+        })), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1' && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body));
+        currentName = `${body.firstName} ${body.lastName}`;
+        currentUpdatedAt = '2026-07-25T15:31:00.000Z';
+        return new Response(JSON.stringify({
+          data: {
+            client: {
+              id: 'client_1',
+              updatedAt: currentUpdatedAt,
+            },
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    expect(screen.queryByTestId('edit-client-action')).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /ava marie thompson/i }));
+
+    fireEvent.click(await screen.findByTestId('edit-client-action'));
+
+    expect(await screen.findByRole('dialog', { name: 'Edit client' })).toBeInTheDocument();
+    expect(screen.getByLabelText('First name')).toHaveValue('Ava');
+    expect(screen.getByLabelText('Last name')).toHaveValue('Marie Thompson');
+    expect(screen.getByLabelText('Birthday')).toHaveValue('1992-06-15');
+
+    fireEvent.change(screen.getByLabelText('Last name'), {
+      target: { value: 'Marie Thompson-Santos' },
+    });
+    fireEvent.click(screen.getByTestId('edit-client-save'));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit client' })).not.toBeInTheDocument();
+    });
+    const patchCall = fetchMock.mock.calls.find(([url, init]) =>
+      String(url) === '/api/admin/clients/client_1' && init?.method === 'PATCH');
+
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+      salonSlug: 'isla-nail-studio',
+      expectedUpdatedAt: '2026-07-25T15:30:00.000Z',
+      firstName: 'Ava',
+      lastName: 'Marie Thompson-Santos',
+    });
+    expect(await screen.findAllByText('Ava Marie Thompson-Santos')).not.toHaveLength(0);
+    expect(detailFetchCount).toBe(2);
+  });
+
   it('separates completed value, recorded payments, and completed outstanding', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -756,6 +842,7 @@ describe('ClientsModal', () => {
 
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual(expect.objectContaining({
       salonSlug: 'isla-nail-studio',
+      expectedUpdatedAt: '2026-07-25T15:30:00.000Z',
       notes: 'Prefers shorter almond shape.',
       preferredTechnicianId: 'tech_2',
     }));
