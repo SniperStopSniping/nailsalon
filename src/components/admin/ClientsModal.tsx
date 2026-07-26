@@ -5,6 +5,7 @@ import {
   Calendar,
   ChevronRight,
   Mail,
+  Pencil,
   Phone,
   ShieldAlert,
   User,
@@ -22,6 +23,10 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
+import {
+  EditClientDialog,
+  type EditClientValue,
+} from '@/components/admin/EditClientDialog';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -63,6 +68,7 @@ type ClientProfile = {
   phone: string;
   fullName: string | null;
   email: string | null;
+  birthday: string | null;
   preferredTechnician: {
     id: string;
     name: string;
@@ -89,6 +95,7 @@ type ClientProfile = {
   hasGoogleReview: boolean;
   googleReviewMarkedAt: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 type ClientAppointment = {
@@ -798,8 +805,14 @@ function ClientDetail({
   const [photos, setPhotos] = useState<ClientPhoto[]>(initialCachedDetail?.photos ?? []);
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailRefreshWarning, setDetailRefreshWarning] = useState<string | null>(
+    null,
+  );
+  const detailRequestGenerationRef = useRef(0);
+  const detailAbortControllerRef = useRef<AbortController | null>(null);
   const [cancelIntent, setCancelIntent] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
   const [activeSection, setActiveSection] = useState<ProfileSection>('overview');
 
@@ -874,31 +887,131 @@ function ClientDetail({
     });
   }, [clientSummary.id, onCacheUpdate]);
 
+  const invalidateDetailRequests = useCallback(() => {
+    detailRequestGenerationRef.current += 1;
+    detailAbortControllerRef.current?.abort();
+    detailAbortControllerRef.current = null;
+  }, []);
+
   const fetchClientDetail = useCallback(async (force = false) => {
     if (!force && (initialCachedDetail?.profile || profile)) {
-      return;
+      return {
+        status: 'success' as const,
+        requestGeneration: detailRequestGenerationRef.current,
+      };
     }
+
+    detailAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortControllerRef.current = controller;
+    const requestGeneration = detailRequestGenerationRef.current + 1;
+    detailRequestGenerationRef.current = requestGeneration;
+    const isCurrentRequest = () =>
+      requestGeneration === detailRequestGenerationRef.current
+      && !controller.signal.aborted;
 
     try {
       if (!profile) {
         setDetailLoading(true);
       }
       setDetailError(null);
-      const response = await fetch(`/api/admin/clients/${clientSummary.id}?salonSlug=${encodeURIComponent(salonSlug)}`);
+      const response = await fetch(
+        `/api/admin/clients/${clientSummary.id}?salonSlug=${encodeURIComponent(salonSlug)}`,
+        { signal: controller.signal },
+      );
       if (!response.ok) {
         throw new Error('Failed to fetch client profile');
       }
       const result = await response.json();
+      if (!isCurrentRequest()) {
+        return {
+          status: 'superseded' as const,
+          requestGeneration,
+        };
+      }
       applyDetailPayload(result.data);
+      return {
+        status: 'success' as const,
+        requestGeneration,
+      };
     } catch (error) {
+      if (
+        !isCurrentRequest()
+        || (error instanceof DOMException && error.name === 'AbortError')
+      ) {
+        return {
+          status: 'superseded' as const,
+          requestGeneration,
+        };
+      }
       console.error('Failed to fetch client profile:', error);
       if (!profile) {
         setDetailError('Failed to load client profile');
       }
+      return {
+        status: 'failure' as const,
+        requestGeneration,
+      };
     } finally {
-      setDetailLoading(false);
+      if (isCurrentRequest()) {
+        setDetailLoading(false);
+        detailAbortControllerRef.current = null;
+      }
     }
   }, [applyDetailPayload, clientSummary.id, initialCachedDetail?.profile, profile, salonSlug]);
+
+  const refreshAfterCommittedEdit = useCallback(async () => {
+    const result = await fetchClientDetail(true);
+    if (
+      result.status === 'superseded'
+      || result.requestGeneration !== detailRequestGenerationRef.current
+    ) {
+      return;
+    }
+    setDetailRefreshWarning(
+      result.status === 'success'
+        ? null
+        : 'The client was saved, but the latest profile could not be refreshed.',
+    );
+  }, [fetchClientDetail]);
+
+  const handleCommittedClientEdit = useCallback((
+    committedClient: EditClientValue,
+  ) => {
+    invalidateDetailRequests();
+
+    if (!profile || committedClient.id !== profile.id) {
+      void refreshAfterCommittedEdit();
+      return;
+    }
+
+    const nextProfile: ClientProfile = {
+      ...profile,
+      fullName: committedClient.fullName,
+      phone: committedClient.phone,
+      email: committedClient.email,
+      birthday: committedClient.birthday,
+      notes: committedClient.notes,
+      updatedAt: committedClient.updatedAt,
+    };
+
+    setProfile(nextProfile);
+    setNotesDraft(committedClient.notes ?? '');
+    setDetailRefreshWarning(null);
+    onCacheUpdate(clientSummary.id, { profile: nextProfile });
+    void refreshAfterCommittedEdit();
+  }, [
+    clientSummary.id,
+    invalidateDetailRequests,
+    onCacheUpdate,
+    profile,
+    refreshAfterCommittedEdit,
+  ]);
+
+  useEffect(() => () => {
+    detailRequestGenerationRef.current += 1;
+    detailAbortControllerRef.current?.abort();
+  }, []);
 
   const fetchFlags = useCallback(async (force = false) => {
     if (!canManageFlags) {
@@ -1036,7 +1149,7 @@ function ClientDetail({
   ]);
 
   const saveProfile = async () => {
-    if (!profileDirty) {
+    if (!profileDirty || !profile) {
       return;
     }
 
@@ -1048,6 +1161,7 @@ function ClientDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           salonSlug,
+          expectedUpdatedAt: profile.updatedAt,
           notes: notesDraft.trim() || null,
           preferredTechnicianId: preferredTechnicianIdDraft || null,
           sensitivities: sensitivitiesDraft.trim() || null,
@@ -1063,13 +1177,19 @@ function ClientDetail({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save client profile');
+        const payload = await response.json().catch(() => null);
+        if (payload?.error?.code === 'CLIENT_EDIT_CONFLICT') {
+          throw new Error('This client changed elsewhere. Refresh the profile and try again.');
+        }
+        throw new Error('Could not save client details');
       }
 
       await fetchClientDetail(true);
     } catch (error) {
       console.error('Failed to save client profile:', error);
-      setProfileSaveError('Could not save client details');
+      setProfileSaveError(
+        error instanceof Error ? error.message : 'Could not save client details',
+      );
     } finally {
       setProfileSaving(false);
     }
@@ -1133,11 +1253,11 @@ function ClientDetail({
 
       <div className="mx-auto w-full max-w-6xl p-4 pb-32 lg:pb-12">
         <AdminDetailCard className="mb-4 overflow-hidden rounded-[24px] border border-rose-100 bg-gradient-to-br from-white via-[#fffaf5] to-rose-50/70">
-          <div className="flex flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
+          <div className="flex min-w-0 flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
             <div className="mb-3 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-2xl font-bold text-white shadow-lg">
               {getInitials(statsSource.fullName)}
             </div>
-            <div className="lg:ml-5">
+            <div className="min-w-0 lg:ml-5">
               <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
                 <h2 className="text-[24px] font-semibold text-[#3f1727]">{detailName}</h2>
                 {profile?.tags?.map(tag => (
@@ -1166,8 +1286,37 @@ function ClientDetail({
                     : 'Loading client history…'}
               </div>
             </div>
+            {profile && (
+              <Button
+                type="button"
+                variant="brandSoft"
+                size="pillSm"
+                data-testid="edit-client-action"
+                onClick={() => setShowEditDialog(true)}
+                className="mt-4 min-h-11 w-full shrink-0 lg:ml-auto lg:mt-0 lg:w-auto"
+              >
+                <Pencil className="mr-2 size-4" />
+                Edit client
+              </Button>
+            )}
           </div>
         </AdminDetailCard>
+
+        {detailRefreshWarning && (
+          <div
+            role="status"
+            className="mb-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>{detailRefreshWarning}</span>
+            <button
+              type="button"
+              className="min-h-11 shrink-0 font-semibold text-amber-900 underline"
+              onClick={() => void refreshAfterCommittedEdit()}
+            >
+              Try refresh
+            </button>
+          </div>
+        )}
 
         <ProfileNavigation activeSection={activeSection} onChange={setActiveSection} />
 
@@ -1788,6 +1937,24 @@ function ClientDetail({
                 </>
               )}
       </div>
+
+      {profile && (
+        <EditClientDialog
+          isOpen={showEditDialog}
+          salonSlug={salonSlug}
+          client={{
+            id: profile.id,
+            fullName: profile.fullName,
+            phone: profile.phone,
+            email: profile.email,
+            birthday: profile.birthday,
+            notes: profile.notes,
+            updatedAt: profile.updatedAt,
+          }}
+          onClose={() => setShowEditDialog(false)}
+          onSuccess={handleCommittedClientEdit}
+        />
+      )}
 
       <AppointmentQuickEditSheet
         isOpen={Boolean(appointmentActions.selectedAppointmentId)}
