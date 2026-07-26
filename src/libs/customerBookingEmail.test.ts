@@ -2,10 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type QueuedResult = unknown[];
+type QueuedSelectResult = QueuedResult | Error;
 type QueuedUpdateResult = QueuedResult | Error;
 
 const state = vi.hoisted(() => ({
   deliveryClaimed: false,
+  eligibilityQueue: [] as QueuedSelectResult[],
   insertQueue: [] as QueuedResult[],
   insertedValues: [] as Array<{ table: unknown; values: unknown }>,
   recipient: {
@@ -30,20 +32,23 @@ const state = vi.hoisted(() => ({
   },
   resolveAppointmentOperationalEmailRecipient: vi.fn(),
   resolveBookingConfigFromSettings: vi.fn(),
-  selectQueue: [] as QueuedResult[],
+  selectQueue: [] as QueuedSelectResult[],
   sendTransactionalEmailDetailed: vi.fn(),
   updateQueue: [] as QueuedUpdateResult[],
   updates: [] as Array<{ table: unknown; set: Record<string, unknown> }>,
 }));
 
 const { dbMock } = vi.hoisted(() => {
-  function selectChain() {
+  function selectChain(nextRows: () => QueuedSelectResult) {
     const chain: Record<string, any> = {};
     for (const method of ['from', 'innerJoin', 'where', 'orderBy', 'limit']) {
       chain[method] = vi.fn(() => chain);
     }
-    chain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-      Promise.resolve(state.selectQueue.shift() ?? []).then(resolve, reject);
+    chain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+      const next = nextRows();
+      return (next instanceof Error ? Promise.reject(next) : Promise.resolve(next))
+        .then(resolve, reject);
+    };
     return chain;
   }
   function insertChain(table: unknown) {
@@ -95,7 +100,20 @@ const { dbMock } = vi.hoisted(() => {
   return {
     dbMock: {
       insert: vi.fn((table: unknown) => insertChain(table)),
-      select: vi.fn(() => selectChain()),
+      select: vi.fn((fields?: Record<string, unknown>) => {
+        const eligibilityProjection = fields
+          && Object.keys(fields).length === 3
+          && 'status' in fields
+          && 'deletedAt' in fields
+          && 'startTime' in fields;
+        return selectChain(() => eligibilityProjection
+          ? state.eligibilityQueue.shift() ?? [{
+            status: 'confirmed',
+            deletedAt: null,
+            startTime: new Date('2099-07-01T18:00:00Z'),
+          }]
+          : state.selectQueue.shift() ?? []);
+      }),
       update: vi.fn((table: unknown) => updateChain(table)),
     },
   };
@@ -139,6 +157,8 @@ const appointmentRow = {
     id: 'appointment_1',
     clientEmail: 'historical@example.com',
     clientName: 'Client',
+    status: 'confirmed',
+    deletedAt: null,
     startTime: new Date('2099-07-01T18:00:00Z'),
     endTime: new Date('2099-07-01T19:00:00Z'),
   },
@@ -165,6 +185,7 @@ describe('customer booking operational email', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.deliveryClaimed = false;
+    state.eligibilityQueue.length = 0;
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
     state.selectQueue.length = 0;
@@ -244,6 +265,32 @@ describe('customer booking operational email', () => {
         retryable: false,
       }),
     });
+  });
+
+  it('does not prepare an initial confirmation for an appointment that is already terminal', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.eligibilityQueue.push([{
+      status: 'cancelled',
+      deletedAt: null,
+      startTime: new Date('2099-07-01T18:00:00Z'),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(false);
+
+    expect(state.resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+        retryable: false,
+      }),
+    });
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
   });
 
   it('queues an ID-only retry when initial recipient resolution fails transiently', async () => {
@@ -412,27 +459,171 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
   });
 
-  it('does not mint or send when the appointment is no longer eligible', async () => {
+  it.each([
+    'cancelled',
+    'completed',
+    'no_show',
+    'in_progress',
+  ])('classifies a %s appointment as non-retryable on the first worker attempt', async (status) => {
     state.selectQueue.push(
       [{ status: 'failed', retryable: true }],
-      [],
+      [{
+        ...appointmentRow,
+        appointment: {
+          ...appointmentRow.appointment,
+          status,
+        },
+      }],
     );
 
     await expect(retryCustomerBookingConfirmationEmail({
       salonId: 'salon_1',
       appointmentId: 'appointment_1',
       deliveryId: 'delivery_1',
-    })).rejects.toThrow('BOOKING_EMAIL_APPOINTMENT_NOT_FOUND');
+    })).resolves.toEqual({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+      providerMessageId: null,
+    });
 
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
     expect(state.insertedValues.filter(
       entry => entry.table === appointmentAccessTokenSchema,
     )).toHaveLength(0);
+    expect(state.insertedValues.filter(
+      entry => entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
     expect(state.updates).toContainEqual({
       table: notificationDeliverySchema,
       set: expect.objectContaining({
         status: 'failed',
-        retryable: true,
+        errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+        retryable: false,
+      }),
+    });
+    expect(state.updates.some(update =>
+      update.table === appointmentSchema
+      || update.table === clientCommunicationSchema)).toBe(false);
+  });
+
+  it.each([
+    ['deleted', {
+      ...appointmentRow,
+      appointment: {
+        ...appointmentRow.appointment,
+        deletedAt: new Date('2099-06-01T12:00:00Z'),
+      },
+    }],
+    ['past', {
+      ...appointmentRow,
+      appointment: {
+        ...appointmentRow.appointment,
+        startTime: new Date('2020-07-01T18:00:00Z'),
+      },
+    }],
+    ['missing', null],
+  ])('classifies a %s appointment as non-retryable', async (_reason, row) => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      row ? [row] : [],
+    );
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+        retryable: false,
+      }),
+    });
+  });
+
+  it('does not retry or duplicate side effects after a terminal appointment is classified', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        appointment: {
+          ...appointmentRow.appointment,
+          status: 'cancelled',
+        },
+      }],
+      [{
+        status: 'failed',
+        retryable: false,
+        errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+      }],
+    );
+
+    const input = {
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    };
+
+    await expect(retryCustomerBookingConfirmationEmail(input)).resolves.toEqual({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+      providerMessageId: null,
+    });
+    await expect(retryCustomerBookingConfirmationEmail(input)).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates.filter(
+      update => update.set.status === 'queued',
+    )).toHaveLength(1);
+    expect(state.insertedValues.filter(
+      entry => entry.table === appointmentAccessTokenSchema
+        || entry.table === integrationOutboxSchema,
+    )).toHaveLength(0);
+  });
+
+  it('revokes the fresh token and stops when an appointment becomes terminal before delivery', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [appointmentRow],
+      [{ name: 'Manicure' }],
+    );
+    state.eligibilityQueue.push([{
+      status: 'cancelled',
+      deletedAt: null,
+      startTime: new Date('2099-07-01T18:00:00Z'),
+    }]);
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toEqual({
+      ok: false,
+      errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+      providerMessageId: null,
+    });
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: appointmentAccessTokenSchema,
+      set: { revokedAt: expect.any(Date) },
+    });
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
+        retryable: false,
       }),
     });
   });
@@ -745,6 +936,29 @@ describe('customer booking operational email', () => {
         status: 'failed',
         retryable: true,
         errorCode: 'BOOKING_EMAIL_PREPARATION_FAILED',
+      }),
+    });
+  });
+
+  it('keeps a temporary appointment read failure retryable', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      new Error('temporary database failure'),
+    );
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).rejects.toThrow('temporary database failure');
+
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(state.updates).toContainEqual({
+      table: notificationDeliverySchema,
+      set: expect.objectContaining({
+        status: 'failed',
+        errorCode: 'BOOKING_EMAIL_PREPARATION_FAILED',
+        retryable: true,
       }),
     });
   });
