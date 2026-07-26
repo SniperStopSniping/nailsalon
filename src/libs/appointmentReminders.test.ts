@@ -17,26 +17,85 @@ const {
   sendTransactionalEmail,
   getAppointmentServiceNames,
   sendAppointmentReminder,
+  insert,
   select,
   updateSet,
   updateWhere,
   queueSelectResults,
+  resetSmsClaims,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
+  const smsClaims = new Map<string, { id: string; status: string }>();
+  const smsClaimKeysById = new Map<string, string>();
+  let lastConflictedSmsClaimKey: string | null = null;
   const queryResult = {
     innerJoin: vi.fn(() => queryResult),
     leftJoin: vi.fn(() => queryResult),
     where: vi.fn(() => queryResult),
     orderBy: vi.fn(() => queryResult),
     limit: vi.fn(() => queryResult),
-    then: (resolve: (value: unknown[]) => void) => resolve(selectResults.shift() ?? []),
+    then: (resolve: (value: unknown[]) => void) => {
+      if (selectResults.length) {
+        resolve(selectResults.shift() ?? []);
+        return;
+      }
+      if (lastConflictedSmsClaimKey) {
+        const existing = smsClaims.get(lastConflictedSmsClaimKey);
+        lastConflictedSmsClaimKey = null;
+        resolve(existing ? [existing] : []);
+        return;
+      }
+      resolve([]);
+    },
   };
   const from = vi.fn(() => queryResult);
   const select = vi.fn(() => ({ from }));
 
   const updateWhere = vi.fn(async () => []);
-  const updateSet = vi.fn(() => ({ where: updateWhere }));
+  const updateSet = vi.fn((values: Record<string, unknown>) => {
+    if (typeof values.status === 'string') {
+      for (const [deliveryId, key] of smsClaimKeysById) {
+        const current = smsClaims.get(key);
+        if (current?.id === deliveryId) {
+          smsClaims.set(key, { ...current, status: values.status });
+        }
+      }
+    }
+    return { where: updateWhere };
+  });
   const update = vi.fn(() => ({ set: updateSet }));
+  const insert = vi.fn(() => {
+    let values: Record<string, unknown> | null = null;
+    const chain: any = {
+      values: vi.fn((nextValues: Record<string, unknown>) => {
+        values = nextValues;
+        return chain;
+      }),
+      onConflictDoNothing: vi.fn(() => chain),
+      returning: vi.fn(async () => {
+        const dedupeKey = typeof values?.dedupeKey === 'string'
+          ? values.dedupeKey
+          : null;
+        const id = typeof values?.id === 'string' ? values.id : null;
+        if (!dedupeKey || !id) {
+          return [];
+        }
+        const existing = smsClaims.get(dedupeKey);
+        if (existing) {
+          lastConflictedSmsClaimKey = dedupeKey;
+          return [];
+        }
+        const row = {
+          id,
+          status: typeof values?.status === 'string' ? values.status : 'queued',
+        };
+        smsClaims.set(dedupeKey, row);
+        smsClaimKeysById.set(id, dedupeKey);
+        return [row];
+      }),
+    };
+    return chain;
+  });
 
   return {
     mintAppointmentManageLink: vi.fn(),
@@ -47,13 +106,20 @@ const {
     sendTransactionalEmail: vi.fn(),
     getAppointmentServiceNames: vi.fn(),
     sendAppointmentReminder: vi.fn(),
+    insert,
     select,
     updateSet,
     updateWhere,
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
     },
+    resetSmsClaims: () => {
+      smsClaims.clear();
+      smsClaimKeysById.clear();
+      lastConflictedSmsClaimKey = null;
+    },
     db: {
+      insert,
       select,
       update,
     },
@@ -85,6 +151,7 @@ vi.mock('@/libs/SMS', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db: {
+    insert,
     select,
     update: vi.fn(() => ({ set: updateSet })),
   },
@@ -94,6 +161,7 @@ describe('appointment reminders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queueSelectResults();
+    resetSmsClaims();
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     resolveAppointmentOperationalEmailRecipient.mockResolvedValue({
       status: 'terminal_current',
@@ -665,7 +733,7 @@ describe('appointment reminders', () => {
     }));
   });
 
-  it('allows one concurrent worker to claim the same email reminder event', async () => {
+  it('allows one concurrent worker to claim each email and SMS reminder event', async () => {
     const candidate = {
       appointmentId: 'appt_concurrent_reminder',
       salonId: 'salon_1',
@@ -735,5 +803,46 @@ describe('appointment reminders', () => {
 
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
     expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses an independent SMS claim and repairs the marker without resending', async () => {
+    const candidate = {
+      appointmentId: 'appt_sms_claim',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: null,
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'unavailable',
+      deliveryId: 'email_delivery_1',
+      claimed: false,
+    });
+    queueSelectResults([candidate], [candidate]);
+
+    const first = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    const markerWritesAfterFirst = updateSet.mock.calls.filter(
+      ([values]) => values.dayBeforeReminderChannel === 'sms',
+    ).length;
+    const second = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+    expect(first.dayBeforeSms).toBe(1);
+    expect(second.dayBeforeSms).toBe(1);
+    expect(markerWritesAfterFirst).toBe(1);
+    expect(updateSet.mock.calls.filter(
+      ([values]) => values.dayBeforeReminderChannel === 'sms',
+    )).toHaveLength(2);
   });
 });

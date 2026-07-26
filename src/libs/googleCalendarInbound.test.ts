@@ -194,8 +194,8 @@ describe('processGoogleCalendarInboundSync', () => {
     }));
     expect(runAppointmentManageMutation.mock.invocationCallOrder[0])
       .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
-    expect(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0])
-      .toBeLessThan(logAppointmentChange.mock.invocationCallOrder[0]!);
+    expect(logAppointmentChange.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
   });
 
   it('deduplicates repeated customer email delivery for the same inbound move', async () => {
@@ -317,8 +317,8 @@ describe('processGoogleCalendarInboundSync', () => {
     }));
     expect(updateReturning.mock.invocationCallOrder[0])
       .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
-    expect(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0])
-      .toBeLessThan(logAppointmentChange.mock.invocationCallOrder[0]!);
+    expect(logAppointmentChange.mock.invocationCallOrder[0])
+      .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
   });
 
   it('keeps a moved appointment successful when its audit fails afterward', async () => {

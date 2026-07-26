@@ -310,23 +310,6 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
           if (!cancelled) {
             continue;
           }
-          // The appointment transition is committed. Claim the customer notice
-          // before audit or other bookkeeping so an independent failure cannot
-          // leave the cancellation with no durable delivery event.
-          await sendCalendarChangeEmail({
-            salonId: appointment.salonId,
-            appointmentId: appointment.id,
-            clientName: appointment.clientName,
-            salonName: salon.name,
-            timeZone,
-            startTime: appointment.startTime,
-            operation: 'cancelled',
-            eventVersion: [
-              remoteEvent.id,
-              remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
-              'cancelled',
-            ].join(':'),
-          });
           try {
             await logAppointmentChange({
               appointmentId: appointment.id,
@@ -345,6 +328,22 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
               appointmentId: appointment.id,
             });
           }
+          // The cancellation, sync bookkeeping, and audit attempt all finish
+          // before the external provider is called.
+          await sendCalendarChangeEmail({
+            salonId: appointment.salonId,
+            appointmentId: appointment.id,
+            clientName: appointment.clientName,
+            salonName: salon.name,
+            timeZone,
+            startTime: appointment.startTime,
+            operation: 'cancelled',
+            eventVersion: [
+              remoteEvent.id,
+              remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
+              'cancelled',
+            ].join(':'),
+          });
           summary.cancelledAppointments += 1;
           continue;
         }
@@ -384,24 +383,6 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
           summary.conflicts += 1;
           continue;
         }
-
-        // The move has committed. Claim and deliver its customer notice before
-        // sync bookkeeping and audit work, neither of which may suppress it.
-        await sendCalendarChangeEmail({
-          salonId: appointment.salonId,
-          appointmentId: appointment.id,
-          clientName: appointment.clientName,
-          salonName: salon.name,
-          timeZone,
-          startTime: remoteEvent.startTime,
-          operation: 'rescheduled',
-          eventVersion: [
-            remoteEvent.id,
-            remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
-            appointment.startTime.toISOString(),
-            remoteEvent.startTime.toISOString(),
-          ].join(':'),
-        });
 
         try {
           await db.update(appointmentSchema).set({
@@ -445,6 +426,23 @@ export async function processGoogleCalendarInboundSync(limit = 25, salonId?: str
             appointmentId: appointment.id,
           });
         }
+        // The move, sync bookkeeping, and audit attempt all finish before the
+        // external provider is called. A retry observes the durable sync state.
+        await sendCalendarChangeEmail({
+          salonId: appointment.salonId,
+          appointmentId: appointment.id,
+          clientName: appointment.clientName,
+          salonName: salon.name,
+          timeZone,
+          startTime: remoteEvent.startTime,
+          operation: 'rescheduled',
+          eventVersion: [
+            remoteEvent.id,
+            remoteEvent.updatedAt?.toISOString() ?? 'updated-at-unavailable',
+            appointment.startTime.toISOString(),
+            remoteEvent.startTime.toISOString(),
+          ].join(':'),
+        });
         summary.movedAppointments += 1;
       }
 

@@ -333,43 +333,6 @@ export async function POST(request: Request, context: { params: { token: string 
     return Response.json({ error: { code: 'INTERNAL_ERROR', message: 'The appointment could not be moved. Please try again.' } }, { status: 500 });
   }
 
-  // Claim and deliver the customer business event immediately after the move
-  // commits. Later Smart Fit, calendar, and salon-alert work is auxiliary and
-  // must not be able to leave a moved appointment without a durable customer
-  // delivery record.
-  try {
-    const timeZone = bookingConfig.timezone;
-    const newStart = new Date(result.detail.appointment.startTime);
-    const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
-    const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
-    const manageUrl = buildAppointmentManageUrl(
-      { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
-      context.params.token,
-    );
-    const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
-    await sendAppointmentOperationalEmailOnce({
-      salonId: managed.capability.salonId,
-      appointmentId: managed.capability.appointmentId,
-      purpose: 'client_appointment_rescheduled',
-      eventVersion: [
-        previousSchedule.startTime,
-        previousSchedule.endTime,
-        result.detail.appointment.startTime,
-        result.detail.appointment.endTime,
-      ].join(':'),
-      prepare: () => ({
-        subject: `${managed.details.salonName} appointment rescheduled`,
-        text,
-        html: `<p>Your <strong>${escapeHtml(managed.details.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
-      }),
-    });
-  } catch {
-    console.error('[AppointmentManageLink] Reschedule confirmation email failed after the move committed:', {
-      salonId: managed.capability.salonId,
-      appointmentId: managed.capability.appointmentId,
-    });
-  }
-
   // Smart Fit, through the SAME shared policy the booking endpoint uses.
   // Pricing inputs cannot change on this path (service, add-ons and quantities
   // are fixed), so a committed discount is always preserved — the row is never
@@ -479,6 +442,42 @@ export async function POST(request: Request, context: { params: { token: string 
     });
   }
 
+  // All appointment, pricing, and calendar-outbox writes finish before the
+  // external provider is called. The customer event is independently deduped,
+  // so a delivery failure cannot roll back or duplicate the committed move.
+  try {
+    const timeZone = bookingConfig.timezone;
+    const newStart = new Date(result.detail.appointment.startTime);
+    const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
+    const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
+    const manageUrl = buildAppointmentManageUrl(
+      { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
+      context.params.token,
+    );
+    const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+    await sendAppointmentOperationalEmailOnce({
+      salonId: managed.capability.salonId,
+      appointmentId: managed.capability.appointmentId,
+      purpose: 'client_appointment_rescheduled',
+      eventVersion: [
+        previousSchedule.startTime,
+        previousSchedule.endTime,
+        result.detail.appointment.startTime,
+        result.detail.appointment.endTime,
+      ].join(':'),
+      prepare: () => ({
+        subject: `${managed.details.salonName} appointment rescheduled`,
+        text,
+        html: `<p>Your <strong>${escapeHtml(managed.details.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
+      }),
+    });
+  } catch {
+    console.error('[AppointmentManageLink] Reschedule confirmation email failed after the move committed:', {
+      salonId: managed.capability.salonId,
+      appointmentId: managed.capability.appointmentId,
+    });
+  }
+
   // Salon side: deduped on (appointment, event, previous schedule), so a retry
   // of the same move never produces a second alert.
   try {
@@ -533,29 +532,6 @@ export async function PATCH(request: Request, context: { params: { token: string
     return Response.json({ error: { code: 'APPOINTMENT_NOT_ACTIVE', message: 'This appointment is no longer active.' } }, { status: 409 });
   }
 
-  // Claim the customer business event before any auxiliary calendar, token, or
-  // salon-alert work. A failure in those independent paths cannot erase the
-  // cancellation notice or make a retry send it twice.
-  try {
-    const text = `Your appointment with ${managed.details.salonName} has been cancelled.`;
-    await sendAppointmentOperationalEmailOnce({
-      salonId: cancelled.salonId,
-      appointmentId: cancelled.id,
-      purpose: 'client_appointment_cancelled',
-      eventVersion: (cancelled.updatedAt ?? new Date()).toISOString(),
-      prepare: () => ({
-        subject: `${managed.details.salonName} appointment cancelled`,
-        text,
-        html: `<p>${escapeHtml(text)}</p>`,
-      }),
-    });
-  } catch {
-    console.error('[AppointmentManageLink] Cancellation confirmation email failed after the cancellation committed:', {
-      salonId: cancelled.salonId,
-      appointmentId: cancelled.id,
-    });
-  }
-
   try {
     await enqueueGoogleCalendarDelete({
       appointmentId: cancelled.id,
@@ -581,6 +557,29 @@ export async function PATCH(request: Request, context: { params: { token: string
       ));
   } catch {
     console.error('[AppointmentManageLink] Stale capability cleanup failed after cancellation:', {
+      salonId: cancelled.salonId,
+      appointmentId: cancelled.id,
+    });
+  }
+
+  // Finish calendar and capability bookkeeping before calling the external
+  // provider. The cancellation is already committed and this event is
+  // independently deduped.
+  try {
+    const text = `Your appointment with ${managed.details.salonName} has been cancelled.`;
+    await sendAppointmentOperationalEmailOnce({
+      salonId: cancelled.salonId,
+      appointmentId: cancelled.id,
+      purpose: 'client_appointment_cancelled',
+      eventVersion: (cancelled.updatedAt ?? new Date()).toISOString(),
+      prepare: () => ({
+        subject: `${managed.details.salonName} appointment cancelled`,
+        text,
+        html: `<p>${escapeHtml(text)}</p>`,
+      }),
+    });
+  } catch {
+    console.error('[AppointmentManageLink] Cancellation confirmation email failed after the cancellation committed:', {
       salonId: cancelled.salonId,
       appointmentId: cancelled.id,
     });

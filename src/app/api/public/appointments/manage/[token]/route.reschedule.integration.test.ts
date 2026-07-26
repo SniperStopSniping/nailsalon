@@ -295,6 +295,8 @@ describe('customer manage-link reschedule', () => {
       'client_appointment_rescheduled',
     )).toHaveLength(1);
     expect(enqueueGoogleCalendarUpsert).toHaveBeenCalledTimes(1);
+    expect(enqueueGoogleCalendarUpsert.mock.invocationCallOrder[0])
+      .toBeLessThan(sendTransactionalEmailDetailed.mock.invocationCallOrder[0]!);
   });
 
   it('sends the customer the working management link, not a booking URL', async () => {

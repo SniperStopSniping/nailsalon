@@ -616,6 +616,52 @@ describe('customer manage-link cancellation', () => {
     expect(appointment!.clientEmail).toBe('daniel@example.com');
   });
 
+  it('finishes calendar and stale-capability bookkeeping before customer delivery', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+    const staleCapability = createOpaqueToken();
+    await db.insert(schema.appointmentAccessTokenSchema).values({
+      id: `tok_stale_${appointmentId}`,
+      salonId: SALON_ID,
+      appointmentId,
+      tokenHash: staleCapability.tokenHash,
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
+    sendTransactionalEmailDetailed.mockImplementation(async (message) => {
+      if ((message as { to: string }).to === 'current@example.com') {
+        const [calendarJob, tokens] = await Promise.all([
+          db
+            .select()
+            .from(schema.integrationOutboxSchema)
+            .where(and(
+              eq(schema.integrationOutboxSchema.appointmentId, appointmentId),
+              eq(schema.integrationOutboxSchema.operation, 'delete_event'),
+            )),
+          db
+            .select()
+            .from(schema.appointmentAccessTokenSchema)
+            .where(eq(
+              schema.appointmentAccessTokenSchema.appointmentId,
+              appointmentId,
+            )),
+        ]);
+
+        expect(calendarJob).toHaveLength(1);
+        expect(tokens.find(row => row.id === `tok_stale_${appointmentId}`)?.revokedAt)
+          .toBeInstanceOf(Date);
+      }
+      return {
+        ok: true,
+        errorCode: null,
+        providerMessageId: 'msg_manage',
+      };
+    });
+
+    const response = await PATCH(cancelRequest(), { params: { token } });
+
+    expect(response.status).toBe(200);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
   it('escapes salon markup in the cancellation email body', async () => {
     await db
       .update(schema.salonSchema)

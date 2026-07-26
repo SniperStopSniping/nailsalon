@@ -14,6 +14,7 @@ import { getAppointmentServiceNames } from '@/libs/queries';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
+  notificationDeliverySchema,
   salonClientSchema,
   salonSchema,
   technicianSchema,
@@ -48,6 +49,12 @@ type ReminderCandidate = {
 type ReminderSendResult = {
   channel: ReminderChannel | null;
   attempted: boolean;
+};
+
+type ReminderSmsClaim = {
+  claimed: boolean;
+  deliveryId: string | null;
+  status: string | null;
 };
 
 export type ProcessAppointmentRemindersResult = {
@@ -272,6 +279,72 @@ async function resolveReminderOperationalContact(
   };
 }
 
+async function claimReminderSmsDelivery(input: {
+  appointmentId: string;
+  salonId: string;
+  reminderType: 'day_before' | 'same_day';
+  eventVersion: string;
+}): Promise<ReminderSmsClaim> {
+  const purpose = input.reminderType === 'day_before'
+    ? 'appointment_reminder_24h_guard'
+    : 'appointment_reminder_2h_guard';
+  const dedupeKey = [
+    'sms',
+    'appointment-reminder',
+    input.reminderType,
+    input.salonId,
+    input.appointmentId,
+    input.eventVersion,
+  ].join(':');
+  const deliveryId = crypto.randomUUID();
+  const [inserted] = await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    channel: 'sms',
+    purpose,
+    dedupeKey,
+    status: 'queued',
+    retryable: false,
+  }).onConflictDoNothing().returning();
+  if (inserted) {
+    return {
+      claimed: true,
+      deliveryId: inserted.id,
+      status: inserted.status,
+    };
+  }
+  const [existing] = await db.select({
+    id: notificationDeliverySchema.id,
+    status: notificationDeliverySchema.status,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+    eq(notificationDeliverySchema.dedupeKey, dedupeKey),
+  )).limit(1);
+  return {
+    claimed: false,
+    deliveryId: existing?.id ?? null,
+    status: existing?.status ?? null,
+  };
+}
+
+async function finishReminderSmsDelivery(input: {
+  salonId: string;
+  deliveryId: string;
+  sent: boolean;
+}) {
+  await db.update(notificationDeliverySchema).set({
+    status: input.sent ? 'sent' : 'failed',
+    errorCode: input.sent ? null : 'SMS_DELIVERY_UNAVAILABLE',
+    retryable: false,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.status, 'queued'),
+  ));
+}
+
 async function sendDayBeforeReminder(
   candidate: ReminderCandidate,
   context: {
@@ -303,18 +376,30 @@ async function sendDayBeforeReminder(
       }),
   });
   const emailSent = emailDelivery.status === 'sent';
-  if (!emailDelivery.claimed) {
-    return {
-      channel: emailSent ? 'email' : null,
-      attempted: false,
-    };
-  }
 
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
     return {
       channel: emailSent ? 'email' : null,
       attempted: emailDelivery.status === 'failed',
+    };
+  }
+
+  const smsClaim = await claimReminderSmsDelivery({
+    appointmentId: candidate.appointmentId,
+    salonId: candidate.salonId,
+    reminderType: 'day_before',
+    eventVersion: candidate.startTime.toISOString(),
+  });
+  if (!smsClaim.claimed || !smsClaim.deliveryId) {
+    return {
+      channel:
+        emailSent
+          ? 'email'
+          : smsClaim.status === 'sent'
+            ? 'sms'
+            : null,
+      attempted: false,
     };
   }
 
@@ -331,6 +416,11 @@ async function sendDayBeforeReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
+  await finishReminderSmsDelivery({
+    salonId: candidate.salonId,
+    deliveryId: smsClaim.deliveryId,
+    sent: smsSent,
+  }).catch(() => undefined);
 
   return {
     channel: emailSent ? 'email' : smsSent ? 'sms' : null,
@@ -368,17 +458,29 @@ async function sendSameDayReminder(
       }),
   });
   const emailSent = emailDelivery.status === 'sent';
-  if (!emailDelivery.claimed) {
-    return {
-      channel: emailSent ? 'email' : null,
-      attempted: false,
-    };
-  }
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
     return {
       channel: emailSent ? 'email' : null,
       attempted: emailDelivery.status === 'failed',
+    };
+  }
+
+  const smsClaim = await claimReminderSmsDelivery({
+    appointmentId: candidate.appointmentId,
+    salonId: candidate.salonId,
+    reminderType: 'same_day',
+    eventVersion: candidate.startTime.toISOString(),
+  });
+  if (!smsClaim.claimed || !smsClaim.deliveryId) {
+    return {
+      channel:
+        emailSent
+          ? 'email'
+          : smsClaim.status === 'sent'
+            ? 'sms'
+            : null,
+      attempted: false,
     };
   }
 
@@ -395,6 +497,11 @@ async function sendSameDayReminder(
     timeZone: context.timeZone,
     manageUrl: await getManageUrl(),
   }).catch(() => false);
+  await finishReminderSmsDelivery({
+    salonId: candidate.salonId,
+    deliveryId: smsClaim.deliveryId,
+    sent: smsSent,
+  }).catch(() => undefined);
 
   return {
     channel: emailSent ? 'email' : smsSent ? 'sms' : null,
