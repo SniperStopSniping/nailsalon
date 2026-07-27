@@ -1,3 +1,18 @@
+# [1.36.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.35.0...v1.36.0) (2026-07-27)
+
+
+### Bug Fixes
+
+* harden booking experience settings errors ([c59a227](https://github.com/SniperStopSniping/nailsalon/commit/c59a227acf901075474e91778c815b241fd762be))
+
+
+### Features
+
+* add booking confirmation customization ([ccb8c65](https://github.com/SniperStopSniping/nailsalon/commit/ccb8c65227cb0ff2e104d7841ad609fb67c1f64c))
+* add booking experience admin editor ([0937b6b](https://github.com/SniperStopSniping/nailsalon/commit/0937b6bf9e705cc65b54ab7c32737e42b767e88d))
+* add booking experience settings contract ([215f8d4](https://github.com/SniperStopSniping/nailsalon/commit/215f8d42d0a4acca3d3c1058e171d48bb05449fc))
+* customize public booking page ([961eeec](https://github.com/SniperStopSniping/nailsalon/commit/961eeec9ab5df890d5526a3fe7658df3aea554c6))
+
 # [1.35.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.34.0...v1.35.0) (2026-07-27)
 
 
