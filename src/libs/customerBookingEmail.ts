@@ -15,25 +15,46 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
 }
 
-function appendConfirmationMessageText(
-  systemContent: string,
-  confirmationMessage: string | null,
-): string {
-  return confirmationMessage
-    ? `${systemContent}\n\n${confirmationMessage}`
-    : systemContent;
+type BookingEmailCustomization = {
+  confirmationMessage: string | null;
+  policy: {
+    title: string;
+    text: string;
+  } | null;
+};
+
+const NO_BOOKING_EMAIL_CUSTOMIZATION: BookingEmailCustomization = {
+  confirmationMessage: null,
+  policy: null,
+};
+
+function composeBookingConfirmationText(input: {
+  appointmentContent: string;
+  manageContent: string;
+  customization: BookingEmailCustomization;
+}): string {
+  return [
+    input.appointmentContent,
+    input.customization.policy
+      ? `${input.customization.policy.title}\n${input.customization.policy.text}`
+      : null,
+    input.manageContent,
+    input.customization.confirmationMessage,
+  ].filter((content): content is string => Boolean(content)).join('\n\n');
 }
 
-function appendConfirmationMessageHtml(
-  systemContent: string,
-  confirmationMessage: string | null,
-): string {
-  if (!confirmationMessage) {
-    return systemContent;
-  }
-
-  const safeMessage = escapeHtml(confirmationMessage).replace(/\n/g, '<br />');
-  return `${systemContent}<p>${safeMessage}</p>`;
+function composeBookingConfirmationHtml(input: {
+  appointmentContent: string;
+  manageContent: string;
+  customization: BookingEmailCustomization;
+}): string {
+  const policyContent = input.customization.policy
+    ? `<div><p><strong>${escapeHtml(input.customization.policy.title)}</strong></p><p>${escapeHtml(input.customization.policy.text).replace(/\n/g, '<br />')}</p></div>`
+    : '';
+  const confirmationContent = input.customization.confirmationMessage
+    ? `<p>${escapeHtml(input.customization.confirmationMessage).replace(/\n/g, '<br />')}</p>`
+    : '';
+  return `${input.appointmentContent}${policyContent}${input.manageContent}${confirmationContent}`;
 }
 
 const unavailableRecipientResult: TransactionalEmailResult = {
@@ -86,9 +107,9 @@ async function loadBookingConfirmationEligibility(input: {
   return appointment;
 }
 
-async function loadBookingConfirmationMessage(
+async function loadBookingEmailCustomization(
   salonId: string,
-): Promise<string | null> {
+): Promise<BookingEmailCustomization> {
   try {
     const [salon] = await db.select({
       plan: salonSchema.plan,
@@ -96,7 +117,7 @@ async function loadBookingConfirmationMessage(
       settings: salonSchema.settings,
     }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
 
-    return resolveEntitledBookingConfirmationMessage({
+    return resolveEntitledBookingEmailCustomization({
       storedPlan: salon?.plan,
       features: salon?.features,
       settings: salon?.settings,
@@ -104,29 +125,40 @@ async function loadBookingConfirmationMessage(
   } catch {
     // Booking customization is optional. A lookup, resolver, or legacy-data
     // failure must never prevent the operational confirmation from being sent.
-    return null;
+    return NO_BOOKING_EMAIL_CUSTOMIZATION;
   }
 }
 
-function resolveEntitledBookingConfirmationMessage(input: {
+function resolveEntitledBookingEmailCustomization(input: {
   storedPlan: unknown;
   features: SalonFeatures | null | undefined;
   settings: SalonSettings | null | undefined;
-}): string | null {
+}): BookingEmailCustomization {
   try {
     const entitlement = resolveBookingExperienceEntitlement({
       storedPlan: input.storedPlan,
       features: input.features,
     });
     if (!entitlement.entitled) {
-      return null;
+      return NO_BOOKING_EMAIL_CUSTOMIZATION;
     }
 
-    return resolveBookingExperience(input.settings).confirmationMessage;
+    const experience = resolveBookingExperience(input.settings);
+    return {
+      confirmationMessage: experience.confirmationMessage,
+      policy: experience.policy.enabled
+        && experience.policy.showInConfirmationEmail
+        && experience.policy.text
+        ? {
+            title: experience.policy.title || 'Booking policy',
+            text: experience.policy.text,
+          }
+        : null,
+    };
   } catch {
     // Entitlement failures fail closed for customization without blocking the
     // unchanged operational email.
-    return null;
+    return NO_BOOKING_EMAIL_CUSTOMIZATION;
   }
 }
 
@@ -292,12 +324,13 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
   const subject = `${input.salonName} booking confirmed`;
-  const systemText = [
+  const appointmentText = [
     `Hi ${input.clientName},`,
     `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${date} at ${time}.`,
-    `View, reschedule, or cancel: ${input.manageUrl}`,
   ].join('\n\n');
-  const systemHtml = `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
+  const manageText = `View, reschedule, or cancel: ${input.manageUrl}`;
+  const appointmentHtml = `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
+  const manageHtml = `<p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
   const deliveryId = crypto.randomUUID();
   const inserted = await db.insert(notificationDeliverySchema).values({
     id: deliveryId,
@@ -312,7 +345,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
     return true;
   }
   let recipient;
-  let confirmationMessage: string | null = null;
+  let customization = NO_BOOKING_EMAIL_CUSTOMIZATION;
   try {
     const appointment = await loadBookingConfirmationEligibility(input);
     if (!isBookingConfirmationEligible(appointment)) {
@@ -322,7 +355,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       });
       return false;
     }
-    confirmationMessage = await loadBookingConfirmationMessage(input.salonId);
+    customization = await loadBookingEmailCustomization(input.salonId);
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -352,8 +385,16 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const result = await sendTransactionalEmailDetailed({
     to: recipient.email,
     subject,
-    text: appendConfirmationMessageText(systemText, confirmationMessage),
-    html: appendConfirmationMessageHtml(systemHtml, confirmationMessage),
+    text: composeBookingConfirmationText({
+      appointmentContent: appointmentText,
+      manageContent: manageText,
+      customization,
+    }),
+    html: composeBookingConfirmationHtml({
+      appointmentContent: appointmentHtml,
+      manageContent: manageHtml,
+      customization,
+    }),
   });
   if (result.ok) {
     // The provider has accepted the message. A ledger outage must not turn the
@@ -459,7 +500,7 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
     const config = resolveBookingConfigFromSettings(row.salonSettings);
-    const confirmationMessage = resolveEntitledBookingConfirmationMessage({
+    const customization = resolveEntitledBookingEmailCustomization({
       storedPlan: row.salonPlan,
       features: row.salonFeatures,
       settings: row.salonSettings,
@@ -488,8 +529,10 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
       expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
     });
     const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
-    const systemText = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
-    const systemHtml = `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`;
+    const appointmentText = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.`;
+    const manageText = `View, reschedule, or cancel: ${manageUrl}`;
+    const appointmentHtml = `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
+    const manageHtml = `<p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`;
     const finalRecipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -516,8 +559,16 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     emailInput = {
       to: finalRecipient.email,
       subject: `${row.salonName} booking confirmed`,
-      text: appendConfirmationMessageText(systemText, confirmationMessage),
-      html: appendConfirmationMessageHtml(systemHtml, confirmationMessage),
+      text: composeBookingConfirmationText({
+        appointmentContent: appointmentText,
+        manageContent: manageText,
+        customization,
+      }),
+      html: composeBookingConfirmationHtml({
+        appointmentContent: appointmentHtml,
+        manageContent: manageHtml,
+        customization,
+      }),
     };
   } catch (error) {
     await restoreBookingRetryAfterCapabilityCleanup({

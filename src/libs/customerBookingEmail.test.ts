@@ -195,14 +195,75 @@ function settingsWithConfirmationMessage(message: string) {
         enabled: false,
         title: null,
         text: null,
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
       },
-      appointmentOnly: false,
+      quickFacts: {
+        appointmentOnly: {
+          enabled: false,
+          label: null,
+        },
+        depositNotice: {
+          enabled: false,
+          label: null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null,
+        },
+      },
       socialLinks: {
         instagram: null,
         facebook: null,
         tiktok: null,
       },
       confirmationMessage: message,
+    },
+  };
+}
+
+function settingsWithEmailPolicy(input?: {
+  enabled?: boolean;
+  showInConfirmationEmail?: boolean;
+  title?: string | null;
+  text?: string | null;
+}) {
+  return {
+    bookingExperience: {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: input?.enabled ?? true,
+        title: input?.title ?? 'Deposit & cancellation policy',
+        text: input?.text
+          ?? 'Please provide 24 hours’ notice. <No-shows> may lose their deposit.',
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: input?.showInConfirmationEmail ?? true,
+      },
+      quickFacts: {
+        appointmentOnly: {
+          enabled: false,
+          label: null,
+        },
+        depositNotice: {
+          enabled: false,
+          label: null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null,
+        },
+      },
+      socialLinks: {
+        instagram: null,
+        facebook: null,
+        tiktok: null,
+      },
+      confirmationMessage: null,
     },
   };
 }
@@ -293,6 +354,54 @@ describe('customer booking operational email', () => {
       '<p>Please arrive &lt;early&gt;.<br />Bring your confirmation &amp; ID.</p>',
     );
     expect(email.html).not.toContain('<early>');
+  });
+
+  it('places the current enabled policy beneath appointment details in the initial email', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push([{
+      plan: 'single_salon',
+      features: null,
+      settings: settingsWithEmailPolicy(),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain(
+      'Deposit & cancellation policy\n'
+      + 'Please provide 24 hours’ notice. <No-shows> may lose their deposit.\n\n'
+      + 'View, reschedule, or cancel:',
+    );
+    expect(email.html).toContain(
+      '<div><p><strong>Deposit &amp; cancellation policy</strong></p>'
+      + '<p>Please provide 24 hours’ notice. &lt;No-shows&gt; may lose their deposit.</p></div>'
+      + '<p><a href="https://salon.example/manage/token">',
+    );
+    expect(email.html).not.toContain('<No-shows>');
+  });
+
+  it.each([
+    ['the email placement is off', 'single_salon', settingsWithEmailPolicy({
+      showInConfirmationEmail: false,
+    })],
+    ['the salon entitlement is locked', 'free', settingsWithEmailPolicy()],
+  ])('omits the informational policy when %s', async (
+    _reason,
+    plan,
+    settings,
+  ) => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push([{ plan, features: null, settings }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).not.toContain('Deposit & cancellation policy');
+    expect(email.html).not.toContain('Deposit &amp; cancellation policy');
   });
 
   it('omits the saved message from an initial email when the salon plan is locked', async () => {
@@ -614,6 +723,38 @@ describe('customer booking operational email', () => {
     );
     expect(email.html).toMatch(
       /View, reschedule, or cancel<\/a><\/p><p>Latest salon note\.<br \/>Please use the side entrance\.<\/p>$/,
+    );
+  });
+
+  it('uses the current enabled informational policy for a confirmation retry', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        salonSettings: settingsWithEmailPolicy({
+          title: 'Current booking policy',
+          text: 'Please contact us before cancelling.',
+        }),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toMatch(
+      /Current booking policy\nPlease contact us before cancelling\.\n\nView, reschedule, or cancel:/,
+    );
+    expect(email.html).toContain(
+      '<div><p><strong>Current booking policy</strong></p>'
+      + '<p>Please contact us before cancelling.</p></div><p><a href=',
     );
   });
 
@@ -1395,6 +1536,44 @@ describe('customer booking operational email', () => {
     expect(state.updates.some(update =>
       update.table === appointmentSchema
       || update.table === clientCommunicationSchema)).toBe(false);
+  });
+
+  it('uses the current enabled informational policy for a manual resend', async () => {
+    state.insertQueue.push([{}], [{}]);
+    state.selectQueue.push(
+      [{
+        status: 'failed',
+        retryable: true,
+        errorCode: 'MANUAL_RESEND_REQUESTED',
+      }],
+      [{
+        ...appointmentRow,
+        salonSettings: settingsWithEmailPolicy({
+          title: 'Resend booking policy',
+          text: 'Give at least 24 hours’ notice.',
+        }),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+
+    await expect(resendCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          'Resend booking policy\nGive at least 24 hours’ notice.\n\n'
+          + 'View, reschedule, or cancel:',
+        ),
+        html: expect.stringContaining(
+          '<div><p><strong>Resend booking policy</strong></p>'
+          + '<p>Give at least 24 hours’ notice.</p></div><p><a href=',
+        ),
+      }),
+    );
   });
 
   it('omits the saved message from a manual resend while the salon is locked', async () => {

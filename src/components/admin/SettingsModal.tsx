@@ -55,10 +55,10 @@ import type { BookingStep } from '@/libs/bookingFlow';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { useSalon } from '@/providers/SalonProvider';
 import type {
+  BookingExperience,
   ModuleKey,
   ResolvedModules,
   ResolvedSubscriptionFeatureEntitlement,
-  SalonSettings,
   SalonVisibilityPolicy,
 } from '@/types/salonPolicy';
 
@@ -848,9 +848,7 @@ type BookingConfigFormState = {
   clientChangeCutoffHours: number;
 };
 
-type BookingExperienceFormState = NonNullable<
-  SalonSettings['bookingExperience']
->;
+type BookingExperienceFormState = BookingExperience;
 
 function copyBookingExperience(
   value: BookingExperienceFormState,
@@ -862,8 +860,16 @@ function copyBookingExperience(
       enabled: value.policy.enabled,
       title: value.policy.title,
       text: value.policy.text,
+      showOnServicePage: value.policy.showOnServicePage,
+      showBeforeConfirmation: value.policy.showBeforeConfirmation,
+      showAfterConfirmation: value.policy.showAfterConfirmation,
+      showInConfirmationEmail: value.policy.showInConfirmationEmail,
     },
-    appointmentOnly: value.appointmentOnly,
+    quickFacts: {
+      appointmentOnly: { ...value.quickFacts.appointmentOnly },
+      depositNotice: { ...value.quickFacts.depositNotice },
+      cancellationNotice: { ...value.quickFacts.cancellationNotice },
+    },
     socialLinks: {
       instagram: value.socialLinks.instagram,
       facebook: value.socialLinks.facebook,
@@ -873,11 +879,34 @@ function copyBookingExperience(
   };
 }
 
-function bookingExperiencesMatch(
+function bookingExperienceAppearancesMatch(
   left: BookingExperienceFormState,
   right: BookingExperienceFormState,
 ): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify({
+    primaryColor: left.primaryColor,
+    bookingMessage: left.bookingMessage,
+    socialLinks: left.socialLinks,
+    confirmationMessage: left.confirmationMessage,
+  }) === JSON.stringify({
+    primaryColor: right.primaryColor,
+    bookingMessage: right.bookingMessage,
+    socialLinks: right.socialLinks,
+    confirmationMessage: right.confirmationMessage,
+  });
+}
+
+function bookingPoliciesMatch(
+  left: BookingExperienceFormState,
+  right: BookingExperienceFormState,
+): boolean {
+  return JSON.stringify({
+    policy: left.policy,
+    quickFacts: left.quickFacts,
+  }) === JSON.stringify({
+    policy: right.policy,
+    quickFacts: right.quickFacts,
+  });
 }
 
 const BOOKING_EXPERIENCE_SAVE_ERROR
@@ -1219,107 +1248,6 @@ function BookingExperienceEditor({
           </span>
         </label>
 
-        <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-          <div className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Appointment Only
-            </span>
-            <p className="text-sm text-gray-700">
-              Show a fixed Appointment Only indicator near the booking heading.
-            </p>
-          </div>
-          <input
-            type="checkbox"
-            checked={draft.appointmentOnly}
-            onChange={event =>
-              onChange(current => ({
-                ...current,
-                appointmentOnly: event.target.checked,
-              }))}
-            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
-          />
-        </label>
-
-        <div className="space-y-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-          <label className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Booking policy
-              </span>
-              <p className="text-sm text-gray-700">
-                Publish plain-text policy information below the service list.
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={draft.policy.enabled}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  policy: {
-                    ...current.policy,
-                    enabled: event.target.checked,
-                  },
-                }))}
-              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
-            />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Policy title
-            </span>
-            <input
-              type="text"
-              aria-label="Policy title"
-              value={draft.policy.title ?? ''}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  policy: {
-                    ...current.policy,
-                    title: event.target.value || null,
-                  },
-                }))}
-              maxLength={60}
-              placeholder="Before you book"
-              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-            />
-            <span className="text-right text-xs text-gray-500">
-              {(draft.policy.title ?? '').length}
-              /60
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Policy text
-              {draft.policy.enabled ? ' (required)' : ''}
-            </span>
-            <textarea
-              aria-label="Policy text"
-              value={draft.policy.text ?? ''}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  policy: {
-                    ...current.policy,
-                    text: event.target.value || null,
-                  },
-                }))}
-              rows={5}
-              maxLength={1500}
-              required={draft.policy.enabled}
-              placeholder="Share the information clients should know before booking."
-              className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
-            />
-            <span className="text-right text-xs text-gray-500">
-              {(draft.policy.text ?? '').length}
-              /1,500
-            </span>
-          </label>
-        </div>
-
         <div className="space-y-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1411,15 +1339,6 @@ function BookingExperienceEditor({
               Choose your service
             </h3>
           </div>
-          {draft.appointmentOnly && (
-            <span
-              data-testid="booking-experience-preview-badge"
-              className="rounded-full border-2 bg-white px-2.5 py-1 text-xs font-semibold text-gray-900"
-              style={{ borderColor: previewStateBorder }}
-            >
-              Appointment Only
-            </span>
-          )}
         </div>
 
         {draft.bookingMessage && (
@@ -1458,17 +1377,6 @@ function BookingExperienceEditor({
         >
           Continue
         </div>
-
-        {draft.policy.enabled && draft.policy.text && (
-          <div className="border-t border-gray-200 pt-3">
-            <h4 className="break-words font-semibold text-gray-950">
-              {draft.policy.title || 'Booking policy'}
-            </h4>
-            <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-700">
-              {draft.policy.text}
-            </p>
-          </div>
-        )}
 
         {configuredSocials.some(social => Boolean(social.value)) && (
           <div className="flex items-center gap-2 border-t border-gray-200 pt-3">
@@ -1531,6 +1439,350 @@ function BookingExperienceEditor({
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking experience'}</span>
+          </button>
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+type BookingPolicyEditorProps = BookingExperienceEditorProps;
+
+function BookingPolicyEditor({
+  draft,
+  entitlement,
+  loading,
+  saving,
+  saved,
+  dirty,
+  error,
+  onChange,
+  onReset,
+  onSave,
+}: BookingPolicyEditorProps) {
+  if (loading) {
+    return (
+      <div
+        aria-live="polite"
+        className="flex items-center justify-center gap-2 py-8"
+        role="status"
+      >
+        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <span className="sr-only">Loading booking policy settings</span>
+      </div>
+    );
+  }
+
+  const quickFactFields = [
+    {
+      key: 'appointmentOnly',
+      title: 'Appointment only',
+      description: 'Example: Appointment only',
+    },
+    {
+      key: 'depositNotice',
+      title: 'Deposit notice',
+      description: 'Example: $15 deposit required',
+    },
+    {
+      key: 'cancellationNotice',
+      title: 'Cancellation notice',
+      description: 'Example: 24-hour cancellation policy',
+    },
+  ] as const;
+  const visibleQuickFacts = quickFactFields
+    .map(field => ({
+      key: field.key,
+      ...draft.quickFacts[field.key],
+    }))
+    .filter(fact => fact.enabled && fact.label);
+
+  return (
+    <fieldset
+      aria-label="Booking policy editor"
+      className="m-0 min-w-0 space-y-5 border-0 p-4"
+      disabled={saving || !entitlement.entitled}
+    >
+      {!entitlement.entitled && (
+        <div
+          className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          data-testid="booking-policy-locked"
+          role="status"
+        >
+          <p className="font-semibold">
+            Booking Experience Customization is locked for this plan.
+          </p>
+          <p className="mt-1">
+            Your saved policy is preserved, but it is not currently shown on
+            public booking pages or in confirmation emails.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div
+          className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+        <label className="flex items-start justify-between gap-3">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Enable booking policy
+            </span>
+            <p className="mt-1 text-sm text-gray-700">
+              Publish one canonical policy anywhere you enable below.
+            </p>
+          </div>
+          <input
+            aria-label="Enable booking policy"
+            type="checkbox"
+            checked={draft.policy.enabled}
+            onChange={event =>
+              onChange(current => ({
+                ...current,
+                policy: {
+                  ...current.policy,
+                  enabled: event.target.checked,
+                },
+              }))}
+            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Policy title
+          </span>
+          <input
+            aria-label="Policy title"
+            type="text"
+            value={draft.policy.title ?? ''}
+            onChange={event =>
+              onChange(current => ({
+                ...current,
+                policy: {
+                  ...current.policy,
+                  title: event.target.value || null,
+                },
+              }))}
+            maxLength={60}
+            placeholder="Booking policy"
+            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+          />
+          <span className="text-right text-xs text-gray-500">
+            {(draft.policy.title ?? '').length}
+            /60
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Full policy text
+            {draft.policy.enabled ? ' (required)' : ''}
+          </span>
+          <textarea
+            aria-label="Full policy text"
+            value={draft.policy.text ?? ''}
+            onChange={event =>
+              onChange(current => ({
+                ...current,
+                policy: {
+                  ...current.policy,
+                  text: event.target.value || null,
+                },
+              }))}
+            rows={6}
+            maxLength={1500}
+            required={draft.policy.enabled}
+            placeholder="Explain cancellation, no-show, and deposit expectations."
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+          />
+          <span className="text-right text-xs text-gray-500">
+            {(draft.policy.text ?? '').length}
+            /1,500
+          </span>
+        </label>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {([
+            ['showOnServicePage', 'Show on service page'],
+            ['showBeforeConfirmation', 'Show before confirmation'],
+            ['showAfterConfirmation', 'Show after confirmation'],
+            ['showInConfirmationEmail', 'Show in confirmation email'],
+          ] as const).map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 rounded-[10px] border border-gray-200 px-3 py-2.5 text-sm text-gray-700"
+            >
+              <input
+                type="checkbox"
+                checked={draft.policy[key]}
+                onChange={event =>
+                  onChange(current => ({
+                    ...current,
+                    policy: {
+                      ...current.policy,
+                      [key]: event.target.checked,
+                    },
+                  }))}
+                className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-[12px] border border-gray-200 bg-white p-4">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Quick facts
+          </span>
+          <p className="mt-1 text-sm text-gray-700">
+            Every badge is explicit. Nothing is inferred from policy wording or
+            other salon settings.
+          </p>
+        </div>
+        {quickFactFields.map((field) => {
+          const fact = draft.quickFacts[field.key];
+          return (
+            <div
+              key={field.key}
+              className="grid gap-3 rounded-[10px] border border-gray-200 p-3 sm:grid-cols-[auto_1fr]"
+            >
+              <label className="flex items-start gap-2 text-sm font-semibold text-gray-900">
+                <input
+                  aria-label={`Enable ${field.title.toLowerCase()} badge`}
+                  type="checkbox"
+                  checked={fact.enabled}
+                  onChange={event =>
+                    onChange(current => ({
+                      ...current,
+                      quickFacts: {
+                        ...current.quickFacts,
+                        [field.key]: {
+                          ...current.quickFacts[field.key],
+                          enabled: event.target.checked,
+                        },
+                      },
+                    }))}
+                  className="mt-0.5 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                />
+                {field.title}
+              </label>
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="sr-only">{`${field.title} label`}</span>
+                <input
+                  aria-label={`${field.title} label`}
+                  type="text"
+                  value={fact.label ?? ''}
+                  onChange={event =>
+                    onChange(current => ({
+                      ...current,
+                      quickFacts: {
+                        ...current.quickFacts,
+                        [field.key]: {
+                          ...current.quickFacts[field.key],
+                          label: event.target.value || null,
+                        },
+                      },
+                    }))}
+                  maxLength={40}
+                  placeholder={field.description.replace('Example: ', '')}
+                  className="h-10 rounded-[9px] border border-gray-200 px-3 text-sm text-black outline-none transition-colors focus:border-[#007AFF]"
+                />
+                <span className="text-right text-xs text-gray-500">
+                  {(fact.label ?? '').length}
+                  /40
+                </span>
+              </label>
+            </div>
+          );
+        })}
+      </div>
+
+      {!entitlement.entitled && (
+        <div
+          aria-label="Booking policy preview inactive"
+          className="rounded-[14px] border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-700"
+          data-testid="booking-policy-preview-inactive"
+        >
+          <p className="font-semibold">Public preview inactive</p>
+          <p className="mt-1">The saved policy remains available to edit when access returns.</p>
+        </div>
+      )}
+
+      <div
+        aria-hidden={!entitlement.entitled}
+        data-testid="booking-policy-preview"
+        hidden={!entitlement.entitled}
+        className={`space-y-3 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4 ${
+          entitlement.entitled ? '' : 'hidden'
+        }`}
+      >
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          Confirmation preview
+        </div>
+        {visibleQuickFacts.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {visibleQuickFacts.map(fact => (
+              <span
+                key={fact.key}
+                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-950"
+              >
+                {fact.label}
+              </span>
+            ))}
+          </div>
+        )}
+        {draft.policy.enabled
+        && draft.policy.showBeforeConfirmation
+        && draft.policy.text && (
+          <div className="rounded-[12px] border border-amber-200 bg-amber-50/70 p-3">
+            <div className="flex items-center gap-2 font-semibold text-gray-950">
+              <Shield className="size-4 text-amber-700" aria-hidden="true" />
+              {draft.policy.title || 'Booking policy'}
+            </div>
+            <p className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-gray-700">
+              {draft.policy.text}
+            </p>
+          </div>
+        )}
+        <div className="w-full rounded-[10px] bg-amber-500 px-4 py-3 text-center text-sm font-semibold text-gray-950">
+          Confirm appointment
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!entitlement.entitled}
+          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+        >
+          <RotateCcw className="size-4" />
+          Reset policy
+        </button>
+        <div className="flex items-center gap-3">
+          {saved && !error && (
+            <span className="text-xs font-medium text-green-600" role="status">
+              Booking policy saved.
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || !dirty || !entitlement.entitled}
+            className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="size-4" />
+            <span>{saving ? 'Saving...' : 'Save booking policy'}</span>
           </button>
         </div>
       </div>
@@ -1824,6 +2076,7 @@ type SettingsView
   | 'location'
   | 'branding'
   | 'booking'
+  | 'booking-policy'
   | 'booking-flow'
   | 'smart-fit'
   | 'payments'
@@ -1837,6 +2090,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'location': 'Locations',
   'branding': 'Branding',
   'booking': 'Booking rules',
+  'booking-policy': 'Booking policy',
   'booking-flow': 'Booking flow',
   'smart-fit': 'Smart Fit discounts',
   'payments': 'Payments & taxes',
@@ -1939,6 +2193,7 @@ export function SettingsModal({
   const [paymentsDirty, setPaymentsDirty] = useState(false);
   const [smartFitDirty, setSmartFitDirty] = useState(false);
   const [bookingExperienceDirty, setBookingExperienceDirty] = useState(false);
+  const [bookingPolicyDirty, setBookingPolicyDirty] = useState(false);
 
   // Payments & taxes state (explicit-save)
   const [paymentsSaving, setPaymentsSaving] = useState(false);
@@ -2017,6 +2272,10 @@ export function SettingsModal({
   const [bookingExperienceSaving, setBookingExperienceSaving] = useState(false);
   const [bookingExperienceSaved, setBookingExperienceSaved] = useState(false);
   const [bookingExperienceError, setBookingExperienceError]
+    = useState<string | null>(null);
+  const [bookingPolicySaving, setBookingPolicySaving] = useState(false);
+  const [bookingPolicySaved, setBookingPolicySaved] = useState(false);
+  const [bookingPolicyError, setBookingPolicyError]
     = useState<string | null>(null);
   const [bookingExperienceEntitlement, setBookingExperienceEntitlement]
     = useState<ResolvedSubscriptionFeatureEntitlement>(
@@ -2103,12 +2362,26 @@ export function SettingsModal({
     setBookingExperienceDraft((current) => {
       const next = updater(current);
       setBookingExperienceDirty(
-        !bookingExperiencesMatch(next, savedBookingExperience),
+        !bookingExperienceAppearancesMatch(next, savedBookingExperience),
       );
       return next;
     });
     setBookingExperienceSaved(false);
     setBookingExperienceError(null);
+  };
+
+  const updateBookingPolicyDraft = (
+    updater: (
+      current: BookingExperienceFormState,
+    ) => BookingExperienceFormState,
+  ) => {
+    setBookingExperienceDraft((current) => {
+      const next = updater(current);
+      setBookingPolicyDirty(!bookingPoliciesMatch(next, savedBookingExperience));
+      return next;
+    });
+    setBookingPolicySaved(false);
+    setBookingPolicyError(null);
   };
 
   // Fetch modules settings (Step 16.3)
@@ -2207,7 +2480,11 @@ export function SettingsModal({
           ?? LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
         );
         setBookingExperienceDirty(false);
+        setBookingPolicyDirty(false);
+        setBookingExperienceSaved(false);
+        setBookingPolicySaved(false);
         setBookingExperienceError(null);
+        setBookingPolicyError(null);
         setReviewsEnabled(data.reviewsEnabled ?? true);
         setRewardsEnabledProgram(data.rewardsEnabled ?? true);
         setEffectivePoints(data.effectivePoints ?? null);
@@ -2307,6 +2584,12 @@ export function SettingsModal({
           || body?.error
           || 'Failed to load booking experience settings.',
         );
+        setBookingPolicyError(
+          body?.message
+          || body?.error?.message
+          || body?.error
+          || 'Failed to load booking policy settings.',
+        );
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
@@ -2314,6 +2597,11 @@ export function SettingsModal({
         error instanceof Error
           ? error.message
           : 'Failed to load booking experience settings.',
+      );
+      setBookingPolicyError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load booking policy settings.',
       );
     } finally {
       setProgramsLoading(false);
@@ -2619,7 +2907,12 @@ export function SettingsModal({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bookingExperience: bookingExperienceDraft,
+            bookingExperienceAppearance: {
+              primaryColor: bookingExperienceDraft.primaryColor,
+              bookingMessage: bookingExperienceDraft.bookingMessage,
+              socialLinks: bookingExperienceDraft.socialLinks,
+              confirmationMessage: bookingExperienceDraft.confirmationMessage,
+            },
           }),
         },
       );
@@ -2662,6 +2955,78 @@ export function SettingsModal({
     salonSlug,
     bookingExperienceSaving,
     bookingExperienceDirty,
+    bookingExperienceDraft,
+    bookingExperienceEntitlement.entitled,
+    router,
+  ]);
+
+  const saveBookingPolicy = useCallback(async () => {
+    if (
+      !salonSlug
+      || bookingPolicySaving
+      || !bookingPolicyDirty
+      || !bookingExperienceEntitlement.entitled
+    ) {
+      return;
+    }
+
+    setBookingPolicySaving(true);
+    setBookingPolicySaved(false);
+    setBookingPolicyError(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bookingPolicy: {
+              policy: bookingExperienceDraft.policy,
+              quickFacts: bookingExperienceDraft.quickFacts,
+            },
+          }),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        if (
+          response.status === 403
+          && isBookingExperienceUpgradeRequired(body)
+        ) {
+          setBookingExperienceEntitlement(
+            LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
+          );
+        }
+        throw new Error(getBookingExperienceSaveError(body));
+      }
+
+      const persisted = copyBookingExperience(
+        body?.bookingExperience ?? bookingExperienceDraft,
+      );
+      const returnedEntitlement = readBookingExperienceEntitlement(body);
+      if (returnedEntitlement) {
+        setBookingExperienceEntitlement(returnedEntitlement);
+      }
+      setSavedBookingExperience(persisted);
+      setBookingExperienceDraft(copyBookingExperience(persisted));
+      setBookingPolicyDirty(false);
+      setBookingPolicySaved(true);
+      router.refresh();
+    } catch (error) {
+      setBookingPolicyError(
+        error instanceof Error
+          ? error.message
+          : BOOKING_EXPERIENCE_SAVE_ERROR,
+      );
+    } finally {
+      setBookingPolicySaving(false);
+    }
+  }, [
+    salonSlug,
+    bookingPolicySaving,
+    bookingPolicyDirty,
     bookingExperienceDraft,
     bookingExperienceEntitlement.entitled,
     router,
@@ -2997,6 +3362,7 @@ export function SettingsModal({
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
     'location': locationDirty || parkingDirty,
     'branding': bookingExperienceDirty,
+    'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
     'payments': paymentsDirty,
     'smart-fit': smartFitDirty,
@@ -3008,10 +3374,36 @@ export function SettingsModal({
   const goToIndex = () => {
     setConfirmingLeave(false);
     if (view === 'branding') {
-      setBookingExperienceDraft(copyBookingExperience(savedBookingExperience));
+      setBookingExperienceDraft(current => ({
+        ...current,
+        primaryColor: savedBookingExperience.primaryColor,
+        bookingMessage: savedBookingExperience.bookingMessage,
+        socialLinks: { ...savedBookingExperience.socialLinks },
+        confirmationMessage: savedBookingExperience.confirmationMessage,
+      }));
       setBookingExperienceDirty(false);
       setBookingExperienceError(null);
       setBookingExperienceSaved(false);
+    }
+    if (view === 'booking-policy') {
+      setBookingExperienceDraft(current => ({
+        ...current,
+        policy: { ...savedBookingExperience.policy },
+        quickFacts: {
+          appointmentOnly: {
+            ...savedBookingExperience.quickFacts.appointmentOnly,
+          },
+          depositNotice: {
+            ...savedBookingExperience.quickFacts.depositNotice,
+          },
+          cancellationNotice: {
+            ...savedBookingExperience.quickFacts.cancellationNotice,
+          },
+        },
+      }));
+      setBookingPolicyDirty(false);
+      setBookingPolicyError(null);
+      setBookingPolicySaved(false);
     }
     setLocationDirty(false);
     setParkingDirty(false);
@@ -3130,6 +3522,19 @@ export function SettingsModal({
                     : `${bookingConfigForm.slotIntervalMinutes} min · ${bookingConfigForm.currency}`
                 }
                 onClick={() => openView('booking')}
+              />
+              <Row
+                icon={Shield}
+                iconColor="bg-amber-600"
+                label="Booking policy"
+                value={
+                  bookingExperienceLoading
+                    ? undefined
+                    : bookingExperienceDraft.policy.enabled
+                      ? 'Enabled'
+                      : 'Off'
+                }
+                onClick={() => openView('booking-policy')}
               />
               {!isFreeSolo && (
                 <Row
@@ -3277,9 +3682,19 @@ export function SettingsModal({
                   const defaults = copyBookingExperience(
                     BOOKING_EXPERIENCE_DEFAULTS,
                   );
-                  setBookingExperienceDraft(defaults);
+                  const next = {
+                    ...bookingExperienceDraft,
+                    primaryColor: defaults.primaryColor,
+                    bookingMessage: defaults.bookingMessage,
+                    socialLinks: { ...defaults.socialLinks },
+                    confirmationMessage: defaults.confirmationMessage,
+                  };
+                  setBookingExperienceDraft(next);
                   setBookingExperienceDirty(
-                    !bookingExperiencesMatch(defaults, savedBookingExperience),
+                    !bookingExperienceAppearancesMatch(
+                      next,
+                      savedBookingExperience,
+                    ),
                   );
                   setBookingExperienceSaved(false);
                   setBookingExperienceError(null);
@@ -3288,6 +3703,51 @@ export function SettingsModal({
               />
             </Section>
           </>
+        )}
+
+        {view === 'booking-policy' && (
+          <Section
+            title="Booking policy"
+            footer="These reminders are informational. They do not collect deposits, charge fees, or prove policy acceptance."
+          >
+            <BookingPolicyEditor
+              draft={bookingExperienceDraft}
+              entitlement={bookingExperienceEntitlement}
+              loading={bookingExperienceLoading}
+              saving={bookingPolicySaving}
+              saved={bookingPolicySaved}
+              dirty={bookingPolicyDirty}
+              error={bookingPolicyError}
+              onChange={updateBookingPolicyDraft}
+              onReset={() => {
+                const defaults = copyBookingExperience(
+                  BOOKING_EXPERIENCE_DEFAULTS,
+                );
+                const next = {
+                  ...bookingExperienceDraft,
+                  policy: { ...defaults.policy },
+                  quickFacts: {
+                    appointmentOnly: {
+                      ...defaults.quickFacts.appointmentOnly,
+                    },
+                    depositNotice: {
+                      ...defaults.quickFacts.depositNotice,
+                    },
+                    cancellationNotice: {
+                      ...defaults.quickFacts.cancellationNotice,
+                    },
+                  },
+                };
+                setBookingExperienceDraft(next);
+                setBookingPolicyDirty(
+                  !bookingPoliciesMatch(next, savedBookingExperience),
+                );
+                setBookingPolicySaved(false);
+                setBookingPolicyError(null);
+              }}
+              onSave={() => void saveBookingPolicy()}
+            />
+          </Section>
         )}
 
         {view === 'booking' && (

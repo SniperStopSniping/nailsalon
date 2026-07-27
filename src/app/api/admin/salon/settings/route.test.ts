@@ -4,7 +4,9 @@ import { z } from 'zod';
 
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
+  bookingExperienceAppearanceUpdateSchema,
   bookingExperienceUpdateSchema,
+  bookingPolicyUpdateSchema,
   getAccessibleBookingForeground,
   getBookingExperienceCssVariables,
   getColorContrastRatio,
@@ -1044,14 +1046,51 @@ function createBookingExperience() {
       enabled: true,
       title: 'Before you book',
       text: 'Please arrive five minutes early.',
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
     },
-    appointmentOnly: true,
+    quickFacts: {
+      appointmentOnly: {
+        enabled: true,
+        label: 'Appointment only',
+      },
+      depositNotice: {
+        enabled: false,
+        label: null,
+      },
+      cancellationNotice: {
+        enabled: true,
+        label: '24-hour cancellation policy',
+      },
+    },
     socialLinks: {
       instagram: 'https://www.instagram.com/lusterstudio',
       facebook: 'https://facebook.com/lusterstudio',
       tiktok: 'https://www.tiktok.com/@lusterstudio',
     },
     confirmationMessage: 'We look forward to seeing you.',
+  };
+}
+
+function createBookingExperienceAppearance() {
+  const bookingExperience = createBookingExperience();
+
+  return {
+    primaryColor: bookingExperience.primaryColor,
+    bookingMessage: bookingExperience.bookingMessage,
+    socialLinks: bookingExperience.socialLinks,
+    confirmationMessage: bookingExperience.confirmationMessage,
+  };
+}
+
+function createBookingPolicy() {
+  const bookingExperience = createBookingExperience();
+
+  return {
+    policy: bookingExperience.policy,
+    quickFacts: bookingExperience.quickFacts,
   };
 }
 
@@ -1084,12 +1123,24 @@ function collectSqlStringChunks(value: unknown): string[] {
 }
 
 describe('booking experience validation and safe resolution', () => {
+  it('keeps appearance and policy writes on strict independent contracts', () => {
+    expect(bookingExperienceAppearanceUpdateSchema.safeParse({
+      ...createBookingExperienceAppearance(),
+      policy: createBookingExperience().policy,
+    }).success).toBe(false);
+    expect(bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicy(),
+      primaryColor: '#123456',
+    }).success).toBe(false);
+  });
+
   it('normalizes colour, whitespace, and CRLF while preserving safe line breaks', () => {
     const result = bookingExperienceUpdateSchema.parse({
       ...createBookingExperience(),
       primaryColor: '  #abcdef  ',
       bookingMessage: '  First line\r\nSecond line  ',
       policy: {
+        ...createBookingExperience().policy,
         enabled: true,
         title: '  Booking policy  ',
         text: '  Policy line one\r\nPolicy line two  ',
@@ -1103,8 +1154,27 @@ describe('booking experience validation and safe resolution', () => {
       enabled: true,
       title: 'Booking policy',
       text: 'Policy line one\nPolicy line two',
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
     });
     expect(result.confirmationMessage).toBe('Confirmed\nSee you soon');
+  });
+
+  it('conservatively normalizes policy copy without collapsing internal spaces', () => {
+    const result = bookingPolicyUpdateSchema.parse({
+      ...createBookingPolicy(),
+      policy: {
+        ...createBookingExperience().policy,
+        text:
+          '  Keep   intentional spaces.  \r\nSecond line.   \r\n   \r\n\r\n\r\nLast line.  ',
+      },
+    });
+
+    expect(result.policy.text).toBe(
+      'Keep   intentional spaces.\nSecond line.\n\nLast line.',
+    );
   });
 
   it('enforces every text limit after trimming and requires enabled policy text', () => {
@@ -1133,6 +1203,7 @@ describe('booking experience validation and safe resolution', () => {
     const enabledWithoutText = bookingExperienceUpdateSchema.safeParse({
       ...createBookingExperience(),
       policy: {
+        ...createBookingExperience().policy,
         enabled: true,
         title: null,
         text: '   ',
@@ -1141,6 +1212,7 @@ describe('booking experience validation and safe resolution', () => {
     const disabledDraft = bookingExperienceUpdateSchema.safeParse({
       ...createBookingExperience(),
       policy: {
+        ...createBookingExperience().policy,
         enabled: false,
         title: 'Draft',
         text: 'Unpublished draft text',
@@ -1152,6 +1224,43 @@ describe('booking experience validation and safe resolution', () => {
     expect(policyText.success).toBe(false);
     expect(confirmationMessage.success).toBe(false);
     expect(enabledWithoutText.success).toBe(false);
+    expect(disabledDraft.success).toBe(true);
+  });
+
+  it('requires explicit enabled quick-fact labels and enforces the 40-character limit', () => {
+    const enabledWithoutLabel = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicy(),
+      quickFacts: {
+        ...createBookingExperience().quickFacts,
+        depositNotice: {
+          enabled: true,
+          label: '   ',
+        },
+      },
+    });
+    const overlongLabel = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicy(),
+      quickFacts: {
+        ...createBookingExperience().quickFacts,
+        cancellationNotice: {
+          enabled: true,
+          label: 'a'.repeat(41),
+        },
+      },
+    });
+    const disabledDraft = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicy(),
+      quickFacts: {
+        ...createBookingExperience().quickFacts,
+        depositNotice: {
+          enabled: false,
+          label: 'Deposit may be required',
+        },
+      },
+    });
+
+    expect(enabledWithoutLabel.success).toBe(false);
+    expect(overlongLabel.success).toBe(false);
     expect(disabledDraft.success).toBe(true);
   });
 
@@ -1291,6 +1400,10 @@ describe('booking experience validation and safe resolution', () => {
         enabled: false,
         title: 'Draft title',
         text: null,
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
       },
       socialLinks: {
         instagram: 'https://instagram.com/valid',
@@ -1299,6 +1412,47 @@ describe('booking experience validation and safe resolution', () => {
       },
       confirmationMessage: 'Valid confirmation',
     });
+  });
+
+  it('uses the legacy Appointment Only boolean only when no explicit replacement exists', () => {
+    const legacy = resolveBookingExperience({
+      bookingExperience: {
+        appointmentOnly: true,
+      },
+    } as Parameters<typeof resolveBookingExperience>[0]);
+    const explicit = resolveBookingExperience({
+      bookingExperience: {
+        appointmentOnly: true,
+        quickFacts: {
+          appointmentOnly: {
+            enabled: false,
+            label: null,
+          },
+        },
+      },
+    } as unknown as Parameters<typeof resolveBookingExperience>[0]);
+    const malformedExplicit = resolveBookingExperience({
+      bookingExperience: {
+        appointmentOnly: true,
+        quickFacts: {
+          appointmentOnly: 'invalid',
+        },
+      },
+    } as unknown as Parameters<typeof resolveBookingExperience>[0]);
+
+    expect(legacy.quickFacts.appointmentOnly).toEqual({
+      enabled: true,
+      label: 'Appointment only',
+    });
+    expect(explicit.quickFacts.appointmentOnly).toEqual({
+      enabled: false,
+      label: null,
+    });
+    expect(malformedExplicit.quickFacts.appointmentOnly).toEqual({
+      enabled: false,
+      label: null,
+    });
+    expect(legacy).not.toHaveProperty('appointmentOnly');
   });
 
   it('chooses a WCAG-compliant foreground for light and dark colours', () => {
@@ -1435,16 +1589,25 @@ describe('/api/admin/salon/settings booking experience', () => {
   });
 
   it('rejects invalid customization before writing settings', async () => {
-    getSalonBySlug.mockResolvedValue(baseSalon);
+    const legacySettings = {
+      bookingExperience: {
+        appointmentOnly: true,
+      },
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: legacySettings,
+    });
 
     const response = await PATCH(
       new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bookingExperience: {
-            ...createBookingExperience(),
+          bookingPolicy: {
+            ...createBookingPolicy(),
             policy: {
+              ...createBookingExperience().policy,
               enabled: true,
               title: null,
               text: null,
@@ -1457,11 +1620,35 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(response.status).toBe(400);
     expect(db.update).not.toHaveBeenCalled();
     expect(logAuditEvent).not.toHaveBeenCalled();
+    expect(legacySettings.bookingExperience.appointmentOnly).toBe(true);
   });
 
-  it('persists only bookingExperience with jsonb_set and preserves unrelated settings', async () => {
-    const bookingExperience = {
-      ...createBookingExperience(),
+  it('rejects the legacy full-object PATCH with a typed refresh response', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingExperience: createBookingExperience(),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'BOOKING_EXPERIENCE_REFRESH_REQUIRED',
+      message:
+        'Booking Experience settings changed. Refresh Settings and try again.',
+    });
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it('persists only appearance subpaths with jsonb_set and preserves unrelated settings', async () => {
+    const bookingExperienceAppearance = {
+      ...createBookingExperienceAppearance(),
       primaryColor: '#f5d000',
       bookingMessage: '  A private welcome message  ',
     };
@@ -1480,7 +1667,8 @@ describe('/api/admin/salon/settings booking experience', () => {
         notifications: { salonEmail: { newBooking: false } },
         unrelatedFutureKey: { keep: true },
         bookingExperience: {
-          ...bookingExperience,
+          ...createBookingExperience(),
+          ...bookingExperienceAppearance,
           primaryColor: '#F5D000',
           bookingMessage: 'A private welcome message',
         },
@@ -1491,7 +1679,7 @@ describe('/api/admin/salon/settings booking experience', () => {
       new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingExperience }),
+        body: JSON.stringify({ bookingExperienceAppearance }),
       }),
     );
     const body = await response.json();
@@ -1515,12 +1703,9 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(setPayload.settings).toBeDefined();
     expect(setPayload.settings.bookingExperience).toBeUndefined();
 
-    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
-    const paramValues = sqlChunks.filter(
-      (chunk): chunk is string => typeof chunk === 'string',
-    );
+    const paramValues = collectSqlStringChunks(setPayload.settings);
 
-    expect(paramValues.some(value => value.includes('"primaryColor":"#F5D000"'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"#F5D000"'))).toBe(true);
     expect(paramValues.some(value => value.includes('unrelatedFutureKey'))).toBe(false);
     expect(paramValues.some(value => value.includes('bufferMinutes'))).toBe(false);
 
@@ -1534,13 +1719,13 @@ describe('/api/admin/salon/settings booking experience', () => {
       actorId: 'admin_1',
       metadata: {
         before: {
-          bookingExperience: expect.objectContaining({
+          bookingExperienceAppearance: expect.objectContaining({
             bookingMessagePresent: false,
             bookingMessageLength: 0,
           }),
         },
         after: {
-          bookingExperience: expect.objectContaining({
+          bookingExperienceAppearance: expect.objectContaining({
             primaryColor: '#F5D000',
             bookingMessagePresent: true,
             bookingMessageLength: 25,
@@ -1551,6 +1736,83 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(JSON.stringify(logAuditEvent.mock.calls[0]?.[0])).not.toContain(
       'A private welcome message',
     );
+  });
+
+  it('atomically writes explicit quick facts before removing legacy Appointment Only', async () => {
+    const bookingPolicy = createBookingPolicy();
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperienceAppearance(),
+          appointmentOnly: true,
+        },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperienceAppearance(),
+          ...bookingPolicy,
+        },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingPolicy }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.quickFacts.appointmentOnly).toEqual({
+      enabled: true,
+      label: 'Appointment only',
+    });
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).toContain('{bookingExperience,policy}');
+    expect(settingsSql).toContain('{bookingExperience,quickFacts}');
+    expect(settingsSql).toContain(
+      `#- '{bookingExperience,appointmentOnly}'`,
+    );
+    expect(settingsSql.indexOf('{bookingExperience,quickFacts}')).toBeLessThan(
+      settingsSql.indexOf(`'{bookingExperience,appointmentOnly}'`),
+    );
+    expect(JSON.stringify(logAuditEvent.mock.calls[0]?.[0])).not.toContain(
+      'Please arrive five minutes early.',
+    );
+    expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        before: {
+          bookingPolicy: expect.objectContaining({
+            quickFacts: expect.objectContaining({
+              appointmentOnly: expect.objectContaining({
+                enabled: true,
+              }),
+            }),
+          }),
+        },
+        after: {
+          bookingPolicy: expect.objectContaining({
+            placements: {
+              servicePage: true,
+              beforeConfirmation: true,
+              afterConfirmation: true,
+              confirmationEmail: true,
+            },
+          }),
+        },
+      },
+    }));
   });
 
   it('returns saved customization with locked entitlement metadata for a free salon', async () => {
@@ -1580,7 +1842,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     });
   });
 
-  it('rejects a direct locked customization PATCH without mutating saved settings', async () => {
+  it('rejects both targeted customization PATCHes when entitlement is locked', async () => {
     const savedBookingExperience = {
       ...createBookingExperience(),
       bookingMessage: 'Keep this saved message.',
@@ -1594,27 +1856,35 @@ describe('/api/admin/salon/settings booking experience', () => {
       },
     });
 
-    const response = await PATCH(
-      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingExperience: {
-            ...savedBookingExperience,
-            bookingMessage: 'Attempted replacement.',
-          },
-        }),
-      }),
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(403);
-    expect(body).toEqual({
-      error: {
-        code: 'UPGRADE_REQUIRED',
-        message: 'Booking Experience Customization requires an eligible plan.',
+    for (const update of [
+      {
+        bookingExperienceAppearance: {
+          ...createBookingExperienceAppearance(),
+          bookingMessage: 'Attempted replacement.',
+        },
       },
-    });
+      {
+        bookingPolicy: createBookingPolicy(),
+      },
+    ]) {
+      const response = await PATCH(
+        new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(update),
+        }),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(body).toEqual({
+        error: {
+          code: 'UPGRADE_REQUIRED',
+          message: 'Booking Experience Customization requires an eligible plan.',
+        },
+      });
+    }
+
     expect(db.update).not.toHaveBeenCalled();
     expect(logAuditEvent).not.toHaveBeenCalled();
   });
@@ -1648,7 +1918,7 @@ describe('/api/admin/salon/settings booking experience', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bookingConfig: {},
-          bookingExperience: createBookingExperience(),
+          bookingExperienceAppearance: createBookingExperienceAppearance(),
         }),
       }),
     );
@@ -1665,7 +1935,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     ).toBe(false);
   });
 
-  it('safely writes bookingExperience over null and non-object JSONB settings', async () => {
+  it('safely writes targeted appearance fields over null and non-object JSONB settings', async () => {
     const database = new PGlite();
 
     try {
@@ -1689,13 +1959,21 @@ describe('/api/admin/salon/settings booking experience', () => {
 
         UPDATE salon_settings_legacy_values
         SET settings = jsonb_set(
-          CASE
-            WHEN jsonb_typeof(settings) = 'object' THEN settings
-            ELSE '{}'::jsonb
-          END,
-          '{bookingExperience}',
-          '{"bookingMessage":"Saved customization"}'::jsonb
-        );
+          jsonb_set(
+            CASE
+              WHEN jsonb_typeof(settings) = 'object' THEN settings
+              ELSE '{}'::jsonb
+            END,
+            '{bookingExperience}',
+            CASE
+              WHEN jsonb_typeof(settings->'bookingExperience') = 'object'
+                THEN settings->'bookingExperience'
+              ELSE '{}'::jsonb
+            END
+          ),
+          '{bookingExperience,bookingMessage}',
+          '"Saved customization"'::jsonb
+        )
       `);
 
       const result = await database.query<{
@@ -1733,7 +2011,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     }
   });
 
-  it('preserves concurrent unrelated settings with real PostgreSQL JSONB updates', async () => {
+  it('preserves concurrent appearance and policy saves with PostgreSQL JSONB updates', async () => {
     const database = new PGlite();
 
     try {
@@ -1747,7 +2025,11 @@ describe('/api/admin/salon/settings booking experience', () => {
           'salon_1',
           '{
             "booking":{"bufferMinutes":10},
-            "bookingExperience":{"bookingMessage":"Original"},
+            "bookingExperience":{
+              "bookingMessage":"Original",
+              "appointmentOnly":true,
+              "policy":{"enabled":false,"title":null,"text":null}
+            },
             "unrelatedFutureKey":{"keep":true}
           }'::jsonb
         );
@@ -1757,24 +2039,66 @@ describe('/api/admin/salon/settings booking experience', () => {
         database.exec(`
           UPDATE salon_settings_concurrency
           SET settings = jsonb_set(
-            CASE
-              WHEN jsonb_typeof(settings) = 'object' THEN settings
-              ELSE '{}'::jsonb
-            END,
-            '{bookingExperience}',
-            '{"bookingMessage":"Saved customization"}'::jsonb
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  CASE
+                    WHEN jsonb_typeof(settings) = 'object' THEN settings
+                    ELSE '{}'::jsonb
+                  END,
+                  '{bookingExperience}',
+                  CASE
+                    WHEN jsonb_typeof(settings->'bookingExperience') = 'object'
+                      THEN settings->'bookingExperience'
+                    ELSE '{}'::jsonb
+                  END
+                ),
+                '{bookingExperience,bookingMessage}',
+                '"Saved appearance"'::jsonb
+              ),
+              '{bookingExperience,primaryColor}',
+              '"#AABBCC"'::jsonb
+            ),
+            '{bookingExperience,socialLinks}',
+            '{"instagram":"https://instagram.com/new","facebook":null,"tiktok":null}'::jsonb
           )
           WHERE id = 'salon_1'
         `),
         database.exec(`
           UPDATE salon_settings_concurrency
-          SET settings = jsonb_set(
-            CASE
-              WHEN jsonb_typeof(settings) = 'object' THEN settings
-              ELSE '{}'::jsonb
-            END,
-            '{booking}',
-            '{"bufferMinutes":30}'::jsonb
+          SET settings = (
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  CASE
+                    WHEN jsonb_typeof(settings) = 'object' THEN settings
+                    ELSE '{}'::jsonb
+                  END,
+                  '{bookingExperience}',
+                  CASE
+                    WHEN jsonb_typeof(settings->'bookingExperience') = 'object'
+                      THEN settings->'bookingExperience'
+                    ELSE '{}'::jsonb
+                  END
+                ),
+                '{bookingExperience,policy}',
+                '{
+                  "enabled":true,
+                  "title":"Booking policy",
+                  "text":"Give 24 hours notice.",
+                  "showOnServicePage":true,
+                  "showBeforeConfirmation":true,
+                  "showAfterConfirmation":true,
+                  "showInConfirmationEmail":true
+                }'::jsonb
+              ),
+              '{bookingExperience,quickFacts}',
+              '{
+                "appointmentOnly":{"enabled":true,"label":"Appointment only"},
+                "depositNotice":{"enabled":false,"label":null},
+                "cancellationNotice":{"enabled":true,"label":"24-hour policy"}
+              }'::jsonb
+            ) #- '{bookingExperience,appointmentOnly}'
           )
           WHERE id = 'salon_1'
         `),
@@ -1789,9 +2113,38 @@ describe('/api/admin/salon/settings booking experience', () => {
       `);
 
       expect(result.rows[0]?.settings).toEqual({
-        booking: { bufferMinutes: 30 },
+        booking: { bufferMinutes: 10 },
         bookingExperience: {
-          bookingMessage: 'Saved customization',
+          bookingMessage: 'Saved appearance',
+          primaryColor: '#AABBCC',
+          policy: {
+            enabled: true,
+            title: 'Booking policy',
+            text: 'Give 24 hours notice.',
+            showOnServicePage: true,
+            showBeforeConfirmation: true,
+            showAfterConfirmation: true,
+            showInConfirmationEmail: true,
+          },
+          quickFacts: {
+            appointmentOnly: {
+              enabled: true,
+              label: 'Appointment only',
+            },
+            cancellationNotice: {
+              enabled: true,
+              label: '24-hour policy',
+            },
+            depositNotice: {
+              enabled: false,
+              label: null,
+            },
+          },
+          socialLinks: {
+            facebook: null,
+            instagram: 'https://instagram.com/new',
+            tiktok: null,
+          },
         },
         unrelatedFutureKey: { keep: true },
       });

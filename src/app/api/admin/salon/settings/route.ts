@@ -18,7 +18,8 @@ import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
-  bookingExperienceUpdateSchema,
+  bookingExperienceAppearanceUpdateSchema,
+  bookingPolicyUpdateSchema,
   resolveBookingExperience,
 } from '@/libs/bookingExperience';
 import {
@@ -71,7 +72,9 @@ const adminUpdateSchema = z.object({
   merchandising: merchandisingSettingsUpdateSchema.optional(),
   payments: salonPaymentsSettingsSchema.optional(),
   smartFit: smartFitSettingsUpdateSchema.optional(),
-  bookingExperience: bookingExperienceUpdateSchema.optional(),
+  bookingExperienceAppearance:
+    bookingExperienceAppearanceUpdateSchema.optional(),
+  bookingPolicy: bookingPolicyUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -111,7 +114,7 @@ function buildSalonEmailNotificationResponse(salon: {
   };
 }
 
-function buildBookingExperienceAuditMetadata(
+function buildBookingExperienceAppearanceAuditMetadata(
   bookingExperience: ReturnType<typeof resolveBookingExperience>,
 ) {
   return {
@@ -120,12 +123,6 @@ function buildBookingExperienceAuditMetadata(
     bookingMessageLength: bookingExperience.bookingMessage
       ? Array.from(bookingExperience.bookingMessage).length
       : 0,
-    policyEnabled: bookingExperience.policy.enabled,
-    policyTitlePresent: bookingExperience.policy.title !== null,
-    policyTextLength: bookingExperience.policy.text
-      ? Array.from(bookingExperience.policy.text).length
-      : 0,
-    appointmentOnly: bookingExperience.appointmentOnly,
     socialLinksConfigured: {
       instagram: bookingExperience.socialLinks.instagram !== null,
       facebook: bookingExperience.socialLinks.facebook !== null,
@@ -136,6 +133,50 @@ function buildBookingExperienceAuditMetadata(
     confirmationMessageLength: bookingExperience.confirmationMessage
       ? Array.from(bookingExperience.confirmationMessage).length
       : 0,
+  };
+}
+
+function buildBookingPolicyAuditMetadata(
+  bookingExperience: ReturnType<typeof resolveBookingExperience>,
+) {
+  const quickFactMetadata = (
+    quickFact: ReturnType<
+      typeof resolveBookingExperience
+    >['quickFacts']['appointmentOnly'],
+  ) => ({
+    enabled: quickFact.enabled,
+    labelPresent: quickFact.label !== null,
+    labelLength: quickFact.label
+      ? Array.from(quickFact.label).length
+      : 0,
+  });
+
+  return {
+    enabled: bookingExperience.policy.enabled,
+    titlePresent: bookingExperience.policy.title !== null,
+    titleLength: bookingExperience.policy.title
+      ? Array.from(bookingExperience.policy.title).length
+      : 0,
+    textLength: bookingExperience.policy.text
+      ? Array.from(bookingExperience.policy.text).length
+      : 0,
+    placements: {
+      servicePage: bookingExperience.policy.showOnServicePage,
+      beforeConfirmation: bookingExperience.policy.showBeforeConfirmation,
+      afterConfirmation: bookingExperience.policy.showAfterConfirmation,
+      confirmationEmail: bookingExperience.policy.showInConfirmationEmail,
+    },
+    quickFacts: {
+      appointmentOnly: quickFactMetadata(
+        bookingExperience.quickFacts.appointmentOnly,
+      ),
+      depositNotice: quickFactMetadata(
+        bookingExperience.quickFacts.depositNotice,
+      ),
+      cancellationNotice: quickFactMetadata(
+        bookingExperience.quickFacts.cancellationNotice,
+      ),
+    },
   };
 }
 
@@ -268,9 +309,30 @@ export async function PATCH(request: Request): Promise<Response> {
     // 3. Parse request body
     const body = await request.json();
 
+    if (
+      typeof body === 'object'
+      && body !== null
+      && !Array.isArray(body)
+      && 'bookingExperience' in body
+    ) {
+      return Response.json(
+        {
+          error: 'BOOKING_EXPERIENCE_REFRESH_REQUIRED',
+          message:
+            'Booking Experience settings changed. Refresh Settings and try again.',
+        },
+        { status: 409 },
+      );
+    }
+
     // 4. Check for forbidden fields - return 403 if any are present
     for (const field of FORBIDDEN_FIELDS) {
-      if (field in body) {
+      if (
+        typeof body === 'object'
+        && body !== null
+        && !Array.isArray(body)
+        && field in body
+      ) {
         return Response.json(
           {
             error: 'Forbidden',
@@ -297,7 +359,10 @@ export async function PATCH(request: Request): Promise<Response> {
         features: salon.features,
       });
     if (
-      updates.bookingExperience !== undefined
+      (
+        updates.bookingExperienceAppearance !== undefined
+        || updates.bookingPolicy !== undefined
+      )
       && !bookingExperienceEntitlement.entitled
     ) {
       return Response.json(
@@ -375,15 +440,52 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('booking');
     }
 
-    if (updates.bookingExperience) {
-      before.bookingExperience = buildBookingExperienceAuditMetadata(
+    if (updates.bookingExperienceAppearance) {
+      const nextBookingExperience = {
+        ...currentBookingExperience,
+        ...updates.bookingExperienceAppearance,
+        socialLinks: {
+          ...updates.bookingExperienceAppearance.socialLinks,
+        },
+      };
+
+      before.bookingExperienceAppearance
+        = buildBookingExperienceAppearanceAuditMetadata(
+          currentBookingExperience,
+        );
+      after.bookingExperienceAppearance
+        = buildBookingExperienceAppearanceAuditMetadata(
+          nextBookingExperience,
+        );
+      touchedSettingsKeys.push('bookingExperienceAppearance');
+    }
+
+    if (updates.bookingPolicy) {
+      const nextBookingExperience = {
+        ...currentBookingExperience,
+        policy: {
+          ...updates.bookingPolicy.policy,
+        },
+        quickFacts: {
+          appointmentOnly: {
+            ...updates.bookingPolicy.quickFacts.appointmentOnly,
+          },
+          depositNotice: {
+            ...updates.bookingPolicy.quickFacts.depositNotice,
+          },
+          cancellationNotice: {
+            ...updates.bookingPolicy.quickFacts.cancellationNotice,
+          },
+        },
+      };
+
+      before.bookingPolicy = buildBookingPolicyAuditMetadata(
         currentBookingExperience,
       );
-      after.bookingExperience = buildBookingExperienceAuditMetadata(
-        updates.bookingExperience,
+      after.bookingPolicy = buildBookingPolicyAuditMetadata(
+        nextBookingExperience,
       );
-      ensureNextSettings().bookingExperience = updates.bookingExperience;
-      touchedSettingsKeys.push('bookingExperience');
+      touchedSettingsKeys.push('bookingPolicy');
     }
 
     // Both notification blocks live under `settings.notifications`, so they are
@@ -534,8 +636,43 @@ export async function PATCH(request: Request): Promise<Response> {
       if (touchedSettingsKeys.includes('booking')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{booking}', ${JSON.stringify(settingsToPersist.booking)}::jsonb)`;
       }
-      if (touchedSettingsKeys.includes('bookingExperience')) {
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience}', ${JSON.stringify(settingsToPersist.bookingExperience)}::jsonb)`;
+      if (
+        touchedSettingsKeys.includes('bookingExperienceAppearance')
+        || touchedSettingsKeys.includes('bookingPolicy')
+      ) {
+        // Ensure a usable nested object without replacing an existing one.
+        // Subsequent writes target only their owned subpaths, so a concurrent
+        // appearance save and policy save cannot overwrite one another.
+        settingsExpression = sql`
+          jsonb_set(
+            ${settingsExpression},
+            '{bookingExperience}',
+            CASE
+              WHEN jsonb_typeof(${settingsExpression}->'bookingExperience') = 'object'
+                THEN ${settingsExpression}->'bookingExperience'
+              ELSE '{}'::jsonb
+            END
+          )
+        `;
+      }
+      if (
+        touchedSettingsKeys.includes('bookingExperienceAppearance')
+        && updates.bookingExperienceAppearance
+      ) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,primaryColor}', ${JSON.stringify(updates.bookingExperienceAppearance.primaryColor)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,bookingMessage}', ${JSON.stringify(updates.bookingExperienceAppearance.bookingMessage)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,socialLinks}', ${JSON.stringify(updates.bookingExperienceAppearance.socialLinks)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,confirmationMessage}', ${JSON.stringify(updates.bookingExperienceAppearance.confirmationMessage)}::jsonb)`;
+      }
+      if (
+        touchedSettingsKeys.includes('bookingPolicy')
+        && updates.bookingPolicy
+      ) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy}', ${JSON.stringify(updates.bookingPolicy.policy)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,quickFacts}', ${JSON.stringify(updates.bookingPolicy.quickFacts)}::jsonb)`;
+        // The explicit replacement is part of this same atomic UPDATE. A
+        // failed validation/write therefore leaves the legacy boolean intact.
+        settingsExpression = sql`(${settingsExpression} #- '{bookingExperience,appointmentOnly}')`;
       }
       if (touchedSettingsKeys.includes('notifications')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{notifications}', ${JSON.stringify(settingsToPersist.notifications)}::jsonb)`;
