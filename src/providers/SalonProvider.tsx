@@ -7,7 +7,9 @@ import {
   useMemo,
 } from 'react';
 
+import { BOOKING_EXPERIENCE_DEFAULTS } from '@/libs/bookingExperience';
 import type { SalonStatus } from '@/models/Schema';
+import type { BookingExperience } from '@/types/salonPolicy';
 
 // Empty values force callers to resolve tenant context explicitly.
 const EMPTY_SALON = {
@@ -16,6 +18,7 @@ const EMPTY_SALON = {
   slug: '',
   themeKey: '',
   status: null as SalonStatus | null,
+  bookingExperience: BOOKING_EXPERIENCE_DEFAULTS,
 };
 
 /**
@@ -32,6 +35,8 @@ export type SalonContextValue = {
   themeKey: string;
   /** Current salon status (active, trial, suspended, cancelled) */
   status: SalonStatus | null;
+  /** Resolved public booking-page customization with safe defaults applied */
+  bookingExperience: BookingExperience;
   /** Whether the salon is accessible (true for active/trial, false for suspended/cancelled) */
   isAccessible: boolean;
 };
@@ -42,6 +47,7 @@ const SalonContext = createContext<SalonContextValue>({
   salonSlug: EMPTY_SALON.slug,
   themeKey: EMPTY_SALON.themeKey,
   status: EMPTY_SALON.status,
+  bookingExperience: EMPTY_SALON.bookingExperience,
   isAccessible: false,
 });
 
@@ -57,6 +63,8 @@ export type SalonProviderProps = {
   themeKey?: string;
   /** Current salon status */
   status?: SalonStatus | null;
+  /** Resolved public booking-page customization */
+  bookingExperience?: BookingExperience;
 };
 
 /**
@@ -90,6 +98,7 @@ export function SalonProvider({
   salonSlug,
   themeKey,
   status,
+  bookingExperience,
 }: SalonProviderProps) {
   const value = useMemo<SalonContextValue>(() => {
     const currentStatus = status ?? EMPTY_SALON.status;
@@ -102,9 +111,10 @@ export function SalonProvider({
       salonSlug: salonSlug || EMPTY_SALON.slug,
       themeKey: themeKey || EMPTY_SALON.themeKey,
       status: currentStatus,
+      bookingExperience: bookingExperience ?? EMPTY_SALON.bookingExperience,
       isAccessible,
     };
-  }, [salonId, salonName, salonSlug, themeKey, status]);
+  }, [bookingExperience, salonId, salonName, salonSlug, themeKey, status]);
 
   return (
     <SalonContext.Provider value={value}>{children}</SalonContext.Provider>

@@ -2,12 +2,17 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { getBookingExperienceCssVariables } from '@/libs/bookingExperience';
+
 import { BookServiceClient } from './BookServiceClient';
 
 const {
   bookingStateMock,
   clientSessionMock,
   navigationMock,
+  salonContextMock,
+  salonProviderPropsMock,
 } = vi.hoisted(() => ({
   bookingStateMock: {
     values: {
@@ -34,6 +39,27 @@ const {
     routerBack: vi.fn(),
     routerPush: vi.fn(),
     searchParams: new URLSearchParams('salonSlug=salon-a'),
+  },
+  salonContextMock: {
+    bookingExperience: {
+      primaryColor: null as string | null,
+      bookingMessage: null as string | null,
+      policy: {
+        enabled: false,
+        title: null as string | null,
+        text: null as string | null,
+      },
+      appointmentOnly: false,
+      socialLinks: {
+        instagram: null as string | null,
+        facebook: null as string | null,
+        tiktok: null as string | null,
+      },
+      confirmationMessage: null as string | null,
+    },
+  },
+  salonProviderPropsMock: {
+    bookingExperience: null as unknown,
   },
 }));
 
@@ -124,11 +150,53 @@ vi.mock('@/libs/haptics', () => ({
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
+  SalonProvider: ({
+    bookingExperience,
+    children,
+  }: {
+    bookingExperience: unknown;
+    children: React.ReactNode;
+  }) => {
+    salonProviderPropsMock.bookingExperience = bookingExperience;
+    return children;
+  },
   useSalon: () => ({
+    bookingExperience: salonContextMock.bookingExperience,
     salonName: 'Salon A',
     salonSlug: 'salon-a',
   }),
 }));
+
+function resetBookingExperienceMock() {
+  salonProviderPropsMock.bookingExperience = null;
+  salonContextMock.bookingExperience = {
+    primaryColor: null,
+    bookingMessage: null,
+    policy: {
+      enabled: false,
+      title: null,
+      text: null,
+    },
+    appointmentOnly: false,
+    socialLinks: {
+      instagram: null,
+      facebook: null,
+      tiktok: null,
+    },
+    confirmationMessage: null,
+  };
+}
+
+function buildPublicShellSalon(settings: unknown) {
+  return {
+    id: 'salon-a-id',
+    name: 'Salon A',
+    slug: 'salon-a',
+    themeKey: null,
+    status: 'active',
+    settings,
+  } as React.ComponentProps<typeof PublicSalonPageShell>['salon'];
+}
 
 const services = [
   {
@@ -291,6 +359,7 @@ const technicians = [
 describe('BookServiceClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBookingExperienceMock();
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
     clientSessionMock.isLoggedIn = false;
     clientSessionMock.isCheckingSession = false;
@@ -320,6 +389,277 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByText('Online booking is not ready yet')).toBeInTheDocument();
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
+  });
+
+  it('keeps the existing service-page experience unchanged when customization is unconfigured', () => {
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.queryByTestId('booking-experience-intro')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-social-links')).not.toBeInTheDocument();
+
+    const activeCategory = within(screen.getByTestId('service-category-track'))
+      .getByRole('button', { name: /manicure/i });
+
+    expect(activeCategory).not.toHaveClass('bg-[var(--booking-brand-primary)]');
+    expect(activeCategory).toHaveStyle({ color: 'rgb(255, 255, 255)' });
+  });
+
+  it('renders the configured booking content as plain text with safe social links above the sticky clearance', () => {
+    salonContextMock.bookingExperience = {
+      primaryColor: '#112233',
+      bookingMessage: '<strong>Welcome</strong>\nSee https://example.com before booking.',
+      policy: {
+        enabled: true,
+        title: 'Before your visit',
+        text: 'Please arrive five minutes early.\nCall us if you need help.',
+      },
+      appointmentOnly: true,
+      socialLinks: {
+        instagram: 'https://www.instagram.com/salon-a',
+        facebook: null,
+        tiktok: 'https://www.tiktok.com/@salon-a',
+      },
+      confirmationMessage: null,
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const intro = screen.getByTestId('booking-experience-intro');
+    const message = screen.getByTestId('booking-message');
+
+    expect(screen.getByTestId('booking-step-header').compareDocumentPosition(intro)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('booking-appointment-only')).toHaveTextContent(
+      'Appointment Only',
+    );
+    expect(message).toHaveTextContent(
+      '<strong>Welcome</strong> See https://example.com before booking.',
+    );
+    expect(message).toHaveClass('whitespace-pre-line');
+    expect(message.querySelector('strong')).toBeNull();
+    expect(message.querySelector('a')).toBeNull();
+
+    const policy = screen.getByTestId('booking-policy');
+
+    expect(policy).toHaveTextContent('Before your visit');
+    expect(policy).toHaveTextContent(
+      'Please arrive five minutes early. Call us if you need help.',
+    );
+    expect(within(policy).getByText(/Please arrive five minutes early/)).toHaveClass(
+      'whitespace-pre-line',
+    );
+
+    const instagram = screen.getByRole('link', {
+      name: 'Visit Salon A on Instagram',
+    });
+    const tiktok = screen.getByRole('link', {
+      name: 'Visit Salon A on TikTok',
+    });
+
+    expect(instagram).toHaveAttribute(
+      'href',
+      'https://www.instagram.com/salon-a',
+    );
+    expect(instagram).toHaveAttribute('target', '_blank');
+    expect(instagram).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(tiktok).toHaveAttribute('target', '_blank');
+    expect(tiktok).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(
+      screen.queryByRole('link', { name: /facebook/i }),
+    ).not.toBeInTheDocument();
+
+    const activeCategory = within(screen.getByTestId('service-category-track'))
+      .getByRole('button', { name: /manicure/i });
+
+    expect(activeCategory).toHaveClass(
+      'bg-[var(--booking-brand-primary)]',
+      'text-[var(--booking-brand-foreground)]',
+    );
+
+    const serviceCard = screen.getByTestId('service-card-svc-1');
+    fireEvent.click(serviceCard);
+
+    const socialLinks = screen.getByTestId('booking-social-links');
+    const stickySpacer = screen.getByTestId('service-sticky-spacer');
+
+    expect(serviceCard.compareDocumentPosition(policy)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(policy.compareDocumentPosition(socialLinks)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(socialLinks.compareDocumentPosition(stickySpacer)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('service-continue-button')).toHaveClass(
+      'text-[var(--booking-brand-foreground)]',
+    );
+  });
+
+  it('keeps a disabled policy unpublished and displays only configured social platforms', () => {
+    salonContextMock.bookingExperience = {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: false,
+        title: 'Draft policy',
+        text: 'This draft must remain private.',
+      },
+      appointmentOnly: false,
+      socialLinks: {
+        instagram: null,
+        facebook: 'https://www.facebook.com/salon-a',
+        tiktok: null,
+      },
+      confirmationMessage: null,
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
+    expect(screen.queryByText('Draft policy')).not.toBeInTheDocument();
+    expect(screen.queryByText('This draft must remain private.')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Visit Salon A on Facebook' }),
+    ).toHaveAttribute('href', 'https://www.facebook.com/salon-a');
+    expect(
+      screen.queryByRole('link', { name: /instagram|tiktok/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('uses black or white branded foregrounds for light and dark primary colours', () => {
+    expect(getBookingExperienceCssVariables('#FFFFFF')).toMatchObject({
+      '--booking-brand-primary': '#FFFFFF',
+      '--booking-brand-foreground': '#000000',
+    });
+    expect(getBookingExperienceCssVariables('#000000')).toMatchObject({
+      '--booking-brand-primary': '#000000',
+      '--booking-brand-foreground': '#FFFFFF',
+    });
+    expect(getBookingExperienceCssVariables(null)).toEqual({});
+  });
+
+  it('applies resolved brand variables after page theming on booking pages only', () => {
+    const salon = buildPublicShellSalon({
+      bookingExperience: {
+        primaryColor: '#ffffff',
+        bookingMessage: null,
+        policy: {
+          enabled: false,
+          title: null,
+          text: null,
+        },
+        appointmentOnly: false,
+        socialLinks: {
+          instagram: null,
+          facebook: null,
+          tiktok: null,
+        },
+        confirmationMessage: null,
+      },
+    });
+    const { container, rerender } = render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={salon}
+      >
+        <div>Booking content</div>
+      </PublicSalonPageShell>,
+    );
+
+    const bookingTheme = container.querySelector<HTMLElement>(
+      '[data-booking-experience-theme="book-service"]',
+    );
+
+    expect(bookingTheme).not.toBeNull();
+    expect(bookingTheme?.style.getPropertyValue('--booking-brand-primary')).toBe(
+      '#FFFFFF',
+    );
+    expect(bookingTheme?.style.getPropertyValue('--booking-brand-foreground')).toBe(
+      '#000000',
+    );
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject({
+      primaryColor: '#FFFFFF',
+    });
+
+    rerender(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="profile"
+        salon={salon}
+      >
+        <div>Profile content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(
+      container.querySelector('[data-booking-experience-theme]'),
+    ).toBeNull();
+  });
+
+  it('falls back safely when persisted booking customization is malformed', () => {
+    const salon = buildPublicShellSalon({
+      bookingExperience: {
+        primaryColor: 'red',
+        bookingMessage: `Unsafe${String.fromCharCode(0)}message`,
+        policy: {
+          enabled: true,
+          title: null,
+          text: null,
+        },
+        appointmentOnly: 'yes',
+        socialLinks: {
+          instagram: 'https://instagram.com',
+          facebook: 'javascript:alert(1)',
+          tiktok: 'https://example.com/profile',
+        },
+        confirmationMessage: null,
+      },
+    });
+    const { container } = render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={salon}
+      >
+        <div>Booking content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(
+      container.querySelector('[data-booking-experience-theme]'),
+    ).toBeNull();
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject({
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: false,
+        text: null,
+      },
+      appointmentOnly: false,
+      socialLinks: {
+        instagram: null,
+        facebook: null,
+        tiktok: null,
+      },
+    });
   });
 
   it('renders the new-client promo in the branded header slot instead of the old generic offer card', () => {
@@ -1480,6 +1820,7 @@ describe('BookServiceClient — Luster Manicure price consistency', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBookingExperienceMock();
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
     clientSessionMock.isLoggedIn = false;
     clientSessionMock.isCheckingSession = false;

@@ -398,8 +398,6 @@ export type BookingExperienceCssVariables = {
   '--booking-brand-foreground'?: string;
   '--booking-brand-selection-background'?: string;
   '--booking-brand-state-border'?: string;
-  '--theme-primary'?: string;
-  '--theme-primary-dark'?: string;
   '--theme-selected-ring'?: string;
   '--n5-button-primary-bg'?: string;
   '--n5-button-primary-text'?: string;
@@ -429,8 +427,6 @@ export function getBookingExperienceCssVariables(
     '--booking-brand-foreground': foreground,
     '--booking-brand-selection-background': `color-mix(in srgb, ${color} 15%, white)`,
     '--booking-brand-state-border': stateBorder,
-    '--theme-primary': color,
-    '--theme-primary-dark': color,
     '--theme-selected-ring': stateBorder,
     '--n5-button-primary-bg': color,
     '--n5-button-primary-text': foreground,

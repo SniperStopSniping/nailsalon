@@ -1,7 +1,8 @@
 'use client';
 
+import { Facebook, Instagram, Music2 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
@@ -192,6 +193,11 @@ function buildDefaultSelectedAddOns(
 const EMPTY_ADD_ONS: AddOnData[] = [];
 const EMPTY_ADD_ON_RULES: ServiceAddOnRule[] = [];
 const EMPTY_TECHNICIANS: TechnicianPreviewData[] = [];
+const SOCIAL_LINKS = [
+  { key: 'instagram', label: 'Instagram', Icon: Instagram },
+  { key: 'facebook', label: 'Facebook', Icon: Facebook },
+  { key: 'tiktok', label: 'TikTok', Icon: Music2 },
+] as const;
 
 export function BookServiceClient({
   services,
@@ -207,9 +213,17 @@ export function BookServiceClient({
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { salonName, salonSlug } = useSalon();
+  const { bookingExperience, salonName, salonSlug } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  const hasBookingBrandColor = bookingExperience.primaryColor !== null;
+  const bookingBrandForeground = hasBookingBrandColor
+    ? 'var(--booking-brand-foreground, #000000)'
+    : undefined;
+  const configuredSocialLinks = SOCIAL_LINKS.flatMap(({ key, label, Icon }) => {
+    const href = bookingExperience.socialLinks[key];
+    return href ? [{ key, label, Icon, href }] : [];
+  });
 
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
@@ -818,7 +832,9 @@ export function BookServiceClient({
     <div
       className="service-page-viewport"
       style={{
-        background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
+        background: hasBookingBrandColor
+          ? `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background})`
+          : `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
@@ -846,7 +862,9 @@ export function BookServiceClient({
                     style={{
                       borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
                       backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
-                      color: `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                      color: hasBookingBrandColor
+                        ? themeVars.accent
+                        : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
                     }}
                   >
                     ✨ 25% off for new clients — until April 30
@@ -861,6 +879,44 @@ export function BookServiceClient({
           onBack={handleBack}
           className="-mb-1"
         />
+
+        {(bookingExperience.bookingMessage || bookingExperience.appointmentOnly) && (
+          <section
+            data-testid="booking-experience-intro"
+            aria-label="Booking information"
+            className="mb-4 rounded-2xl border bg-white/85 px-4 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.04)]"
+            style={{
+              borderColor: hasBookingBrandColor
+                ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                : themeVars.cardBorder,
+            }}
+          >
+            {bookingExperience.appointmentOnly && (
+              <div
+                data-testid="booking-appointment-only"
+                className="mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-900"
+                style={{
+                  borderColor: hasBookingBrandColor
+                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                    : themeVars.cardBorder,
+                  backgroundColor: hasBookingBrandColor
+                    ? 'var(--booking-brand-selection-background, white)'
+                    : themeVars.surfaceAlt,
+                }}
+              >
+                Appointment Only
+              </div>
+            )}
+            {bookingExperience.bookingMessage && (
+              <p
+                data-testid="booking-message"
+                className="whitespace-pre-line text-sm leading-5 text-neutral-700"
+              >
+                {bookingExperience.bookingMessage}
+              </p>
+            )}
+          </section>
+        )}
 
         {campaignUnavailable && (
           <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -967,10 +1023,18 @@ export function BookServiceClient({
                     }}
                     className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200"
                     style={{
-                      backgroundColor: isSelected ? `color-mix(in srgb, ${themeVars.primary} 15%, white)` : 'white',
+                      backgroundColor: isSelected
+                        ? hasBookingBrandColor
+                          ? 'var(--booking-brand-selection-background, white)'
+                          : `color-mix(in srgb, ${themeVars.primary} 15%, white)`
+                        : 'white',
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                      borderColor: isSelected
+                        ? hasBookingBrandColor
+                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                          : themeVars.primary
+                        : themeVars.cardBorder,
                       boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.04)',
                     }}
                   >
@@ -998,14 +1062,25 @@ export function BookServiceClient({
                       <div
                         className="flex size-6 shrink-0 items-center justify-center rounded-full transition-all"
                         style={{
-                          backgroundColor: isSelected ? themeVars.primary : 'transparent',
+                          backgroundColor: isSelected
+                            ? hasBookingBrandColor
+                              ? 'var(--booking-brand-primary)'
+                              : themeVars.primary
+                            : 'transparent',
                           borderWidth: isSelected ? 0 : '2px',
                           borderStyle: 'solid',
                           borderColor: isSelected ? 'transparent' : '#d4d4d4',
+                          color: isSelected ? bookingBrandForeground : undefined,
                         }}
                       >
                         {isSelected && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            className={hasBookingBrandColor ? undefined : 'text-white'}
+                          >
                             <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         )}
@@ -1023,7 +1098,9 @@ export function BookServiceClient({
             data-testid="service-auto-technician-preview"
             className="mb-4 flex items-center gap-3 rounded-full border bg-white/90 px-3 py-2 shadow-[0_4px_18px_rgba(0,0,0,0.05)] backdrop-blur-sm"
             style={{
-              borderColor: `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
+              borderColor: hasBookingBrandColor
+                ? 'var(--booking-brand-state-border, var(--theme-card-border))'
+                : `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
               opacity: mounted ? 1 : 0,
               transform: mounted ? 'translateY(0)' : 'translateY(10px)',
               transition: 'opacity 300ms ease-out 130ms, transform 300ms ease-out 130ms',
@@ -1124,14 +1201,20 @@ export function BookServiceClient({
                                 }`}
                                 style={{
                                   background: isSelected
-                                    ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
+                                    ? hasBookingBrandColor
+                                      ? 'var(--booking-brand-selection-background, white)'
+                                      : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
                                     : 'white',
                                   boxShadow: isSelected
                                     ? '0 14px 28px rgba(0,0,0,0.14)'
                                     : '0 4px 20px rgba(0,0,0,0.06)',
                                   borderWidth: '1px',
                                   borderStyle: 'solid',
-                                  borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                                  borderColor: isSelected
+                                    ? hasBookingBrandColor
+                                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                      : themeVars.primary
+                                    : themeVars.cardBorder,
                                 }}
                               >
                                 <div className="relative h-[80px] overflow-hidden sm:h-[96px]">
@@ -1204,10 +1287,20 @@ export function BookServiceClient({
                                 triggerHaptic('select');
                               }
                             }}
-                            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5"
+                            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5 ${
+                              active && hasBookingBrandColor
+                                ? 'bg-[var(--booking-brand-primary)] text-[var(--booking-brand-foreground)]'
+                                : ''
+                            }`}
                             style={{
-                              backgroundColor: active ? themeVars.accent : 'white',
-                              color: active ? 'white' : '#525252',
+                              backgroundColor: active
+                                ? hasBookingBrandColor
+                                  ? 'var(--booking-brand-primary)'
+                                  : themeVars.accent
+                                : 'white',
+                              color: active
+                                ? bookingBrandForeground ?? 'white'
+                                : '#525252',
                               borderWidth: active ? 0 : '1px',
                               borderStyle: 'solid',
                               borderColor: active ? 'transparent' : themeVars.cardBorder,
@@ -1278,14 +1371,20 @@ export function BookServiceClient({
                                   transform: mounted ? 'translateY(0)' : 'translateY(15px)',
                                   opacity: mounted ? 1 : 0,
                                   background: isSelected
-                                    ? '#fdf8f1'
+                                    ? hasBookingBrandColor
+                                      ? 'var(--booking-brand-selection-background, #fdf8f1)'
+                                      : '#fdf8f1'
                                     : 'white',
                                   boxShadow: isSelected
                                     ? '0 10px 22px rgba(0,0,0,0.08)'
                                     : '0 4px 20px rgba(0,0,0,0.06)',
                                   borderWidth: '1px',
                                   borderStyle: 'solid',
-                                  borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                                  borderColor: isSelected
+                                    ? hasBookingBrandColor
+                                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                      : themeVars.primary
+                                    : themeVars.cardBorder,
                                   transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                                 }}
                               >
@@ -1293,7 +1392,9 @@ export function BookServiceClient({
                                   data-testid={`service-card-image-${service.id}`}
                                   className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
                                   style={{
-                                    background: `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                                    background: hasBookingBrandColor
+                                      ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
+                                      : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
                                   }}
                                 >
                                   <ServiceCardImage
@@ -1325,7 +1426,9 @@ export function BookServiceClient({
                                       data-testid={`service-card-addon-cue-${service.id}`}
                                       className="mt-1 inline-flex items-center text-[8px] font-medium tracking-[0.01em]"
                                       style={{
-                                        color: `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
+                                        color: hasBookingBrandColor
+                                          ? '#525252'
+                                          : `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
                                       }}
                                     >
                                       Add-ons available
@@ -1392,9 +1495,15 @@ export function BookServiceClient({
                                     data-testid={`service-addon-row-${addOn.id}`}
                                     className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
                                     style={{
-                                      borderColor: isSelected ? themeVars.primary : themeVars.cardBorder,
+                                      borderColor: isSelected
+                                        ? hasBookingBrandColor
+                                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                          : themeVars.primary
+                                        : themeVars.cardBorder,
                                       backgroundColor: isSelected
-                                        ? `color-mix(in srgb, ${themeVars.primary} 5%, white)`
+                                        ? hasBookingBrandColor
+                                          ? 'var(--booking-brand-selection-background, white)'
+                                          : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
                                         : 'white',
                                     }}
                                   >
@@ -1461,8 +1570,14 @@ export function BookServiceClient({
                                               disabled={isRequired}
                                               className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed"
                                               style={{
-                                                backgroundColor: isSelected || isRequired ? themeVars.primary : '#f5f5f5',
-                                                color: isSelected || isRequired ? '#171717' : '#404040',
+                                                backgroundColor: isSelected || isRequired
+                                                  ? hasBookingBrandColor
+                                                    ? 'var(--booking-brand-primary)'
+                                                    : themeVars.primary
+                                                  : '#f5f5f5',
+                                                color: isSelected || isRequired
+                                                  ? bookingBrandForeground ?? '#171717'
+                                                  : '#404040',
                                               }}
                                             >
                                               {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
@@ -1481,6 +1596,58 @@ export function BookServiceClient({
                 </div>
               </>
             )}
+
+        {bookingExperience.policy.enabled && bookingExperience.policy.text && (
+          <section
+            data-testid="booking-policy"
+            aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
+            aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
+            className="mt-5 rounded-2xl border bg-white/85 p-4 shadow-[0_4px_16px_rgba(0,0,0,0.04)]"
+            style={{
+              borderColor: hasBookingBrandColor
+                ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                : themeVars.cardBorder,
+            }}
+          >
+            {bookingExperience.policy.title && (
+              <h2 id="booking-policy-title" className="mb-2 text-sm font-semibold text-neutral-900">
+                {bookingExperience.policy.title}
+              </h2>
+            )}
+            <p className="whitespace-pre-line text-sm leading-5 text-neutral-700">
+              {bookingExperience.policy.text}
+            </p>
+          </section>
+        )}
+
+        {configuredSocialLinks.length > 0 && (
+          <nav
+            data-testid="booking-social-links"
+            aria-label="Salon social links"
+            className="mt-4 flex items-center justify-center gap-3"
+          >
+            {configuredSocialLinks.map(({ key, label, Icon, href }) => (
+              <a
+                key={key}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Visit ${salonName} on ${label}`}
+                className="flex size-11 items-center justify-center rounded-full border bg-white text-neutral-800 shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                style={{
+                  'borderColor': hasBookingBrandColor
+                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                    : themeVars.cardBorder,
+                  '--tw-ring-color': hasBookingBrandColor
+                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                    : themeVars.selectedRing,
+                } as CSSProperties}
+              >
+                <Icon className="size-5" aria-hidden="true" />
+              </a>
+            ))}
+          </nav>
+        )}
 
         {selectedService && (
           <div
@@ -1542,9 +1709,16 @@ export function BookServiceClient({
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
-              className="flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold text-neutral-900 shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px]"
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
+                hasBookingBrandColor
+                  ? 'text-[var(--booking-brand-foreground)]'
+                  : 'text-neutral-900'
+              }`}
               style={{
-                background: `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+                background: hasBookingBrandColor
+                  ? 'var(--booking-brand-primary)'
+                  : `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+                color: bookingBrandForeground,
               }}
             >
               Continue
