@@ -1,3 +1,15 @@
+# [1.39.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.38.0...v1.39.0) (2026-07-27)
+
+
+### Bug Fixes
+
+* improve booking policy accessibility ([bd8e3de](https://github.com/SniperStopSniping/nailsalon/commit/bd8e3de6f8e670dd041e7bce998658f44e803168))
+
+
+### Features
+
+* polish booking policy experience ([7d55fa8](https://github.com/SniperStopSniping/nailsalon/commit/7d55fa8174bf7afae13394d731fc6d7151ad58c2))
+
 # [1.38.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.37.0...v1.38.0) (2026-07-27)
 
 
