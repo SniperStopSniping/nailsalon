@@ -4,7 +4,13 @@ import { z } from 'zod';
 import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
-import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
+import {
+  BOOKING_EXPERIENCE_OVERRIDE_AUDIT_ACTION,
+  buildBookingExperienceEntitlementInspection,
+  getBookingExperienceOverrideAuditId,
+  getBookingExperienceOverrideState,
+  parseBookingExperienceOverrideProvenance,
+} from '@/libs/featureEntitlements';
 import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
@@ -20,13 +26,18 @@ import {
   clientPreferencesSchema,
   SALON_PLANS,
   SALON_STATUSES,
+  salonAuditLogSchema,
   salonLocationSchema,
   type SalonPlan,
   salonSchema,
   type SalonStatus,
   technicianSchema,
 } from '@/models/Schema';
-import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
+import type {
+  BookingExperienceEntitlementInspection,
+  SalonFeatures,
+  SalonSettings,
+} from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +82,106 @@ const updateSalonSchema = z.object({
 const hardDeleteConfirmationSchema = z.object({
   confirmSlug: z.string().min(1),
 });
+
+async function buildBookingExperienceInspection(
+  salon: Pick<typeof salonSchema.$inferSelect, 'id' | 'plan' | 'features'>,
+): Promise<BookingExperienceEntitlementInspection> {
+  const features = salon.features ?? null;
+  const auditId = getBookingExperienceOverrideAuditId(features);
+  const overrideState = getBookingExperienceOverrideState(features);
+  let provenance = null;
+
+  if (auditId) {
+    const [audit] = await db
+      .select({
+        id: salonAuditLogSchema.id,
+        salonId: salonAuditLogSchema.salonId,
+        action: salonAuditLogSchema.action,
+        performedBy: salonAuditLogSchema.performedBy,
+        performedByEmail: salonAuditLogSchema.performedByEmail,
+        metadata: salonAuditLogSchema.metadata,
+        createdAt: salonAuditLogSchema.createdAt,
+      })
+      .from(salonAuditLogSchema)
+      .where(and(
+        eq(salonAuditLogSchema.id, auditId),
+        eq(salonAuditLogSchema.salonId, salon.id),
+        eq(
+          salonAuditLogSchema.action,
+          BOOKING_EXPERIENCE_OVERRIDE_AUDIT_ACTION,
+        ),
+      ))
+      .limit(1);
+
+    provenance = parseBookingExperienceOverrideProvenance(audit, {
+      salonId: salon.id,
+      auditId,
+      overrideState,
+    });
+  }
+
+  return buildBookingExperienceEntitlementInspection({
+    storedPlan: salon.plan,
+    features,
+  }, provenance);
+}
+
+function protectBookingExperienceOverride(
+  requestedFeatures: SalonFeatures,
+) {
+  const requestedJson = JSON.stringify(requestedFeatures);
+  const requestedBooking = sql`
+    (
+      CASE
+        WHEN jsonb_typeof(${requestedJson}::jsonb -> 'booking') = 'object'
+          THEN ${requestedJson}::jsonb -> 'booking'
+        ELSE '{}'::jsonb
+      END
+      - 'customization'
+      - 'customizationOverrideAuditId'
+    )
+  `;
+  const currentBooking = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.features} -> 'booking') = 'object'
+        THEN ${salonSchema.features} -> 'booking'
+      ELSE '{}'::jsonb
+    END
+  `;
+  const withCustomization = sql`
+    CASE
+      WHEN ${currentBooking} ? 'customization'
+        THEN jsonb_set(
+          ${requestedBooking},
+          '{customization}',
+          ${currentBooking} -> 'customization',
+          true
+        )
+      ELSE ${requestedBooking}
+    END
+  `;
+  const withAuditPointer = sql`
+    CASE
+      WHEN ${currentBooking} ? 'customizationOverrideAuditId'
+        THEN jsonb_set(
+          ${withCustomization},
+          '{customizationOverrideAuditId}',
+          ${currentBooking} -> 'customizationOverrideAuditId',
+          true
+        )
+      ELSE ${withCustomization}
+    END
+  `;
+
+  return sql`
+    jsonb_set(
+      ${requestedJson}::jsonb,
+      '{booking}',
+      ${withAuditPointer},
+      true
+    )
+  `;
+}
 
 // =============================================================================
 // GET /api/super-admin/organizations/[id] - Get salon detail
@@ -195,10 +306,8 @@ export async function GET(
     const publicUrl = buildSalonTenantPublicUrl('/', salon);
     const bookingUrl = buildSalonTenantPublicUrl('/book', salon);
     const findBookingUrl = buildSalonTenantPublicUrl('/find-booking', salon);
-    const bookingExperienceEntitlement = resolveBookingExperienceEntitlement({
-      storedPlan: salon.plan,
-      features: salon.features,
-    });
+    const bookingExperienceEntitlement
+      = await buildBookingExperienceInspection(salon);
 
     return Response.json({
       testToolsEnabled: areSuperAdminTestToolsEnabled(),
@@ -309,17 +418,28 @@ export async function PUT(
     }
 
     const { syncFeatureModules, ...validatedUpdates } = validated.data;
+    const requestedFeatures = validatedUpdates.features;
     const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
 
-    if (syncFeatureModules && updates.features) {
+    if (syncFeatureModules && requestedFeatures) {
       const existingSettings = (existing.settings as SalonSettings | null) ?? {};
       updates.settings = {
         ...existingSettings,
         modules: {
           ...(existingSettings.modules ?? {}),
-          ...getEntitledModules(updates.features as SalonFeatures),
+          ...getEntitledModules(requestedFeatures),
         },
       };
+    }
+
+    if (requestedFeatures) {
+      // Booking Experience overrides are mutated only by the dedicated,
+      // reasoned, audited endpoint. Evaluate these protected values from the
+      // current database row at UPDATE time so a stale full-feature save
+      // cannot create, change, or remove either value.
+      updates.features = protectBookingExperienceOverride(
+        requestedFeatures,
+      ) as unknown as SalonFeatures;
     }
 
     // If slug is being changed, check for duplicates
@@ -370,6 +490,9 @@ export async function PUT(
       details: `Updated fields: ${Object.keys(updates).join(', ')}`,
     });
 
+    const bookingExperienceEntitlement
+      = await buildBookingExperienceInspection(updated!);
+
     return Response.json({
       salon: {
         id: updated!.id,
@@ -381,10 +504,7 @@ export async function PUT(
         maxLocations: updated!.maxLocations ?? 1,
         isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
         features: updated!.features ?? null,
-        bookingExperienceEntitlement: resolveBookingExperienceEntitlement({
-          storedPlan: updated!.plan,
-          features: updated!.features,
-        }),
+        bookingExperienceEntitlement,
         // Feature toggles
         onlineBookingEnabled: updated!.onlineBookingEnabled ?? true,
         smsRemindersEnabled: updated!.smsRemindersEnabled ?? true,
