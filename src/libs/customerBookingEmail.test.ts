@@ -102,15 +102,17 @@ const { dbMock } = vi.hoisted(() => {
       insert: vi.fn((table: unknown) => insertChain(table)),
       select: vi.fn((fields?: Record<string, unknown>) => {
         const eligibilityProjection = fields
-          && Object.keys(fields).length === 3
+          && Object.keys(fields).length === 4
           && 'status' in fields
           && 'deletedAt' in fields
-          && 'startTime' in fields;
+          && 'startTime' in fields
+          && 'salonSettings' in fields;
         return selectChain(() => eligibilityProjection
           ? state.eligibilityQueue.shift() ?? [{
             status: 'confirmed',
             deletedAt: null,
             startTime: new Date('2099-07-01T18:00:00Z'),
+            salonSettings: null,
           }]
           : state.selectQueue.shift() ?? []);
       }),
@@ -168,6 +170,27 @@ const appointmentRow = {
   salonSettings: null,
 };
 
+function settingsWithConfirmationMessage(message: string) {
+  return {
+    bookingExperience: {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: false,
+        title: null,
+        text: null,
+      },
+      appointmentOnly: false,
+      socialLinks: {
+        instagram: null,
+        facebook: null,
+        tiktok: null,
+      },
+      confirmationMessage: message,
+    },
+  };
+}
+
 function initialInput() {
   return {
     salonId: 'salon_1',
@@ -222,6 +245,38 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'current@example.com' }),
     );
+  });
+
+  it('appends the normalized shared message after unchanged initial HTML and plain-text content', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.eligibilityQueue.push([{
+      status: 'confirmed',
+      deletedAt: null,
+      startTime: new Date('2099-07-01T18:00:00Z'),
+      salonSettings: settingsWithConfirmationMessage(
+        'Please arrive <early>.\nBring your confirmation & ID.',
+      ),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.subject).toBe('Salon booking confirmed');
+    expect(email.text).toBe(
+      'Hi Client,\n\n'
+      + 'Your Manicure appointment with Salon is confirmed for Wednesday, July 1 at 2:00 PM.\n\n'
+      + 'View, reschedule, or cancel: https://salon.example/manage/token\n\n'
+      + 'Please arrive <early>.\nBring your confirmation & ID.',
+    );
+    expect(email.html).toContain(
+      '<p><a href="https://salon.example/manage/token">View, reschedule, or cancel your appointment</a></p>',
+    );
+    expect(email.html).toContain(
+      '<p>Please arrive &lt;early&gt;.<br />Bring your confirmation &amp; ID.</p>',
+    );
+    expect(email.html).not.toContain('<early>');
   });
 
   it('uses an explicit zero-candidate orphan snapshot for the initial confirmation without mutating snapshots', async () => {
@@ -396,6 +451,38 @@ describe('customer booking operational email', () => {
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'changed@example.com' }),
+    );
+  });
+
+  it('uses the latest saved shared message for a retry and preserves its system content', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        salonSettings: settingsWithConfirmationMessage(
+          'Latest salon note.\nPlease use the side entrance.',
+        ),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.subject).toBe('Salon booking confirmed');
+    expect(email.text).toContain('View, reschedule, or cancel:');
+    expect(email.text).toMatch(
+      /View, reschedule, or cancel: .+\n\nLatest salon note\.\nPlease use the side entrance\.$/,
+    );
+    expect(email.html).toMatch(
+      /View, reschedule, or cancel<\/a><\/p><p>Latest salon note\.<br \/>Please use the side entrance\.<\/p>$/,
     );
   });
 
@@ -1056,7 +1143,12 @@ describe('customer booking operational email', () => {
         retryable: true,
         errorCode: 'MANUAL_RESEND_REQUESTED',
       }],
-      [appointmentRow],
+      [{
+        ...appointmentRow,
+        salonSettings: settingsWithConfirmationMessage(
+          'Updated resend instructions.',
+        ),
+      }],
       [{ name: 'Manicure' }],
       [],
     );
@@ -1073,7 +1165,15 @@ describe('customer booking operational email', () => {
     })).resolves.toMatchObject({ ok: true });
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'orphan@example.com' }),
+      expect.objectContaining({
+        to: 'orphan@example.com',
+        text: expect.stringContaining(
+          '\n\nUpdated resend instructions.',
+        ),
+        html: expect.stringContaining(
+          '<p>Updated resend instructions.</p>',
+        ),
+      }),
     );
     expect(state.updates.some(update =>
       update.table === appointmentSchema

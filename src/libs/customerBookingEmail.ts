@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import type { TransactionalEmailResult } from '@/libs/email';
@@ -10,6 +11,27 @@ import { appointmentAccessTokenSchema, appointmentSchema, appointmentServicesSch
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
+}
+
+function appendConfirmationMessageText(
+  systemContent: string,
+  confirmationMessage: string | null,
+): string {
+  return confirmationMessage
+    ? `${systemContent}\n\n${confirmationMessage}`
+    : systemContent;
+}
+
+function appendConfirmationMessageHtml(
+  systemContent: string,
+  confirmationMessage: string | null,
+): string {
+  if (!confirmationMessage) {
+    return systemContent;
+  }
+
+  const safeMessage = escapeHtml(confirmationMessage).replace(/\n/g, '<br />');
+  return `${systemContent}<p>${safeMessage}</p>`;
 }
 
 const unavailableRecipientResult: TransactionalEmailResult = {
@@ -32,6 +54,7 @@ const appointmentNotConfirmableResult: TransactionalEmailResult = {
 
 type BookingConfirmationEligibility = {
   deletedAt: Date | null;
+  salonSettings?: unknown;
   startTime: Date;
   status: string;
 };
@@ -55,7 +78,11 @@ async function loadBookingConfirmationEligibility(input: {
     status: appointmentSchema.status,
     deletedAt: appointmentSchema.deletedAt,
     startTime: appointmentSchema.startTime,
-  }).from(appointmentSchema).where(and(
+    salonSettings: salonSchema.settings,
+  }).from(appointmentSchema).innerJoin(
+    salonSchema,
+    eq(salonSchema.id, appointmentSchema.salonId),
+  ).where(and(
     eq(appointmentSchema.id, input.appointmentId),
     eq(appointmentSchema.salonId, input.salonId),
   )).limit(1);
@@ -224,12 +251,12 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
   const subject = `${input.salonName} booking confirmed`;
-  const text = [
+  const systemText = [
     `Hi ${input.clientName},`,
     `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${date} at ${time}.`,
     `View, reschedule, or cancel: ${input.manageUrl}`,
   ].join('\n\n');
-  const html = `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
+  const systemHtml = `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
   const deliveryId = crypto.randomUUID();
   const inserted = await db.insert(notificationDeliverySchema).values({
     id: deliveryId,
@@ -244,6 +271,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
     return true;
   }
   let recipient;
+  let confirmationMessage: string | null = null;
   try {
     const appointment = await loadBookingConfirmationEligibility(input);
     if (!isBookingConfirmationEligible(appointment)) {
@@ -253,6 +281,9 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       });
       return false;
     }
+    confirmationMessage = resolveBookingExperience(
+      appointment.salonSettings,
+    ).confirmationMessage;
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -282,8 +313,8 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const result = await sendTransactionalEmailDetailed({
     to: recipient.email,
     subject,
-    text,
-    html,
+    text: appendConfirmationMessageText(systemText, confirmationMessage),
+    html: appendConfirmationMessageHtml(systemHtml, confirmationMessage),
   });
   if (result.ok) {
     // The provider has accepted the message. A ledger outage must not turn the
@@ -387,6 +418,9 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
     const config = resolveBookingConfigFromSettings(row.salonSettings);
+    const confirmationMessage = resolveBookingExperience(
+      row.salonSettings,
+    ).confirmationMessage;
     const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);
     const time = formatTimeInTimeZone(row.appointment.startTime.toISOString(), {}, config.timezone);
     const serviceNames = services.map(service => service.name || 'Appointment');
@@ -411,7 +445,8 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
       expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
     });
     const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
-    const text = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+    const systemText = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+    const systemHtml = `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`;
     const finalRecipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -438,8 +473,8 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     emailInput = {
       to: finalRecipient.email,
       subject: `${row.salonName} booking confirmed`,
-      text,
-      html: `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
+      text: appendConfirmationMessageText(systemText, confirmationMessage),
+      html: appendConfirmationMessageHtml(systemHtml, confirmationMessage),
     };
   } catch (error) {
     await restoreBookingRetryAfterCapabilityCleanup({

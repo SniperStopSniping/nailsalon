@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, sessionMock } = vi.hoisted(() => ({
+const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, sessionMock, bookingExperienceMock } = vi.hoisted(() => ({
+  bookingExperienceMock: {
+    confirmationMessage: null as string | null,
+  },
   sessionMock: {
     isLoggedIn: true,
     clientName: 'Ava' as string | null,
@@ -58,6 +61,7 @@ vi.mock('@/providers/SalonProvider', () => ({
   useSalon: () => ({
     salonName: 'Salon A',
     salonSlug: 'salon-a',
+    bookingExperience: bookingExperienceMock,
   }),
 }));
 
@@ -103,6 +107,45 @@ describe('BookConfirmClient', () => {
     sessionMock.clientName = 'Ava';
     sessionMock.clientEmail = 'ava@example.com';
     sessionMock.phone = '4165550101';
+    bookingExperienceMock.confirmationMessage = null;
+  });
+
+  it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
+    bookingExperienceMock.confirmationMessage = 'Please arrive 10 minutes early.\nWe look forward to seeing you.';
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: {
+          id: 'appt_123',
+        },
+      },
+    }), { status: 200 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    expect(screen.queryByTestId('booking-confirmation-message')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const details = await screen.findByText('Appointment summary');
+    const message = screen.getByTestId('booking-confirmation-message');
+
+    expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
+    expect(details.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('button', { name: /manage this appointment/i })).toBeInTheDocument();
   });
 
   it('does not create a booking on initial page load', () => {
