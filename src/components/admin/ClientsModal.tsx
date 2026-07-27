@@ -4,10 +4,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Calendar,
   ChevronRight,
+  Loader2,
   Mail,
   Pencil,
   Phone,
   ShieldAlert,
+  Trash2,
   User,
 } from 'lucide-react';
 import {
@@ -31,8 +33,10 @@ import { AppointmentQuickEditSheet } from '@/components/appointments/Appointment
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
 import {
@@ -240,6 +244,12 @@ type ClientDetailCacheEntry = {
   flagsLoaded: boolean;
 };
 
+type ClientArchiveSuccess = {
+  code: 'CLIENT_ARCHIVED' | 'CLIENT_ALREADY_ARCHIVED';
+  requestedClientId: string;
+  terminalClientId: string;
+};
+
 type ClientPhoto = {
   id: string;
   imageUrl: string;
@@ -291,6 +301,260 @@ const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
 ];
 
 const CLIENTS_PAGE_SIZE = 50;
+
+type ApiPayload = Record<string, unknown> | null;
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nestedString(payload: ApiPayload, paths: string[][]): string | null {
+  for (const path of paths) {
+    let current: unknown = payload;
+    for (const segment of path) {
+      current = recordValue(current)?.[segment];
+    }
+    if (typeof current === 'string' && current.trim()) {
+      return current;
+    }
+  }
+  return null;
+}
+
+function archiveResponseCode(payload: ApiPayload): string | null {
+  return nestedString(payload, [
+    ['data', 'code'],
+    ['data', 'outcome', 'code'],
+    ['data', 'outcome'],
+    ['code'],
+    ['error', 'code'],
+  ]);
+}
+
+function archiveResponseTerminalClientId(
+  payload: ApiPayload,
+  fallback: string,
+): string {
+  return nestedString(payload, [
+    ['data', 'terminalClientId'],
+    ['data', 'clientId'],
+    ['data', 'client', 'id'],
+    ['terminalClientId'],
+  ]) ?? fallback;
+}
+
+function archiveErrorMessage(code: string | null): string {
+  switch (code) {
+    case 'CLIENT_ARCHIVE_CONFLICT':
+      return 'This client changed elsewhere. Close and reopen the client, then try again.';
+    case 'CLIENT_HAS_ACTIVE_APPOINTMENT':
+      return 'This client has an active or future appointment. Update that appointment before deleting the client.';
+    case 'UNSUPPORTED_CLIENT_IDENTITY':
+      return 'This client can’t be deleted right now. Refresh the client and try again.';
+    default:
+      return 'We couldn’t delete this client. Check your connection and try again.';
+  }
+}
+
+function refreshMountedGoogleEventSuggestions(): void {
+  document
+    .querySelector<HTMLButtonElement>(
+      '[data-testid="google-review-queue"] button[aria-label="Refresh Google events"]',
+    )
+    ?.click();
+}
+
+function ClientArchiveControls({
+  salonSlug,
+  requestedClientId,
+  knownTerminalClientId,
+  expectedUpdatedAt,
+  onSuccess,
+}: {
+  salonSlug: string;
+  requestedClientId: string;
+  knownTerminalClientId: string;
+  expectedUpdatedAt: string;
+  onSuccess: (result: ClientArchiveSuccess) => void;
+}) {
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+
+  const openArchive = () => {
+    if (submittingRef.current) {
+      return;
+    }
+    setArchiveError(null);
+    setArchiveOpen(true);
+  };
+
+  const closeArchive = () => {
+    if (submittingRef.current) {
+      return;
+    }
+    setArchiveError(null);
+    setArchiveOpen(false);
+  };
+
+  const submitArchive = async () => {
+    if (submittingRef.current) {
+      return;
+    }
+
+    submittingRef.current = true;
+    setPending(true);
+    setArchiveError(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/clients/${encodeURIComponent(requestedClientId)}/archive`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ salonSlug, expectedUpdatedAt }),
+        },
+      );
+      const payload = await response.json().catch(() => null) as ApiPayload;
+      const code = archiveResponseCode(payload);
+      if (
+        !response.ok
+        || (code !== 'CLIENT_ARCHIVED' && code !== 'CLIENT_ALREADY_ARCHIVED')
+      ) {
+        setArchiveError(archiveErrorMessage(code));
+        return;
+      }
+
+      setArchiveOpen(false);
+      try {
+        onSuccess({
+          code,
+          requestedClientId,
+          terminalClientId: archiveResponseTerminalClientId(
+            payload,
+            knownTerminalClientId,
+          ),
+        });
+      } catch {
+        // The server mutation has committed. A parent cache/render failure
+        // must not invite an accidental duplicate request.
+      }
+    } catch {
+      setArchiveError(archiveErrorMessage(null));
+    } finally {
+      submittingRef.current = false;
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <AdminDetailCard
+        className="mb-4 border border-red-100"
+        contentClassName="space-y-4"
+      >
+        <div>
+          <h2 className="text-[15px] font-semibold text-stone-900">
+            Delete client
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-stone-500">
+            Remove this client from your active list while keeping their
+            appointments, payments and history.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="destructive"
+          size="lg"
+          data-testid="client-delete-action"
+          onClick={openArchive}
+          className="min-h-11 w-full"
+        >
+          <Trash2 className="mr-2 size-4" />
+          Delete client
+        </Button>
+      </AdminDetailCard>
+
+      <DialogShell
+        isOpen={archiveOpen}
+        onClose={closeArchive}
+        closeOnBackdrop={!pending}
+        closeOnEscape={!pending}
+        alignClassName="items-end justify-center sm:items-center sm:p-4"
+        maxWidthClassName="max-w-md"
+        contentClassName="flex max-h-[calc(100vh-0.5rem)] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:max-h-[calc(100dvh-0.5rem)] sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl supports-[height:100dvh]:sm:max-h-[calc(100dvh-2rem)]"
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-client-title"
+          aria-describedby="archive-client-description"
+          data-testid="client-archive-dialog"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto px-5 py-6 sm:px-6">
+            <div className="flex size-11 items-center justify-center rounded-full bg-red-50 text-red-700">
+              <Trash2 className="size-5" />
+            </div>
+            <h2
+              id="archive-client-title"
+              className="mt-4 text-xl font-semibold text-stone-950"
+            >
+              Delete client?
+            </h2>
+            <p
+              id="archive-client-description"
+              className="mt-2 text-sm leading-6 text-stone-600"
+            >
+              This client will be removed from your active client list. Their
+              appointments, payments and history will be kept.
+            </p>
+            {archiveError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              >
+                {archiveError}
+              </div>
+            )}
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-stone-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
+            <Button
+              type="button"
+              variant="brandSoft"
+              onClick={closeArchive}
+              disabled={pending}
+              className="min-h-11 min-w-0"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              data-testid="client-archive-confirm"
+              onClick={() => void submitArchive()}
+              disabled={pending}
+              className="min-h-11 min-w-0"
+            >
+              {pending
+                ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Deleting…
+                    </>
+                  )
+                : 'Delete client'}
+            </Button>
+          </div>
+        </div>
+      </DialogShell>
+    </>
+  );
+}
 
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -779,6 +1043,7 @@ function ClientDetail({
   onCacheUpdate,
   onRefreshTechnicians,
   onOpenPromotionSettings,
+  onClientLifecycleSuccess,
   onBack,
 }: {
   clientSummary: ClientSummary;
@@ -792,6 +1057,7 @@ function ClientDetail({
   onCacheUpdate: (clientId: string, updates: Partial<ClientDetailCacheEntry>) => void;
   onRefreshTechnicians: () => Promise<void> | void;
   onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
+  onClientLifecycleSuccess: (result: ClientArchiveSuccess) => void;
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
@@ -1936,6 +2202,16 @@ function ClientDetail({
                   )}
                 </>
               )}
+
+        {profile && (
+          <ClientArchiveControls
+            salonSlug={salonSlug}
+            requestedClientId={clientSummary.id}
+            knownTerminalClientId={profile.id}
+            expectedUpdatedAt={profile.updatedAt}
+            onSuccess={onClientLifecycleSuccess}
+          />
+        )}
       </div>
 
       {profile && (
@@ -2048,6 +2324,7 @@ export function ClientsModal({
   const [insightsBookingClient, setInsightsBookingClient] = useState<ClientInsightAttentionItem | null>(null);
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
     loaded: false,
@@ -2060,6 +2337,7 @@ export function ClientsModal({
   const [techniciansError, setTechniciansError] = useState<string | null>(null);
 
   const clientDetailCacheRef = useRef<Record<string, ClientDetailCacheEntry>>({});
+  const removedClientIdsRef = useRef(new Set<string>());
   const lastFetchedPageRef = useRef(1);
   const initialClientRequestRef = useRef<string | null>(null);
   const directoryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -2237,7 +2515,12 @@ export function ClientsModal({
   }, []);
 
   useEffect(() => {
-    if (!initialClientId || !salonSlug || selectedClient?.id === initialClientId) {
+    if (
+      !initialClientId
+      || !salonSlug
+      || removedClientIdsRef.current.has(initialClientId)
+      || selectedClient?.id === initialClientId
+    ) {
       return;
     }
 
@@ -2442,6 +2725,48 @@ export function ClientsModal({
     });
   }, []);
 
+  const handleClientLifecycleSuccess = useCallback((
+    result: ClientArchiveSuccess,
+  ) => {
+    const removedIds = new Set([
+      result.requestedClientId,
+      result.terminalClientId,
+    ]);
+    for (const clientId of removedIds) {
+      removedClientIdsRef.current.add(clientId);
+      delete clientDetailCacheRef.current[clientId];
+    }
+
+    const visibleRemovedCount = clients.filter(client =>
+      removedIds.has(client.id)).length;
+    setClients(current =>
+      current.filter(client => !removedIds.has(client.id)));
+    if (visibleRemovedCount > 0) {
+      setTotalClients(current =>
+        Math.max(0, current - visibleRemovedCount));
+    }
+
+    // A snapshot captured before deletion can otherwise restore the removed
+    // client when an Insights segment is cleared.
+    savedDirectoryStateRef.current = null;
+    skipNextDirectoryFetchRef.current = false;
+    initialClientRequestRef.current = initialClientId && salonSlug
+      ? `${salonSlug}:${initialClientId}`
+      : null;
+    setInitialClientError(null);
+    setSelectedClient(null);
+    setShowHub(false);
+    setLifecycleNotice(
+      'Client deleted from the active list. Their history was kept.',
+    );
+    setInsightsRefreshKey(current => current + 1);
+    setPage(1);
+    lastFetchedPageRef.current = 1;
+    notifyRetentionDataChanged();
+    refreshMountedGoogleEventSuggestions();
+    void fetchClients(1, true);
+  }, [clients, fetchClients, initialClientId, salonSlug]);
+
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
@@ -2554,6 +2879,16 @@ export function ClientsModal({
               className="flex-1 overflow-y-auto pb-10"
               data-testid="clients-directory-scroll"
             >
+              {lifecycleNotice && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  data-testid="client-lifecycle-success"
+                  className="mx-4 mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"
+                >
+                  {lifecycleNotice}
+                </div>
+              )}
               {initialClientError && (
                 <AsyncStatePanel
                   tone="error"
@@ -2688,6 +3023,7 @@ export function ClientsModal({
             onRefreshTechnicians={fetchTechnicians}
             onOpenPromotionSettings={stage =>
               onOpenPromotionSettings?.(stage, selectedClient.id)}
+            onClientLifecycleSuccess={handleClientLifecycleSuccess}
             onBack={() => setSelectedClient(null)}
           />
         )}

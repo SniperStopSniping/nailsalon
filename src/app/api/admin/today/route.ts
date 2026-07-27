@@ -79,6 +79,8 @@ export async function GET(request: Request) {
       .from(salonClientSchema)
       .where(and(
         eq(salonClientSchema.salonId, salon.id),
+        isNull(salonClientSchema.archivedAt),
+        isNull(salonClientSchema.mergedIntoClientId),
         lte(salonClientSchema.nextRebookDueAt, endExclusive),
         or(eq(salonClientSchema.isBlocked, false), isNull(salonClientSchema.isBlocked)),
       ))

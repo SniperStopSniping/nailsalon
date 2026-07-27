@@ -7,6 +7,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,101 @@ beforeAll(async () => {
     { id: 'sc_due', salonId: SALON_ID, phone: '4165550301', fullName: 'Due Client', lastVisitAt: new Date(now - 45 * DAY) },
     // Same staleness but has a FUTURE booking → must be excluded.
     { id: 'sc_booked', salonId: SALON_ID, phone: '4165550302', fullName: 'Booked Client', lastVisitAt: new Date(now - 45 * DAY) },
+    // Archived standalone profiles are historical records, never outreach candidates.
+    {
+      id: 'sc_archived',
+      salonId: SALON_ID,
+      phone: '4165550303',
+      fullName: 'Archived Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+      archivedAt: new Date(now - DAY),
+      archivedBy: 'archive-test',
+    },
+    // Due, but an older active communication state must still suppress it even
+    // when newer archived history exceeds the operational query cap.
+    {
+      id: 'sc_suppressed',
+      salonId: SALON_ID,
+      phone: '4165550306',
+      fullName: 'Suppressed Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    // Due, but a communication on the merged source below must suppress this
+    // terminal after SQL canonicalizes the source to its active primary.
+    {
+      id: 'sc_terminal',
+      salonId: SALON_ID,
+      phone: '4165550304',
+      fullName: 'Terminal Client',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    { id: 'sc_merged_source', salonId: SALON_ID, phone: '4165550305', fullName: 'Merged Source', lastVisitAt: new Date(now - 45 * DAY) },
+    {
+      id: 'sc_appt_terminal',
+      salonId: SALON_ID,
+      phone: '4165550307',
+      fullName: 'Appointment Terminal',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    {
+      id: 'sc_appt_source',
+      salonId: SALON_ID,
+      phone: '4165550308',
+      fullName: 'Appointment Source',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    {
+      id: 'sc_legacy_terminal',
+      salonId: SALON_ID,
+      phone: '4165550309',
+      fullName: 'Legacy Appointment Terminal',
+      lastVisitAt: new Date(now - 45 * DAY),
+    },
+    ...Array.from({ length: 17 }, (_, index) => ({
+      id: `sc_deep_${index}`,
+      salonId: SALON_ID,
+      phone: `417${String(index).padStart(7, '0')}`,
+      fullName: `Invalid depth ${index}`,
+      lastVisitAt: index === 0 ? new Date(now - 45 * DAY) : null,
+    })),
   ]);
+  await db.execute(sql.raw(
+    'ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition',
+  ));
+  try {
+    await db.execute(sql.raw(`
+      UPDATE salon_client
+      SET archived_at = now(),
+          archived_by = 'merge-test',
+          merged_into_client_id = CASE
+            WHEN id = 'sc_merged_source' THEN 'sc_terminal'
+            ELSE 'sc_appt_terminal'
+          END,
+          merged_at = now(),
+          merged_by = 'merge-test'
+      WHERE id IN ('sc_merged_source', 'sc_appt_source')
+    `));
+    await db.execute(sql.raw(`
+      UPDATE salon_client AS source
+      SET archived_at = now(),
+          archived_by = 'merge-test',
+          merged_into_client_id = 'sc_deep_' || (deep.value - 1)::text,
+          merged_at = now(),
+          merged_by = 'merge-test'
+      FROM generate_series(1, 16) AS deep(value)
+      WHERE source.id = 'sc_deep_' || deep.value::text
+    `));
+  } finally {
+    await db.execute(sql.raw(
+      'ALTER TABLE salon_client ENABLE TRIGGER salon_client_enforce_merge_transition',
+    ));
+  }
+  await db.insert(schema.salonClientContactAliasSchema).values({
+    salonId: SALON_ID,
+    salonClientId: 'sc_legacy_terminal',
+    kind: 'phone',
+    normalizedValue: '4165550399',
+  });
   await db.insert(schema.communicationConsentSchema).values({
     id: 'consent_1',
     salonId: SALON_ID,
@@ -68,6 +163,48 @@ beforeAll(async () => {
     wordingVersion: 'v1',
     source: 'public_booking',
   });
+  await db.insert(schema.clientCommunicationSchema).values([
+    {
+      id: 'comm_active_suppression',
+      salonId: SALON_ID,
+      salonClientId: 'sc_suppressed',
+      kind: 'promo_6w',
+      status: 'snoozed',
+      snoozedUntil: new Date(now + 7 * DAY),
+      createdAt: new Date(now - 2 * DAY),
+      updatedAt: new Date(now - 2 * DAY),
+    },
+    {
+      id: 'comm_merged_source_suppression',
+      salonId: SALON_ID,
+      salonClientId: 'sc_merged_source',
+      kind: 'promo_6w',
+      status: 'snoozed',
+      snoozedUntil: new Date(now + 7 * DAY),
+      createdAt: new Date(now - 2 * DAY),
+      updatedAt: new Date(now - 2 * DAY),
+    },
+  ]);
+  await db.execute(sql`
+    insert into client_communication (
+      id,
+      salon_id,
+      salon_client_id,
+      kind,
+      status,
+      created_at,
+      updated_at
+    )
+    select
+      'comm_archived_noise_' || noise.value::text,
+      ${SALON_ID},
+      'sc_archived',
+      'rebook',
+      'marked_sent',
+      ${new Date(now - DAY)},
+      ${new Date(now - DAY)}
+    from generate_series(1, 10000) as noise(value)
+  `);
   await db.insert(schema.appointmentSchema).values([
     // Last completed visit for sc_due — provides "last service" via snapshot.
     {
@@ -94,6 +231,19 @@ beforeAll(async () => {
       totalPrice: 5000,
       totalDurationMinutes: 60,
     },
+    // A valid stale source ID must canonicalize to the active terminal before
+    // the bounded appointment input reaches the retention engine.
+    {
+      id: 'appt_future_merged_source',
+      salonId: SALON_ID,
+      salonClientId: 'sc_appt_source',
+      clientPhone: '4165550308',
+      startTime: new Date(now + 3 * DAY),
+      endTime: new Date(now + 3 * DAY + 3_600_000),
+      status: 'confirmed',
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+    },
     // Campaign-redeemed appointment, completed via checkout: final 10000,
     // tax 1300 — revenue must report 10000, tax separately.
     {
@@ -112,6 +262,43 @@ beforeAll(async () => {
       paymentStatus: 'paid',
     },
   ]);
+  await db.execute(sql`
+    insert into appointment (
+      id,
+      salon_id,
+      client_phone,
+      start_time,
+      end_time,
+      status,
+      total_price,
+      total_duration_minutes,
+      created_at,
+      updated_at
+    )
+    select
+      'appt_unmatched_legacy_' || noise.value::text,
+      ${SALON_ID},
+      '6470000000',
+      ${new Date(now + 4 * DAY)},
+      ${new Date(now + 4 * DAY + 3_600_000)},
+      'confirmed',
+      5000,
+      60,
+      ${new Date(now - DAY)},
+      ${new Date(now - DAY)}
+    from generate_series(1, 5000) as noise(value)
+  `);
+  await db.insert(schema.appointmentSchema).values({
+    id: 'appt_future_legacy_alias',
+    salonId: SALON_ID,
+    salonClientId: null,
+    clientPhone: '+1 (416) 555-0399',
+    startTime: new Date(now + 5 * DAY),
+    endTime: new Date(now + 5 * DAY + 3_600_000),
+    status: 'confirmed',
+    totalPrice: 5000,
+    totalDurationMinutes: 60,
+  });
   await db.insert(schema.serviceSchema).values({
     id: 'svc_x',
     salonId: SALON_ID,
@@ -170,7 +357,7 @@ function marketingRequest(slug = 'marketing-salon') {
 }
 
 describe('GET /api/admin/marketing', () => {
-  it('groups follow-ups from the live engine, excludes future bookings, and surfaces consent + last service', async () => {
+  it('groups active follow-ups, excludes archived/merged clients and future bookings, and surfaces consent + last service', async () => {
     const response = await GET(marketingRequest());
     const body = await response.json();
 
@@ -192,6 +379,14 @@ describe('GET /api/admin/marketing', () => {
     const allItems = body.data.followups.groups.flatMap((group: { items: Array<{ clientId: string }> }) => group.items);
 
     expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_booked')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_archived')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_suppressed')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_terminal')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_merged_source')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_terminal')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_appt_source')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_legacy_terminal')).toBe(false);
+    expect(allItems.some((item: { clientId: string }) => item.clientId === 'sc_deep_0')).toBe(false);
   });
 
   it('reports campaign results from finalized values — tax separated, never counted as revenue', async () => {

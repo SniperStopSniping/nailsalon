@@ -2,6 +2,7 @@ import { and, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import {
   buildAppointmentReminderQueue,
@@ -47,6 +48,134 @@ const querySchema = z.object({
 
 const RESULTS_WINDOW_DAYS = 30;
 
+function activeSalonClientLineageCtes(salonId: string) {
+  return sql`
+    lineage(id, terminal_id, depth, path) as (
+      select
+        terminal.id,
+        terminal.id,
+        0,
+        array[terminal.id]::text[]
+      from salon_client as terminal
+      where terminal.salon_id = ${salonId}
+        and terminal.archived_at is null
+        and terminal.merged_into_client_id is null
+
+      union all
+
+      select
+        source.id,
+        lineage.terminal_id,
+        lineage.depth + 1,
+        lineage.path || source.id
+      from lineage
+      inner join salon_client as source
+        on source.salon_id = ${salonId}
+       and source.merged_into_client_id = lineage.id
+      where lineage.depth < ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+        and not source.id = any(lineage.path)
+    ),
+    invalid_terminal as (
+      select distinct lineage.terminal_id
+      from lineage
+      inner join salon_client as child
+        on child.salon_id = ${salonId}
+       and child.merged_into_client_id = lineage.id
+      where child.id = any(lineage.path)
+         or (
+           lineage.depth = ${CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH - 1}
+           and not child.id = any(lineage.path)
+         )
+    ),
+    active_lineage as (
+      select lineage.id, lineage.terminal_id, lineage.depth
+      from lineage
+      where not exists (
+        select 1
+        from invalid_terminal
+        where invalid_terminal.terminal_id = lineage.terminal_id
+      )
+    )
+  `;
+}
+
+function activeSalonClientLineageTable(salonId: string) {
+  return sql`
+    (
+      with recursive ${activeSalonClientLineageCtes(salonId)}
+      select id, terminal_id, depth
+      from active_lineage
+    ) as active_lineage
+  `;
+}
+
+function activeSalonClientPhoneIdentityTable(salonId: string) {
+  return sql`
+    (
+      with recursive
+      ${activeSalonClientLineageCtes(salonId)},
+      phone_identity(normalized_phone, terminal_id) as (
+        select
+          case
+            when regexp_replace(current_client.phone, '[^0-9]', '', 'g')
+              ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(current_client.phone, '[^0-9]', '', 'g')
+                from 2
+              )
+            else regexp_replace(
+              current_client.phone,
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end,
+          active_lineage.terminal_id
+        from active_lineage
+        inner join salon_client as current_client
+          on current_client.salon_id = ${salonId}
+         and current_client.id = active_lineage.id
+
+        union all
+
+        select
+          case
+            when regexp_replace(alias.normalized_value, '[^0-9]', '', 'g')
+              ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(
+                  alias.normalized_value,
+                  '[^0-9]',
+                  '',
+                  'g'
+                )
+                from 2
+              )
+            else regexp_replace(
+              alias.normalized_value,
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end,
+          active_lineage.terminal_id
+        from active_lineage
+        inner join salon_client_contact_alias as alias
+          on alias.salon_id = ${salonId}
+         and alias.salon_client_id = active_lineage.id
+         and alias.kind = 'phone'
+      )
+      select
+        normalized_phone,
+        min(terminal_id) as terminal_id
+      from phone_identity
+      where length(normalized_phone) = 10
+      group by normalized_phone
+      having count(distinct terminal_id) = 1
+    ) as active_phone_identity
+  `;
+}
+
 export async function GET(request: Request): Promise<Response> {
   const parsed = querySchema.safeParse(
     Object.fromEntries(new URL(request.url).searchParams.entries()),
@@ -77,12 +206,25 @@ export async function GET(request: Request): Promise<Response> {
         isBlocked: salonClientSchema.isBlocked,
       })
       .from(salonClientSchema)
-      .where(eq(salonClientSchema.salonId, salon.id))
+      .innerJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${salonClientSchema.id}`,
+      )
+      .where(and(
+        eq(salonClientSchema.salonId, salon.id),
+        isNull(salonClientSchema.archivedAt),
+        isNull(salonClientSchema.mergedIntoClientId),
+      ))
       .limit(5000),
     db
       .select({
         id: appointmentSchema.id,
-        salonClientId: appointmentSchema.salonClientId,
+        salonClientId: sql<string | null>`
+          coalesce(
+            active_lineage.terminal_id,
+            active_phone_identity.terminal_id
+          )
+        `,
         clientName: appointmentSchema.clientName,
         clientPhone: appointmentSchema.clientPhone,
         startTime: appointmentSchema.startTime,
@@ -92,9 +234,48 @@ export async function GET(request: Request): Promise<Response> {
         sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
       })
       .from(appointmentSchema)
+      .leftJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${appointmentSchema.salonClientId}`,
+      )
+      .leftJoin(
+        activeSalonClientPhoneIdentityTable(salon.id),
+        sql`
+          ${appointmentSchema.salonClientId} is null
+          and active_phone_identity.normalized_phone = case
+            when regexp_replace(
+              ${appointmentSchema.clientPhone},
+              '[^0-9]',
+              '',
+              'g'
+            ) ~ '^1[0-9]{10}$'
+              then substring(
+                regexp_replace(
+                  ${appointmentSchema.clientPhone},
+                  '[^0-9]',
+                  '',
+                  'g'
+                )
+                from 2
+              )
+            else regexp_replace(
+              ${appointmentSchema.clientPhone},
+              '[^0-9]',
+              '',
+              'g'
+            )
+          end
+        `,
+      )
       .where(and(
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
+        sql`
+          coalesce(
+            active_lineage.terminal_id,
+            active_phone_identity.terminal_id
+          ) is not null
+        `,
         or(
           and(
             gt(appointmentSchema.startTime, now),
@@ -107,7 +288,7 @@ export async function GET(request: Request): Promise<Response> {
     db
       .select({
         id: clientCommunicationSchema.id,
-        salonClientId: clientCommunicationSchema.salonClientId,
+        salonClientId: sql<string>`active_lineage.terminal_id`,
         appointmentId: clientCommunicationSchema.appointmentId,
         kind: clientCommunicationSchema.kind,
         status: clientCommunicationSchema.status,
@@ -115,6 +296,10 @@ export async function GET(request: Request): Promise<Response> {
         createdAt: clientCommunicationSchema.createdAt,
       })
       .from(clientCommunicationSchema)
+      .innerJoin(
+        activeSalonClientLineageTable(salon.id),
+        sql`active_lineage.id = ${clientCommunicationSchema.salonClientId}`,
+      )
       .where(eq(clientCommunicationSchema.salonId, salon.id))
       .orderBy(desc(clientCommunicationSchema.createdAt))
       .limit(10000),

@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_RETENTION_SETTINGS } from '@/libs/retentionAssistant';
@@ -13,23 +15,37 @@ const {
   selectQueue,
   insertedValues,
   updateSets,
+  innerJoins,
   lifecycleState,
   lifecycleOperations,
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
   lockTerminalSalonClientWithHandle,
+  MockClientLifecycleStabilizationError,
+  resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
   db,
 } = vi.hoisted(() => {
+  class MockClientLifecycleStabilizationError extends Error {}
+
   const selectQueue: unknown[] = [];
   const insertedValues: Array<Record<string, unknown>> = [];
   const updateSets: Array<Record<string, unknown>> = [];
+  const innerJoins: Array<{ source: unknown; on: unknown }> = [];
   const lifecycleState: { terminalClientId: string | null } = { terminalClientId: null };
   const lifecycleOperations: string[] = [];
 
   const query = (result: unknown) => {
     const chain = {
       from: vi.fn(() => chain),
+      innerJoin: vi.fn((source: unknown, on: unknown) => {
+        innerJoins.push({ source, on });
+        return chain;
+      }),
+      leftJoin: vi.fn((source: unknown, on: unknown) => {
+        innerJoins.push({ source, on });
+        return chain;
+      }),
       where: vi.fn(() => chain),
       orderBy: vi.fn(() => chain),
       limit: vi.fn(async () => result),
@@ -85,6 +101,7 @@ const {
     selectQueue,
     insertedValues,
     updateSets,
+    innerJoins,
     lifecycleState,
     lifecycleOperations,
     getSalonClientLineageIdsWithHandle: vi.fn(async (
@@ -109,6 +126,21 @@ const {
           : [input.clientId],
       };
     }),
+    MockClientLifecycleStabilizationError,
+    resolveTerminalSalonClient: vi.fn(async (input: {
+      salonId: string;
+      clientId: string;
+    }) => ({
+      id: lifecycleState.terminalClientId ?? input.clientId,
+      salonId: input.salonId,
+      archivedAt: null,
+      redirectedFromClientId: lifecycleState.terminalClientId
+        ? input.clientId
+        : null,
+      lineagePath: lifecycleState.terminalClientId
+        ? [input.clientId, lifecycleState.terminalClientId]
+        : [input.clientId],
+    })),
     withClientLifecycleTransactionRetry: vi.fn(async (
       operation: (attempt: number) => Promise<unknown>,
     ) => operation(1)),
@@ -126,11 +158,11 @@ vi.mock('@/libs/clientLifecycleStabilization', async (importOriginal) => {
   >();
   return {
     ...actual,
-    ClientLifecycleStabilizationError:
-      class ClientLifecycleStabilizationError extends Error {},
+    ClientLifecycleStabilizationError: MockClientLifecycleStabilizationError,
     getSalonClientLineageIdsWithHandle,
     getSalonClientPhoneAliasesWithHandle,
     lockTerminalSalonClientWithHandle,
+    resolveTerminalSalonClient,
     withClientLifecycleTransactionRetry,
   };
 });
@@ -147,6 +179,7 @@ describe('/api/admin/retention', () => {
     selectQueue.length = 0;
     insertedValues.length = 0;
     updateSets.length = 0;
+    innerJoins.length = 0;
     lifecycleState.terminalClientId = null;
     lifecycleOperations.length = 0;
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
@@ -206,9 +239,55 @@ describe('/api/admin/retention', () => {
     expect(body.data.history).toEqual([]);
   });
 
+  it('filters capped operational reads to active terminal lineages in SQL', async () => {
+    selectQueue.push([], [], [], []);
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a',
+    ));
+
+    expect(response.status).toBe(200);
+
+    const renderedJoins = innerJoins.map(join => ({
+      source: new PgDialect().sqlToQuery(join.source as SQL).sql,
+      on: new PgDialect().sqlToQuery(join.on as SQL).sql,
+    }));
+
+    expect(renderedJoins).toHaveLength(4);
+    expect(renderedJoins.map(join => join.on)).toEqual(expect.arrayContaining([
+      expect.stringContaining('active_lineage.id = "salon_client"."id"'),
+      expect.stringContaining(
+        'active_lineage.id = "appointment"."salon_client_id"',
+      ),
+      expect.stringContaining(
+        '"appointment"."salon_client_id" is null',
+      ),
+      expect.stringContaining(
+        'active_lineage.id = "client_communication"."salon_client_id"',
+      ),
+    ]));
+
+    for (const join of renderedJoins) {
+      expect(join.source).toContain('with recursive');
+      expect(join.source).toContain(
+        'lineage(id, terminal_id, depth, path)',
+      );
+      expect(join.source).toContain('terminal.archived_at is null');
+      expect(join.source).toContain('terminal.merged_into_client_id is null');
+      expect(join.source).toContain('invalid_terminal');
+    }
+
+    expect(renderedJoins.some(join =>
+      join.source.includes('phone_identity'))).toBe(true);
+  });
+
   it('collapses a merged source into its active terminal before building reminder destinations', async () => {
+    lifecycleState.terminalClientId = 'primary_client';
+    getSalonClientLineageIdsWithHandle.mockResolvedValueOnce([
+      'merged_source',
+      'primary_client',
+    ]);
     selectQueue.push(
-      [{ id: 'merged_source' }],
       [
         {
           id: 'primary_client',
@@ -247,6 +326,7 @@ describe('/api/admin/retention', () => {
         dayBeforeReminderSentAt: null,
         sameDayReminderSentAt: null,
       }],
+      [],
       [{
         id: 'communication_merged_source',
         salonId: 'salon_1',
@@ -293,8 +373,69 @@ describe('/api/admin/retention', () => {
     expect(JSON.stringify(body.data)).not.toContain('"merged_source"');
   });
 
+  it('queries archived explicit communication history independently from the capped active queue', async () => {
+    selectQueue.push(
+      [{
+        id: 'archived_client',
+        fullName: 'Archived fixture',
+        phone: '4165550990',
+        lastVisitAt: new Date('2026-06-01T16:00:00.000Z'),
+        rebookIntervalDays: null,
+        isBlocked: false,
+        archivedAt: new Date('2026-07-10T16:00:00.000Z'),
+        mergedIntoClientId: null,
+      }],
+      [],
+      [],
+      [],
+      [{
+        id: 'communication_archived',
+        salonId: 'salon_1',
+        salonClientId: 'archived_client',
+        appointmentId: null,
+        kind: 'rebook',
+        status: 'marked_sent',
+        dueAt: null,
+        snoozedUntil: null,
+        messageSnapshot: 'Historical outreach',
+        metadata: {},
+        actorAdminId: 'admin_1',
+        destinationSnapshot: '4165550990',
+        preparedAt: null,
+        markedSentAt: NOW,
+        dismissedAt: null,
+        convertedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }],
+    );
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=archived_client',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.retention).toEqual([]);
+    expect(body.data.appointmentReminders).toEqual([]);
+    expect(body.data.history).toEqual([
+      expect.objectContaining({
+        id: 'communication_archived',
+        clientId: 'archived_client',
+        status: 'marked_sent',
+      }),
+    ]);
+    expect(resolveTerminalSalonClient).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientId: 'archived_client',
+      allowArchived: true,
+    });
+  });
+
   it('returns 404 instead of leaking a client from another salon', async () => {
-    selectQueue.push([]);
+    resolveTerminalSalonClient.mockRejectedValueOnce(
+      new MockClientLifecycleStabilizationError(),
+    );
 
     const response = await GET(new Request(
       'http://localhost/api/admin/retention?salonSlug=salon-a&clientId=foreign_client',
