@@ -1,3 +1,10 @@
+# [1.37.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.36.0...v1.37.0) (2026-07-27)
+
+
+### Features
+
+* enforce booking experience entitlements ([eef3a05](https://github.com/SniperStopSniping/nailsalon/commit/eef3a0516f795c3742f103532d6382d0b85c0715))
+
 # [1.36.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.35.0...v1.36.0) (2026-07-27)
 
 
